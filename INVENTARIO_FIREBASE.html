@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control de Inventario Pro V8.1 - Firebase</title>
+    <style>
+        :root { --primary: #1a5276; --primary-light: #2980b9; --secondary: #27ae60; --danger: #e74c3c; --warning: #f39c12; --dark: #2c3e50; --light: #ecf0f1; --gray: #95a5a6; --white: #ffffff; --shadow: 0 4px 15px rgba(0,0,0,0.1); --radius: 10px; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f0f2f5; color: var(--dark); min-height: 100vh; }
+        .hidden { display: none !important; } .text-center { text-align: center; } .text-muted { color: var(--gray); font-size: 0.9rem; } .flex { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .btn { padding: 10px 16px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; transition: 0.2s; display: inline-flex; align-items: center; gap: 5px; font-size: 0.9rem; }
+        .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+        .btn-primary { background: var(--primary); color: white; } .btn-success { background: var(--secondary); color: white; } .btn-danger { background: var(--danger); color: white; } .btn-warning { background: var(--warning); color: white; } .btn-outline { border: 2px solid var(--primary); color: var(--primary); background: transparent; } .btn-sm { padding: 6px 10px; font-size: 0.8rem; }
+
+        /* FIREBASE SETUP SCREEN */
+        #firebase-setup { display: flex; justify-content: center; align-items: center; min-height: 100vh; background: linear-gradient(135deg, #667eea, #764ba2); padding: 20px; }
+        .setup-card { background: white; padding: 40px; border-radius: 16px; box-shadow: 0 15px 40px rgba(0,0,0,0.2); width: 100%; max-width: 560px; }
+        .setup-card h2 { color: var(--primary); margin-bottom: 5px; }
+        .setup-card p { color: var(--gray); margin-bottom: 20px; font-size: 0.9rem; }
+        .setup-steps { background: #f8f9fa; border-radius: 8px; padding: 15px; margin-bottom: 20px; font-size: 0.85rem; }
+        .setup-steps ol { padding-left: 18px; line-height: 2; }
+        .setup-steps a { color: var(--primary-light); }
+        .setup-steps code { background: #e9ecef; padding: 2px 5px; border-radius: 3px; font-size: 0.8rem; }
+        .firebase-fields { display: grid; gap: 10px; }
+        .firebase-fields input { width: 100%; padding: 9px; border: 2px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem; }
+        .firebase-fields input:focus { border-color: var(--primary); outline: none; }
+        #setupMsg { margin-top: 10px; font-size: 0.85rem; min-height: 20px; }
+
+        /* LOADING */
+        #loading-screen { display: none; justify-content: center; align-items: center; height: 100vh; background: #f0f2f5; flex-direction: column; gap: 15px; }
+        .spinner { width: 48px; height: 48px; border: 5px solid #e2e8f0; border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* SYNC INDICATOR */
+        #syncStatus { position: fixed; bottom: 15px; right: 15px; background: white; border-radius: 8px; padding: 8px 14px; font-size: 0.8rem; box-shadow: 0 2px 10px rgba(0,0,0,0.15); display: flex; align-items: center; gap: 6px; z-index: 999; transition: 0.3s; }
+        .sync-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .sync-ok { background: var(--secondary); }
+        .sync-saving { background: var(--warning); animation: pulse 1s infinite; }
+        .sync-err { background: var(--danger); }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+        #login-screen { display: flex; justify-content: center; align-items: center; height: 100vh; background: linear-gradient(135deg, #667eea, #764ba2); }
+        .login-card { background: white; padding: 40px; border-radius: 16px; box-shadow: 0 15px 40px rgba(0,0,0,0.2); width: 90%; max-width: 420px; }
+        .login-tabs { display: flex; margin: 20px 0; border-bottom: 2px solid #eee; }
+        .login-tab { flex: 1; padding: 10px; text-align: center; cursor: pointer; font-weight: bold; color: var(--gray); border-bottom: 3px solid transparent; transition: 0.2s; }
+        .login-tab.active { color: var(--primary); border-bottom-color: var(--primary); background: #f8f9fa; }
+        .bodega-opt { padding: 12px; border: 2px solid #eee; border-radius: 8px; margin-bottom: 8px; cursor: pointer; transition: 0.2s; }
+        .bodega-opt:hover { border-color: var(--primary-light); background: #f0f4f8; } .bodega-opt.selected { border-color: var(--primary); background: #e3f2fd; }
+        
+        .header { background: var(--dark); color: white; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .nav { display: flex; background: white; overflow-x: auto; padding: 0 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+        .nav-btn { padding: 14px 18px; border: none; background: none; cursor: pointer; font-weight: 600; color: var(--gray); border-bottom: 3px solid transparent; white-space: nowrap; }
+        .nav-btn.active { color: var(--primary); border-bottom-color: var(--primary); background: #f8f9fa; }
+        .container { max-width: 1400px; margin: 20px auto; padding: 0 15px; }
+        
+        .card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px; margin-bottom: 20px; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 15px; flex-wrap: wrap; gap: 10px; }
+        .card-header h2 { font-size: 1.3rem; color: var(--primary); }
+        .table-wrap { overflow-x: auto; border: 1px solid #eee; border-radius: 8px; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+        th { background: #f8f9fa; padding: 10px; text-align: left; color: var(--dark); border-bottom: 2px solid #eee; white-space: nowrap; }
+        td { padding: 10px; border-bottom: 1px solid #eee; } tr:hover { background: #f8fafc; }
+        
+        .badge { padding: 3px 8px; border-radius: 10px; font-size: 0.7rem; font-weight: bold; display: inline-block; }
+        .badge-new { background: #d4edda; color: #155724; } .badge-used { background: #fff3cd; color: #856404; }
+        .badge-pend { background: #cce5ff; color: #004085; } .badge-ok { background: #d4edda; color: #155724; } .badge-rej { background: #f8d7da; color: #721c24; }
+        .sn-tag { font-family: monospace; background: #eee; padding: 2px 5px; border-radius: 3px; font-size: 0.72rem; margin: 2px; display: inline-block; }
+        
+        .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+        .form-group { margin-bottom: 12px; } .form-group label { display: block; margin-bottom: 4px; font-weight: 600; font-size: 0.88rem; }
+        .form-control { width: 100%; padding: 9px; border: 2px solid #e2e8f0; border-radius: 6px; font-size: 0.92rem; transition: 0.2s; }
+        .form-control:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 2px rgba(41,128,185,0.15); }
+        textarea.form-control { resize: vertical; min-height: 70px; }
+        
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; padding: 15px; }
+        .modal-overlay.show { display: flex; }
+        .modal { background: white; border-radius: 12px; width: 100%; max-width: 700px; max-height: 92vh; overflow-y: auto; animation: popIn 0.2s ease; }
+        @keyframes popIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        .modal-header { padding: 18px 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+        .modal-body { padding: 20px; }
+        .modal-footer { padding: 12px 20px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 10px; }
+        .close-btn { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--gray); }
+        .item-list-item { display: flex; justify-content: space-between; align-items: center; background: #f8f9fa; padding: 8px 10px; border-radius: 6px; margin-bottom: 5px; border: 1px solid #e9ecef; font-size: 0.9rem; }
+
+        .sn-select-area { background: #f1f5f9; border: 2px solid #cbd5e1; border-radius: 8px; padding: 12px; margin: 10px 0; max-height: 200px; overflow-y: auto; }
+        .sn-check { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; margin-bottom: 3px; background: white; border: 1px solid #e2e8f0; cursor: pointer; }
+        .sn-check:hover { background: #e3f2fd; }
+        .sn-check input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
+        .sn-check.selected { background: #dbeafe; border-color: var(--primary); }
+        .sn-check .sn-label { font-family: monospace; font-size: 0.85rem; font-weight: 600; }
+
+        .tree-node { margin-left: 20px; border-left: 2px solid #eee; padding-left: 15px; margin-top: 10px; }
+        .tech-card { background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+        .tech-card h4 { color: var(--primary); margin-bottom: 5px; }
+        .info-row { display: flex; justify-content: space-between; font-size: 0.85rem; padding: 4px 0; border-bottom: 1px dashed #e2e8f0; }
+
+        @media(max-width: 768px) { .header { flex-direction: column; gap: 10px; align-items: flex-start; } .nav { padding: 0; } .form-row { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+
+<!-- FIREBASE SETUP SCREEN -->
+<div id="firebase-setup">
+    <div class="setup-card">
+        <div style="font-size:2.5rem; text-align:center; margin-bottom:10px;">🔥</div>
+        <h2 style="text-align:center;">Configurar Firebase</h2>
+        <p style="text-align:center;">Conecta tu base de datos en la nube para acceder desde cualquier dispositivo.</p>
+
+        <div class="setup-steps">
+            <strong>Pasos para obtener tus credenciales:</strong>
+            <ol>
+                <li>Ve a <a href="https://console.firebase.google.com" target="_blank">console.firebase.google.com</a></li>
+                <li>Crea un proyecto (o usa uno existente)</li>
+                <li>Ve a <strong>Firestore Database</strong> → Crear base de datos (modo producción)</li>
+                <li>Ve a <strong>Configuración del proyecto</strong> → <strong>Tus aplicaciones</strong> → Agrega app Web <code>&lt;/&gt;</code></li>
+                <li>Copia los datos de <code>firebaseConfig</code> y pégalos abajo</li>
+                <li>En Firestore → <strong>Reglas</strong>, pon: <code>allow read, write: if true;</code> y publica</li>
+            </ol>
+        </div>
+
+        <div class="firebase-fields">
+            <input id="fb_apiKey" placeholder="apiKey (AIza...)" />
+            <input id="fb_projectId" placeholder="projectId (mi-proyecto-12345)" />
+            <input id="fb_appId" placeholder="appId (1:123...:web:abc...)" />
+        </div>
+        <div id="setupMsg"></div>
+        <button class="btn btn-primary" style="width:100%; margin-top:15px;" onclick="connectFirebase()">🔌 Conectar y Guardar</button>
+        <p style="text-align:center; margin-top:10px; font-size:0.8rem; color:var(--gray);">Tus credenciales se guardan localmente en este navegador.</p>
+    </div>
+</div>
+
+<!-- LOADING -->
+<div id="loading-screen">
+    <div class="spinner"></div>
+    <p style="color: var(--gray);">Conectando con Firebase...</p>
+</div>
+
+<!-- SYNC STATUS -->
+<div id="syncStatus" style="display:none;">
+    <div class="sync-dot sync-ok" id="syncDot"></div>
+    <span id="syncText">Sincronizado</span>
+</div>
+
+<div id="login-screen" class="hidden">
+    <div class="login-card">
+        <div class="text-center" style="font-size:3rem; margin-bottom:10px;">📦</div>
+        <h2 class="text-center" style="color:var(--primary); margin-bottom:5px;">Inventario Pro</h2>
+        <p class="text-center text-muted" style="margin-bottom:20px;">Sistema de Gestión V8.1 ☁️ Firebase</p>
+        <div class="login-tabs">
+            <div class="login-tab active" onclick="switchLogin('admin')">🔑 Admin</div>
+            <div class="login-tab" onclick="switchLogin('bodega')">🏭 Jefe Bodega</div>
+        </div>
+        <div id="login-admin" class="login-section">
+            <div class="form-group"><label>Contraseña Admin</label><input type="password" id="passAdmin" class="form-control" placeholder="admin123"></div>
+            <button class="btn btn-primary" style="width:100%" onclick="doLogin('admin')">Ingresar</button>
+        </div>
+        <div id="login-bodega" class="login-section hidden">
+            <div class="form-group"><label>Seleccione Bodega</label><div id="loginBodegaList"></div></div>
+            <div class="form-group"><label>Contraseña</label><input type="password" id="passBodega" class="form-control"></div>
+            <button class="btn btn-primary" style="width:100%" onclick="doLogin('bodega')">Ingresar</button>
+            <div style="margin-top:15px; text-align:center;">
+                <button class="btn btn-outline btn-sm" onclick="hardReset()">🗑️ Resetear Sistema</button>
+                <button class="btn btn-outline btn-sm" style="margin-left:5px;" onclick="changeFirebaseConfig()">🔧 Cambiar Firebase</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="app" class="hidden">
+    <header class="header">
+        <div class="flex">
+            <h1 style="font-size:1.4rem;">📦 Inventario Pro</h1>
+            <span id="userBadge" class="badge badge-new" style="font-size:0.9rem;"></span>
+            <span style="font-size:0.7rem; color:#aaa;">☁️ Firebase</span>
+        </div>
+        <div class="flex">
+            <span id="clock" class="text-muted" style="color:#ccc;"></span>
+            <button class="btn btn-danger btn-sm" onclick="doLogout()">🚪 Salir</button>
+        </div>
+    </header>
+    <nav class="nav" id="navBar">
+        <button class="nav-btn active" data-tab="dash">📊 Dashboard</button>
+        <button class="nav-btn" data-tab="bodegas">🏭 Bodegas</button>
+        <button class="nav-btn admin-only" data-tab="vista_global">🌍 Vista Global</button>
+        <button class="nav-btn bodega-only" data-tab="inv_global">🔍 Inventario Bodegas</button>
+        <button class="nav-btn" data-tab="transfer">🔄 Transferencias</button>
+        <button class="nav-btn" data-tab="recuperados">♻️ Recuperados</button>
+        <button class="nav-btn" data-tab="cuads">👷 Cuadrillas</button>
+        <button class="nav-btn" data-tab="entregas">📤 Entregas</button>
+        <button class="nav-btn" data-tab="inst">🔧 Instalaciones</button>
+        <button class="nav-btn admin-only" data-tab="delete_req" style="color:var(--danger);">🗑️ Solicitudes</button>
+        <button class="nav-btn admin-only" data-tab="admin" style="color:var(--warning);">⚙️ Admin</button>
+    </nav>
+    <div class="container"><div id="main-content"></div></div>
+</div>
+
+<div id="modal" class="modal-overlay">
+    <div class="modal">
+        <div class="modal-header"><h3 id="mTitle">Título</h3><button class="close-btn" onclick="closeModal()">&times;</button></div>
+        <div class="modal-body" id="mBody"></div>
+        <div class="modal-footer" id="mFooter"></div>
+    </div>
+</div>
+
+<!-- Firebase SDK -->
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+// ─── FIREBASE CONFIG ──────────────────────────────────────────────────────────
+const FB_CONFIG_KEY = 'invPro_firebaseConfig';
+const DB_DOC = 'inventario/datos';
+
+let firestoreDB = null;
+let unsubscribe = null;
+
+// DB en memoria
+let DB = { bodegas:[], cuadrillas:[], entregas:[], instalaciones:[], logs:[], transfers:[], recuperados:[], deleteRequests:[], adminPass:'admin123' };
+let USER = null, selBodegaLogin = null, TempLists = {};
+let saveTimeout = null;
+
+// ─── SYNC STATUS ──────────────────────────────────────────────────────────────
+function showSync(state, text) {
+    const el = document.getElementById('syncStatus');
+    const dot = document.getElementById('syncDot');
+    const txt = document.getElementById('syncText');
+    el.style.display = 'flex';
+    dot.className = 'sync-dot sync-' + state;
+    txt.textContent = text;
+}
+
+// ─── FIREBASE SETUP ──────────────────────────────────────────────────────────
+function getSavedConfig() {
+    try { return JSON.parse(localStorage.getItem(FB_CONFIG_KEY)); } catch { return null; }
+}
+
+async function connectFirebase() {
+    const apiKey = document.getElementById('fb_apiKey').value.trim();
+    const projectId = document.getElementById('fb_projectId').value.trim();
+    const appId = document.getElementById('fb_appId').value.trim();
+    const msg = document.getElementById('setupMsg');
+
+    if (!apiKey || !projectId || !appId) {
+        msg.style.color = 'var(--danger)';
+        msg.textContent = '⚠️ Completa todos los campos.';
+        return;
+    }
+
+    msg.style.color = 'var(--warning)';
+    msg.textContent = '⏳ Conectando...';
+
+    try {
+        const config = { apiKey, projectId, appId, authDomain: `${projectId}.firebaseapp.com`, storageBucket: `${projectId}.appspot.com` };
+        const ok = await initFirestore(config);
+        if (ok) {
+            localStorage.setItem(FB_CONFIG_KEY, JSON.stringify(config));
+            msg.style.color = 'var(--secondary)';
+            msg.textContent = '✅ Conectado. Cargando datos...';
+        }
+    } catch(e) {
+        msg.style.color = 'var(--danger)';
+        msg.textContent = '❌ Error: ' + e.message;
+    }
+}
+window.connectFirebase = connectFirebase;
+
+async function initFirestore(config) {
+    const app = initializeApp(config, config.projectId + '_' + Date.now());
+    firestoreDB = getFirestore(app);
+
+    // Test connection
+    const ref = doc(firestoreDB, DB_DOC);
+    await getDoc(ref); // throws if config is wrong
+
+    // Setup real-time listener
+    if (unsubscribe) unsubscribe();
+    unsubscribe = onSnapshot(ref, (snap) => {
+        if (snap.exists()) {
+            const remote = snap.data();
+            DB = { ...DB, ...remote };
+            fixDB();
+            showSync('ok', 'Sincronizado');
+            if (USER) renderTab(getCurrentTab());
+            renderLoginBodegas();
+        }
+    }, (err) => {
+        showSync('err', 'Sin conexión');
+        console.error(err);
+    });
+
+    // Load initial data
+    document.getElementById('firebase-setup').style.display = 'none';
+    document.getElementById('loading-screen').style.display = 'flex';
+
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+        DB = { ...DB, ...snap.data() };
+    }
+    fixDB();
+
+    document.getElementById('loading-screen').style.display = 'none';
+    document.getElementById('login-screen').classList.remove('hidden');
+    showSync('ok', 'Sincronizado');
+    renderLoginBodegas();
+    setInterval(() => { const el = document.getElementById('clock'); if(el) el.textContent = new Date().toLocaleTimeString(); }, 1000);
+
+    return true;
+}
+
+function fixDB() {
+    if (!DB.deleteRequests) DB.deleteRequests = [];
+    if (!DB.recuperados) DB.recuperados = [];
+    const fixSn = (mats) => mats.forEach(m => { if (!Array.isArray(m.snes)) m.snes = []; });
+    DB.bodegas.forEach(b => fixSn(b.materiales));
+    DB.cuadrillas.forEach(c => fixSn(c.materiales));
+}
+
+// ─── SAVE TO FIRESTORE ────────────────────────────────────────────────────────
+async function save() {
+    showSync('saving', 'Guardando...');
+    clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(async () => {
+        try {
+            const ref = doc(firestoreDB, DB_DOC);
+            await setDoc(ref, JSON.parse(JSON.stringify(DB)));
+            showSync('ok', 'Guardado ✓');
+        } catch(e) {
+            showSync('err', 'Error al guardar');
+            console.error(e);
+            // fallback to localStorage
+            localStorage.setItem('invPro_V8_backup', JSON.stringify(DB));
+        }
+    }, 600);
+}
+
+function getCurrentTab() {
+    const active = document.querySelector('.nav-btn.active');
+    return active ? active.dataset.tab : 'dash';
+}
+
+function changeFirebaseConfig() {
+    if (!confirm('¿Cambiar configuración de Firebase? Deberás ingresar nuevas credenciales.')) return;
+    localStorage.removeItem(FB_CONFIG_KEY);
+    location.reload();
+}
+window.changeFirebaseConfig = changeFirebaseConfig;
+
+// ─── INIT ────────────────────────────────────────────────────────────────────
+const saved = getSavedConfig();
+if (saved) {
+    document.getElementById('firebase-setup').style.display = 'none';
+    initFirestore(saved).catch(e => {
+        console.error('Firebase init failed:', e);
+        document.getElementById('firebase-setup').style.display = 'flex';
+        document.getElementById('loading-screen').style.display = 'none';
+        const msg = document.getElementById('setupMsg');
+        msg.style.color = 'var(--danger)';
+        msg.textContent = '❌ Error con configuración guardada. Verifica tus credenciales.';
+        if (saved.apiKey) document.getElementById('fb_apiKey').value = saved.apiKey;
+        if (saved.projectId) document.getElementById('fb_projectId').value = saved.projectId;
+        if (saved.appId) document.getElementById('fb_appId').value = saved.appId;
+    });
+}
+
+// ─── ALL APP LOGIC ────────────────────────────────────────────────────────────
+function logMsg(msg) { DB.logs.unshift({ msg, t: new Date().toISOString() }); if (DB.logs.length > 60) DB.logs.pop(); save(); }
+function id(x) { return document.getElementById(x); }
+function hardReset() { if (!confirm('⚠️ BORRAR TODOS LOS DATOS EN LA NUBE?')) return; DB = { bodegas:[], cuadrillas:[], entregas:[], instalaciones:[], logs:[], transfers:[], recuperados:[], deleteRequests:[], adminPass:'admin123' }; save().then(()=>location.reload()); }
+window.hardReset = hardReset;
+
+function switchLogin(type) {
+    document.querySelectorAll('.login-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.login-section').forEach(s => s.classList.add('hidden'));
+    if (type === 'admin') { document.querySelectorAll('.login-tab')[0].classList.add('active'); id('login-admin').classList.remove('hidden'); }
+    else { document.querySelectorAll('.login-tab')[1].classList.add('active'); id('login-bodega').classList.remove('hidden'); renderLoginBodegas(); }
+}
+window.switchLogin = switchLogin;
+
+function renderLoginBodegas() {
+    const list = id('loginBodegaList');
+    if (!list) return;
+    list.innerHTML = DB.bodegas.length ? DB.bodegas.map(b => `<div class="bodega-opt" onclick="selLoginBodega(this,'${b.id}')">🏭 <strong>${b.nombre}</strong><br><small class="text-muted">Jefe: ${b.responsable||'-'}</small></div>`).join('') : '<p class="text-muted text-center">Sin bodegas</p>';
+}
+
+function selLoginBodega(el, bId) { document.querySelectorAll('.bodega-opt').forEach(e => e.classList.remove('selected')); el.classList.add('selected'); selBodegaLogin = bId; }
+window.selLoginBodega = selLoginBodega;
+
+function doLogin(type) {
+    if (type === 'admin') { if (id('passAdmin').value !== DB.adminPass) return alert('❌ Contraseña incorrecta'); USER = { role: 'admin' }; }
+    else { if (!selBodegaLogin) return alert('❌ Seleccione bodega'); const b = DB.bodegas.find(x => x.id === selBodegaLogin); if (!b || id('passBodega').value !== b.password) return alert('❌ Contraseña bodega incorrecta'); USER = { role: 'bodega', id: b.id, nombre: b.nombre }; }
+    enterApp();
+}
+window.doLogin = doLogin;
+
+function enterApp() { id('login-screen').classList.add('hidden'); id('app').classList.remove('hidden'); applyRoles(); setupNav(); navigate('dash'); }
+function doLogout() { USER = null; id('app').classList.add('hidden'); id('login-screen').classList.remove('hidden'); id('passAdmin').value = ''; id('passBodega').value = ''; selBodegaLogin = null; renderLoginBodegas(); }
+window.doLogout = doLogout;
+
+function applyRoles() {
+    const badge = id('userBadge'); badge.textContent = USER.role === 'admin' ? 'ADMIN' : USER.nombre; badge.style.background = USER.role === 'admin' ? '#f39c12' : '#2980b9';
+    document.querySelectorAll('.admin-only').forEach(e => e.style.display = USER.role === 'admin' ? '' : 'none');
+    document.querySelectorAll('.bodega-only').forEach(e => e.style.display = USER.role === 'bodega' ? '' : 'none');
+}
+function setupNav() { document.querySelectorAll('.nav-btn').forEach(btn => { btn.onclick = () => { if (btn.classList.contains('admin-only') && USER.role !== 'admin') return; if (btn.classList.contains('bodega-only') && USER.role !== 'bodega') return; navigate(btn.dataset.tab); }; }); }
+function navigate(tab) { document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active')); document.querySelector(`.nav-btn[data-tab="${tab}"]`)?.classList.add('active'); renderTab(tab); }
+function renderTab(tab) { const main = id('main-content'); if (!main) return; try { switch (tab) { case 'dash': renderDash(main); break; case 'bodegas': renderBodegas(main); break; case 'vista_global': renderVistaGlobal(main); break; case 'inv_global': renderInvGlobal(main); break; case 'transfer': renderTransfer(main); break; case 'recuperados': renderRecuperados(main); break; case 'cuads': renderCuads(main); break; case 'entregas': renderEntregas(main); break; case 'inst': renderInst(main); break; case 'delete_req': renderDeleteReq(main); break; case 'admin': renderAdmin(main); break; } } catch (e) { alert("Error: " + e.message); console.error(e); } }
+window.navigate = navigate;
+
+function getUserBodegas() { return USER.role === 'admin' ? DB.bodegas : DB.bodegas.filter(b => b.id === USER.id); }
+function getUserCuads() { return USER.role === 'admin' ? DB.cuadrillas : DB.cuadrillas.filter(c => c.bodegaId === USER.id); }
+function openModal(title, html, onConfirm) { id('mTitle').textContent = title; id('mBody').innerHTML = html; id('mFooter').innerHTML = `<button class="btn btn-danger" onclick="closeModal()">Cancelar</button><button class="btn btn-success" id="mSaveBtn">Guardar</button>`; id('mSaveBtn').onclick = onConfirm; id('modal').classList.add('show'); }
+function closeModal() { id('modal').classList.remove('show'); }
+window.closeModal = closeModal;
+
+// DASHBOARD
+function renderDash(c) {
+    const bs = getUserBodegas(), cs = getUserCuads();
+    const tb = bs.reduce((s, b) => s + b.materiales.reduce((ss, m) => ss + m.cantidad, 0), 0), tc = cs.reduce((s, c) => s + c.materiales.reduce((ss, m) => ss + m.cantidad, 0), 0);
+    const trPend = DB.transfers.filter(t => USER.role === 'bodega' ? (t.oriId === USER.id || t.desId === USER.id) && t.estado === 'pendiente' : t.estado === 'pendiente');
+    c.innerHTML = `<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:15px; margin-bottom:20px;">
+        <div class="card text-center" style="border-left:5px solid var(--primary);"><h2>${bs.length}</h2><p class="text-muted">Bodegas</p></div>
+        <div class="card text-center" style="border-left:5px solid var(--secondary);"><h2>${cs.length}</h2><p class="text-muted">Cuadrillas</p></div>
+        <div class="card text-center" style="border-left:5px solid var(--warning);"><h2>${tb}</h2><p class="text-muted">Stock Bodegas</p></div>
+        <div class="card text-center" style="border-left:5px solid #8e44ad;"><h2>${tc}</h2><p class="text-muted">Stock Cuadrillas</p></div>
+        ${trPend.length ? `<div class="card text-center" style="border-left:5px solid #e74c3c;"><h2>${trPend.length}</h2><p class="text-muted">⏳ Transferencias Pendientes</p></div>` : ''}
+    </div><div class="card"><div class="card-header"><h2>📋 Actividad Reciente</h2></div>${DB.logs.length ? DB.logs.slice(0, 10).map(l => `<div style="padding:8px 0; border-bottom:1px solid #eee; display:flex; justify-content:space-between; font-size:0.88rem;"><span>${l.msg}</span><small class="text-muted">${new Date(l.t).toLocaleString()}</small></div>`).join('') : '<p class="text-muted text-center">Sin actividad</p>'}</div>`;
+}
+
+// VISTA GLOBAL ADMIN
+function renderVistaGlobal(c) {
+    if (USER.role !== 'admin') return navigate('dash');
+    let html = `<div class="card"><div class="card-header"><h2>🌍 Vista Global: Técnicos y Materiales</h2></div><input type="text" class="form-control" placeholder="🔍 Buscar..." oninput="filterGlobal(this.value)">`;
+    DB.bodegas.forEach(b => { const cuads = DB.cuadrillas.filter(c => c.bodegaId === b.id); html += `<details open class="gd" data-s="${b.nombre.toLowerCase()}"><summary style="cursor:pointer;font-weight:bold;background:#e3f2fd;padding:14px;border-radius:8px;margin-bottom:5px;">🏭 ${b.nombre} <span class="badge badge-new">${b.materiales.reduce((s, m) => s + m.cantidad, 0)} uds</span></summary><div class="tree-node"><div style="margin-bottom:10px;padding:8px;background:#fff;border-radius:6px;border:1px solid #eee;"><strong>📦 Stock:</strong> ${b.materiales.map(m => `<span class="sn-tag" style="background:#e3f2fd;">${m.nombre}:${m.cantidad}</span>`).join(' ') || 'Vacío'}</div>${cuads.map(cu => `<details style="margin:10px 0;border:1px solid #e0e0e0;border-radius:6px;"><summary style="cursor:pointer;background:#f0f4f8;padding:10px;border-radius:6px;">👷 ${cu.nombre} <span class="badge badge-ok">${cu.materiales.reduce((s, m) => s + m.cantidad, 0)} uds</span></summary><div class="tree-node"><div><strong>👤 Técnicos:</strong></div>${cu.tecnicos.map(t => `<div class="tech-card" data-s="${t.nombre.toLowerCase()}"><h4>👤 ${t.nombre} <small>(${t.cargo||''})</small></h4><div class="info-row"><span>📞:</span><span>${t.telefono||'-'}</span></div><div class="info-row"><span>🎒 Dotación:</span><span>${t.dotacion.map(d => `<span class="sn-tag">${d.nom}:${d.cant}</span>`).join(' ') || 'Sin dotación'}</span></div></div>`).join('') || '<p class="text-muted">Sin técnicos</p>'}</div></details>`).join('') || '<p class="text-muted">Sin cuadrillas</p>'}</div></details>`; });
+    html += `</div>`; c.innerHTML = html;
+    window.filterGlobal = (q) => { const t = q.toLowerCase(); document.querySelectorAll('.gd,.tech-card').forEach(el => { el.style.opacity = (t.length === 0 || el.textContent.toLowerCase().includes(t)) ? '1' : '0.2'; }); };
+}
+
+// INVENTARIO BODEGAS (Solo lectura)
+function renderInvGlobal(c) {
+    if (USER.role !== 'bodega') return navigate('dash');
+    c.innerHTML = `<div class="card"><div class="card-header"><h2>🔍 Inventario Global (Solo Lectura)</h2></div><input type="text" id="searchInvG" class="form-control" placeholder="🔍 Buscar artículo..." oninput="filterInvGlobal()"></div>`;
+    let html = `<div class="card">`;
+    DB.bodegas.forEach(b => {
+        const isMine = b.id === USER.id;
+        html += `<details ${isMine ? 'open' : ''} class="inv-d"><summary style="cursor:pointer;font-weight:bold;background:${isMine ? '#e3f2fd' : '#f5f5f5'};padding:12px;border-radius:8px;margin-bottom:5px;">🏭 ${b.nombre} ${isMine ? '<span class="badge badge-ok">MI BODEGA</span>' : ''}</summary><div class="tree-node">`;
+        if (b.materiales.length) { html += `<table><thead><tr><th>Artículo</th><th>Tipo</th><th>Cant</th><th>SNs</th></tr></thead><tbody>${b.materiales.map(m => `<tr><td><strong>${m.nombre}</strong></td><td><span class="badge ${m.tipo === 'nuevo' ? 'badge-new' : 'badge-used'}">${m.tipo}</span></td><td>${m.cantidad}</td><td>${m.snes.length ? m.snes.map(s => `<span class="sn-tag">${s}</span>`).join(' ') : 'Sin serial'}</td></tr>`).join('')}</tbody></table>`; }
+        else html += `<p class="text-muted">Vacío</p>`;
+        html += `</div></details>`;
+    });
+    c.innerHTML += html + `</div>`;
+    window.filterInvGlobal = () => { const q = id('searchInvG')?.value.toLowerCase() || ''; document.querySelectorAll('.inv-d').forEach(el => { el.style.display = el.textContent.toLowerCase().includes(q) ? '' : 'none'; }); };
+}
+
+// BODEGAS
+function renderBodegas(c) {
+    const bs = getUserBodegas();
+    c.innerHTML = `<div class="card"><div class="card-header"><h2>🏭 ${USER.role === 'admin' ? 'Bodegas' : 'Mi Bodega'}</h2>${USER.role === 'admin' ? `<button class="btn btn-primary btn-sm" onclick="modalNewBodega()">➕ Nueva</button>` : ''}</div>` + bs.map(b => {
+        const total = b.materiales.reduce((s, m) => s + m.cantidad, 0);
+        return `<details style="margin-bottom:10px;border:1px solid #eee;border-radius:8px;padding:10px;background:white;"><summary style="cursor:pointer;font-weight:bold;font-size:1.1rem;">🏭 ${b.nombre} <span class="badge badge-new">${total} uds</span></summary><div style="margin-top:10px;padding-left:10px;"><p class="text-muted">Jefe: ${b.responsable||'-'}</p><div style="display:flex;gap:5px;margin:10px 0;"><button class="btn btn-primary btn-sm" onclick="modalAddMat('${b.id}')">📦 + Material</button>${USER.role === 'admin' ? `<button class="btn btn-outline btn-sm" onclick="modalEditPass('${b.id}')">🔑</button><button class="btn btn-danger btn-sm" onclick="delBodega('${b.id}')">🗑️</button>` : ''}</div>${b.materiales.length ? `<table><thead><tr><th>Artículo</th><th>Tipo</th><th>Cant</th><th>SNs</th><th>Acción</th></tr></thead><tbody>${b.materiales.map(m => `<tr><td><strong>${m.nombre}</strong></td><td><span class="badge ${m.tipo === 'nuevo' ? 'badge-new' : 'badge-used'}">${m.tipo}</span></td><td>${m.cantidad}</td><td>${m.snes.length ? m.snes.map(s => `<span class="sn-tag">${s}</span>`).join(' ') : `<button class="btn btn-warning btn-sm" onclick="modalAddSN('${b.id}','${m.id}')">➕ SN</button>`}</td><td><button class="btn btn-warning btn-sm" onclick="modalRestock('${b.id}','${m.id}')">📥</button><button class="btn btn-danger btn-sm" onclick="delMat('${b.id}','${m.id}')">✕</button></td></tr>`).join('')}</tbody></table>` : '<p class="text-muted">Sin materiales (use el botón de arriba)</p>'}</div></details>`;
+    }).join('') + '</div>';
+}
+
+function modalNewBodega() { openModal('Nueva Bodega', `<div class="form-group"><label>Nombre</label><input id="bNom" class="form-control"></div><div class="form-group"><label>Ubicación</label><input id="bUbic" class="form-control"></div><div class="form-group"><label>Jefe</label><input id="bJefe" class="form-control"></div><div class="form-group"><label>Contraseña</label><input id="bPass" type="password" class="form-control"></div>`, () => { const n = id('bNom').value, j = id('bJefe').value, p = id('bPass').value; if (!n || !j || !p) return alert('Complete campos'); DB.bodegas.push({ id: Date.now().toString(), nombre: n, ubicacion: id('bUbic').value, responsable: j, password: p, materiales: [] }); logMsg(`Bodega "${n}" creada`); save(); closeModal(); renderTab('bodegas'); }); }
+window.modalNewBodega = modalNewBodega;
+function modalEditPass(bId) { openModal('Cambiar Contraseña', `<input type="hidden" id="editBId" value="${bId}"><div class="form-group"><label>Nueva Contraseña</label><input id="newPass" type="password" class="form-control"></div>`, () => { const p = id('newPass').value; if (!p) return alert('Ingrese contraseña'); DB.bodegas.find(x => x.id === id('editBId').value).password = p; save(); closeModal(); alert('✅ Actualizada'); }); }
+window.modalEditPass = modalEditPass;
+function delBodega(bId) { if (!confirm('¿Borrar bodega?')) return; DB.bodegas = DB.bodegas.filter(x => x.id !== bId); DB.cuadrillas = DB.cuadrillas.filter(x => x.bodegaId !== bId); save(); renderTab('bodegas'); }
+window.delBodega = delBodega;
+
+function modalAddSN(bId, mId) {
+    const b = DB.bodegas.find(x => x.id === bId), m = b.materiales.find(x => x.id === mId);
+    const missing = m.cantidad - m.snes.length;
+    openModal(`➕ Agregar Serial a: ${m.nombre}`, `<div class="form-group"><label>Artículo</label><input value="${m.nombre} (${m.cantidad} ${m.unidad})" readonly class="form-control"></div><div class="form-group"><label>SNs actuales</label><div class="sn-tag">${m.snes.length || 'Ninguno'}</div></div><div class="form-group"><label>Nuevos SN (máx: ${missing})</label><textarea id="newSNs" class="form-control" placeholder="SN01\nSN02"></textarea></div>`, () => {
+        const raw = id('newSNs').value.trim(); if (!raw) return alert('Ingrese al menos un SN');
+        const sns = raw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+        if (sns.length > missing) return alert(`Máximo ${missing} seriales sin asignar`);
+        const dups = sns.filter(s => m.snes.includes(s));
+        if (dups.length) return alert(`SNs duplicados: ${dups.join(', ')}`);
+        m.snes.push(...sns);
+        logMsg(`SN agregado a "${m.nombre}" en ${b.nombre}`); save(); closeModal(); renderTab('bodegas');
+    });
+}
+window.modalAddSN = modalAddSN;
+
+function modalAddMat(bId) {
+    openModal('Agregar Material', `<input type="hidden" id="matBId" value="${bId}"><div class="form-group"><label>Nombre</label><input id="mNom" class="form-control"></div><div class="form-row"><div class="form-group"><label>Cantidad</label><input id="mCant" type="number" value="1" min="1" class="form-control"></div><div class="form-group"><label>Tipo</label><select id="mTipo" class="form-control"><option value="nuevo">🟢 Nuevo</option><option value="usado">🟡 Usado</option></select></div></div><div class="form-group"><label>Unidad</label><select id="mUnidad" class="form-control"><option value="Und">Unidad</option><option value="Caja">Caja</option></select></div><div class="form-group"><label>SNs (Opcional)</label><textarea id="mSNs" class="form-control"></textarea></div>`, () => {
+        const b = DB.bodegas.find(x => x.id === id('matBId').value); const nom = id('mNom').value, cant = parseInt(id('mCant').value), tipo = id('mTipo').value, un = id('mUnidad').value; const rawSN = id('mSNs').value.trim(); if (!nom) return alert('Nombre requerido'); const snes = rawSN ? rawSN.split(/[\n,]+/).map(s => s.trim()).filter(Boolean) : []; if (snes.length > cant) return alert(`SNs (${snes.length}) > cantidad (${cant})`); b.materiales.push({ id: Date.now().toString(), nombre: nom, cantidad: cant, tipo: tipo, unidad: un, snes: snes, fecha: new Date().toLocaleDateString() }); logMsg(`Material "${nom}" añadido`); save(); closeModal(); renderTab('bodegas');
+    });
+}
+window.modalAddMat = modalAddMat;
+
+function modalRestock(bId, mId) {
+    const b = DB.bodegas.find(x => x.id === bId); const m = b.materiales.find(x => x.id === mId);
+    openModal('📥 Reabastecer: ' + m.nombre, `<input type="hidden" id="rBId" value="${bId}"><input type="hidden" id="rMId" value="${mId}"><p>Stock: <strong>${m.cantidad} ${m.unidad}</strong></p><div class="form-group"><label>Cantidad a sumar</label><input id="rCant" type="number" value="1" min="1" class="form-control"></div><div class="form-group"><label>Nuevos SN (Opcional)</label><textarea id="rSNs" class="form-control"></textarea></div>`, () => { const mat = DB.bodegas.find(x => x.id === id('rBId').value).materiales.find(x => x.id === id('rMId').value); const q = parseInt(id('rCant').value); if (!q) return alert('Cantidad inválida'); mat.cantidad += q; const rawSN = id('rSNs').value.trim(); if (rawSN) { const ns = rawSN.split(/[\n,]+/).map(s => s.trim()).filter(Boolean); if (ns.length > q) return alert('SNs exceden cantidad'); mat.snes.push(...ns); } logMsg(`Reabastecido "${mat.nombre}" (+${q})`); save(); closeModal(); renderTab('bodegas'); });
+}
+window.modalRestock = modalRestock;
+
+function delMat(bId, mId) {
+    const m = DB.bodegas.find(x => x.id === bId).materiales.find(x => x.id === mId);
+    if (USER.role === 'admin') {
+        if (!confirm(`¿Eliminar "${m.nombre}" de la bodega?`)) return;
+        DB.bodegas.find(x => x.id === bId).materiales = DB.bodegas.find(x => x.id === bId).materiales.filter(x => x.id !== mId);
+        logMsg(`Admin eliminó "${m.nombre}"`); save(); renderTab('bodegas');
+        return;
+    }
+    openModal('🗑️ Solicitud de Eliminación', `<div class="alert" style="background:#fff3cd;color:#856404;padding:10px;">ℹ️ La eliminación requiere aprobación del administrador.</div><div class="form-group"><label>Artículo</label><input value="${m.nombre} (${m.cantidad} ${m.unidad})" readonly class="form-control"></div><div class="form-group"><label>Observación / Motivo de eliminación *</label><textarea id="delObs" class="form-control" placeholder="Explique por qué se elimina este material..."></textarea></div>`, () => {
+        const obs = id('delObs').value.trim(); if (!obs) return alert('Ingrese la observación obligatoria');
+        DB.deleteRequests.push({ id: Date.now().toString(), bodegaId: bId, bodegaNombre: getUserBodegas().find(x => x.id === bId)?.nombre || '', materialId: mId, materialNombre: m.nombre, cantidad: m.cantidad, tipo: m.tipo, unidad: m.unidad, snes: [...m.snes], fecha: new Date().toISOString(), obs, estado: 'pendiente' });
+        logMsg(`Solicitud de eliminación "${m.nombre}" por jefe de bodega`); save(); closeModal(); alert('✅ Solicitud enviada al administrador'); renderTab('bodegas');
+    });
+}
+window.delMat = delMat;
+
+// SOLICITUDES DE ELIMINACIÓN
+function renderDeleteReq(c) {
+    if (USER.role !== 'admin') return navigate('dash');
+    const pend = DB.deleteRequests.filter(r => r.estado === 'pendiente');
+    const done = DB.deleteRequests.filter(r => r.estado !== 'pendiente');
+    c.innerHTML = `<div class="card"><div class="card-header"><h2>🗑️ Solicitudes de Eliminación</h2></div><div class="alert" style="background:#e3f2fd;color:#1a5276;">ℹ️ Las solicitudes de jefes de bodega requieren su aprobación.</div>${pend.length ? `<h3 style="margin:10px 0;color:var(--warning);">⏳ Pendientes (${pend.length})</h3><table><thead><tr><th>Fecha</th><th>Bodega</th><th>Artículo</th><th>Cant</th><th>Motivo</th><th>Acción</th></tr></thead><tbody>${pend.map(r => `<tr><td>${new Date(r.fecha).toLocaleDateString()}</td><td>${r.bodegaNombre}</td><td><strong>${r.materialNombre}</strong></td><td>${r.cantidad}</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;">${r.obs}</td><td><button class="btn btn-success btn-sm" onclick="approveDelete('${r.id}','aprobada')">✅ Aprobar</button> <button class="btn btn-danger btn-sm" onclick="approveDelete('${r.id}','rechazada')">❌ Rechazar</button></td></tr>`).join('')}</tbody></table>` : '<p class="text-muted" style="margin:10px 0">Sin solicitudes pendientes</p>'}${done.length ? `<h3 style="margin:15px 0 10px;color:var(--gray);">Historial (${done.length})</h3><table><thead><tr><th>Fecha</th><th>Bodega</th><th>Artículo</th><th>Cant</th><th>Estado</th></tr></thead><tbody>${done.map(r => `<tr><td>${new Date(r.fecha).toLocaleDateString()}</td><td>${r.bodegaNombre}</td><td>${r.materialNombre}</td><td>${r.cantidad}</td><td><span class="badge ${r.estado === 'aprobada' ? 'badge-ok' : 'badge-rej'}">${r.estado.toUpperCase()}</span></td></tr>`).join('')}</tbody></table>` : ''}</div>`;
+}
+
+function approveDelete(reqId, action) {
+    const req = DB.deleteRequests.find(r => r.id === reqId);
+    if (!req || req.estado !== 'pendiente') return;
+    req.estado = action;
+    if (action === 'aprobada') { const b = DB.bodegas.find(x => x.id === req.bodegaId); if (b) b.materiales = b.materiales.filter(m => m.id !== req.materialId); logMsg(`Admin aprobó eliminación de "${req.materialNombre}" en ${req.bodegaNombre}`); }
+    else { logMsg(`Admin rechazó eliminación de "${req.materialNombre}" en ${req.bodegaNombre}`); }
+    save(); renderTab('delete_req');
+}
+window.approveDelete = approveDelete;
+
+// TRANSFERENCIAS
+function renderTransfer(c) { let ts = DB.transfers; if (USER.role === 'bodega') ts = ts.filter(t => t.oriId === USER.id || t.desId === USER.id); ts.sort((a, b) => new Date(b.fecha) - new Date(a.fecha)); c.innerHTML = `<div class="card"><div class="card-header"><h2>🔄 Transferencias</h2>${USER.role === 'bodega' ? `<button class="btn btn-primary btn-sm" onclick="modalSendTrans()">📤 Enviar</button>` : ''}</div>${ts.length ? ts.map(t => `<div style="border:1px solid #eee; border-radius:8px; padding:15px; margin-bottom:10px; background:${t.estado === 'pendiente' ? '#fff' : '#f9f9f9'}"><div class="flex"><strong>🔄 ${t.oriName} ➜ ${t.desName}</strong><span class="badge ${t.estado === 'pendiente' ? 'badge-pend' : t.estado === 'aceptada' ? 'badge-ok' : 'badge-rej'}">${t.estado.toUpperCase()}</span></div><div class="text-muted" style="font-size:0.85rem; margin:5px 0;">📅 ${t.fecha}</div><div style="margin-bottom:10px;">${t.mats.map(m => `<span class="sn-tag">${m.nom}: ${m.cant}${m.snes.length ? ' [SN:' + m.snes.join(', ') + ']' : ''}</span>`).join(' ')}</div>${t.estado === 'pendiente' && t.desId === USER.id ? `<div class="flex"><button class="btn btn-success btn-sm" onclick="procTrans('${t.id}','aceptada')">✅ Aceptar</button><button class="btn btn-danger btn-sm" onclick="procTrans('${t.id}','rechazada')">❌ Rechazar</button></div>` : ''}</div>`).join('') : '<p class="text-center text-muted">Sin transferencias</p>'}</div>`; }
+
+function modalSendTrans() {
+    if (USER.role !== 'bodega') return;
+    const dests = DB.bodegas.filter(b => b.id !== USER.id).map(b => `<option value="${b.id}">${b.nombre}</option>`).join('');
+    const mats = DB.bodegas.find(x => x.id === USER.id).materiales.filter(m => m.cantidad > 0).map(m => `<option value="${m.id}">${m.nombre} (${m.cantidad})</option>`).join('');
+    TempLists.transItems = [];
+    openModal('🔄 Transferencia - Cantidad + SN', `<div class="form-group"><label>Destino</label><select id="tDest" class="form-control"><option value="">...</option>${dests}</select></div><hr style="margin:15px 0;"><div class="form-row"><div class="form-group"><label>Material</label><select id="tMat" class="form-control" onchange="showTransferSNBox()">${mats}</select></div><div class="form-group"><label>Cantidad a Transferir *</label><input id="tCant" type="number" value="1" min="1" class="form-control" onchange="showTransferSNBox()"></div></div><div id="tSNArea"></div><div id="tMsg" class="text-muted text-sm"></div><button class="btn btn-outline btn-sm" onclick="addTransItem()" style="margin-top:10px;">➕ Agregar</button><div id="tList" style="margin-top:10px;"></div><div class="form-group"><label>Observaciones</label><input id="tObs" class="form-control"></div>`, () => { if (!id('tDest').value || !TempLists.transItems.length) return alert('Faltan datos'); sendTransLogic(); });
+    TempLists.tSelectedSNs = {}; showTransferSNBox(); renderTList();
+}
+window.modalSendTrans = modalSendTrans;
+
+function showTransferSNBox() {
+    const mId = id('tMat').value, box = id('tSNArea'), msg = id('tMsg');
+    if (!mId || !box) return;
+    const m = DB.bodegas.find(x => x.id === USER.id)?.materiales.find(x => x.id === mId);
+    if (!m) { box.innerHTML = ''; return; }
+    TempLists.tSelectedSNs = {};
+    const q = parseInt(id('tCant').value) || 1;
+    if (m.snes.length > 0) {
+        let html = `<div class="sn-select-area"><div class="flex" style="justify-content:space-between;margin-bottom:8px;"><strong>Seleccione exactamente ${q} SNs</strong><label style="font-size:0.85rem;cursor:pointer;"><input type="checkbox" onchange="toggleAllSN(this,'tSNChk')"> Todos</label></div>`;
+        m.snes.forEach((sn, i) => { html += `<label class="sn-check"><input type="checkbox" id="tSNChk_${i}" value="${sn}" onchange="updateTSelection(${q})"> <span class="sn-label">${sn}</span></label>`; });
+        html += `</div>`; box.innerHTML = html;
+        msg.textContent = `Este artículo tiene ${m.snes.length} seriales. Seleccione ${q} para transferir.`;
+    } else {
+        box.innerHTML = `<div class="alert" style="background:#e8f5e9;color:#2e7d32;padding:8px;font-size:0.85rem;">✅ Artículos sin serial. Se transferirán ${q} unidades.</div>`;
+        msg.textContent = '';
+    }
+}
+window.showTransferSNBox = showTransferSNBox;
+
+function toggleAllSN(master, prefix) { document.querySelectorAll(`input[id^="${prefix}"]`).forEach(cb => { cb.checked = master.checked; }); updateTSelection(parseInt(id('tCant').value) || 1); }
+window.toggleAllSN = toggleAllSN;
+
+function updateTSelection(q) {
+    const checked = document.querySelectorAll('#tSNArea input[type="checkbox"]:checked').length;
+    TempLists.tSelectedSNs = {};
+    document.querySelectorAll('#tSNArea input[type="checkbox"]:checked').forEach(cb => TempLists.tSelectedSNs[cb.value] = true);
+    document.querySelectorAll('#tSNArea .sn-check').forEach(el => { const cb = el.querySelector('input[type="checkbox"]'); el.classList.toggle('selected', cb.checked); });
+    const msg = id('tMsg');
+    if (q > 0) {
+        if (checked === q) { msg.style.color = 'var(--secondary)'; msg.textContent = '✅ Cantidad exacta seleccionada.'; }
+        else if (checked > q) { msg.style.color = 'var(--danger)'; msg.textContent = `⚠️ Ha seleccionado ${checked}, pero la cantidad es ${q}.`; }
+        else { msg.style.color = 'var(--warning)'; msg.textContent = `⏳ Ha seleccionado ${checked} de ${q} requeridos.`; }
+    }
+}
+window.updateTSelection = updateTSelection;
+
+function addTransItem() {
+    const mId = id('tMat').value, q = parseInt(id('tCant').value);
+    if (!mId || !q) return alert('Seleccione material y cantidad');
+    const m = DB.bodegas.find(x => x.id === USER.id)?.materiales.find(x => x.id === mId);
+    if (!m) return alert('Material inválido');
+    let snes = [];
+    if (m.snes.length > 0) { snes = Object.keys(TempLists.tSelectedSNs); if (snes.length !== q) return alert(`Debe seleccionar exactamente ${q} seriales`); }
+    const inList = TempLists.transItems.find(x => x.id === mId)?.cant || 0;
+    if (q + inList > m.cantidad) return alert('Stock insuficiente');
+    const exist = TempLists.transItems.find(x => x.id === mId);
+    if (exist) { exist.cant += q; exist.snes.push(...snes); } else TempLists.transItems.push({ id: m.id, nom: m.nombre, cant: q, tipo: m.tipo, unidad: m.unidad, snes: snes });
+    TempLists.tSelectedSNs = {}; showTransferSNBox(); renderTList();
+}
+window.addTransItem = addTransItem;
+
+function renderTList() { const el = id('tList'); if (!el) return; el.innerHTML = TempLists.transItems.map((it, i) => `<div class="item-list-item"><span><strong>${it.nom}</strong> x${it.cant}${it.snes.length ? ' [SN:' + it.snes.join(', ') + ']' : ''}</span><button class="btn btn-danger btn-sm" onclick="TempLists.transItems.splice(${i},1);renderTList();">✕</button></div>`).join('') || '<p class="text-muted">Lista vacía</p>'; }
+window.renderTList = renderTList;
+
+function sendTransLogic() { const ori = DB.bodegas.find(x => x.id === USER.id), des = DB.bodegas.find(x => x.id === id('tDest').value); TempLists.transItems.forEach(it => { const m = ori.materiales.find(x => x.id === it.id); m.cantidad -= it.cant; it.snes.forEach(s => { const idx = m.snes.indexOf(s); if (idx > -1) m.snes.splice(idx, 1); }); }); DB.transfers.push({ id: Date.now().toString(), oriId: USER.id, oriName: ori.nombre, desId: des.id, desName: des.nombre, fecha: new Date().toLocaleDateString(), estado: 'pendiente', obs: id('tObs').value, mats: [...TempLists.transItems] }); logMsg(`Transferencia enviada a ${des.nombre}`); save(); closeModal(); renderTab('transfer'); }
+function procTrans(tId, action) { const t = DB.transfers.find(x => x.id === tId); if (!t || t.estado !== 'pendiente') return; t.estado = action; if (action === 'aceptada') { const des = DB.bodegas.find(x => x.id === t.desId); t.mats.forEach(it => { const ex = des.materiales.find(m => m.nombre === it.nom && m.tipo === it.tipo); if (ex) { ex.cantidad += it.cant; if (it.snes.length) ex.snes.push(...it.snes); } else des.materiales.push({ id: Date.now().toString(), nombre: it.nom, cantidad: it.cant, tipo: it.tipo, unidad: it.unidad, snes: it.snes, fecha: new Date().toLocaleDateString() }); }); } else { const ori = DB.bodegas.find(x => x.id === t.oriId); t.mats.forEach(it => { let m = ori.materiales.find(x => x.nombre === it.nom && x.tipo === it.tipo); if (!m) { m = { id: Date.now().toString(), nombre: it.nom, cantidad: 0, tipo: it.tipo, unidad: it.unidad, snes: [], fecha: new Date().toLocaleDateString() }; ori.materiales.push(m); } m.cantidad += it.cant; if (it.snes.length) m.snes.push(...it.snes); }); } logMsg(`Transferencia ${action}`); save(); renderTab('transfer'); }
+window.procTrans = procTrans;
+
+// RECUPERADOS
+function renderRecuperados(c) { let items = DB.recuperados; if (USER.role === 'bodega') items = items.filter(r => r.bodegaId === USER.id); c.innerHTML = `<div class="card"><div class="card-header"><h2>♻️ Recuperados</h2><button class="btn btn-primary btn-sm" onclick="modalAddRecuperado()">➕ Registrar</button></div>${items.length ? `<table><thead><tr><th>Fecha</th><th>${USER.role === 'admin' ? 'Bodega' : 'Origen'}</th><th>Artículo</th><th>Cant</th><th>Tipo</th><th>SNs</th><th>Estado</th><th>Acción</th></tr></thead><tbody>${items.map((r, i) => `<tr><td>${r.fecha}</td><td>${USER.role === 'admin' ? r.bodegaNombre : r.origen}</td><td><strong>${r.nom}</strong></td><td>${r.cant}</td><td><span class="badge ${r.tipo === 'nuevo' ? 'badge-new' : 'badge-used'}">${r.tipo}</span></td><td>${r.snes.length ? r.snes.map(s => `<span class="sn-tag">${s}</span>`).join(' ') : 'Sin serial'}</td><td><span class="badge ${r.estado === 'pendiente' ? 'badge-pend' : 'badge-ok'}">${r.estado.toUpperCase()}</span></td><td>${r.estado === 'pendiente' ? `<button class="btn btn-success btn-sm" onclick="integrarRecuperado(${DB.recuperados.indexOf(r)})">✅ Integrar</button>` : '-'}</td></tr>`).join('')}</tbody></table>` : '<p class="text-muted">Sin recuperados</p>'}</div>`; }
+
+function modalAddRecuperado() { const bs = DB.bodegas.map(b => `<option value="${b.id}" ${USER.role === 'bodega' && b.id === USER.id ? 'selected' : ''}>${b.nombre}</option>`).join(''); openModal('Registrar Recuperado', `<div class="form-group"><label>Bodega</label><select id="recBod" class="form-control">${bs}</select></div><div class="form-row"><div class="form-group"><label>Artículo</label><input id="recNom" class="form-control"></div><div class="form-group"><label>Cantidad</label><input id="recCant" type="number" value="1" min="1" class="form-control"></div></div><div class="form-row"><div class="form-group"><label>Tipo</label><select id="recTipo" class="form-control"><option value="usado">🟡 Usado</option><option value="nuevo">🟢 Nuevo</option></select></div><div class="form-group"><label>Unidad</label><select id="recUnidad" class="form-control"><option value="Und">Unidad</option><option value="Caja">Caja</option></select></div></div><div class="form-group"><label>Origen</label><input id="recOrigen" class="form-control"></div><div class="form-group"><label>SNs (Opcional)</label><textarea id="recSNs" class="form-control"></textarea></div><div class="form-group"><label>Fecha</label><input id="recFecha" type="date" value="${new Date().toISOString().split('T')[0]}" class="form-control"></div>`, () => { const nom = id('recNom').value, cant = parseInt(id('recCant').value), tipo = id('recTipo').value, unid = id('recUnidad').value, origen = id('recOrigen').value, rawSN = id('recSNs').value.trim(), fecha = id('recFecha').value, bId = id('recBod').value; if (!nom || !cant || !origen || !bId) return alert('Complete campos'); const snes = rawSN ? rawSN.split(/[\n,]+/).map(s => s.trim()).filter(Boolean) : []; DB.recuperados.push({ id: Date.now().toString(), bodegaId: bId, bodegaNombre: DB.bodegas.find(x => x.id === bId)?.nombre, nom, cant, tipo, unidad: unid, origen, snes, fecha, estado: 'pendiente' }); logMsg(`Recuperado: ${nom} (${cant})`); save(); closeModal(); renderTab('recuperados'); }); }
+window.modalAddRecuperado = modalAddRecuperado;
+
+function integrarRecuperado(idx) { const r = DB.recuperados[idx]; if (!r || r.estado !== 'pendiente') return; const b = DB.bodegas.find(x => x.id === r.bodegaId); if (!b) return alert("Bodega no existe"); const ex = b.materiales.find(m => m.nombre === r.nom && m.tipo === r.tipo); if (ex) { ex.cantidad += r.cant; if (r.snes.length) ex.snes.push(...r.snes); } else b.materiales.push({ id: Date.now().toString(), nombre: r.nom, cantidad: r.cant, tipo: r.tipo, unidad: r.unidad, snes: r.snes, fecha: r.fecha }); r.estado = 'integrado'; logMsg(`Recuperado "${r.nom}" integrado a "${b.nombre}"`); save(); renderTab('recuperados'); }
+window.integrarRecuperado = integrarRecuperado;
+
+// CUADRILLAS
+function renderCuads(c) { const cs = getUserCuads(); c.innerHTML = `<div class="card"><div class="card-header"><h2>👷 Cuadrillas</h2><div class="flex"><button class="btn btn-primary btn-sm" onclick="modalNewCuad()">➕ Cuadrilla</button><button class="btn btn-outline btn-sm" onclick="modalNewTec()">👤 Técnico</button></div></div>${cs.length ? cs.map(cu => `<details style="border:1px solid #eee;border-radius:8px;padding:10px;margin-bottom:10px;background:white;"><summary style="cursor:pointer;font-weight:bold;">👷 ${cu.nombre} <span class="badge badge-new">${cu.materiales.reduce((s, m) => s + m.cantidad, 0)} uds</span></summary><div style="margin-top:10px;padding-left:10px;"><p class="text-muted">Receptor: ${cu.receptor}</p><h4 style="margin:10px 0;">👤 Técnicos</h4>${cu.tecnicos.map(t => `<div class="item-list-item"><div><strong>${t.nombre}</strong> <small>(${t.cargo||''})</small><br><span class="text-muted" style="font-size:0.8rem">ID:${t.cedula||'-'} | Dotación: ${t.dotacion.length} items</span></div><div class="flex"><button class="btn btn-warning btn-sm" onclick="modalDotar('${cu.id}','${t.id}')">🎒</button><button class="btn btn-danger btn-sm" onclick="delTec('${cu.id}','${t.id}')">✕</button></div></div>`).join('') || '<p class="text-muted">Sin técnicos</p>'}<h4 style="margin:15px 0 10px;">📦 Inventario</h4>${cu.materiales.length ? `<table><thead><tr><th>Artículo</th><th>Tipo</th><th>Cant</th><th>SNs</th></tr></thead><tbody>${cu.materiales.map(m => `<tr><td>${m.nombre}</td><td><span class="badge ${m.tipo === 'nuevo' ? 'badge-new' : 'badge-used'}">${m.tipo}</span></td><td>${m.cantidad}</td><td>${m.snes.length ? m.snes.map(s => `<span class="sn-tag">${s}</span>`).join(' ') : 'Sin serial'}</td></tr>`).join('')}</tbody></table>` : '<p class="text-muted">Vacío</p>'}</div></details>`).join('') : '<p class="text-muted">Sin cuadrillas</p>'}</div>`; }
+
+function modalNewCuad() { const bs = getUserBodegas().map(b => `<option value="${b.id}">${b.nombre}</option>`).join(''); openModal('Nueva Cuadrilla', `<div class="form-group"><label>Bodega</label><select id="cBod" class="form-control">${bs}</select></div><div class="form-group"><label>Nombre</label><input id="cNom" class="form-control"></div><div class="form-group"><label>Receptor</label><input id="cRec" class="form-control"></div><div class="form-group"><label>Especialidad</label><input id="cEsp" class="form-control"></div>`, () => { DB.cuadrillas.push({ id: Date.now().toString(), bodegaId: id('cBod').value, nombre: id('cNom').value, receptor: id('cRec').value, especialidad: id('cEsp').value, tecnicos: [], materiales: [] }); logMsg(`Cuadrilla "${id('cNom').value}" creada`); save(); closeModal(); renderTab('cuads'); }); }
+window.modalNewCuad = modalNewCuad;
+
+function modalNewTec() { const cs = getUserCuads().map(c => `<option value="${c.id}">${c.nombre}</option>`).join(''); openModal('Nuevo Técnico', `<div class="form-group"><label>Cuadrilla</label><select id="tCuad" class="form-control">${cs}</select></div><div class="form-row"><div class="form-group"><label>Nombre</label><input id="tNom" class="form-control"></div><div class="form-group"><label>Cédula</label><input id="tCed" class="form-control"></div></div><div class="form-row"><div class="form-group"><label>Cargo</label><input id="tCargo" class="form-control"></div><div class="form-group"><label>Teléfono</label><input id="tTel" class="form-control"></div></div><div class="form-group"><label>Email</label><input id="tEmail" class="form-control"></div>`, () => { const cu = DB.cuadrillas.find(x => x.id === id('tCuad').value); cu.tecnicos.push({ id: `T${Date.now()}`, nombre: id('tNom').value, cedula: id('tCed').value, cargo: id('tCargo').value, telefono: id('tTel').value, email: id('tEmail').value, dotacion: [] }); logMsg(`Técnico "${id('tNom').value}" agregado`); save(); closeModal(); renderTab('cuads'); }); }
+window.modalNewTec = modalNewTec;
+
+function delTec(cId, tId) { if (!confirm('¿Borrar técnico?')) return; DB.cuadrillas.find(x => x.id === cId).tecnicos = DB.cuadrillas.find(x => x.id === cId).tecnicos.filter(x => x.id !== tId); save(); renderTab('cuads'); }
+window.delTec = delTec;
+
+function modalDotar(cId, tId) {
+    TempLists.currentCId = cId; TempLists.currentTId = tId; TempLists.dotItems = []; TempLists.dSelectedSNs = {};
+    const c = DB.cuadrillas.find(x => x.id === cId); const t = c.tecnicos.find(x => x.id === tId);
+    const mats = c.materiales.filter(m => m.cantidad > 0).map(m => `<option value="${m.id}">${m.nombre} (${m.cantidad})</option>`).join('');
+    openModal(`Dotar a ${t.nombre}`, `<div class="form-group"><label>Material</label><select id="dMat" class="form-control" onchange="showDotSNBox()">${mats}</select></div><div class="form-row"><div class="form-group"><label>Cantidad</label><input id="dCant" type="number" value="1" min="1" class="form-control" onchange="showDotSNBox()"></div></div><div id="dSNArea"></div><div id="dMsg" class="text-muted text-sm"></div><button class="btn btn-outline btn-sm" onclick="addDotItem()" style="margin-top:5px;">➕ Agregar</button><div id="dList" style="margin-top:10px;"></div>`, () => { if (!TempLists.dotItems.length) return alert('Agregue material'); saveDotacionLogic(); });
+    TempLists.dSelectedSNs = {}; showDotSNBox(); renderDList();
+}
+window.modalDotar = modalDotar;
+
+function showDotSNBox() { const mId = id('dMat').value, box = id('dSNArea'), msg = id('dMsg'); if (!mId || !box) return; const c = DB.cuadrillas.find(x => x.id === TempLists.currentCId), m = c.materiales.find(x => x.id === mId); if (!m) return; TempLists.dSelectedSNs = {}; const q = parseInt(id('dCant').value) || 1; if (m.snes.length > 0) { let html = `<div class="sn-select-area"><div class="flex" style="justify-content:space-between;margin-bottom:8px;"><strong>Seleccione ${q} SNs</strong><label style="font-size:0.85rem;cursor:pointer;"><input type="checkbox" onchange="toggleAllSN(this,'dSNChk')"> Todos</label></div>`; m.snes.forEach((sn, i) => { html += `<label class="sn-check"><input type="checkbox" id="dSNChk_${i}" value="${sn}" onchange="updateDSelection(${q})"> <span class="sn-label">${sn}</span></label>`; }); html += `</div>`; box.innerHTML = html; msg.textContent = `Seleccione ${q} de ${m.snes.length} disponibles.`; } else { box.innerHTML = `<div class="alert" style="background:#e8f5e9;color:#2e7d32;padding:8px;font-size:0.85rem;">Artículos sin serial. Se asignarán ${q} unidades.</div>`; msg.textContent = ''; } }
+window.showDotSNBox = showDotSNBox;
+
+function updateDSelection(q) { TempLists.dSelectedSNs = {}; document.querySelectorAll('#dSNArea input[type="checkbox"]:checked').forEach(cb => TempLists.dSelectedSNs[cb.value] = true); document.querySelectorAll('#dSNArea .sn-check').forEach(el => { const cb = el.querySelector('input[type="checkbox"]'); el.classList.toggle('selected', cb.checked); }); const checked = document.querySelectorAll('#dSNArea input[type="checkbox"]:checked').length; const msg = id('dMsg'); if (q > 0) { if (checked === q) { msg.style.color = 'var(--secondary)'; msg.textContent = '✅ Correcto'; } else if (checked > q) { msg.style.color = 'var(--danger)'; msg.textContent = `⚠️ ${checked}/${q}`; } else { msg.style.color = 'var(--warning)'; msg.textContent = `⏳ ${checked}/${q}`; } } }
+window.updateDSelection = updateDSelection;
+
+function addDotItem() { const mId = id('dMat').value, q = parseInt(id('dCant').value); if (!mId || !q) return alert('Seleccione material y cantidad'); const c = DB.cuadrillas.find(x => x.id === TempLists.currentCId), m = c.materiales.find(x => x.id === mId); let snes = []; if (m.snes.length > 0) { snes = Object.keys(TempLists.dSelectedSNs); if (snes.length !== q) return alert(`Seleccione exactamente ${q} SNs`); } const inList = TempLists.dotItems.find(x => x.id === mId)?.cant || 0; if (q + inList > m.cantidad) return alert('Stock insuficiente'); const exist = TempLists.dotItems.find(x => x.id === mId); if (exist) { exist.cant += q; exist.snes.push(...snes); } else TempLists.dotItems.push({ id: m.id, nom: m.nombre, cant: q, tipo: m.tipo, unidad: m.unidad, snes: snes }); TempLists.dSelectedSNs = {}; showDotSNBox(); renderDList(); }
+window.addDotItem = addDotItem;
+
+function renderDList() { const el = id('dList'); if (!el) return; el.innerHTML = TempLists.dotItems.map((it, i) => `<div class="item-list-item"><span>${it.nom} x${it.cant}${it.snes.length ? ' [SN:' + it.snes.join(', ') + ']' : ''}</span><button class="btn btn-danger btn-sm" onclick="TempLists.dotItems.splice(${i},1);renderDList();">✕</button></div>`).join('') || 'Vacío'; }
+window.renderDList = renderDList;
+
+function saveDotacionLogic() { const c = DB.cuadrillas.find(x => x.id === TempLists.currentCId), t = c.tecnicos.find(x => x.id === TempLists.currentTId); TempLists.dotItems.forEach(it => { const m = c.materiales.find(x => x.id === it.id); m.cantidad -= it.cant; it.snes.forEach(s => { const idx = m.snes.indexOf(s); if (idx > -1) m.snes.splice(idx, 1); }); t.dotacion.push({ ...it, fecha: new Date().toLocaleDateString() }); }); logMsg(`Dotación a ${t.nombre}`); save(); closeModal(); renderTab('cuads'); }
+
+// ENTREGAS
+function renderEntregas(c) { let es = DB.entregas; if (USER.role === 'bodega') es = es.filter(e => e.bodegaId === USER.id); es.sort((a, b) => new Date(b.reg) - new Date(a.reg)); c.innerHTML = `<div class="card"><div class="card-header"><h2>📤 Entregas</h2><button class="btn btn-success btn-sm" onclick="modalNewEntrega()">➕ Nueva</button></div>${es.length ? `<table><thead><tr><th>Fecha</th><th>Origen</th><th>Destino</th><th>Receptor</th><th>Items</th><th>Acción</th></tr></thead><tbody>${es.map(e => `<tr><td>${e.fecha}</td><td>${e.bodega}</td><td>${e.cuadrilla}</td><td>${e.receptor}</td><td>${e.mats.map(m => `${m.nom}(${m.cant})${m.snes.length ? ' [SN:' + m.snes.join(',') + ']' : ''}`).join(', ')}</td><td><button class="btn btn-danger btn-sm" onclick="delEntrega('${e.id}')">✕</button></td></tr>`).join('')}</tbody></table>` : '<p class="text-muted">Sin entregas</p>'}</div>`; }
+
+function modalNewEntrega() { const bs = getUserBodegas().map(b => `<option value="${b.id}">${b.nombre}</option>`).join(''); TempLists.eItems = []; TempLists.eSelectedSNs = {}; openModal('📤 Entrega - Cantidad + SN', `<div class="form-row"><div class="form-group"><label>Bodega Origen</label><select id="eBod" class="form-control" onchange="updateEOptions()">${bs}</select></div><div class="form-group"><label>Fecha</label><input id="eFecha" type="date" value="${new Date().toISOString().split('T')[0]}" class="form-control"></div></div><div class="form-group"><label>Cuadrilla</label><select id="eCuad" class="form-control" onchange="loadERec()"></select></div><div class="form-group"><label>Receptor</label><input id="eRec" readonly class="form-control"></div><hr style="margin:10px 0;"><div class="form-row"><div class="form-group"><label>Material</label><select id="eMat" class="form-control" onchange="showESNBox()"></select></div><div class="form-group"><label>Cantidad *</label><input id="eCant" type="number" value="1" min="1" class="form-control" onchange="showESNBox()"></div></div><div id="eSNArea"></div><div id="eMsg" class="text-muted text-sm"></div><button class="btn btn-outline btn-sm" onclick="addEItem()" style="margin-top:5px;">➕ Agregar</button><div id="eList" style="margin-top:10px;"></div>`, () => { if (!TempLists.eItems.length || !id('eBod').value || !id('eCuad').value) return alert('Faltan datos'); saveEntregaLogic(); }); updateEOptions(); TempLists.eSelectedSNs = {}; showESNBox(); }
+window.modalNewEntrega = modalNewEntrega;
+
+function updateEOptions() { const bId = id('eBod').value; id('eCuad').innerHTML = DB.cuadrillas.filter(c => c.bodegaId === bId).map(c => `<option value="${c.id}">${c.nombre}</option>`).join(''); loadERec(); const b = DB.bodegas.find(x => x.id === bId); id('eMat').innerHTML = b ? b.materiales.filter(m => m.cantidad > 0).map(m => `<option value="${m.id}">${m.nombre} (${m.cantidad})</option>`).join('') : '<option value="">-</option>'; showESNBox(); }
+window.updateEOptions = updateEOptions;
+
+function loadERec() { const c = DB.cuadrillas.find(x => x.id === id('eCuad').value); id('eRec').value = c ? c.receptor : ''; }
+window.loadERec = loadERec;
+
+function showESNBox() { const mId = id('eMat').value, box = id('eSNArea'), msg = id('eMsg'); if (!mId || !box) return; const bId = id('eBod').value, b = DB.bodegas.find(x => x.id === bId), m = b?.materiales.find(x => x.id === mId); if (!m) return; TempLists.eSelectedSNs = {}; const q = parseInt(id('eCant').value) || 1; if (m.snes.length > 0) { let html = `<div class="sn-select-area"><div class="flex" style="justify-content:space-between;margin-bottom:8px;"><strong>Seleccione ${q} SNs</strong><label style="font-size:0.85rem;cursor:pointer;"><input type="checkbox" onchange="toggleAllSN(this,'eSNChk')"> Todos</label></div>`; m.snes.forEach((sn, i) => { html += `<label class="sn-check"><input type="checkbox" id="eSNChk_${i}" value="${sn}" onchange="updateESelection(${q})"> <span class="sn-label">${sn}</span></label>`; }); html += `</div>`; box.innerHTML = html; msg.textContent = `Seleccione ${q} seriales.`; } else { box.innerHTML = `<div class="alert" style="background:#e8f5e9;color:#2e7d32;padding:8px;font-size:0.85rem;">Sin serial. Se entregarán ${q} unidades.</div>`; msg.textContent = ''; } }
+window.showESNBox = showESNBox;
+
+function updateESelection(q) { TempLists.eSelectedSNs = {}; document.querySelectorAll('#eSNArea input[type="checkbox"]:checked').forEach(cb => TempLists.eSelectedSNs[cb.value] = true); document.querySelectorAll('#eSNArea .sn-check').forEach(el => { const cb = el.querySelector('input[type="checkbox"]'); el.classList.toggle('selected', cb.checked); }); const checked = document.querySelectorAll('#eSNArea input[type="checkbox"]:checked').length; const msg = id('eMsg'); if (q > 0) { if (checked === q) { msg.style.color = 'var(--secondary)'; msg.textContent = '✅ Correcto'; } else if (checked > q) { msg.style.color = 'var(--danger)'; msg.textContent = `⚠️ ${checked}/${q}`; } else { msg.style.color = 'var(--warning)'; msg.textContent = `⏳ ${checked}/${q}`; } } }
+window.updateESelection = updateESelection;
+
+function addEItem() { const mId = id('eMat').value, q = parseInt(id('eCant').value); if (!mId || !q) return alert('Datos inválidos'); const bId = id('eBod').value, b = DB.bodegas.find(x => x.id === bId), m = b.materiales.find(x => x.id === mId); let snes = []; if (m.snes.length > 0) { snes = Object.keys(TempLists.eSelectedSNs); if (snes.length !== q) return alert(`Seleccione exactamente ${q} SNs`); } const inList = TempLists.eItems.find(x => x.id === mId)?.cant || 0; if (q + inList > m.cantidad) return alert('Stock insuficiente'); const exist = TempLists.eItems.find(x => x.id === mId); if (exist) { exist.cant += q; exist.snes.push(...snes); } else TempLists.eItems.push({ id: m.id, nom: m.nombre, cant: q, tipo: m.tipo, unidad: m.unidad, snes: snes }); TempLists.eSelectedSNs = {}; showESNBox(); renderEList(); }
+window.addEItem = addEItem;
+
+function renderEList() { const el = id('eList'); if (!el) return; el.innerHTML = TempLists.eItems.map((it, i) => `<div class="item-list-item"><span><strong>${it.nom}</strong> x${it.cant}${it.snes.length ? ' [SN:' + it.snes.join(', ') + ']' : ''}</span><button class="btn btn-danger btn-sm" onclick="TempLists.eItems.splice(${i},1);renderEList();">✕</button></div>`).join('') || 'Vacío'; }
+window.renderEList = renderEList;
+
+function saveEntregaLogic() { const b = DB.bodegas.find(x => x.id === id('eBod').value), c = DB.cuadrillas.find(x => x.id === id('eCuad').value); TempLists.eItems.forEach(it => { const m = b.materiales.find(x => x.id === it.id); m.cantidad -= it.cant; it.snes.forEach(s => { const idx = m.snes.indexOf(s); if (idx > -1) m.snes.splice(idx, 1); }); const ex = c.materiales.find(x => x.nombre === it.nom && x.tipo === it.tipo); if (ex) { ex.cantidad += it.cant; if (it.snes.length) ex.snes.push(...it.snes); } else c.materiales.push({ id: Date.now().toString(), nombre: it.nom, cantidad: it.cant, tipo: it.tipo, unidad: it.unidad, snes: it.snes, fecha: new Date().toLocaleDateString() }); }); DB.entregas.push({ id: Date.now().toString(), bodegaId: b.id, bodega: b.nombre, cuadrillaId: c.id, cuadrilla: c.nombre, receptor: c.receptor, fecha: id('eFecha').value, mats: [...TempLists.eItems], reg: new Date().toISOString() }); logMsg(`Entrega ${b.nombre} ➜ ${c.nombre}`); save(); closeModal(); renderTab('entregas'); }
+
+function delEntrega(eid) { if (!confirm('¿Eliminar? Stock NO se devuelve.')) return; DB.entregas = DB.entregas.filter(x => x.id !== eid); save(); renderTab('entregas'); }
+window.delEntrega = delEntrega;
+
+// INSTALACIONES
+function renderInst(c) { let is = DB.instalaciones; if (USER.role === 'bodega') { const cIds = getUserCuads().map(x => x.id); is = is.filter(x => cIds.includes(x.cuadrillaId)); } is.sort((a, b) => new Date(b.reg) - new Date(a.reg)); c.innerHTML = `<div class="card"><div class="card-header"><h2>🔧 Instalaciones</h2><button class="btn btn-success btn-sm" onclick="modalNewInst()">➕ Nueva</button></div>${is.length ? is.map(i => `<div style="border:1px solid #eee; padding:15px; border-radius:8px; margin-bottom:10px; background:white;"><div class="flex"><strong>🔧 ${i.cliente}</strong> <span class="badge badge-new">${i.fecha}</span></div><p class="text-muted">Cuadrilla: ${i.cuadrilla} | Tipo: ${i.tipo||'-'}</p><div style="margin-top:5px;">${i.mats.map(m => `<span class="sn-tag">${m.nom}: ${m.cant}${m.snes.length ? ' [SN:' + m.snes.join(',') + ']' : ''}</span>`).join(' ')}</div><button class="btn btn-danger btn-sm" style="margin-top:10px;" onclick="delInst('${i.id}')">✕</button></div>`).join('') : '<p class="text-muted">Sin instalaciones</p>'}</div>`; }
+
+function modalNewInst() { const cs = getUserCuads().map(c => `<option value="${c.id}">${c.nombre}</option>`).join(''); TempLists.iItems = []; openModal('Nueva Instalación', `<div class="form-row"><div class="form-group"><label>Cuadrilla</label><select id="iCuad" class="form-control" onchange="loadIOptions()">${cs}</select></div><div class="form-group"><label>Fecha</label><input id="iFecha" type="date" value="${new Date().toISOString().split('T')[0]}" class="form-control"></div></div><div class="form-group"><label>Cliente</label><input id="iCli" class="form-control"></div><div class="form-group"><label>Tipo</label><input id="iTipo" class="form-control"></div><hr style="margin:10px 0;"><div class="form-row"><div class="form-group"><label>Material</label><select id="iMat" class="form-control"></select></div><div class="form-group"><label>Cantidad</label><input id="iCant" type="number" value="1" min="1" class="form-control"></div></div><button class="btn btn-outline btn-sm" onclick="addIItem()">➕ Agregar</button><div id="iList" style="margin-top:10px;"></div>`, () => { if (!TempLists.iItems.length || !id('iCli').value) return alert('Faltan datos'); saveInstLogic(); }); loadIOptions(); }
+window.modalNewInst = modalNewInst;
+
+function loadIOptions() { const c = DB.cuadrillas.find(x => x.id === id('iCuad').value); id('iMat').innerHTML = c ? c.materiales.filter(m => m.cantidad > 0).map(m => `<option value="${m.id}">${m.nombre} (${m.cantidad})</option>`).join('') : ''; }
+window.loadIOptions = loadIOptions;
+
+function addIItem() { const c = DB.cuadrillas.find(x => x.id === id('iCuad').value), mId = id('iMat').value, q = parseInt(id('iCant').value); if (!mId || !q) return; const m = c.materiales.find(x => x.id === mId); const inList = TempLists.iItems.find(x => x.id === mId)?.cant || 0; if (q + inList > m.cantidad) return alert('Stock insuficiente'); const exist = TempLists.iItems.find(x => x.id === mId); if (exist) exist.cant += q; else TempLists.iItems.push({ id: m.id, nom: m.nombre, cant: q, tipo: m.tipo, unidad: m.unidad, snes: m.snes.slice(0, q) }); renderIList(); }
+window.addIItem = addIItem;
+
+function renderIList() { const el = id('iList'); if (!el) return; el.innerHTML = TempLists.iItems.map((it, i) => `<div class="item-list-item"><span>${it.nom} x${it.cant}</span><button class="btn btn-danger btn-sm" onclick="TempLists.iItems.splice(${i},1);renderIList();">✕</button></div>`).join('') || 'Vacío'; }
+window.renderIList = renderIList;
+
+function saveInstLogic() { const c = DB.cuadrillas.find(x => x.id === id('iCuad').value); TempLists.iItems.forEach(it => { const m = c.materiales.find(x => x.id === it.id); m.cantidad -= it.cant; it.snes.forEach(s => { const idx = m.snes.indexOf(s); if (idx > -1) m.snes.splice(idx, 1); }); }); DB.instalaciones.push({ id: Date.now().toString(), cuadrillaId: c.id, cuadrilla: c.nombre, fecha: id('iFecha').value, cliente: id('iCli').value, tipo: id('iTipo').value, mats: [...TempLists.iItems], reg: new Date().toISOString() }); logMsg(`Instalación en ${id('iCli').value}`); save(); closeModal(); renderTab('inst'); }
+
+function delInst(eid) { if (!confirm('¿Eliminar?')) return; DB.instalaciones = DB.instalaciones.filter(x => x.id !== eid); save(); renderTab('inst'); }
+window.delInst = delInst;
+
+// ADMIN
+function renderAdmin(c) { c.innerHTML = `<div class="card"><div class="card-header"><h2>⚙️ Administración</h2></div><div class="form-group"><label>Contraseña Admin Actual</label><input id="aOld" type="password" class="form-control" style="margin-bottom:5px;"><input id="aNew" type="password" placeholder="Nueva" class="form-control"></div><button class="btn btn-warning" onclick="changeAdminPass()">🔑 Actualizar</button><hr style="margin:20px 0;"><div class="flex"><button class="btn btn-primary" onclick="exportData()">📥 Exportar JSON</button><button class="btn btn-outline" onclick="document.getElementById('impFile').click()">📤 Importar JSON</button><input type="file" id="impFile" hidden accept=".json" onchange="importData(this)"><button class="btn btn-danger" onclick="hardReset()">🗑️ Reset</button><button class="btn btn-outline" onclick="changeFirebaseConfig()">🔧 Cambiar Firebase</button></div></div>`; }
+
+function changeAdminPass() { const old = id('aOld').value, nw = id('aNew').value; if (old !== DB.adminPass) return alert('Contraseña incorrecta'); if (!nw) return alert('Ingrese nueva'); DB.adminPass = nw; save(); alert('✅ Actualizada'); renderTab('admin'); }
+window.changeAdminPass = changeAdminPass;
+
+function exportData() { const b = new Blob([JSON.stringify(DB, null, 2)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = `backup_${new Date().toLocaleDateString()}.json`; a.click(); }
+window.exportData = exportData;
+
+function importData(inp) { const f = inp.files[0]; if (!f) return; const r = new FileReader(); r.onload = e => { try { const j = JSON.parse(e.target.result); DB = { ...DB, ...j }; if (!DB.deleteRequests) DB.deleteRequests = []; save().then(() => alert('✅ Importado. Recargando...')).then(() => location.reload()); } catch (err) { alert('❌ Error'); } }; r.readAsText(f); }
+window.importData = importData;
+
+// Expose TempLists globally
+window.TempLists = TempLists;
+
+</script>
+</body>
+</html>
