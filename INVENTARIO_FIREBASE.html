@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Control de Inventario Pro V9.1</title>
+    <title>Control de Inventario Pro V9.1 - Firebase</title>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
     <style>
         :root { --primary: #1a5276; --primary-light: #2980b9; --secondary: #27ae60; --danger: #e74c3c; --warning: #f39c12; --dark: #2c3e50; --light: #ecf0f1; --gray: #95a5a6; --white: #ffffff; --shadow: 0 4px 15px rgba(0,0,0,0.1); --radius: 10px; }
@@ -84,15 +84,58 @@
         .template-info code { background: #f1f5f9; padding: 2px 6px; border-radius: 3px; font-size: 0.85rem; }
 
         @media(max-width: 768px) { .header { flex-direction: column; gap: 10px; align-items: flex-start; } .nav { padding: 0; } .form-row { grid-template-columns: 1fr; } }
+
+        #firebase-setup { display:flex; justify-content:center; align-items:center; min-height:100vh; background:linear-gradient(135deg,#667eea,#764ba2); padding:20px; }
+        .setup-card { background:white; padding:40px; border-radius:16px; box-shadow:0 15px 40px rgba(0,0,0,0.2); width:100%; max-width:560px; }
+        .setup-steps { background:#f8f9fa; border-radius:8px; padding:15px; margin-bottom:20px; font-size:0.85rem; }
+        .setup-steps ol { padding-left:18px; line-height:2; }
+        .setup-steps a { color:var(--primary-light); }
+        .setup-steps code { background:#e9ecef; padding:2px 5px; border-radius:3px; font-size:0.8rem; }
+        .firebase-fields { display:grid; gap:10px; }
+        .firebase-fields input { width:100%; padding:9px; border:2px solid #e2e8f0; border-radius:6px; font-size:0.85rem; }
+        .firebase-fields input:focus { border-color:var(--primary); outline:none; }
+        #setupMsg { margin-top:10px; font-size:0.85rem; min-height:20px; }
+        #loading-screen { display:none; justify-content:center; align-items:center; height:100vh; background:#f0f2f5; flex-direction:column; gap:15px; }
+        .spinner { width:48px; height:48px; border:5px solid #e2e8f0; border-top-color:var(--primary); border-radius:50%; animation:spin 0.8s linear infinite; }
+        @keyframes spin { to { transform:rotate(360deg); } }
+        #syncStatus { position:fixed; bottom:15px; right:15px; background:white; border-radius:8px; padding:8px 14px; font-size:0.8rem; box-shadow:0 2px 10px rgba(0,0,0,0.15); display:flex; align-items:center; gap:6px; z-index:999; }
+        .sync-dot { width:8px; height:8px; border-radius:50%; }
+        .sync-ok { background:var(--secondary); } .sync-saving { background:var(--warning); animation:pulse 1s infinite; } .sync-err { background:var(--danger); }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
     </style>
 </head>
 <body>
 
-<div id="login-screen">
+<div id="firebase-setup">
+    <div class="setup-card">
+        <div style="font-size:2.5rem;text-align:center;margin-bottom:10px;">🔥</div>
+        <h2 style="text-align:center;color:var(--primary);">Configurar Firebase</h2>
+        <p style="text-align:center;color:var(--gray);margin-bottom:20px;font-size:0.9rem;">Conecta tu base de datos en la nube.</p>
+        <div class="setup-steps"><strong>Pasos:</strong><ol>
+            <li>Ve a <a href="https://console.firebase.google.com" target="_blank">console.firebase.google.com</a></li>
+            <li>Tu proyecto → <strong>Firestore Database</strong> → Crear base de datos</li>
+            <li><strong>Configuración</strong> → <strong>Tus aplicaciones</strong> → App Web</li>
+            <li>Copia <code>apiKey</code>, <code>projectId</code> y <code>appId</code></li>
+            <li>En Firestore → <strong>Reglas</strong>: <code>allow read, write: if true;</code></li>
+        </ol></div>
+        <div class="firebase-fields">
+            <input id="fb_apiKey" placeholder="apiKey (AIza...)">
+            <input id="fb_projectId" placeholder="projectId (mi-proyecto-12345)">
+            <input id="fb_appId" placeholder="appId (1:123...:web:abc...)">
+        </div>
+        <div id="setupMsg"></div>
+        <button class="btn btn-primary" style="width:100%;margin-top:15px;" onclick="connectFirebase()">🔌 Conectar y Guardar</button>
+        <p style="text-align:center;margin-top:10px;font-size:0.8rem;color:var(--gray);">Tus credenciales se guardan en este navegador.</p>
+    </div>
+</div>
+<div id="loading-screen"><div class="spinner"></div><p style="color:var(--gray);">Conectando con Firebase...</p></div>
+<div id="syncStatus" style="display:none;"><div class="sync-dot sync-ok" id="syncDot"></div><span id="syncText">Sincronizado</span></div>
+
+<div id="login-screen" style="display:none;">
     <div class="login-card">
         <div class="text-center" style="font-size:3rem; margin-bottom:10px;">📦</div>
         <h2 class="text-center" style="color:var(--primary); margin-bottom:5px;">Inventario Pro</h2>
-        <p class="text-center text-muted" style="margin-bottom:20px;">Sistema de Gestión V9.1</p>
+        <p class="text-center text-muted" style="margin-bottom:20px;">Sistema de Gestión V9.1 ☁️ Firebase</p>
         <div class="login-tabs">
             <div class="login-tab active" onclick="switchLogin('admin')">🔑 Admin</div>
             <div class="login-tab" onclick="switchLogin('bodega')">🏭 Jefe Bodega</div>
@@ -162,34 +205,17 @@ const UNIDADES = [
 function getUnidadesOptions() { return UNIDADES.map(u => `<option value="${u.val}">${u.label}</option>`).join(''); }
 
 function init() {
-    try {
-        const raw = localStorage.getItem(DB_KEY);
-        if(raw) {
-            const parsed = JSON.parse(raw);
-            DB = { ...DB, ...parsed };
-        }
-        if(!DB.deleteRequests) DB.deleteRequests = [];
-        if(!DB.recuperados) DB.recuperados = [];
-        if(!DB.clientes) DB.clientes = [];
-        const fixSn = (mats) => mats.forEach(m => { if(!Array.isArray(m.snes)) m.snes = []; });
-        DB.bodegas.forEach(b => fixSn(b.materiales));
-        DB.cuadrillas.forEach(c => fixSn(c.materiales));
-        DB.recuperados.forEach(r => fixSn(r.snes || []));
-        DB.deleteRequests.forEach(r => fixSn(r.snes || []));
-        DB.clientes.forEach(c => { if(c.equipos) c.equipos.forEach(e => fixSn([e])); });
-        save();
-    } catch(e) {
-        console.warn("Datos corruptos, reiniciando...", e);
-        localStorage.removeItem(DB_KEY);
-        DB = { ...DB, recuperados:[], deleteRequests:[], clientes:[] };
-    }
+    // Firebase will handle data loading
     renderLoginBodegas();
-    setInterval(()=>{ document.getElementById('clock').textContent = new Date().toLocaleTimeString(); }, 1000);
+    setInterval(()=>{ const c=document.getElementById('clock'); if(c) c.textContent = new Date().toLocaleTimeString(); }, 1000);
 }
-function save() { try { localStorage.setItem(DB_KEY, JSON.stringify(DB)); } catch(e) { alert("Error guardando."); } }
+function save() {
+    if(window._fbSave) { window._fbSave(); return; }
+    try { localStorage.setItem('invPro_V9_backup', JSON.stringify(DB)); } catch(e) {}
+}
 function logMsg(msg) { DB.logs.unshift({ msg, t: new Date().toISOString() }); if(DB.logs.length > 60) DB.logs.pop(); save(); }
 function id(x) { return document.getElementById(x); }
-function hardReset() { if(!confirm('⚠️ BORRAR TODOS LOS DATOS?')) return; localStorage.removeItem(DB_KEY); location.reload(); }
+function hardReset() { if(!confirm('⚠️ BORRAR TODOS LOS DATOS EN LA NUBE?')) return; DB={bodegas:[],cuadrillas:[],entregas:[],instalaciones:[],logs:[],transfers:[],recuperados:[],deleteRequests:[],clientes:[],adminPass:'admin123'}; save(); setTimeout(()=>location.reload(),800); }
 
 function switchLogin(type) {
     document.querySelectorAll('.login-tab').forEach(t => t.classList.remove('active'));
@@ -632,9 +658,95 @@ function delInst(eid) { if(!confirm('¿Eliminar?')) return; DB.instalaciones=DB.
 function renderAdmin(c) { c.innerHTML=`<div class="card"><div class="card-header"><h2>⚙️ Administración</h2></div><div class="form-group"><label>Contraseña Admin Actual</label><input id="aOld" type="password" class="form-control" style="margin-bottom:5px;"><input id="aNew" type="password" placeholder="Nueva" class="form-control"></div><button class="btn btn-warning" onclick="changeAdminPass()">🔑 Actualizar</button><hr style="margin:20px 0;"><div class="flex"><button class="btn btn-primary" onclick="exportData()">📥 Exportar</button><button class="btn btn-outline" onclick="document.getElementById('impFile').click()">📤 Importar</button><input type="file" id="impFile" hidden accept=".json" onchange="importData(this)"><button class="btn btn-danger" onclick="hardReset()">🗑️ Reset</button></div></div>`; }
 function changeAdminPass() { const old=id('aOld').value, nw=id('aNew').value; if(old!==DB.adminPass) return alert('Incorrecta'); if(!nw) return alert('Ingrese nueva'); DB.adminPass=nw; save(); alert('✅ Actualizada'); renderTab('admin'); }
 function exportData() { const b=new Blob([JSON.stringify(DB,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=`backup_${new Date().toLocaleDateString()}.json`; a.click(); }
-function importData(inp) { const f=inp.files[0]; if(!f) return; const r=new FileReader(); r.onload=e=>{try{const j=JSON.parse(e.target.result);DB={...DB,...j};if(!DB.deleteRequests)DB.deleteRequests=[];if(!DB.clientes)DB.clientes=[];save();alert('✅ Importado');location.reload();}catch(err){alert('❌ Error');}};r.readAsText(f); }
+function importData(inp) { const f=inp.files[0]; if(!f) return; const r=new FileReader(); r.onload=e=>{try{const j=JSON.parse(e.target.result);DB={...DB,...j};if(!DB.deleteRequests)DB.deleteRequests=[];if(!DB.clientes)DB.clientes=[];save();setTimeout(()=>{alert('✅ Importado');location.reload();},800);}catch(err){alert('❌ Error');}};r.readAsText(f); }
 
 init();
+</script>
+
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+const FB_KEY = 'invPro_firebaseConfig';
+const DB_DOC = 'inventario/datos';
+let fsDB = null, saveTO = null;
+
+function showSync(state, text) {
+    const el=document.getElementById('syncStatus'), dot=document.getElementById('syncDot'), txt=document.getElementById('syncText');
+    el.style.display='flex'; dot.className='sync-dot sync-'+state; txt.textContent=text;
+}
+
+function fixDB() {
+    if(!DB.deleteRequests) DB.deleteRequests=[];
+    if(!DB.recuperados) DB.recuperados=[];
+    if(!DB.clientes) DB.clientes=[];
+    const fx=m=>{if(!Array.isArray(m.snes))m.snes=[];};
+    DB.bodegas.forEach(b=>b.materiales.forEach(fx));
+    DB.cuadrillas.forEach(c=>c.materiales.forEach(fx));
+    DB.clientes.forEach(c=>{if(c.equipos)c.equipos.forEach(e=>fx(e));});
+}
+
+window._fbSave = function() {
+    showSync('saving','Guardando...');
+    clearTimeout(saveTO);
+    saveTO = setTimeout(async ()=>{
+        try {
+            await setDoc(doc(fsDB, DB_DOC), JSON.parse(JSON.stringify(DB)));
+            showSync('ok','Guardado ✓');
+        } catch(e) { showSync('err','Error al guardar'); }
+    }, 600);
+};
+
+window.connectFirebase = async function() {
+    const apiKey=document.getElementById('fb_apiKey').value.trim();
+    const projectId=document.getElementById('fb_projectId').value.trim();
+    const appId=document.getElementById('fb_appId').value.trim();
+    const msg=document.getElementById('setupMsg');
+    if(!apiKey||!projectId||!appId){msg.style.color='var(--danger)';msg.textContent='⚠️ Completa todos los campos.';return;}
+    msg.style.color='var(--warning)';msg.textContent='⏳ Conectando...';
+    try {
+        const config={apiKey,projectId,appId,authDomain:`${projectId}.firebaseapp.com`,storageBucket:`${projectId}.appspot.com`};
+        await startFirebase(config);
+        localStorage.setItem(FB_KEY, JSON.stringify(config));
+    } catch(e) { msg.style.color='var(--danger)'; msg.textContent='❌ Error: '+e.message; }
+};
+
+async function startFirebase(config) {
+    const app = initializeApp(config, 'inv_'+Date.now());
+    fsDB = getFirestore(app);
+    const ref = doc(fsDB, DB_DOC);
+
+    document.getElementById('firebase-setup').style.display='none';
+    document.getElementById('loading-screen').style.display='flex';
+
+    const snap = await getDoc(ref);
+    if(snap.exists()) { Object.assign(DB, snap.data()); fixDB(); }
+
+    document.getElementById('loading-screen').style.display='none';
+    document.getElementById('login-screen').style.display='flex';
+    showSync('ok','Sincronizado');
+    renderLoginBodegas();
+
+    onSnapshot(ref, s=>{
+        if(s.exists()){Object.assign(DB,s.data());fixDB();showSync('ok','Sincronizado');
+        renderLoginBodegas();if(window.USER)renderTab(document.querySelector('.nav-btn.active')?.dataset?.tab||'dash');}
+    }, ()=>showSync('err','Sin conexión'));
+}
+
+// Auto-connect if config saved
+const saved = (()=>{try{return JSON.parse(localStorage.getItem(FB_KEY));}catch{return null;}})();
+if(saved) {
+    document.getElementById('firebase-setup').style.display='none';
+    startFirebase(saved).catch(e=>{
+        document.getElementById('firebase-setup').style.display='flex';
+        document.getElementById('loading-screen').style.display='none';
+        const msg=document.getElementById('setupMsg');
+        msg.style.color='var(--danger)';msg.textContent='❌ Error con config guardada. Reverifica tus credenciales.';
+        if(saved.apiKey) document.getElementById('fb_apiKey').value=saved.apiKey;
+        if(saved.projectId) document.getElementById('fb_projectId').value=saved.projectId;
+        if(saved.appId) document.getElementById('fb_appId').value=saved.appId;
+    });
+}
 </script>
 </body>
 </html>
