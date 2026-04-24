@@ -1,0 +1,1413 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>INVENTARIO PTOVISION</title>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <style>
+        :root { --primary: #1a5276; --primary-light: #2980b9; --secondary: #27ae60; --danger: #e74c3c; --warning: #f39c12; --dark: #2c3e50; --light: #ecf0f1; --gray: #95a5a6; --white: #ffffff; --shadow: 0 4px 15px rgba(0,0,0,0.1); --radius: 10px; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f0f2f5; color: var(--dark); min-height: 100vh; }
+        .hidden { display: none !important; } .text-center { text-align: center; } .text-muted { color: var(--gray); font-size: 0.9rem; } .flex { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .btn { padding: 10px 16px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; transition: 0.2s; display: inline-flex; align-items: center; gap: 5px; font-size: 0.9rem; }
+        .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+        .btn-primary { background: var(--primary); color: white; } .btn-success { background: var(--secondary); color: white; } .btn-danger { background: var(--danger); color: white; } .btn-warning { background: var(--warning); color: white; } .btn-outline { border: 2px solid var(--primary); color: var(--primary); background: transparent; } .btn-sm { padding: 6px 10px; font-size: 0.8rem; }
+        
+        #login-screen { display: flex; justify-content: center; align-items: center; height: 100vh; background: linear-gradient(135deg, #667eea, #764ba2); }
+        .login-card { background: white; padding: 40px; border-radius: 16px; box-shadow: 0 15px 40px rgba(0,0,0,0.2); width: 90%; max-width: 420px; }
+        .login-tabs { display: flex; margin: 20px 0; border-bottom: 2px solid #eee; }
+        .login-tab { flex: 1; padding: 10px; text-align: center; cursor: pointer; font-weight: bold; color: var(--gray); border-bottom: 3px solid transparent; transition: 0.2s; }
+        .login-tab.active { color: var(--primary); border-bottom-color: var(--primary); background: #f8f9fa; }
+        .bodega-opt { padding: 12px; border: 2px solid #eee; border-radius: 8px; margin-bottom: 8px; cursor: pointer; transition: 0.2s; }
+        .bodega-opt:hover { border-color: var(--primary-light); background: #f0f4f8; } .bodega-opt.selected { border-color: var(--primary); background: #e3f2fd; }
+        
+        .header { background: var(--dark); color: white; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .nav { display: flex; background: white; overflow-x: auto; padding: 0 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+        .nav-btn { padding: 14px 18px; border: none; background: none; cursor: pointer; font-weight: 600; color: var(--gray); border-bottom: 3px solid transparent; white-space: nowrap; }
+        .nav-btn.active { color: var(--primary); border-bottom-color: var(--primary); background: #f8f9fa; }
+        .container { max-width: 1400px; margin: 20px auto; padding: 0 15px; }
+        
+        .card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px; margin-bottom: 20px; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 15px; flex-wrap: wrap; gap: 10px; }
+        .card-header h2 { font-size: 1.3rem; color: var(--primary); }
+        .table-wrap { overflow-x: auto; border: 1px solid #eee; border-radius: 8px; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+        th { background: #f8f9fa; padding: 10px; text-align: left; color: var(--dark); border-bottom: 2px solid #eee; white-space: nowrap; }
+        td { padding: 10px; border-bottom: 1px solid #eee; } tr:hover { background: #f8fafc; }
+        
+        .badge { padding: 3px 8px; border-radius: 10px; font-size: 0.7rem; font-weight: bold; display: inline-block; }
+        .badge-new { background: #d4edda; color: #155724; } .badge-used { background: #fff3cd; color: #856404; }
+        .badge-pend { background: #cce5ff; color: #004085; } .badge-ok { background: #d4edda; color: #155724; } .badge-rej { background: #f8d7da; color: #721c24; }
+        .sn-tag { font-family: monospace; background: #eee; padding: 2px 5px; border-radius: 3px; font-size: 0.72rem; margin: 2px; display: inline-block; }
+        
+        .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+        .form-group { margin-bottom: 12px; } .form-group label { display: block; margin-bottom: 4px; font-weight: 600; font-size: 0.88rem; }
+        .form-control { width: 100%; padding: 9px; border: 2px solid #e2e8f0; border-radius: 6px; font-size: 0.92rem; transition: 0.2s; }
+        .form-control:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 2px rgba(41,128,185,0.15); }
+        textarea.form-control { resize: vertical; min-height: 70px; }
+        
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; padding: 15px; }
+        .modal-overlay.show { display: flex; }
+        .modal { background: white; border-radius: 12px; width: 100%; max-width: 850px; max-height: 92vh; overflow-y: auto; animation: popIn 0.2s ease; }
+        @keyframes popIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        .modal-header { padding: 18px 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+        .modal-body { padding: 20px; }
+        .modal-footer { padding: 12px 20px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 10px; }
+        .close-btn { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--gray); }
+        .item-list-item { display: flex; justify-content: space-between; align-items: center; background: #f8f9fa; padding: 8px 10px; border-radius: 6px; margin-bottom: 5px; border: 1px solid #e9ecef; font-size: 0.9rem; }
+
+        .sn-select-area { background: #f1f5f9; border: 2px solid #cbd5e1; border-radius: 8px; padding: 12px; margin: 10px 0; max-height: 200px; overflow-y: auto; }
+        .sn-check { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; margin-bottom: 3px; background: white; border: 1px solid #e2e8f0; cursor: pointer; }
+        .sn-check:hover { background: #e3f2fd; } .sn-check input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
+        .sn-check.selected { background: #dbeafe; border-color: var(--primary); }
+        .sn-check .sn-label { font-family: monospace; font-size: 0.85rem; font-weight: 600; }
+
+        .tree-node { margin-left: 20px; border-left: 2px solid #eee; padding-left: 15px; margin-top: 10px; }
+        .tech-card { background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+        .tech-card h4 { color: var(--primary); margin-bottom: 5px; }
+        .info-row { display: flex; justify-content: space-between; font-size: 0.85rem; padding: 4px 0; border-bottom: 1px dashed #e2e8f0; }
+
+        /* ESTILOS ESPECÍFICOS PARA EXCEL */
+        .excel-drop-zone { border: 2px dashed var(--primary-light); border-radius: 8px; padding: 30px; text-align: center; cursor: pointer; transition: all 0.3s; background: #f0f7ff; margin: 15px 0; }
+        .excel-drop-zone:hover, .excel-drop-zone.dragover { background: #e3f2fd; border-color: var(--primary); }
+        .excel-drop-zone .icon { font-size: 2.5rem; margin-bottom: 10px; }
+        .excel-preview-table { max-height: 300px; overflow-y: auto; margin: 15px 0; border: 1px solid #e2e8f0; border-radius: 6px; }
+        .excel-preview-table table { width: 100%; }
+        .excel-preview-table th { position: sticky; top: 0; background: var(--primary); color: white; z-index: 1; }
+        .excel-preview-table td { padding: 8px 10px; font-size: 0.85rem; }
+        .excel-row-ok { background: #f0fff4; }
+        .excel-row-err { background: #fff5f5; }
+        .excel-error { color: var(--danger); font-size: 0.8rem; }
+        .excel-success { color: var(--secondary); font-weight: 600; }
+        .template-info { background: #fffbeb; border: 1px solid #f59e0b; border-radius: 6px; padding: 12px; margin: 15px 0; font-size: 0.9rem; }
+        .template-info code { background: #f1f5f9; padding: 2px 6px; border-radius: 3px; font-size: 0.85rem; }
+
+        @media(max-width: 768px) { .header { flex-direction: column; gap: 10px; align-items: flex-start; } .nav { padding: 0; } .form-row { grid-template-columns: 1fr; } }
+
+        #firebase-setup { display:flex; justify-content:center; align-items:center; min-height:100vh; background:linear-gradient(135deg,#667eea,#764ba2); padding:20px; }
+        .setup-card { background:white; padding:40px; border-radius:16px; box-shadow:0 15px 40px rgba(0,0,0,0.2); width:100%; max-width:560px; }
+        .setup-steps { background:#f8f9fa; border-radius:8px; padding:15px; margin-bottom:20px; font-size:0.85rem; }
+        .setup-steps ol { padding-left:18px; line-height:2; }
+        .setup-steps a { color:var(--primary-light); }
+        .setup-steps code { background:#e9ecef; padding:2px 5px; border-radius:3px; font-size:0.8rem; }
+        .firebase-fields { display:grid; gap:10px; }
+        .firebase-fields input { width:100%; padding:9px; border:2px solid #e2e8f0; border-radius:6px; font-size:0.85rem; }
+        .firebase-fields input:focus { border-color:var(--primary); outline:none; }
+        #setupMsg { margin-top:10px; font-size:0.85rem; min-height:20px; }
+        #loading-screen { display:none; justify-content:center; align-items:center; height:100vh; background:#f0f2f5; flex-direction:column; gap:15px; }
+        .spinner { width:48px; height:48px; border:5px solid #e2e8f0; border-top-color:var(--primary); border-radius:50%; animation:spin 0.8s linear infinite; }
+        @keyframes spin { to { transform:rotate(360deg); } }
+        #syncStatus { position:fixed; bottom:15px; right:15px; background:white; border-radius:8px; padding:8px 14px; font-size:0.8rem; box-shadow:0 2px 10px rgba(0,0,0,0.15); display:flex; align-items:center; gap:6px; z-index:999; }
+        .sync-dot { width:8px; height:8px; border-radius:50%; }
+        .sync-ok { background:var(--secondary); } .sync-saving { background:var(--warning); animation:pulse 1s infinite; } .sync-err { background:var(--danger); }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    </style>
+</head>
+<body>
+
+<div id="firebase-setup">
+    <div class="setup-card">
+        <div style="font-size:2.5rem;text-align:center;margin-bottom:10px;">🔥</div>
+        <h2 style="text-align:center;color:var(--primary);">Configurar Firebase</h2>
+        <p style="text-align:center;color:var(--gray);margin-bottom:20px;font-size:0.9rem;">Conecta tu base de datos en la nube.</p>
+        <div class="setup-steps"><strong>Pasos:</strong><ol>
+            <li>Ve a <a href="https://console.firebase.google.com" target="_blank">console.firebase.google.com</a></li>
+            <li>Tu proyecto → <strong>Firestore Database</strong> → Crear base de datos</li>
+            <li><strong>Configuración</strong> → <strong>Tus aplicaciones</strong> → App Web</li>
+            <li>Copia <code>apiKey</code>, <code>projectId</code> y <code>appId</code></li>
+            <li>En Firestore → <strong>Reglas</strong>: <code>allow read, write: if true;</code></li>
+        </ol></div>
+        <div class="firebase-fields">
+            <input id="fb_apiKey" placeholder="apiKey (AIza...)">
+            <input id="fb_projectId" placeholder="projectId (mi-proyecto-12345)">
+            <input id="fb_appId" placeholder="appId (1:123...:web:abc...)">
+        </div>
+        <div id="setupMsg"></div>
+        <button class="btn btn-primary" style="width:100%;margin-top:15px;" onclick="connectFirebase()">🔌 Conectar y Guardar</button>
+        <p style="text-align:center;margin-top:10px;font-size:0.8rem;color:var(--gray);">Tus credenciales se guardan en este navegador.</p>
+    </div>
+</div>
+<div id="loading-screen"><div class="spinner"></div><p style="color:var(--gray);">Conectando con Firebase...</p></div>
+<div id="syncStatus" style="display:none;"><div class="sync-dot sync-ok" id="syncDot"></div><span id="syncText">Sincronizado</span></div>
+
+<div id="login-screen" style="display:none;">
+    <div class="login-card">
+        <div class="text-center" style="font-size:3rem; margin-bottom:10px;">📦</div>
+        <h2 class="text-center" style="color:var(--primary); margin-bottom:5px;">INVENTARIO PTOVISION</h2>
+        <p class="text-center text-muted" style="margin-bottom:20px;">Sistema de Gestión V9.1 ☁️ Firebase</p>
+        <div class="login-tabs">
+            <div class="login-tab active" onclick="switchLogin('admin')">🔑 Admin</div>
+            <div class="login-tab" onclick="switchLogin('bodega')">🏭 Jefe Bodega</div>
+        </div>
+        <div id="login-admin" class="login-section">
+            <div class="form-group"><label>Contraseña Admin</label><input type="password" id="passAdmin" class="form-control" placeholder="admin123"></div>
+            <button class="btn btn-primary" style="width:100%" onclick="doLogin('admin')">Ingresar</button>
+        </div>
+        <div id="login-bodega" class="login-section hidden">
+            <div class="form-group"><label>Seleccione Bodega</label><div id="loginBodegaList"></div></div>
+            <div class="form-group"><label>Contraseña</label><input type="password" id="passBodega" class="form-control"></div>
+            <button class="btn btn-primary" style="width:100%" onclick="doLogin('bodega')">Ingresar</button>
+            <div style="margin-top:15px; text-align:center;"><button class="btn btn-outline btn-sm" onclick="hardReset()">🗑️ Resetear Sistema</button></div>
+        </div>
+    </div>
+</div>
+
+<div id="app" class="hidden">
+    <header class="header">
+        <div class="flex">
+            <h1 style="font-size:1.4rem;">📦 INVENTARIO PTOVISION</h1>
+            <span id="userBadge" class="badge badge-new" style="font-size:0.9rem;"></span>
+            <button class="btn btn-outline btn-sm bodega-only" onclick="modalChangeBodegaPass()">🔑 Cambiar Contraseña</button>
+        </div>
+        <div class="flex">
+            <span id="clock" class="text-muted" style="color:#ccc;"></span>
+            <button class="btn btn-danger btn-sm" onclick="doLogout()">🚪 Salir</button>
+        </div>
+    </header>
+    <nav class="nav" id="navBar">
+        <button class="nav-btn active" data-tab="dash">📊 Dashboard</button>
+        <button class="nav-btn" data-tab="bodegas">🏭 Bodegas</button>
+        <button class="nav-btn" data-tab="clientes">👥 Clientes Instalados</button>
+        <button class="nav-btn admin-only" data-tab="vista_global">🌍 Vista Global</button>
+        <button class="nav-btn bodega-only" data-tab="inv_global">🔍 Inventario Bodegas</button>
+        <button class="nav-btn" data-tab="transfer">🔄 Transferencias</button>
+        <button class="nav-btn" data-tab="recuperados">♻️ Recuperados</button>
+        <button class="nav-btn" data-tab="cuads">👷 Cuadrillas</button>
+        <button class="nav-btn" data-tab="entregas">📤 Entregas</button>
+        <button class="nav-btn" data-tab="inst">🔧 Instalaciones</button>
+        <button class="nav-btn admin-only" data-tab="delete_req" style="color:var(--danger);">🗑️ Solicitudes</button>
+        <button class="nav-btn admin-only" data-tab="admin" style="color:var(--warning);">⚙️ Admin</button>
+    </nav>
+    <div class="container"><div id="main-content"></div></div>
+</div>
+
+<div id="modal" class="modal-overlay">
+    <div class="modal">
+        <div class="modal-header"><h3 id="mTitle">Título</h3><button class="close-btn" onclick="closeModal()">&times;</button></div>
+        <div class="modal-body" id="mBody"></div>
+        <div class="modal-footer" id="mFooter"></div>
+    </div>
+</div>
+
+<script>
+const DB_KEY = 'invPro_V9_Seguro';
+let DB = { bodegas:[], cuadrillas:[], entregas:[], instalaciones:[], logs:[], transfers:[], recuperados:[], deleteRequests:[], clientes:[], adminPass:'admin123' };
+let USER = null, selBodegaLogin = null, TempLists = {};
+
+const UNIDADES = [
+    {val:'Und', label:'Unidad'},{val:'Caja', label:'Caja'},{val:'m', label:'Metro'},{val:'Kg', label:'Kilogramo'},
+    {val:'L', label:'Litro'},{val:'Par', label:'Par'},{val:'Juego', label:'Juego'},{val:'Set', label:'Set'},
+    {val:'Rollo', label:'Rollo'},{val:'Bobina', label:'Bobina'},{val:'Gal', label:'Galón'},{val:'Bolsa', label:'Bolsa'},
+    {val:'Pqt', label:'Paquete'},{val:'Doc', label:'Docena'},{val:'ml', label:'Mililitro'},{val:'g', label:'Gramo'},
+    {val:'cm', label:'Centímetro'},{val:'Pieza', label:'Pieza'},{val:'Kit', label:'Kit'}
+];
+function getUnidadesOptions() { return UNIDADES.map(u => `<option value="${u.val}">${u.label}</option>`).join(''); }
+
+// ─── SISTEMA DE PERMISOS ─────────────────────────────────────────────────────
+const MODULOS_PERMISOS = [
+    { key:'bodegas',    label:'🏭 Bodegas',       acciones:['ver','agregar_material','editar','eliminar','importar_excel','exportar_excel'] },
+    { key:'transfer',   label:'🔄 Transferencias', acciones:['ver','enviar','aceptar_rechazar'] },
+    { key:'recuperados',label:'♻️ Recuperados',    acciones:['ver','registrar','integrar'] },
+    { key:'cuads',      label:'👷 Cuadrillas',     acciones:['ver','agregar_cuadrilla','editar_cuadrilla','agregar_tecnico','editar_tecnico','dotar','dotacion_directa','devolver_material'] },
+    { key:'entregas',   label:'📤 Entregas',       acciones:['ver','crear','eliminar'] },
+    { key:'inst',       label:'🔧 Instalaciones',  acciones:['ver','crear','eliminar'] },
+    { key:'clientes',   label:'👥 Clientes',       acciones:['ver','agregar','editar','eliminar','importar_excel'] },
+    { key:'inv_global', label:'🔍 Inv. Global',    acciones:['ver'] },
+];
+
+const ACCION_LABELS = {
+    ver:'👁️ Ver', agregar_material:'➕ Agregar Material', editar:'✏️ Editar', eliminar:'🗑️ Eliminar',
+    importar_excel:'📤 Importar Excel', exportar_excel:'📥 Exportar Excel', enviar:'📤 Enviar',
+    aceptar_rechazar:'✅ Aceptar/Rechazar', registrar:'➕ Registrar', integrar:'✅ Integrar',
+    agregar_cuadrilla:'➕ Nueva Cuadrilla', editar_cuadrilla:'✏️ Editar Cuadrilla',
+    agregar_tecnico:'👤 Agregar Técnico', editar_tecnico:'✏️ Editar Técnico',
+    dotar:'🎒 Dotar', dotacion_directa:'📦 Dotación Directa', devolver_material:'↩️ Devolver Material',
+    crear:'➕ Crear', agregar:'➕ Agregar',
+};
+
+function getDefaultPermisos() {
+    const p = {};
+    MODULOS_PERMISOS.forEach(m => {
+        p[m.key] = {};
+        m.acciones.forEach(a => p[m.key][a] = true);
+    });
+    return p;
+}
+
+function getBodegaPermisos(bId) {
+    const b = DB.bodegas.find(x=>x.id===bId);
+    if(!b || !b.permisos) return getDefaultPermisos();
+    // Merge with defaults to avoid missing keys
+    const defaults = getDefaultPermisos();
+    const merged = {};
+    MODULOS_PERMISOS.forEach(m => {
+        merged[m.key] = { ...defaults[m.key], ...(b.permisos[m.key]||{}) };
+    });
+    return merged;
+}
+
+function canDo(modulo, accion) {
+    if(USER.role === 'admin') return true;
+    const perms = getBodegaPermisos(USER.id);
+    return perms[modulo]?.[accion] !== false;
+}
+
+function canSee(modulo) {
+    return canDo(modulo, 'ver');
+}
+
+function init() {
+    // Firebase will handle data loading
+    renderLoginBodegas();
+    setInterval(()=>{ const c=document.getElementById('clock'); if(c) c.textContent = new Date().toLocaleTimeString(); }, 1000);
+}
+function save() {
+    if(window._fbSave) { window._fbSave(); return; }
+    try { localStorage.setItem('invPro_V9_backup', JSON.stringify(DB)); } catch(e) {}
+}
+function logMsg(msg) { DB.logs.unshift({ msg, t: new Date().toISOString() }); if(DB.logs.length > 60) DB.logs.pop(); save(); }
+function id(x) { return document.getElementById(x); }
+function hardReset() { if(!confirm('⚠️ BORRAR TODOS LOS DATOS EN LA NUBE?')) return; DB={bodegas:[],cuadrillas:[],entregas:[],instalaciones:[],logs:[],transfers:[],recuperados:[],deleteRequests:[],clientes:[],adminPass:'admin123'}; save(); setTimeout(()=>location.reload(),800); }
+
+function switchLogin(type) {
+    document.querySelectorAll('.login-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.login-section').forEach(s => s.classList.add('hidden'));
+    if(type==='admin') { document.querySelectorAll('.login-tab')[0].classList.add('active'); id('login-admin').classList.remove('hidden'); }
+    else { document.querySelectorAll('.login-tab')[1].classList.add('active'); id('login-bodega').classList.remove('hidden'); renderLoginBodegas(); }
+}
+function renderLoginBodegas() { const list=id('loginBodegaList'); if(!list) return; list.innerHTML=DB.bodegas.length?DB.bodegas.map(b=>`<div class="bodega-opt" onclick="selLoginBodega(this,'${b.id}')">🏭 <strong>${b.nombre}</strong><br><small class="text-muted">Jefe: ${b.responsable||'-'}</small></div>`).join(''):'<p class="text-muted text-center">Sin bodegas</p>'; }
+function selLoginBodega(el,bId){ document.querySelectorAll('.bodega-opt').forEach(e=>e.classList.remove('selected')); el.classList.add('selected'); selBodegaLogin=bId; }
+function doLogin(type) {
+    if(type==='admin') { if(id('passAdmin').value!==DB.adminPass) return alert('❌ Contraseña incorrecta'); USER={role:'admin'}; }
+    else { if(!selBodegaLogin) return alert('❌ Seleccione bodega'); const b=DB.bodegas.find(x=>x.id===selBodegaLogin); if(!b||id('passBodega').value!==b.password) return alert('❌ Contraseña bodega incorrecta'); USER={role:'bodega',id:b.id,nombre:b.nombre}; }
+    enterApp();
+}
+function enterApp() { id('login-screen').classList.add('hidden'); id('app').classList.remove('hidden'); applyRoles(); setupNav(); navigate('dash'); }
+function doLogout() { USER=null; id('app').classList.add('hidden'); id('login-screen').classList.remove('hidden'); id('passAdmin').value=''; id('passBodega').value=''; selBodegaLogin=null; renderLoginBodegas(); }
+function applyRoles() {
+    const badge=id('userBadge'); badge.textContent = USER.role==='admin'?'ADMIN':USER.nombre; badge.style.background = USER.role==='admin'?'#f39c12':'#2980b9';
+    document.querySelectorAll('.admin-only').forEach(e=>e.style.display=USER.role==='admin'?'':'none');
+    document.querySelectorAll('.bodega-only').forEach(e=>e.style.display=USER.role==='bodega'?'':'none');
+}
+function setupNav() {
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+        const tab = btn.dataset.tab;
+        if(btn.classList.contains('admin-only') && USER.role !== 'admin') { btn.style.display='none'; return; }
+        if(btn.classList.contains('bodega-only') && USER.role !== 'bodega') { btn.style.display='none'; return; }
+        // Check module visibility permission for bodega users
+        if(USER.role === 'bodega' && tab && !canSee(tab)) { btn.style.display='none'; return; }
+        btn.style.display='';
+        btn.onclick = () => navigate(tab);
+    });
+}
+function navigate(tab) { document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active')); document.querySelector(`.nav-btn[data-tab="${tab}"]`)?.classList.add('active'); renderTab(tab); }
+function renderTab(tab) { const main=id('main-content'); if(!main) return; try { switch(tab) { case 'dash': renderDash(main); break; case 'bodegas': renderBodegas(main); break; case 'clientes': renderClientes(main); break; case 'vista_global': renderVistaGlobal(main); break; case 'inv_global': renderInvGlobal(main); break; case 'transfer': renderTransfer(main); break; case 'recuperados': renderRecuperados(main); break; case 'cuads': renderCuads(main); break; case 'entregas': renderEntregas(main); break; case 'inst': renderInst(main); break; case 'delete_req': renderDeleteReq(main); break; case 'admin': renderAdmin(main); break; } } catch(e) { alert("Error: "+e.message); console.error(e); } }
+function getUserBodegas() { return USER.role==='admin'?DB.bodegas:DB.bodegas.filter(b=>b.id===USER.id); }
+function getUserCuads() { return USER.role==='admin'?DB.cuadrillas:DB.cuadrillas.filter(c=>c.bodegaId===USER.id); }
+function openModal(title, html, onConfirm) { id('mTitle').textContent=title; id('mBody').innerHTML=html; id('mFooter').innerHTML=`<button class="btn btn-danger" onclick="closeModal()">Cancelar</button><button class="btn btn-success" id="mSaveBtn">Guardar</button>`; id('mSaveBtn').onclick=onConfirm; id('modal').classList.add('show'); }
+function closeModal() { id('modal').classList.remove('show'); }
+
+function modalChangeBodegaPass() {
+    if(USER.role !== 'bodega') return;
+    openModal('🔑 Cambiar Contraseña', `
+        <div class="form-group"><label>Contraseña Actual *</label><input type="password" id="chgOldPass" class="form-control"></div>
+        <div class="form-group"><label>Nueva Contraseña *</label><input type="password" id="chgNewPass" class="form-control"></div>
+        <div class="form-group"><label>Confirmar *</label><input type="password" id="chgConfirmPass" class="form-control"></div>
+    `, () => {
+        const oldP=id('chgOldPass').value, newP=id('chgNewPass').value, confP=id('chgConfirmPass').value;
+        const b=DB.bodegas.find(x=>x.id===USER.id);
+        if(oldP!==b.password) return alert('❌ Incorrecta'); if(!newP||newP.length<3) return alert('❌ Mínimo 3 caracteres'); if(newP!==confP) return alert('❌ No coinciden');
+        b.password=newP; logMsg(`Contraseña cambiada para ${b.nombre}`); save(); closeModal(); alert('✅ Actualizada');
+    });
+}
+
+// DASHBOARD
+function getAlertasMaterial() {
+    const alertas = [];
+    const bodegas = getUserBodegas();
+    bodegas.forEach(b => {
+        b.materiales.forEach(m => {
+            if(m.stockMin && m.cantidad <= m.stockMin) {
+                alertas.push({ bodega: b.nombre, material: m.nombre, actual: m.cantidad, min: m.stockMin, unidad: m.unidad });
+            }
+        });
+    });
+    return alertas;
+}
+
+function renderDash(c) {
+    const bs=getUserBodegas(), cs=getUserCuads();
+    const tb=bs.reduce((s,b)=>s+b.materiales.reduce((ss,m)=>ss+m.cantidad,0),0);
+    const tc=cs.reduce((s,cu)=>s+cu.materiales.reduce((ss,m)=>ss+m.cantidad,0),0);
+    const trPend=DB.transfers.filter(t=>USER.role==='bodega'?(t.oriId===USER.id||t.desId===USER.id)&&t.estado==='pendiente':t.estado==='pendiente');
+    const alertas = getAlertasMaterial();
+    const totalTecs = cs.reduce((s,cu)=>s+cu.tecnicos.length,0);
+    const totalClientes = DB.clientes.length;
+
+    // Datos para gráficos
+    const stockPorBodega = bs.map(b=>({nombre:b.nombre, stock:b.materiales.reduce((s,m)=>s+m.cantidad,0)}));
+    const matPorTipo = { nuevo: 0, usado: 0 };
+    bs.forEach(b=>b.materiales.forEach(m=>{ matPorTipo[m.tipo]=(matPorTipo[m.tipo]||0)+m.cantidad; }));
+    const top5Mats = {};
+    bs.forEach(b=>b.materiales.forEach(m=>{ top5Mats[m.nombre]=(top5Mats[m.nombre]||0)+m.cantidad; }));
+    const top5 = Object.entries(top5Mats).sort((a,b)=>b[1]-a[1]).slice(0,5);
+
+    c.innerHTML = `
+    ${alertas.length ? `<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:10px;padding:12px 16px;margin-bottom:15px;cursor:pointer;" onclick="navigate('bodegas')">
+        <strong>⚠️ ${alertas.length} alerta${alertas.length>1?'s':''} de stock mínimo:</strong>
+        ${alertas.map(a=>`<span class="sn-tag" style="background:#ffe69c;margin:3px;">⚠️ ${a.material} en ${a.bodega}: ${a.actual}/${a.min} ${a.unidad}</span>`).join('')}
+    </div>` : ''}
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px;">
+        <div class="card text-center" style="border-left:5px solid var(--primary);cursor:pointer;transition:0.2s;" onclick="navigate('bodegas')" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''"><h2>${bs.length}</h2><p class="text-muted">🏭 Bodegas</p><small style="color:var(--primary-light);">Ver →</small></div>
+        <div class="card text-center" style="border-left:5px solid var(--secondary);cursor:pointer;transition:0.2s;" onclick="navigate('cuads')" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''"><h2>${cs.length}</h2><p class="text-muted">👷 Cuadrillas</p><small style="color:var(--secondary);">Ver →</small></div>
+        <div class="card text-center" style="border-left:5px solid #3498db;cursor:pointer;transition:0.2s;" onclick="navigate('cuads')" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''"><h2>${totalTecs}</h2><p class="text-muted">👤 Técnicos</p><small style="color:#3498db;">Ver →</small></div>
+        <div class="card text-center" style="border-left:5px solid var(--warning);cursor:pointer;transition:0.2s;" onclick="navigate('bodegas')" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''"><h2>${tb}</h2><p class="text-muted">📦 Stock Bodegas</p><small style="color:var(--warning);">Ver →</small></div>
+        <div class="card text-center" style="border-left:5px solid #8e44ad;cursor:pointer;transition:0.2s;" onclick="navigate('cuads')" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''"><h2>${tc}</h2><p class="text-muted">🎒 Stock Cuadrillas</p><small style="color:#8e44ad;">Ver →</small></div>
+        <div class="card text-center" style="border-left:5px solid #16a085;cursor:pointer;transition:0.2s;" onclick="navigate('inst')" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''"><h2>${totalClientes}</h2><p class="text-muted">👥 Clientes</p><small style="color:#16a085;">Ver →</small></div>
+        ${trPend.length?`<div class="card text-center" style="border-left:5px solid #e74c3c;cursor:pointer;transition:0.2s;" onclick="navigate('transfer')" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''"><h2>${trPend.length}</h2><p class="text-muted">⏳ Transferencias</p><small style="color:#e74c3c;">Ver →</small></div>`:''}
+        ${alertas.length?`<div class="card text-center" style="border-left:5px solid #f39c12;cursor:pointer;transition:0.2s;" onclick="navigate('bodegas')" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''"><h2>${alertas.length}</h2><p class="text-muted">⚠️ Alertas Stock</p><small style="color:#f39c12;">Ver →</small></div>`:''}
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-bottom:20px;">
+        <!-- GRÁFICO BARRAS: Stock por Bodega -->
+        <div class="card">
+            <div class="card-header"><h2>📊 Stock por Bodega</h2></div>
+            ${stockPorBodega.length ? stockPorBodega.map(b=>{
+                const pct = tb>0?Math.round((b.stock/tb)*100):0;
+                const maxStock = Math.max(...stockPorBodega.map(x=>x.stock),1);
+                const barW = Math.round((b.stock/maxStock)*100);
+                return `<div style="margin-bottom:12px;">
+                    <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:3px;">
+                        <span title="${b.nombre}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%;">🏭 ${b.nombre}</span>
+                        <strong>${b.stock} uds (${pct}%)</strong>
+                    </div>
+                    <div style="background:#e9ecef;border-radius:6px;height:14px;">
+                        <div style="background:var(--primary);width:${barW}%;height:100%;border-radius:6px;transition:0.5s;"></div>
+                    </div>
+                </div>`;
+            }).join('') : '<p class="text-muted">Sin datos</p>'}
+        </div>
+
+        <!-- GRÁFICO DONA: Nuevo vs Usado -->
+        <div class="card" style="display:flex;flex-direction:column;align-items:center;">
+            <div class="card-header" style="width:100%;"><h2>🥧 Distribución por Tipo</h2></div>
+            <canvas id="donaChart" width="180" height="180" style="margin:10px auto;"></canvas>
+            <div style="display:flex;gap:15px;margin-top:5px;font-size:0.85rem;">
+                <span><span style="display:inline-block;width:12px;height:12px;background:#27ae60;border-radius:50%;margin-right:4px;"></span>Nuevo: ${matPorTipo.nuevo}</span>
+                <span><span style="display:inline-block;width:12px;height:12px;background:#f39c12;border-radius:50%;margin-right:4px;"></span>Usado: ${matPorTipo.usado}</span>
+            </div>
+        </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-bottom:20px;">
+        <!-- TOP 5 Materiales -->
+        <div class="card">
+            <div class="card-header"><h2>🏆 Top 5 Materiales</h2></div>
+            ${top5.length ? top5.map(([nom,cant],i)=>{
+                const maxV = top5[0][1]||1;
+                const barW = Math.round((cant/maxV)*100);
+                const colors=['#1a5276','#2980b9','#27ae60','#f39c12','#8e44ad'];
+                return `<div style="margin-bottom:10px;">
+                    <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:3px;">
+                        <span>${i+1}. ${nom}</span><strong>${cant} uds</strong>
+                    </div>
+                    <div style="background:#e9ecef;border-radius:6px;height:12px;">
+                        <div style="background:${colors[i]};width:${barW}%;height:100%;border-radius:6px;"></div>
+                    </div>
+                </div>`;
+            }).join('') : '<p class="text-muted">Sin materiales registrados</p>'}
+        </div>
+
+        <!-- ACTIVIDAD RECIENTE -->
+        <div class="card">
+            <div class="card-header"><h2>📋 Actividad Reciente</h2></div>
+            ${DB.logs.length ? DB.logs.slice(0,8).map(l=>`
+                <div style="padding:6px 0;border-bottom:1px solid #eee;display:flex;justify-content:space-between;font-size:0.82rem;">
+                    <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:65%;">${l.msg}</span>
+                    <small class="text-muted">${new Date(l.t).toLocaleString()}</small>
+                </div>`).join('') : '<p class="text-muted text-center">Sin actividad</p>'}
+        </div>
+    </div>`;
+
+    // Dibujar dona
+    setTimeout(()=>{
+        const canvas = document.getElementById('donaChart');
+        if(!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const total = matPorTipo.nuevo + matPorTipo.usado || 1;
+        const data = [
+            {val:matPorTipo.nuevo, color:'#27ae60'},
+            {val:matPorTipo.usado, color:'#f39c12'}
+        ];
+        let startAngle = -Math.PI/2;
+        const cx=90,cy=90,r=70,ri=40;
+        ctx.clearRect(0,0,180,180);
+        data.forEach(d=>{
+            const sliceAngle = (d.val/total)*(2*Math.PI);
+            ctx.beginPath();
+            ctx.moveTo(cx,cy);
+            ctx.arc(cx,cy,r,startAngle,startAngle+sliceAngle);
+            ctx.closePath();
+            ctx.fillStyle=d.color;
+            ctx.fill();
+            startAngle+=sliceAngle;
+        });
+        // Hueco dona
+        ctx.beginPath();
+        ctx.arc(cx,cy,ri,0,2*Math.PI);
+        ctx.fillStyle='white';
+        ctx.fill();
+        // Texto centro
+        ctx.fillStyle='#2c3e50';
+        ctx.font='bold 16px sans-serif';
+        ctx.textAlign='center';
+        ctx.fillText(total,cx,cy-4);
+        ctx.font='11px sans-serif';
+        ctx.fillStyle='#95a5a6';
+        ctx.fillText('total',cx,cy+12);
+    }, 100);
+}
+
+// CLIENTES INSTALADOS
+function renderClientes(c) {
+    const search = (document.getElementById('searchCliente')?.value || '').toLowerCase();
+    const filtered = DB.clientes.filter(cl => cl.nombre.toLowerCase().includes(search) || (cl.direccion||'').toLowerCase().includes(search));
+    let cliCount = DB.clientes.length;
+    let eqCount = DB.clientes.reduce((s,cl)=>s+cl.equipos.length,0);
+    
+    let html = `<div class="card"><div class="card-header"><h2>👥 Clientes Instalados</h2>
+        <div class="flex">
+            <button class="btn btn-success btn-sm" onclick="modalImportExcelClientes()">📥 Importar Excel</button>
+            <button class="btn btn-outline btn-sm" onclick="downloadTemplateExcel()">📄 Descargar Plantilla</button>
+            <button class="btn btn-primary btn-sm" onclick="modalAddCliente()">➕ Agregar Manual</button>
+        </div>
+    </div>
+    <div class="flex" style="margin-bottom:15px; gap:15px;">
+        <span class="badge badge-ok">👥 ${cliCount} Clientes</span>
+        <span class="badge badge-pend">📦 ${eqCount} Equipos registrados</span>
+    </div>
+    <input type="text" id="searchCliente" class="form-control" placeholder="🔍 Buscar por nombre, dirección o equipo..." oninput="renderClientes(document.getElementById('main-content'))" style="margin-bottom:15px;">`;
+    
+    if(filtered.length === 0) { html += '<p class="text-center text-muted" style="padding:20px;">No hay clientes registrados. Use Importar Excel o Agregar Manual.</p>'; }
+    else {
+        html += filtered.map(cl => `
+            <details style="margin-bottom:10px; border:1px solid #eee; border-radius:8px; background:white;">
+                <summary style="cursor:pointer; padding:12px; font-weight:bold; background:#f8f9fa; border-radius:8px;">
+                    👤 ${cl.nombre} <span class="text-muted" style="font-weight:normal; font-size:0.85rem;">| 📍 ${cl.direccion||'Sin dirección'} | 📅 ${cl.fechaInstalacion||'-'} | 🛠️ ${cl.cuadrillaInstaladora||'-'}</span>
+                </summary>
+                <div style="padding:15px;">
+                    <div class="form-row" style="margin-bottom:10px; font-size:0.9rem;">
+                        <div><strong>📞 Tel:</strong> ${cl.telefono||'-'}</div>
+                        <div><strong>📧 Email:</strong> ${cl.email||'-'}</div>
+                    </div>
+                    ${cl.observaciones?`<div style="margin-bottom:10px; font-size:0.85rem; color:var(--gray);">📝 ${cl.observaciones}</div>`:''}
+                    <h4 style="margin:10px 0;">📦 Equipos Instalados</h4>
+                    ${cl.equipos.length ? `
+                        <div class="table-wrap"><table><thead><tr><th>Artículo</th><th>Tipo</th><th>Cant</th><th>Unidad</th><th>SNs</th><th>Estado</th></tr></thead><tbody>
+                        ${cl.equipos.map(eq => `<tr><td><strong>${eq.nombre}</strong></td><td><span class="badge ${eq.tipo==='nuevo'?'badge-new':'badge-used'}">${eq.tipo}</span></td><td>${eq.cantidad}</td><td>${eq.unidad}</td><td>${eq.snes.length ? eq.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' ') : '-'}</td><td><span class="badge badge-ok">${eq.estado||'Activo'}</span></td></tr>`).join('')}
+                        </tbody></table></div>
+                    ` : '<p class="text-muted">Sin equipos registrados</p>'}
+                    <div style="margin-top:10px; display:flex; gap:5px;">
+                        <button class="btn btn-outline btn-sm" onclick="modalEditCliente('${cl.id}')">✏️ Editar</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteCliente('${cl.id}')">🗑️ Eliminar</button>
+                    </div>
+                </div>
+            </details>
+        `).join('');
+    }
+    html += '</div>';
+    c.innerHTML = html;
+}
+
+function modalAddCliente() { TempLists.cliEquipos = []; openModal('➕ Agregar Cliente', formClienteHTML(), ()=>saveCliente(null)); }
+function modalEditCliente(cliId) { 
+    const cl = DB.clientes.find(x=>x.id===cliId); if(!cl) return;
+    TempLists.cliEquipos = [...cl.equipos.map(e=>({...e}))];
+    openModal('✏️ Editar Cliente: '+cl.nombre, formClienteHTML(cl), ()=>saveCliente(cliId)); 
+}
+function formClienteHTML(cli={}) {
+    return `<input type="hidden" id="cliId" value="${cli.id||''}">
+    <div class="form-row"><div class="form-group"><label>Nombre Cliente *</label><input id="cliNom" class="form-control" value="${cli.nombre||''}"></div><div class="form-group"><label>Dirección</label><input id="cliDir" class="form-control" value="${cli.direccion||''}"></div></div>
+    <div class="form-row"><div class="form-group"><label>Teléfono</label><input id="cliTel" class="form-control" value="${cli.telefono||''}"></div><div class="form-group"><label>Email</label><input id="cliEmail" class="form-control" value="${cli.email||''}"></div></div>
+    <div class="form-row"><div class="form-group"><label>Fecha Instalación</label><input id="cliFecha" type="date" class="form-control" value="${cli.fechaInstalacion||new Date().toISOString().split('T')[0]}"></div><div class="form-group"><label>Cuadrilla</label><input id="cliCuad" class="form-control" value="${cli.cuadrillaInstaladora||''}"></div></div>
+    <div class="form-group"><label>Observaciones</label><input id="cliObs" class="form-control" value="${cli.observaciones||''}"></div>
+    <hr style="margin:15px 0;"><h4>📦 Equipos Instalados</h4>
+    <div id="cliEquiposList"></div>
+    <button class="btn btn-outline btn-sm" onclick="addCliEquipo()" style="margin-top:5px;">➕ Agregar Equipo</button>`;
+}
+TempLists.cliEquipos = [];
+function addCliEquipo() { TempLists.cliEquipos.push({nombre:'', cantidad:1, unidad:'Und', tipo:'nuevo', snes:[], estado:'Activo'}); renderCliEquipos(); }
+function renderCliEquipos() {
+    const c = id('cliEquiposList'); if(!c) return;
+    c.innerHTML = TempLists.cliEquipos.map((eq,i)=>`
+        <div class="item-list-item" style="flex-wrap:wrap; gap:5px;">
+            <input type="text" class="form-control" style="width:120px;" value="${eq.nombre}" onchange="TempLists.cliEquipos[${i}].nombre=this.value" placeholder="Artículo">
+            <input type="number" class="form-control" style="width:60px;" value="${eq.cantidad}" min="1" onchange="TempLists.cliEquipos[${i}].cantidad=parseInt(this.value)">
+            <select class="form-control" style="width:80px;" onchange="TempLists.cliEquipos[${i}].unidad=this.value">${getUnidadesOptions()}</select>
+            <select class="form-control" style="width:90px;" onchange="TempLists.cliEquipos[${i}].tipo=this.value"><option value="nuevo">🟢 Nuevo</option><option value="usado">🟡 Usado</option></select>
+            <input type="text" class="form-control" style="width:150px;" value="${eq.snes.join(', ')}" onchange="TempLists.cliEquipos[${i}].snes=this.value.split(',').map(s=>s.trim()).filter(Boolean)" placeholder="SNs (coma)">
+            <button class="btn btn-danger btn-sm" onclick="TempLists.cliEquipos.splice(${i},1); renderCliEquipos();">✕</button>
+        </div>
+    `).join('') || '<p class="text-muted">Agregue equipos al cliente</p>';
+}
+function saveCliente(editId) {
+    const nom=id('cliNom').value.trim(), dir=id('cliDir').value.trim(), tel=id('cliTel').value.trim(), email=id('cliEmail').value.trim(), fecha=id('cliFecha').value, cuad=id('cliCuad').value.trim(), obs=id('cliObs').value.trim();
+    if(!nom) return alert('Nombre obligatorio');
+    const equipos = TempLists.cliEquipos.filter(e=>e.nombre.trim()!=='').map(e=>({...e, nombre:e.nombre.trim(), snes:(e.snes||[]).filter(s=>s)}));
+    if(editId) {
+        const cl = DB.clientes.find(x=>x.id===editId);
+        cl.nombre=nom; cl.direccion=dir; cl.telefono=tel; cl.email=email; cl.fechaInstalacion=fecha; cl.cuadrillaInstaladora=cuad; cl.observaciones=obs; cl.equipos=equipos;
+        logMsg(`Cliente "${nom}" editado`);
+    } else {
+        DB.clientes.push({id:Date.now().toString(), nombre:nom, direccion:dir, telefono:tel, email:email, fechaInstalacion:fecha, cuadrillaInstaladora:cuad, observaciones:obs, equipos:equipos});
+        logMsg(`Cliente "${nom}" creado`);
+    }
+    save(); closeModal(); renderClientes(document.getElementById('main-content'));
+}
+function deleteCliente(cliId) { if(!confirm('¿Eliminar cliente?')) return; DB.clientes = DB.clientes.filter(x=>x.id!==cliId); save(); renderClientes(document.getElementById('main-content')); }
+
+function actualizarClientesDesdeInstalacion(inst) {
+    let cli = DB.clientes.find(c => c.nombre.toLowerCase() === inst.cliente.toLowerCase());
+    if(!cli) {
+        cli = { id: Date.now().toString(), nombre: inst.cliente, direccion: '', telefono: '', email: '', fechaInstalacion: inst.fecha, cuadrillaInstaladora: inst.cuadrilla, observaciones: inst.tipo || 'Instalación automática', equipos: [] };
+        DB.clientes.push(cli);
+    }
+    cli.fechaInstalacion = inst.fecha; cli.cuadrillaInstaladora = inst.cuadrilla; if(inst.tipo) cli.observaciones = inst.tipo;
+    inst.mats.forEach(m => {
+        let eq = cli.equipos.find(e => e.nombre.toLowerCase() === m.nom.toLowerCase() && e.tipo === m.tipo);
+        if(eq) { eq.cantidad += m.cant; eq.snes.push(...m.snes.filter(s => !eq.snes.includes(s))); }
+        else { cli.equipos.push({ nombre: m.nom, cantidad: m.cant, unidad: m.unidad, tipo: m.tipo, snes: [...m.snes], estado: 'Activo' }); }
+    });
+    save();
+}
+
+// ==========================================
+// IMPORTAR CLIENTES DESDE EXCEL
+// ==========================================
+let excelImportData = [];
+function modalImportExcelClientes() {
+    excelImportData = [];
+    openModal('📥 Importar Clientes desde Excel', `
+        <div class="template-info">
+            <strong>📄 Formato del archivo Excel:</strong><br>
+            <div style="margin-top:8px;">
+                Columna A: <code>Nombre Cliente</code> * (obligatorio)<br>
+                Columna B: <code>Dirección</code><br>
+                Columna C: <code>Teléfono</code><br>
+                Columna D: <code>Email</code><br>
+                Columna E: <code>Fecha Instalación</code> (YYYY-MM-DD o DD/MM/YYYY)<br>
+                Columna F: <code>Cuadrilla</code><br>
+                Columna G: <code>Observaciones</code><br>
+                Columnas H en adelante: <code>Equipo1 | Cant1 | Und1 | Tipo1 | SN1 | Equipo2 | Cant2 ...</code> (hasta 30 equipos)<br>
+            </div>
+            <div style="margin-top:8px; color:#856404;">
+                ⚠️ Descarga la plantilla para ver el formato exacto de columnas.
+            </div>
+        </div>
+        <div id="excelDropZone" class="excel-drop-zone" onclick="document.getElementById('excelFileInput').click()">
+            <div class="icon">📊</div>
+            <strong>Haga clic o arrastre un archivo Excel aquí</strong><br>
+            <span class="text-muted">.xlsx, .xls, .csv</span>
+            <input type="file" id="excelFileInput" accept=".xlsx,.xls,.csv" style="display:none;" onchange="processExcelFile(this)">
+        </div>
+        <div id="excelPreview"></div>
+    `, () => { importExcelData(); });
+    setupDropZone();
+}
+
+function setupDropZone() {
+    const dz = document.getElementById('excelDropZone');
+    if(!dz) return;
+    dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('dragover'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+    dz.addEventListener('drop', (e) => {
+        e.preventDefault(); dz.classList.remove('dragover');
+        const file = e.dataTransfer.files[0];
+        if(file) handleExcelFile(file);
+    });
+}
+
+function processExcelFile(input) {
+    const file = input.files[0];
+    if(file) handleExcelFile(file);
+}
+
+function handleExcelFile(file) {
+    const validExts = ['.xlsx','.xls','.csv'];
+    const ext = '.'+file.name.split('.').pop().toLowerCase();
+    if(!validExts.includes(ext)) return alert('Formato no válido. Use .xlsx, .xls o .csv');
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const workbook = XLSX.read(e.target.result, {type:'binary', cellDates:true});
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const rows = XLSX.utils.sheet_to_json(sheet, {header:1, defval:''});
+            
+            if(rows.length < 2) return alert('El archivo no tiene datos suficientes');
+            
+            excelImportData = [];
+            
+            for(let i=1; i<rows.length; i++) {
+                const row = rows[i];
+                if(!row || !row[0] || String(row[0]).trim()==='') continue;
+                
+                const nombre = String(row[0]||'').trim();
+                const direccion = String(row[1]||'').trim();
+                const telefono = String(row[2]||'').trim();
+                const email = String(row[3]||'').trim();
+                let fecha = '';
+                if(row[4]) {
+                    if(row[4] instanceof Date) { fecha = row[4].toISOString().split('T')[0]; }
+                    else {
+                        const parts = String(row[4]).split(/[\/\-\.]/);
+                        if(parts.length===3) { fecha = `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`; }
+                        if(!fecha) fecha = String(row[4]).trim();
+                    }
+                }
+                const cuadrilla = String(row[5]||'').trim();
+                const observaciones = String(row[6]||'').trim();
+                
+                // Leer equipos desde columna H (índice 7) en adelante
+                // Cada equipo ocupa 5 columnas: Nombre | Cantidad | Unidad | Tipo | SN
+                let equipos = [];
+                const MAX_EQUIPOS = 30;
+                for(let e=0; e<MAX_EQUIPOS; e++) {
+                    const base = 7 + (e * 5);
+                    const eNom = String(row[base]||'').trim();
+                    if(!eNom) continue; // si no hay nombre de equipo, saltar
+                    const eCant = parseInt(row[base+1])||1;
+                    const eUnd = String(row[base+2]||'Und').trim();
+                    const eTipo = String(row[base+3]||'nuevo').trim().toLowerCase();
+                    const eSNraw = String(row[base+4]||'').trim();
+                    const eSNs = eSNraw ? eSNraw.split(',').map(s=>s.trim()).filter(Boolean) : [];
+                    equipos.push({ nombre:eNom, cantidad:eCant, unidad:eUnd, tipo:eTipo, snes:eSNs, estado:'Activo' });
+                }
+                
+                if(!nombre) continue;
+                excelImportData.push({ nombre, direccion, telefono, email, fecha, cuadrilla, observaciones, equipos, error:false });
+            }
+            
+            renderExcelPreview();
+        } catch(err) {
+            alert('Error al leer el archivo: '+err.message);
+        }
+    };
+    reader.readAsBinaryString(file);
+}
+
+function renderExcelPreview() {
+    const container = id('excelPreview');
+    if(!container) return;
+    const valid = excelImportData.filter(d=>!d.error);
+    const invalid = excelImportData.filter(d=>d.error);
+    
+    let html = `<div class="alert" style="background:#e8f5e9;color:#2e7d32;padding:10px;margin:15px 0;">✅ <strong>${valid.length} clientes válidos</strong> listos para importar${invalid.length?` | ⚠️ ${invalid.length} con errores`:''}</div>`;
+    
+    if(valid.length > 0) {
+        html += `<div class="excel-preview-table"><table><thead><tr><th>#</th><th>Nombre</th><th>Dirección</th><th>Tel</th><th>Email</th><th>Fecha</th><th>Cuadrilla</th><th>Equipos</th><th></th></tr></thead><tbody>`;
+        valid.forEach((d,i) => {
+            html += `<tr class="excel-row-ok"><td>${i+1}</td><td><strong>${d.nombre}</strong></td><td>${d.direccion}</td><td>${d.telefono}</td><td>${d.email}</td><td>${d.fecha}</td><td>${d.cuadrilla}</td><td>${d.equipos.length} items</td><td><span class="excel-success">✅ OK</span></td></tr>`;
+        });
+        html += '</tbody></table></div>';
+    }
+    container.innerHTML = html;
+    // Re-bind save button
+    id('mSaveBtn').disabled = valid.length===0;
+    id('mSaveBtn').textContent = valid.length ? `📥 Importar ${valid.length} Clientes` : 'Sin datos válidos';
+}
+
+function importExcelData() {
+    const valid = excelImportData.filter(d=>!d.error);
+    if(!valid.length) return alert('No hay datos válidos para importar');
+    
+    let added = 0;
+    valid.forEach(d => {
+        // Check if exists
+        let cli = DB.clientes.find(c => c.nombre.toLowerCase() === d.nombre.toLowerCase());
+        if(!cli) {
+            cli = { id: Date.now().toString() + Math.random().toString(36).substr(2,5), nombre: d.nombre, direccion: d.direccion, telefono: d.telefono, email: d.email, fechaInstalacion: d.fecha || new Date().toISOString().split('T')[0], cuadrillaInstaladora: d.cuadrilla, observaciones: d.observaciones, equipos: [] };
+            DB.clientes.push(cli);
+        } else {
+            cli.direccion = cli.direccion || d.direccion;
+            cli.telefono = cli.telefono || d.telefono;
+            cli.email = cli.email || d.email;
+            if(d.fecha) cli.fechaInstalacion = d.fecha;
+            if(d.cuadrilla) cli.cuadrillaInstaladora = d.cuadrilla;
+        }
+        // Add/merge equipos
+        d.equipos.forEach(eq => {
+            let existing = cli.equipos.find(e => e.nombre.toLowerCase() === eq.nombre.toLowerCase() && e.tipo === eq.tipo);
+            if(existing) { existing.cantidad += eq.cantidad; existing.snes.push(...eq.snes.filter(s=>!existing.snes.includes(s))); }
+            else { cli.equipos.push({...eq}); }
+        });
+        added++;
+    });
+    
+    logMsg(`Importación masiva: ${added} clientes desde Excel`);
+    save();
+    closeModal();
+    alert(`✅ ${added} clientes importados correctamente`);
+    renderClientes(document.getElementById('main-content'));
+}
+
+function downloadTemplateExcel() {
+    const MAX_EQUIPOS = 30;
+    // Construir cabeceras
+    const baseHeaders = ['Nombre Cliente','Dirección','Teléfono','Email','Fecha Instalación (YYYY-MM-DD)','Cuadrilla','Observaciones'];
+    const eqHeaders = [];
+    for(let i=1; i<=MAX_EQUIPOS; i++) {
+        eqHeaders.push(`Equipo${i}`, `Cantidad${i}`, `Unidad${i}`, `Tipo${i} (nuevo/usado)`, `Seriales${i} (separar con coma)`);
+    }
+    const headers = [...baseHeaders, ...eqHeaders];
+
+    // Fila de ejemplo con 2 equipos
+    const ejemplo = [
+        'Juan Pérez','Calle 123 #45-67','3001234567','juan@email.com','2024-01-15','Cuadrilla A','Instalación residencial',
+        'Router','2','Und','nuevo','R001,R002',
+        'Cable UTP','100','m','nuevo',''
+    ];
+    // Rellenar columnas vacías hasta completar 30 equipos
+    while(ejemplo.length < headers.length) ejemplo.push('');
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ejemplo]);
+
+    // Dar ancho a columnas base
+    ws['!cols'] = headers.map((h, i) => ({ wch: i < 7 ? 20 : (i % 5 === 0 ? 18 : 10) }));
+
+    // Congelar primera fila
+    ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Clientes');
+    XLSX.writeFile(wb, 'plantilla_clientes_ptovision.xlsx');
+}
+
+// VISTA GLOBAL ADMIN
+function renderVistaGlobal(c) { if(USER.role!=='admin') return navigate('dash');
+    let html = `<div class="card"><div class="card-header"><h2>🌍 Vista Global: Técnicos y Materiales</h2></div><input type="text" class="form-control" placeholder="🔍 Buscar..." oninput="filterGlobal(this.value)">`;
+    DB.bodegas.forEach(b => { const cuads = DB.cuadrillas.filter(c=>c.bodegaId===b.id); html+=`<details open class="gd" data-s="${b.nombre.toLowerCase()}"><summary style="cursor:pointer;font-weight:bold;background:#e3f2fd;padding:14px;border-radius:8px;margin-bottom:5px;">🏭 ${b.nombre} <span class="badge badge-new">${b.materiales.reduce((s,m)=>s+m.cantidad,0)} uds</span></summary><div class="tree-node"><div style="margin-bottom:10px;padding:8px;background:#fff;border-radius:6px;border:1px solid #eee;"><strong>📦 Stock:</strong> ${b.materiales.map(m=>`<span class="sn-tag" style="background:#e3f2fd;">${m.nombre}:${m.cantidad}</span>`).join(' ')||'Vacío'}</div>${cuads.map(cu=>`<details style="margin:10px 0;border:1px solid #e0e0e0;border-radius:6px;"><summary style="cursor:pointer;background:#f0f4f8;padding:10px;border-radius:6px;">👷 ${cu.nombre} <span class="badge badge-ok">${cu.materiales.reduce((s,m)=>s+m.cantidad,0)} uds</span></summary><div class="tree-node"><div><strong>👤 Técnicos:</strong></div>${cu.tecnicos.map(t=>`<div class="tech-card" data-s="${t.nombre.toLowerCase()}"><h4>👤 ${t.nombre} <small>(${t.cargo||''})</small></h4><div class="info-row"><span>📞:</span><span>${t.telefono||'-'}</span></div><div class="info-row"><span>🎒 Dotación:</span><span>${t.dotacion.map(d=>`<span class="sn-tag">${d.nom}:${d.cant}</span>`).join(' ')||'Sin dotación'}</span></div></div>`).join('')||'<p class="text-muted">Sin técnicos</p>'}</div></details>`).join('')||'<p class="text-muted">Sin cuadrillas</p>'}</div></details>`; });
+    html+=`</div>`; c.innerHTML=html;
+    window.filterGlobal=(q)=>{const t=q.toLowerCase();document.querySelectorAll('.gd,.tech-card').forEach(el=>{el.style.opacity=(t.length===0||el.textContent.toLowerCase().includes(t))?'1':'0.2';});};
+}
+
+// INVENTARIO BODEGAS
+function renderInvGlobal(c) { if(USER.role!=='bodega') return navigate('dash');
+    c.innerHTML=`<div class="card"><div class="card-header"><h2>🔍 Inventario Global (Solo Lectura)</h2></div><input type="text" id="searchInvG" class="form-control" placeholder="🔍 Buscar artículo..." oninput="filterInvGlobal()"></div>`;
+    let html=`<div class="card">`;
+    DB.bodegas.forEach(b => { const isMine = b.id===USER.id; html+=`<details ${isMine?'open':''} class="inv-d"><summary style="cursor:pointer;font-weight:bold;background:${isMine?'#e3f2fd':'#f5f5f5'};padding:12px;border-radius:8px;margin-bottom:5px;">🏭 ${b.nombre} ${isMine?'<span class="badge badge-ok">MI BODEGA</span>':''}</summary><div class="tree-node">${b.materiales.length?`<table><thead><tr><th>Artículo</th><th>Tipo</th><th>Cant</th><th>Unidad</th><th>SNs</th></tr></thead><tbody>${b.materiales.map(m=>`<tr><td><strong>${m.nombre}</strong></td><td><span class="badge ${m.tipo==='nuevo'?'badge-new':'badge-used'}">${m.tipo}</span></td><td>${m.cantidad}</td><td>${m.unidad}</td><td>${m.snes.length?m.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' '):'Sin serial'}</td></tr>`).join('')}</tbody></table>`:'<p class="text-muted">Vacío</p>'}</div></details>`; });
+    c.innerHTML = html;
+    window.filterInvGlobal=()=>{const q=id('searchInvG')?.value.toLowerCase()||'';document.querySelectorAll('.inv-d').forEach(el=>{el.style.display=el.textContent.toLowerCase().includes(q)?'':'none';});};
+}
+
+// BODEGAS (CRUD)
+function renderBodegas(c) {
+    const bs = getUserBodegas();
+    c.innerHTML = `<div class="card"><div class="card-header"><h2>🏭 ${USER.role==='admin'?'Bodegas':'Mi Bodega'}</h2><div class="flex">
+        ${USER.role==='admin'?`<button class="btn btn-primary btn-sm" onclick="modalNewBodega()">➕ Nueva</button>`:''}
+        ${canDo('bodegas','exportar_excel')?`<button class="btn btn-success btn-sm" onclick="exportBodegaExcel()">📥 Exportar Excel</button>`:''}
+        ${canDo('bodegas','importar_excel')?`<button class="btn btn-outline btn-sm" onclick="modalImportBodegaExcel()">📤 Importar Excel</button>`:''}
+    </div></div>` + bs.map(b => {
+        const total = b.materiales.reduce((s,m)=>s+m.cantidad,0);
+        return `<details style="margin-bottom:10px;border:1px solid #eee;border-radius:8px;padding:10px;background:white;">
+            <summary style="cursor:pointer;font-weight:bold;font-size:1.1rem;">🏭 ${b.nombre} <span class="badge badge-new">${total} uds</span></summary>
+            <div style="margin-top:10px;padding-left:10px;">
+                <p class="text-muted">Jefe: ${b.responsable||'-'}</p>
+                <div style="display:flex;gap:5px;margin:10px 0;flex-wrap:wrap;">
+                    ${canDo('bodegas','agregar_material')?`<button class="btn btn-primary btn-sm" onclick="modalAddMat('${b.id}')">📦 + Material</button>`:''}
+                    ${USER.role==='admin'?`<button class="btn btn-outline btn-sm" onclick="modalEditPass('${b.id}')">🔑</button><button class="btn btn-danger btn-sm" onclick="delBodega('${b.id}')">🗑️</button>`:''}
+                </div>
+                ${b.materiales.length?`<table><thead><tr><th>Artículo</th><th>Tipo</th><th>Cant</th><th>Unidad</th><th>SNs</th><th>Acción</th></tr></thead><tbody>
+                ${b.materiales.map(m=>`<tr><td><strong>${m.nombre}</strong></td><td><span class="badge ${m.tipo==='nuevo'?'badge-new':'badge-used'}">${m.tipo}</span></td><td>${m.cantidad}</td><td>${m.unidad}</td><td>${m.snes.length?m.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' '):`<button class="btn btn-warning btn-sm" onclick="modalAddSN('${b.id}','${m.id}')">➕ SN</button>`}</td><td><button class="btn btn-warning btn-sm" onclick="modalRestock('${b.id}','${m.id}')">📥</button><button class="btn btn-danger btn-sm" onclick="delMat('${b.id}','${m.id}')">✕</button></td></tr>`).join('')}
+                </tbody></table>`:'<p class="text-muted">Sin materiales</p>'}
+            </div>
+        </details>`;
+    }).join('') + '</div>';
+}
+
+const MAX_SNS_BODEGA = 200;
+
+function exportBodegaExcel() {
+    const bs = getUserBodegas();
+    if(!bs.length) return alert('No hay bodegas para exportar');
+    // Encabezados: columnas base + SN1...SN200
+    const snHeaders = Array.from({length:MAX_SNS_BODEGA}, (_,i)=>`SN${i+1}`);
+    const headers = ['Bodega','Artículo','Tipo','Cantidad','Unidad',...snHeaders];
+    const rows = [headers];
+    bs.forEach(b => {
+        if(!b.materiales.length) rows.push([b.nombre,'(sin materiales)','','','',...Array(MAX_SNS_BODEGA).fill('')]);
+        else b.materiales.forEach(m => {
+            const snCols = Array(MAX_SNS_BODEGA).fill('');
+            m.snes.forEach((sn,i)=>{ if(i<MAX_SNS_BODEGA) snCols[i]=sn; });
+            rows.push([b.nombre, m.nombre, m.tipo, m.cantidad, m.unidad, ...snCols]);
+        });
+    });
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [20,25,10,10,10,...Array(MAX_SNS_BODEGA).fill(12)].map(w=>({wch:w}));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Inventario Bodegas');
+    XLSX.writeFile(wb, `inventario_bodegas_${new Date().toLocaleDateString().replace(/\//g,'-')}.xlsx`);
+}
+
+function modalImportBodegaExcel() {
+    TempLists.bodegaImport = [];
+    openModal('📤 Importar Material a Bodega desde Excel',
+        `<div style="background:#e3f2fd;padding:10px;border-radius:6px;margin-bottom:15px;font-size:0.85rem;">
+            <strong>Formato de columnas:</strong><br>
+            A: Nombre Bodega &nbsp;|&nbsp; B: Artículo * &nbsp;|&nbsp; C: Tipo (nuevo/usado) &nbsp;|&nbsp; D: Cantidad &nbsp;|&nbsp; E: Unidad &nbsp;|&nbsp; F: SN1 &nbsp;|&nbsp; G: SN2 &nbsp;|&nbsp; ... hasta SN200 (col. HX)<br>
+            <span style="color:#1a5276;">📌 Cada serial va en su propia columna. Si el artículo no tiene serial, deja las columnas vacías.</span>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:10px;">
+            <button class="btn btn-outline btn-sm" onclick="downloadPlantillaBodega()">📄 Descargar Plantilla</button>
+        </div>
+        <div id="bodImportDrop" style="border:2px dashed #cbd5e1;border-radius:8px;padding:30px;text-align:center;cursor:pointer;" onclick="document.getElementById('bodImportFile').click()">
+            📊 <strong>Clic o arrastre un archivo Excel aquí</strong><br><span style="color:#94a3b8;font-size:0.85rem;">.xlsx, .xls, .csv</span>
+            <input type="file" id="bodImportFile" accept=".xlsx,.xls,.csv" style="display:none;" onchange="processBodegaExcel(this)">
+        </div>
+        <div id="bodImportPreview" style="margin-top:15px;"></div>`,
+        () => saveBodegaImport()
+    );
+    setTimeout(()=>{
+        const dz = document.getElementById('bodImportDrop');
+        if(!dz) return;
+        dz.addEventListener('dragover', e=>{e.preventDefault();dz.style.background='#e3f2fd';});
+        dz.addEventListener('dragleave', ()=>dz.style.background='');
+        dz.addEventListener('drop', e=>{e.preventDefault();dz.style.background='';const f=e.dataTransfer.files[0];if(f)processBodegaExcelFile(f);});
+    }, 200);
+}
+
+function downloadPlantillaBodega() {
+    const bs = getUserBodegas();
+    const snHeaders = Array.from({length:MAX_SNS_BODEGA}, (_,i)=>`SN${i+1}`);
+    const headers = ['Nombre Bodega','Artículo','Tipo (nuevo/usado)','Cantidad','Unidad',...snHeaders];
+    // Fila de ejemplo con 3 seriales
+    const ejemplo = [bs.length?bs[0].nombre:'Mi Bodega', 'Ejemplo Artículo', 'nuevo', 3, 'Und', 'SN001','SN002','SN003', ...Array(MAX_SNS_BODEGA-3).fill('')];
+    // Fila sin seriales
+    const ejemplo2 = [bs.length?bs[0].nombre:'Mi Bodega', 'Artículo Sin Serial', 'usado', 5, 'm', ...Array(MAX_SNS_BODEGA).fill('')];
+    const ws = XLSX.utils.aoa_to_sheet([headers, ejemplo, ejemplo2]);
+    ws['!cols'] = [20,25,15,10,10,...Array(MAX_SNS_BODEGA).fill(12)].map(w=>({wch:w}));
+    ws['!freeze'] = {xSplit:0, ySplit:1};
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Plantilla');
+    XLSX.writeFile(wb, 'plantilla_inventario_bodega.xlsx');
+}
+
+function processBodegaExcel(input) { if(input.files[0]) processBodegaExcelFile(input.files[0]); }
+
+function processBodegaExcelFile(file) {
+    const reader = new FileReader();
+    reader.onload = e => {
+        try {
+            const wb = XLSX.read(e.target.result, {type:'binary'});
+            const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1, defval:''});
+            TempLists.bodegaImport = [];
+            let errores = [];
+            for(let i=1; i<rows.length; i++) {
+                const r = rows[i];
+                if(!r[1] || String(r[1]).trim()==='') continue;
+                const bodNom = String(r[0]||'').trim();
+                const artNom = String(r[1]||'').trim();
+                const tipo = ['nuevo','usado'].includes(String(r[2]||'').trim().toLowerCase()) ? String(r[2]).trim().toLowerCase() : 'nuevo';
+                const cant = parseInt(r[3])||1;
+                const unidad = String(r[4]||'Und').trim();
+                // Leer seriales desde columna F (índice 5) hasta SN200 (índice 5+199=204)
+                const snes = [];
+                for(let s=5; s<5+MAX_SNS_BODEGA; s++) {
+                    const sn = String(r[s]||'').trim();
+                    if(sn) snes.push(sn);
+                }
+                const bodega = DB.bodegas.find(b=>b.nombre.toLowerCase()===bodNom.toLowerCase());
+                if(!bodNom || !bodega) { errores.push(`Fila ${i+1}: Bodega "${bodNom}" no encontrada`); continue; }
+                TempLists.bodegaImport.push({bodegaId:bodega.id, bodegaNombre:bodega.nombre, nombre:artNom, tipo, cantidad:cant, unidad, snes});
+            }
+            const prev = document.getElementById('bodImportPreview');
+            if(!prev) return;
+            if(TempLists.bodegaImport.length) {
+                prev.innerHTML = `<p style="color:var(--secondary);font-weight:bold;">✅ ${TempLists.bodegaImport.length} artículos listos para importar</p>
+                <table><thead><tr><th>Bodega</th><th>Artículo</th><th>Tipo</th><th>Cant</th><th>Unidad</th><th>SNs</th></tr></thead><tbody>
+                ${TempLists.bodegaImport.map(r=>`<tr><td>${r.bodegaNombre}</td><td>${r.nombre}</td><td><span class="badge ${r.tipo==='nuevo'?'badge-new':'badge-used'}">${r.tipo}</span></td><td>${r.cantidad}</td><td>${r.unidad}</td><td>${r.snes.length?`<span class="badge badge-new">${r.snes.length} seriales</span>`:'-'}</td></tr>`).join('')}
+                </tbody></table>`;
+            } else prev.innerHTML = `<p style="color:var(--danger);">Sin artículos válidos.</p>`;
+            if(errores.length) prev.innerHTML += `<div style="background:#fff3cd;padding:8px;border-radius:6px;margin-top:8px;font-size:0.82rem;"><strong>⚠️ Errores:</strong><br>${errores.join('<br>')}</div>`;
+        } catch(err) { alert('Error al leer el archivo: '+err.message); }
+    };
+    reader.readAsBinaryString(file);
+}
+
+function saveBodegaImport() {
+    if(!TempLists.bodegaImport?.length) return alert('No hay artículos para importar. Carga un archivo primero.');
+    let importados = 0;
+    TempLists.bodegaImport.forEach(item => {
+        const b = DB.bodegas.find(x=>x.id===item.bodegaId);
+        if(!b) return;
+        const ex = b.materiales.find(m=>m.nombre.toLowerCase()===item.nombre.toLowerCase()&&m.tipo===item.tipo);
+        if(ex) { ex.cantidad+=item.cantidad; if(item.snes.length) ex.snes.push(...item.snes.filter(s=>!ex.snes.includes(s))); }
+        else b.materiales.push({id:Date.now().toString()+Math.random().toString(36).substr(2,4), nombre:item.nombre, cantidad:item.cantidad, tipo:item.tipo, unidad:item.unidad, snes:item.snes, fecha:new Date().toLocaleDateString()});
+        importados++;
+    });
+    logMsg(`Importación Excel bodega: ${importados} artículos`);
+    save(); closeModal();
+    alert(`✅ ${importados} artículos importados correctamente`);
+    renderTab('bodegas');
+}
+function modalNewBodega() { openModal('Nueva Bodega', `<div class="form-group"><label>Nombre</label><input id="bNom" class="form-control"></div><div class="form-group"><label>Ubicación</label><input id="bUbic" class="form-control"></div><div class="form-group"><label>Jefe</label><input id="bJefe" class="form-control"></div><div class="form-group"><label>Contraseña</label><input id="bPass" type="password" class="form-control"></div>`, ()=>{const n=id('bNom').value,j=id('bJefe').value,p=id('bPass').value;if(!n||!j||!p)return alert('Complete campos');DB.bodegas.push({id:Date.now().toString(),nombre:n,ubicacion:id('bUbic').value,responsable:j,password:p,materiales:[]});logMsg(`Bodega "${n}" creada`);save();closeModal();renderTab('bodegas');}); }
+function modalEditPass(bId) { openModal('Cambiar Contraseña', `<input type="hidden" id="editBId" value="${bId}"><div class="form-group"><label>Nueva Contraseña</label><input id="newPass" type="password" class="form-control"></div>`, ()=>{const p=id('newPass').value;if(!p)return alert('Ingrese contraseña');DB.bodegas.find(x=>x.id===id('editBId').value).password=p;save();closeModal();alert('✅ Actualizada');}); }
+function delBodega(bId) { if(!confirm('¿Borrar bodega?')) return; DB.bodegas=DB.bodegas.filter(x=>x.id!==bId); DB.cuadrillas=DB.cuadrillas.filter(x=>x.bodegaId!==bId); save(); renderTab('bodegas'); }
+function modalAddSN(bId, mId) { const b=DB.bodegas.find(x=>x.id===bId), m=b.materiales.find(x=>x.id===mId); openModal(`➕ Agregar Serial: ${m.nombre}`, `<p>Stock: ${m.cantidad} ${m.unidad}</p><div class="form-group"><label>Nuevos SN</label><textarea id="newSNs" class="form-control"></textarea></div>`, ()=>{ const raw=id('newSNs').value.trim(); if(!raw) return alert('Ingrese SN'); const sns=raw.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean); m.snes.push(...sns); logMsg(`SN agregado a "${m.nombre}"`); save(); closeModal(); renderTab('bodegas'); }); }
+function modalAddMat(bId) { openModal('Agregar Material', `<input type="hidden" id="matBId" value="${bId}"><div class="form-group"><label>Nombre</label><input id="mNom" class="form-control"></div><div class="form-row"><div class="form-group"><label>Cantidad</label><input id="mCant" type="number" value="1" min="1" class="form-control"></div><div class="form-group"><label>Tipo</label><select id="mTipo" class="form-control"><option value="nuevo">🟢 Nuevo</option><option value="usado">🟡 Usado</option></select></div></div><div class="form-row"><div class="form-group"><label>Unidad</label><select id="mUnidad" class="form-control">${getUnidadesOptions()}</select></div><div class="form-group"><label>⚠️ Stock Mínimo (alerta)</label><input id="mStockMin" type="number" value="0" min="0" class="form-control" placeholder="0 = sin alerta"></div></div><div class="form-group"><label>SNs (Opcional)</label><textarea id="mSNs" class="form-control"></textarea></div>`, ()=>{ const b=DB.bodegas.find(x=>x.id===id('matBId').value); const nom=id('mNom').value, cant=parseInt(id('mCant').value), tipo=id('mTipo').value, un=id('mUnidad').value, stockMin=parseInt(id('mStockMin').value)||0; const rawSN=id('mSNs').value.trim(); if(!nom) return alert('Nombre requerido'); const snes=rawSN?rawSN.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean):[]; if(snes.length>cant) return alert(`SNs > cantidad`); b.materiales.push({id:Date.now().toString(),nombre:nom,cantidad:cant,tipo:tipo,unidad:un,snes:snes,stockMin:stockMin,fecha:new Date().toLocaleDateString()}); logMsg(`Material "${nom}" añadido`); save(); closeModal(); renderTab('bodegas'); }); }
+function modalRestock(bId, mId) { const b=DB.bodegas.find(x=>x.id===bId), m=b.materiales.find(x=>x.id===mId); openModal('📥 Reabastecer', `<input type="hidden" id="rBId" value="${bId}"><input type="hidden" id="rMId" value="${mId}"><p>Stock: <strong>${m.cantidad} ${m.unidad}</strong></p><div class="form-group"><label>Cantidad</label><input id="rCant" type="number" value="1" min="1" class="form-control"></div><div class="form-group"><label>Nuevos SN</label><textarea id="rSNs" class="form-control"></textarea></div>`, ()=>{ const mat=DB.bodegas.find(x=>x.id===id('rBId').value).materiales.find(x=>x.id===id('rMId').value); const q=parseInt(id('rCant').value); if(!q) return alert('Cantidad inválida'); mat.cantidad+=q; const rawSN=id('rSNs').value.trim(); if(rawSN) mat.snes.push(...rawSN.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean)); logMsg(`Reabastecido "${mat.nombre}" (+${q})`); save(); closeModal(); renderTab('bodegas'); }); }
+function delMat(bId, mId) { const m = DB.bodegas.find(x=>x.id===bId).materiales.find(x=>x.id===mId); if(USER.role==='admin') { if(!confirm(`¿Eliminar "${m.nombre}"?`)) return; DB.bodegas.find(x=>x.id===bId).materiales = DB.bodegas.find(x=>x.id===bId).materiales.filter(x=>x.id!==mId); logMsg(`Admin eliminó "${m.nombre}"`); save(); renderTab('bodegas'); return; } openModal('🗑️ Solicitud Eliminación', `<div class="form-group"><label>Artículo</label><input value="${m.nombre} (${m.cantidad} ${m.unidad})" readonly class="form-control"></div><div class="form-group"><label>Observación *</label><textarea id="delObs" class="form-control" placeholder="Motivo..."></textarea></div>`, ()=>{ const obs=id('delObs').value.trim(); if(!obs) return alert('Ingrese observación'); DB.deleteRequests.push({id:Date.now().toString(),bodegaId:bId,bodegaNombre:getUserBodegas().find(x=>x.id===bId)?.nombre||'',materialId:mId,materialNombre:m.nombre,cantidad:m.cantidad,tipo:m.tipo,unidad:m.unidad,snes:[...m.snes],fecha:new Date().toISOString(),obs,estado:'pendiente'}); logMsg(`Solicitud eliminación "${m.nombre}"`); save(); closeModal(); alert('✅ Enviada'); renderTab('bodegas'); }); }
+function renderDeleteReq(c) { if(USER.role!=='admin') return navigate('dash'); const pend=DB.deleteRequests.filter(r=>r.estado==='pendiente'), done=DB.deleteRequests.filter(r=>r.estado!=='pendiente'); c.innerHTML=`<div class="card"><div class="card-header"><h2>🗑️ Solicitudes</h2></div>${pend.length?`<table><thead><tr><th>Fecha</th><th>Bodega</th><th>Artículo</th><th>Cant</th><th>Motivo</th><th></th></tr></thead><tbody>${pend.map(r=>`<tr><td>${new Date(r.fecha).toLocaleDateString()}</td><td>${r.bodegaNombre}</td><td>${r.materialNombre}</td><td>${r.cantidad}</td><td style="max-width:200px;overflow:hidden;">${r.obs}</td><td><button class="btn btn-success btn-sm" onclick="approveDelete('${r.id}','aprobada')">✅</button> <button class="btn btn-danger btn-sm" onclick="approveDelete('${r.id}','rechazada')">❌</button></td></tr>`).join('')}</tbody></table>`:'<p class="text-muted">Sin pendientes</p>'}${done.length?`<h3 style="margin:15px 0 10px;color:var(--gray);">Historial</h3><table><thead><tr><th>Fecha</th><th>Bodega</th><th>Artículo</th><th>Estado</th></tr></thead><tbody>${done.map(r=>`<tr><td>${new Date(r.fecha).toLocaleDateString()}</td><td>${r.bodegaNombre}</td><td>${r.materialNombre}</td><td><span class="badge ${r.estado==='aprobada'?'badge-ok':'badge-rej'}">${r.estado}</span></td></tr>`).join('')}</tbody></table>`:''}</div>`; }
+function approveDelete(reqId, act) { const req=DB.deleteRequests.find(r=>r.id===reqId); if(!req||req.estado!=='pendiente') return; req.estado=act; if(act==='aprobada'){const b=DB.bodegas.find(x=>x.id===req.bodegaId);if(b)b.materiales=b.materiales.filter(m=>m.id!==req.materialId);logMsg(`Aprobado: ${req.materialNombre}`);}else{logMsg(`Rechazado: ${req.materialNombre}`);} save(); renderTab('delete_req'); }
+
+// TRANSFERENCIAS
+function renderTransfer(c) { let ts=DB.transfers; if(USER.role==='bodega') ts=ts.filter(t=>t.oriId===USER.id||t.desId===USER.id); ts.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)); c.innerHTML=`<div class="card"><div class="card-header"><h2>🔄 Transferencias</h2>${USER.role==='bodega'&&canDo('transfer','enviar')?`<button class="btn btn-primary btn-sm" onclick="modalSendTrans()">📤 Enviar</button>`:''}</div>${ts.length?ts.map(t=>`<div style="border:1px solid #eee; border-radius:8px; padding:15px; margin-bottom:10px; background:${t.estado==='pendiente'?'#fff':'#f9f9f9'}"><div class="flex"><strong>🔄 ${t.oriName} ➜ ${t.desName}</strong><span class="badge ${t.estado==='pendiente'?'badge-pend':t.estado==='aceptada'?'badge-ok':'badge-rej'}">${t.estado.toUpperCase()}</span></div><div class="text-muted" style="font-size:0.85rem; margin:5px 0;">📅 ${t.fecha}</div><div style="margin-bottom:10px;">${t.mats.map(m=>`<span class="sn-tag">${m.nom}: ${m.cant} ${m.unidad}${m.snes.length?' [SN:'+m.snes.join(', ')+']':''}</span>`).join(' ')}</div>${t.estado==='pendiente'&&t.desId===USER.id?`<div class="flex"><button class="btn btn-success btn-sm" onclick="procTrans('${t.id}','aceptada')">✅</button><button class="btn btn-danger btn-sm" onclick="procTrans('${t.id}','rechazada')">❌</button></div>`:''}</div>`).join(''):'<p class="text-center text-muted">Sin transferencias</p>'}</div>`; }
+function modalSendTrans() { if(USER.role!=='bodega') return; const dests=DB.bodegas.filter(b=>b.id!==USER.id).map(b=>`<option value="${b.id}">${b.nombre}</option>`).join(''); const mats=DB.bodegas.find(x=>x.id===USER.id).materiales.filter(m=>m.cantidad>0).map(m=>`<option value="${m.id}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`).join(''); TempLists.transItems=[]; openModal('🔄 Transferencia', `<div class="form-group"><label>Destino</label><select id="tDest" class="form-control"><option value="">...</option>${dests}</select></div><hr style="margin:15px 0;"><div class="form-row"><div class="form-group"><label>Material</label><select id="tMat" class="form-control" onchange="showTransferSNBox()">${mats}</select></div><div class="form-group"><label>Cantidad</label><input id="tCant" type="number" value="1" min="1" class="form-control" onchange="showTransferSNBox()"></div></div><div id="tSNArea"></div><div id="tMsg" class="text-muted text-sm"></div><button class="btn btn-outline btn-sm" onclick="addTransItem()" style="margin-top:10px;">➕ Agregar</button><div id="tList" style="margin-top:10px;"></div><div class="form-group"><label>Observaciones</label><input id="tObs" class="form-control"></div>`, ()=>{ if(!id('tDest').value||!TempLists.transItems.length) return alert('Faltan datos'); sendTransLogic(); }); TempLists.tSelectedSNs={}; showTransferSNBox(); renderTList(); }
+function showTransferSNBox() { const mId=id('tMat').value, box=id('tSNArea'), msg=id('tMsg'); if(!mId||!box) return; const m=DB.bodegas.find(x=>x.id===USER.id)?.materiales.find(x=>x.id===mId); if(!m) { box.innerHTML=''; return; } TempLists.tSelectedSNs={}; const q = parseInt(id('tCant').value) || 1; if(m.snes.length > 0) { let html=`<div class="sn-select-area"><div class="flex" style="justify-content:space-between;margin-bottom:8px;"><strong>Seleccione ${q} SNs</strong><label style="font-size:0.85rem;cursor:pointer;"><input type="checkbox" onchange="toggleAllSN(this,'tSNChk')"> Todos</label></div>`; m.snes.forEach((sn,i)=>{ html+=`<label class="sn-check"><input type="checkbox" id="tSNChk_${i}" value="${sn}" onchange="updateTSelection(${q})"> <span class="sn-label">${sn}</span></label>`; }); html+=`</div>`; box.innerHTML=html; msg.textContent = `Seleccione ${q} seriales.`; } else { box.innerHTML = `<div class="alert" style="background:#e8f5e9;color:#2e7d32;padding:8px;font-size:0.85rem;">✅ Sin serial. Se transferirán ${q} ${m.unidad}.</div>`; msg.textContent = ''; } }
+function toggleAllSN(master, prefix) { document.querySelectorAll(`input[id^="${prefix}"]`).forEach(cb=>{cb.checked=master.checked;}); updateTSelection(parseInt(id('tCant').value)||1); }
+function updateTSelection(q) { const checked = document.querySelectorAll('#tSNArea input[type="checkbox"]:checked').length; TempLists.tSelectedSNs = {}; document.querySelectorAll('#tSNArea input[type="checkbox"]:checked').forEach(cb=>TempLists.tSelectedSNs[cb.value]=true); document.querySelectorAll('#tSNArea .sn-check').forEach(el=>{ const cb=el.querySelector('input[type="checkbox"]'); el.classList.toggle('selected',cb.checked); }); const msg=id('tMsg'); if(q>0) { if(checked===q){msg.style.color='var(--secondary)';msg.textContent='✅ Correcto.';}else if(checked>q){msg.style.color='var(--danger)';msg.textContent=`⚠️ ${checked}/${q}`;}else{msg.style.color='var(--warning)';msg.textContent=`⏳ ${checked}/${q}`;} } }
+function addTransItem() { const mId=id('tMat').value, q=parseInt(id('tCant').value); if(!mId||!q) return alert('Datos inválidos'); const m=DB.bodegas.find(x=>x.id===USER.id)?.materiales.find(x=>x.id===mId); if(!m) return; let snes=[]; if(m.snes.length>0){snes=Object.keys(TempLists.tSelectedSNs);if(snes.length!==q) return alert(`Seleccione ${q} SNs`);} const inList=TempLists.transItems.find(x=>x.id===mId)?.cant||0; if(q+inList>m.cantidad) return alert('Stock insuficiente'); const exist=TempLists.transItems.find(x=>x.id===mId); if(exist){exist.cant+=q;exist.snes.push(...snes);} else TempLists.transItems.push({id:m.id,nom:m.nombre,cant:q,tipo:m.tipo,unidad:m.unidad,snes:snes}); TempLists.tSelectedSNs={}; showTransferSNBox(); renderTList(); }
+function renderTList() { const el=id('tList'); if(!el) return; el.innerHTML=TempLists.transItems.map((it,i)=>`<div class="item-list-item"><span><strong>${it.nom}</strong> x${it.cant} ${it.unidad}${it.snes.length?' [SN:'+it.snes.join(', ')+']':''}</span><button class="btn btn-danger btn-sm" onclick="TempLists.transItems.splice(${i},1);renderTList();">✕</button></div>`).join('')||'<p class="text-muted">Vacío</p>'; }
+function sendTransLogic() { const ori=DB.bodegas.find(x=>x.id===USER.id), des=DB.bodegas.find(x=>x.id===id('tDest').value); TempLists.transItems.forEach(it => { const m=ori.materiales.find(x=>x.id===it.id); m.cantidad-=it.cant; it.snes.forEach(s=>{const idx=m.snes.indexOf(s);if(idx>-1)m.snes.splice(idx,1);}); }); DB.transfers.push({id:Date.now().toString(),oriId:USER.id,oriName:ori.nombre,desId:des.id,desName:des.nombre,fecha:new Date().toLocaleDateString(),estado:'pendiente',obs:id('tObs').value,mats:[...TempLists.transItems]}); logMsg(`Transferencia a ${des.nombre}`); save(); closeModal(); renderTab('transfer'); }
+function procTrans(tId,act) { const t=DB.transfers.find(x=>x.id===tId); if(!t||t.estado!=='pendiente') return; t.estado=act; if(act==='aceptada'){const des=DB.bodegas.find(x=>x.id===t.desId);t.mats.forEach(it=>{const ex=des.materiales.find(m=>m.nombre===it.nom&&m.tipo===it.tipo);if(ex){ex.cantidad+=it.cant;if(it.snes.length)ex.snes.push(...it.snes);}else des.materiales.push({id:Date.now().toString(),nombre:it.nom,cantidad:it.cant,tipo:it.tipo,unidad:it.unidad,snes:it.snes,fecha:new Date().toLocaleDateString()});});}else{const ori=DB.bodegas.find(x=>x.id===t.oriId);t.mats.forEach(it=>{let m=ori.materiales.find(x=>x.nombre===it.nom&&x.tipo===it.tipo);if(!m){m={id:Date.now().toString(),nombre:it.nom,cantidad:0,tipo:it.tipo,unidad:it.unidad,snes:[],fecha:new Date().toLocaleDateString()};ori.materiales.push(m);}m.cantidad+=it.cant;if(it.snes.length)m.snes.push(...it.snes);});} logMsg(`Transferencia ${act}`); save(); renderTab('transfer'); }
+
+// RECUPERADOS
+function renderRecuperados(c) { let items=DB.recuperados; if(USER.role==='bodega') items=items.filter(r=>r.bodegaId===USER.id); c.innerHTML=`<div class="card"><div class="card-header"><h2>♻️ Recuperados</h2>${canDo('recuperados','registrar')?`<button class="btn btn-primary btn-sm" onclick="modalAddRecuperado()">➕ Registrar</button>`:''}</div>${items.length?`<table><thead><tr><th>Fecha</th><th>${USER.role==='admin'?'Bodega':'Origen'}</th><th>Artículo</th><th>Cant</th><th>Unidad</th><th>Tipo</th><th>SNs</th><th>Estado</th><th></th></tr></thead><tbody>${items.map((r,i)=>`<tr><td>${r.fecha}</td><td>${USER.role==='admin'?r.bodegaNombre:r.origen}</td><td><strong>${r.nom}</strong></td><td>${r.cant}</td><td>${r.unidad}</td><td><span class="badge ${r.tipo==='nuevo'?'badge-new':'badge-used'}">${r.tipo}</span></td><td>${r.snes.length?r.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' '):'-'}</td><td><span class="badge ${r.estado==='pendiente'?'badge-pend':'badge-ok'}">${r.estado}</span></td><td>${r.estado==='pendiente'?`<button class="btn btn-success btn-sm" onclick="integrarRecuperado(${DB.recuperados.indexOf(r)})">✅</button>`:'-'}</td></tr>`).join('')}</tbody></table>`:'<p class="text-muted">Vacío</p>'}</div>`; }
+function modalAddRecuperado() { const bs=DB.bodegas.map(b=>`<option value="${b.id}" ${USER.role==='bodega'&&b.id===USER.id?'selected':''}>${b.nombre}</option>`).join(''); openModal('Registrar Recuperado', `<div class="form-group"><label>Bodega</label><select id="recBod" class="form-control">${bs}</select></div><div class="form-row"><div class="form-group"><label>Artículo</label><input id="recNom" class="form-control"></div><div class="form-group"><label>Cantidad</label><input id="recCant" type="number" value="1" min="1" class="form-control"></div></div><div class="form-row"><div class="form-group"><label>Tipo</label><select id="recTipo" class="form-control"><option value="usado">🟡 Usado</option><option value="nuevo">🟢 Nuevo</option></select></div><div class="form-group"><label>Unidad</label><select id="recUnidad" class="form-control">${getUnidadesOptions()}</select></div></div><div class="form-group"><label>Origen</label><input id="recOrigen" class="form-control"></div><div class="form-group"><label>SNs</label><textarea id="recSNs" class="form-control"></textarea></div><div class="form-group"><label>Fecha</label><input id="recFecha" type="date" value="${new Date().toISOString().split('T')[0]}" class="form-control"></div>`, ()=>{ const nom=id('recNom').value,cant=parseInt(id('recCant').value),tipo=id('recTipo').value,unid=id('recUnidad').value,origen=id('recOrigen').value,rawSN=id('recSNs').value.trim(),fecha=id('recFecha').value,bId=id('recBod').value; if(!nom||!cant||!origen||!bId) return alert('Complete campos'); DB.recuperados.push({id:Date.now().toString(),bodegaId:bId,bodegaNombre:DB.bodegas.find(x=>x.id===bId)?.nombre,nom,cant,tipo,unidad:unid,origen,snes:rawSN?rawSN.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean):[],fecha,estado:'pendiente'}); logMsg(`Recuperado: ${nom}`); save(); closeModal(); renderTab('recuperados'); }); }
+function integrarRecuperado(idx) { const r=DB.recuperados[idx]; if(!r||r.estado!=='pendiente') return; const b=DB.bodegas.find(x=>x.id===r.bodegaId); if(!b) return alert("Bodega no existe"); const ex=b.materiales.find(m=>m.nombre===r.nom&&m.tipo===r.tipo); if(ex){ex.cantidad+=r.cant;if(r.snes.length)ex.snes.push(...r.snes);}else b.materiales.push({id:Date.now().toString(),nombre:r.nom,cantidad:r.cant,tipo:r.tipo,unidad:r.unidad,snes:r.snes,fecha:r.fecha}); r.estado='integrado'; logMsg(`Integrado "${r.nom}"`); save(); renderTab('recuperados'); }
+
+// CUADRILLAS
+function renderCuads(c) {
+    const cs = getUserCuads();
+    c.innerHTML = `<div class="card"><div class="card-header"><h2>👷 Cuadrillas</h2><div class="flex">
+        ${canDo('cuads','agregar_cuadrilla')?`<button class="btn btn-primary btn-sm" onclick="modalNewCuad()">➕ Cuadrilla</button>`:''}
+        ${canDo('cuads','agregar_tecnico')?`<button class="btn btn-outline btn-sm" onclick="modalNewTec()">👤 Técnico</button>`:''}
+    </div></div>
+    ${cs.length ? cs.map(cu => `
+        <details style="border:1px solid #eee;border-radius:8px;padding:10px;margin-bottom:10px;background:white;">
+        <summary style="cursor:pointer;font-weight:bold;">👷 ${cu.nombre} <span class="badge badge-new">${cu.materiales.reduce((s,m)=>s+m.cantidad,0)} uds</span> <span class="text-muted" style="font-size:0.8rem;">· ${cu.especialidad||''}</span></summary>
+        <div style="margin-top:10px;padding-left:10px;">
+            <p class="text-muted">Receptor: ${cu.receptor}</p>
+            <div class="flex" style="margin:10px 0;">
+                ${canDo('cuads','editar_cuadrilla')?`<button class="btn btn-outline btn-sm" onclick="modalEditCuad('${cu.id}')">✏️ Editar</button>`:''}
+                ${canDo('cuads','devolver_material')?`<button class="btn btn-warning btn-sm" onclick="modalDevolverMat('${cu.id}')">↩️ Devolver Material</button>`:''}
+            </div>
+            <h4 style="margin:10px 0;">👤 Técnicos</h4>
+            ${cu.tecnicos.map(t => `
+                <div class="item-list-item">
+                    <div>
+                        <strong>${t.nombre}</strong> <small>(${t.cargo||''})</small><br>
+                        <span class="text-muted" style="font-size:0.8rem">ID:${t.cedula||'-'} | 🎒 Herramientas: ${t.dotacion.filter(d=>d.categoria==='herramienta').length} | 🦺 Seg: ${t.dotacion.filter(d=>d.categoria==='seguridad').length}</span>
+                    </div>
+                    <div class="flex">
+                        ${canDo('cuads','editar_tecnico')?`<button class="btn btn-outline btn-sm" onclick="modalEditTec('${cu.id}','${t.id}')">✏️</button>`:''}
+                        ${canDo('cuads','dotar')?`<button class="btn btn-warning btn-sm" onclick="modalDotar('${cu.id}','${t.id}')">🎒 Dotar</button>`:''}
+                        ${canDo('cuads','dotacion_directa')?`<button class="btn btn-primary btn-sm" onclick="modalDotacionDirecta('${cu.id}','${t.id}')">📦 Directo</button>`:''}
+                        <button class="btn btn-outline btn-sm" onclick="modalVerDotacion('${cu.id}','${t.id}')">👁️</button>
+                        ${canDo('cuads','agregar_tecnico')?`<button class="btn btn-danger btn-sm" onclick="delTec('${cu.id}','${t.id}')">✕</button>`:''}
+                    </div>
+                </div>`).join('') || '<p class="text-muted">Sin técnicos</p>'}
+            <h4 style="margin:15px 0 10px;">📦 Inventario Cuadrilla</h4>
+            ${cu.materiales.length ? `<table><thead><tr><th>Artículo</th><th>Tipo</th><th>Cant</th><th>Unidad</th><th>SNs</th></tr></thead><tbody>
+                ${cu.materiales.map(m=>`<tr><td>${m.nombre}</td><td><span class="badge ${m.tipo==='nuevo'?'badge-new':'badge-used'}">${m.tipo}</span></td><td>${m.cantidad}</td><td>${m.unidad}</td><td>${m.snes.length?m.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' '):'Sin serial'}</td></tr>`).join('')}
+            </tbody></table>` : '<p class="text-muted">Vacío</p>'}
+        </div></details>`).join('') : '<p class="text-muted">Sin cuadrillas</p>'}
+    </div>`;
+}
+
+function modalEditCuad(cId) {
+    const cu = DB.cuadrillas.find(x=>x.id===cId);
+    const bs = getUserBodegas().map(b=>`<option value="${b.id}" ${b.id===cu.bodegaId?'selected':''}>${b.nombre}</option>`).join('');
+    openModal(`✏️ Editar Cuadrilla: ${cu.nombre}`,
+        `<div class="form-group"><label>Bodega</label><select id="ecBod" class="form-control">${bs}</select></div>
+        <div class="form-group"><label>Nombre</label><input id="ecNom" class="form-control" value="${cu.nombre}"></div>
+        <div class="form-group"><label>Receptor</label><input id="ecRec" class="form-control" value="${cu.receptor}"></div>
+        <div class="form-group"><label>Especialidad</label><input id="ecEsp" class="form-control" value="${cu.especialidad||''}"></div>`,
+        () => {
+            cu.bodegaId = id('ecBod').value;
+            cu.nombre = id('ecNom').value;
+            cu.receptor = id('ecRec').value;
+            cu.especialidad = id('ecEsp').value;
+            logMsg(`Cuadrilla "${cu.nombre}" editada`); save(); closeModal(); renderTab('cuads');
+        });
+}
+
+function modalDevolverMat(cId) {
+    const cu = DB.cuadrillas.find(x=>x.id===cId);
+    const mats = cu.materiales.filter(m=>m.cantidad>0);
+    if(!mats.length) return alert('La cuadrilla no tiene material para devolver.');
+    const bodega = DB.bodegas.find(b=>b.id===cu.bodegaId);
+    openModal(`↩️ Devolver Material — ${cu.nombre}`,
+        `<div style="background:#fff3cd;padding:10px;border-radius:6px;margin-bottom:15px;font-size:0.88rem;">⚠️ El material seleccionado regresará al inventario de <strong>${bodega?.nombre||'la bodega'}</strong>.</div>
+        <table><thead><tr><th>Artículo</th><th>Disponible</th><th>Cant a devolver</th></tr></thead><tbody>
+        ${mats.map(m=>`<tr><td>${m.nombre} <span class="badge ${m.tipo==='nuevo'?'badge-new':'badge-used'}">${m.tipo}</span></td><td>${m.cantidad} ${m.unidad}</td><td><input type="number" class="form-control" id="dev_${m.id}" min="0" max="${m.cantidad}" value="0" style="width:80px;"></td></tr>`).join('')}
+        </tbody></table>`,
+        () => {
+            if(!bodega) return alert('Bodega no encontrada');
+            let devuelto = 0;
+            mats.forEach(m => {
+                const q = parseInt(document.getElementById(`dev_${m.id}`)?.value)||0;
+                if(q<=0 || q>m.cantidad) return;
+                m.cantidad -= q;
+                // Devolver al inventario bodega
+                const ex = bodega.materiales.find(bm=>bm.nombre===m.nombre&&bm.tipo===m.tipo);
+                if(ex) ex.cantidad += q;
+                else bodega.materiales.push({id:Date.now().toString()+Math.random(),nombre:m.nombre,cantidad:q,tipo:m.tipo,unidad:m.unidad,snes:[],fecha:new Date().toLocaleDateString()});
+                devuelto += q;
+            });
+            // Limpiar materiales con cantidad 0
+            cu.materiales = cu.materiales.filter(m=>m.cantidad>0);
+            if(devuelto>0) { logMsg(`Devolución de ${devuelto} uds de "${cu.nombre}" a "${bodega.nombre}"`); save(); closeModal(); renderTab('cuads'); }
+            else alert('Ingresa al menos una cantidad a devolver.');
+        });
+}
+
+function modalVerDotacion(cId, tId) {
+    const cu = DB.cuadrillas.find(x=>x.id===cId);
+    const t = cu.tecnicos.find(x=>x.id===tId);
+    const herramientas = t.dotacion.filter(d=>d.categoria==='herramienta');
+    const seguridad = t.dotacion.filter(d=>d.categoria==='seguridad');
+    const otros = t.dotacion.filter(d=>!d.categoria);
+    const renderDot = (items, label, icon) => items.length ? `<h4 style="margin:10px 0 5px;">${icon} ${label}</h4><table><thead><tr><th>Artículo</th><th>Cant</th><th>Tipo</th><th>SNs</th><th>Fecha</th><th>Origen</th><th></th></tr></thead><tbody>${items.map((d,i)=>{
+        const realIdx = t.dotacion.indexOf(d);
+        return `<tr><td>${d.nom}</td><td>${d.cant}</td><td><span class="badge ${d.tipo==='nuevo'?'badge-new':'badge-used'}">${d.tipo}</span></td><td>${d.snes?.length?d.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' '):'-'}</td><td>${d.fecha||'-'}</td><td>${d.directo?'<span class="badge badge-pend">Directo</span>':'<span class="badge badge-ok">Cuadrilla</span>'}</td><td><button class="btn btn-danger btn-sm" onclick="delTecDotItem('${cId}','${tId}',${realIdx})">🗑️</button></td></tr>`;
+    }).join('')}</tbody></table>` : '';
+    id('mTitle').textContent = `👁️ Dotación de ${t.nombre}`;
+    id('mBody').innerHTML = `${renderDot(herramientas,'Herramientas','🎒')}${renderDot(seguridad,'Elementos de Seguridad','🦺')}${renderDot(otros,'Otros','📦')}` || '<p class="text-muted">Sin dotación asignada</p>';
+    id('mFooter').innerHTML = `<button class="btn btn-primary" onclick="closeModal()">Cerrar</button>`;
+    id('modal').classList.add('show');
+}
+
+function modalNewCuad() { const bs=getUserBodegas().map(b=>`<option value="${b.id}">${b.nombre}</option>`).join(''); openModal('Nueva Cuadrilla', `<div class="form-group"><label>Bodega</label><select id="cBod" class="form-control">${bs}</select></div><div class="form-group"><label>Nombre</label><input id="cNom" class="form-control"></div><div class="form-group"><label>Receptor</label><input id="cRec" class="form-control"></div><div class="form-group"><label>Especialidad</label><input id="cEsp" class="form-control"></div>`, ()=>{ DB.cuadrillas.push({id:Date.now().toString(),bodegaId:id('cBod').value,nombre:id('cNom').value,receptor:id('cRec').value,especialidad:id('cEsp').value,tecnicos:[],materiales:[]}); logMsg(`Cuadrilla "${id('cNom').value}" creada`); save(); closeModal(); renderTab('cuads'); }); }
+function modalNewTec() { const cs=getUserCuads().map(c=>`<option value="${c.id}">${c.nombre}</option>`).join(''); openModal('Nuevo Técnico', `<div class="form-group"><label>Cuadrilla</label><select id="tCuad" class="form-control">${cs}</select></div><div class="form-row"><div class="form-group"><label>Nombre</label><input id="tNom" class="form-control"></div><div class="form-group"><label>Cédula</label><input id="tCed" class="form-control"></div></div><div class="form-row"><div class="form-group"><label>Cargo</label><input id="tCargo" class="form-control"></div><div class="form-group"><label>Teléfono</label><input id="tTel" class="form-control"></div></div><div class="form-group"><label>Email</label><input id="tEmail" class="form-control"></div>`, ()=>{ const cu=DB.cuadrillas.find(x=>x.id===id('tCuad').value); cu.tecnicos.push({id:`T${Date.now()}`,nombre:id('tNom').value,cedula:id('tCed').value,cargo:id('tCargo').value,telefono:id('tTel').value,email:id('tEmail').value,dotacion:[]}); logMsg(`Técnico "${id('tNom').value}" agregado`); save(); closeModal(); renderTab('cuads'); }); }
+
+function modalEditTec(cId, tId) {
+    const cu = DB.cuadrillas.find(x=>x.id===cId);
+    const t = cu.tecnicos.find(x=>x.id===tId);
+    openModal(`✏️ Editar Técnico: ${t.nombre}`,
+        `<div class="form-row"><div class="form-group"><label>Nombre</label><input id="etNom" class="form-control" value="${t.nombre}"></div><div class="form-group"><label>Cédula</label><input id="etCed" class="form-control" value="${t.cedula||''}"></div></div>
+        <div class="form-row"><div class="form-group"><label>Cargo</label><input id="etCargo" class="form-control" value="${t.cargo||''}"></div><div class="form-group"><label>Teléfono</label><input id="etTel" class="form-control" value="${t.telefono||''}"></div></div>
+        <div class="form-group"><label>Email</label><input id="etEmail" class="form-control" value="${t.email||''}"></div>`,
+        () => {
+            t.nombre = id('etNom').value || t.nombre;
+            t.cedula = id('etCed').value;
+            t.cargo = id('etCargo').value;
+            t.telefono = id('etTel').value;
+            t.email = id('etEmail').value;
+            logMsg(`Técnico "${t.nombre}" editado`); save(); closeModal(); renderTab('cuads');
+        });
+}
+
+function modalDotacionDirecta(cId, tId) {
+    const cu = DB.cuadrillas.find(x=>x.id===cId);
+    const t = cu.tecnicos.find(x=>x.id===tId);
+    TempLists.dirItems = [];
+    openModal(`📦 Agregar Material Directo a ${t.nombre}`,
+        `<div style="background:#e3f2fd;padding:8px;border-radius:6px;margin-bottom:12px;font-size:0.85rem;">
+            ℹ️ Este material se asigna directamente al técnico sin pasar por bodega ni cuadrilla.
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>Categoría *</label><select id="ddCat" class="form-control"><option value="herramienta">🎒 Herramienta</option><option value="seguridad">🦺 Elemento de Seguridad</option></select></div>
+            <div class="form-group"><label>Artículo *</label><input id="ddNom" class="form-control" placeholder="Nombre del material"></div>
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>Cantidad</label><input id="ddCant" type="number" value="1" min="1" class="form-control"></div>
+            <div class="form-group"><label>Tipo</label><select id="ddTipo" class="form-control"><option value="nuevo">🟢 Nuevo</option><option value="usado">🟡 Usado</option></select></div>
+            <div class="form-group"><label>Unidad</label><select id="ddUnidad" class="form-control">${getUnidadesOptions()}</select></div>
+        </div>
+        <div class="form-group"><label>Seriales (Opcional, uno por línea)</label><textarea id="ddSNs" class="form-control" rows="3"></textarea></div>
+        <button class="btn btn-outline btn-sm" onclick="addDirItem()" style="margin-top:5px;">➕ Agregar a lista</button>
+        <div id="dirList" style="margin-top:10px;"></div>`,
+        () => {
+            if(!TempLists.dirItems.length) return alert('Agrega al menos un artículo.');
+            TempLists.dirItems.forEach(item => {
+                t.dotacion.push({...item, fecha: new Date().toLocaleDateString(), directo: true});
+            });
+            logMsg(`Material directo asignado a ${t.nombre}`); save(); closeModal(); renderTab('cuads');
+        });
+}
+
+function addDirItem() {
+    const nom = id('ddNom').value.trim();
+    const cant = parseInt(id('ddCant').value)||1;
+    const cat = id('ddCat').value;
+    const tipo = id('ddTipo').value;
+    const unidad = id('ddUnidad').value;
+    const rawSN = id('ddSNs').value.trim();
+    const snes = rawSN ? rawSN.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean) : [];
+    if(!nom) return alert('Ingresa el nombre del artículo');
+    TempLists.dirItems.push({id:'D'+Date.now()+Math.random().toString(36).substr(2,4), nom, cant, tipo, unidad, snes, categoria:cat});
+    id('ddNom').value=''; id('ddCant').value=1; id('ddSNs').value='';
+    const el = id('dirList');
+    if(el) el.innerHTML = TempLists.dirItems.map((it,i)=>`<div class="item-list-item"><span>${it.categoria==='herramienta'?'🎒':'🦺'} ${it.nom} x${it.cant} ${it.unidad} <span class="badge ${it.tipo==='nuevo'?'badge-new':'badge-used'}">${it.tipo}</span>${it.snes.length?' [SN:'+it.snes.join(',')+']':''}</span><button class="btn btn-danger btn-sm" onclick="TempLists.dirItems.splice(${i},1);addDirItem();return false;">✕</button></div>`).join('') || 'Vacío';
+}
+
+function delTecDotItem(cId, tId, idx) {
+    const cu = DB.cuadrillas.find(x=>x.id===cId);
+    const t = cu.tecnicos.find(x=>x.id===tId);
+    const item = t.dotacion[idx];
+    openModal('🗑️ Eliminar de Dotación',
+        `<div style="background:#fff3cd;padding:10px;border-radius:6px;margin-bottom:10px;">⚠️ Debes indicar el motivo para eliminar este ítem de la dotación del técnico.</div>
+        <p><strong>Artículo:</strong> ${item.nom} (${item.cant} ${item.unidad})</p>
+        <div class="form-group"><label>Motivo de eliminación *</label><textarea id="delDotObs" class="form-control" placeholder="Explique el motivo..."></textarea></div>`,
+        () => {
+            const obs = id('delDotObs').value.trim();
+            if(!obs) return alert('El motivo es obligatorio.');
+            t.dotacion.splice(idx, 1);
+            logMsg(`Eliminado de dotación de ${t.nombre}: ${item.nom} — Motivo: ${obs}`);
+            save(); closeModal(); renderTab('cuads');
+        });
+}
+
+function delTec(cId, tId) { if(!confirm('¿Borrar técnico y toda su dotación?')) return; DB.cuadrillas.find(x=>x.id===cId).tecnicos=DB.cuadrillas.find(x=>x.id===cId).tecnicos.filter(x=>x.id!==tId); save(); renderTab('cuads'); }
+
+function modalDotar(cId, tId) {
+    TempLists.currentCId=cId; TempLists.currentTId=tId; TempLists.dotItems=[]; TempLists.dSelectedSNs={};
+    const cu=DB.cuadrillas.find(x=>x.id===cId); const t=cu.tecnicos.find(x=>x.id===tId);
+    const mats=cu.materiales.filter(m=>m.cantidad>0).map(m=>`<option value="${m.id}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`).join('');
+    openModal(`🎒 Dotar a ${t.nombre}`,
+        `<div class="form-row">
+            <div class="form-group"><label>Categoría *</label><select id="dCategoria" class="form-control"><option value="herramienta">🎒 Herramienta</option><option value="seguridad">🦺 Elemento de Seguridad</option></select></div>
+            <div class="form-group"><label>Material</label><select id="dMat" class="form-control" onchange="showDotSNBox()">${mats}</select></div>
+        </div>
+        <div class="form-row"><div class="form-group"><label>Cantidad</label><input id="dCant" type="number" value="1" min="1" class="form-control" onchange="showDotSNBox()"></div></div>
+        <div id="dSNArea"></div><div id="dMsg" class="text-muted text-sm"></div>
+        <button class="btn btn-outline btn-sm" onclick="addDotItem()" style="margin-top:5px;">➕ Agregar</button>
+        <div id="dList" style="margin-top:10px;"></div>`,
+        ()=>{ if(!TempLists.dotItems.length) return alert('Agregue material'); saveDotacionLogic(); });
+    TempLists.dSelectedSNs={}; showDotSNBox(); renderDList();
+}
+function showDotSNBox() { const mId=id('dMat').value, box=id('dSNArea'), msg=id('dMsg'); if(!mId||!box) return; const c=DB.cuadrillas.find(x=>x.id===TempLists.currentCId), m=c.materiales.find(x=>x.id===mId); if(!m) return; TempLists.dSelectedSNs={}; const q=parseInt(id('dCant').value)||1; if(m.snes.length>0){ let html=`<div class="sn-select-area"><div class="flex" style="justify-content:space-between;margin-bottom:8px;"><strong>Seleccione ${q} SNs</strong><label style="font-size:0.85rem;cursor:pointer;"><input type="checkbox" onchange="toggleAllSN(this,'dSNChk')"> Todos</label></div>`; m.snes.forEach((sn,i)=>{html+=`<label class="sn-check"><input type="checkbox" id="dSNChk_${i}" value="${sn}" onchange="updateDSelection(${q})"> <span class="sn-label">${sn}</span></label>`;}); html+=`</div>`; box.innerHTML=html; msg.textContent=`Seleccione ${q} de ${m.snes.length} disponibles.`; }else{ box.innerHTML=`<div class="alert" style="background:#e8f5e9;color:#2e7d32;padding:8px;font-size:0.85rem;">Sin serial. Se asignarán ${q} ${m.unidad}.</div>`; msg.textContent=''; } }
+function toggleAllSN(master,prefix){ document.querySelectorAll(`input[id^="${prefix}"]`).forEach(cb=>{cb.checked=master.checked;}); updateDSelection(parseInt(id('dCant').value)||1); }
+function updateDSelection(q){ TempLists.dSelectedSNs={}; document.querySelectorAll('#dSNArea input[type="checkbox"]:checked').forEach(cb=>TempLists.dSelectedSNs[cb.value]=true); document.querySelectorAll('#dSNArea .sn-check').forEach(el=>{const cb=el.querySelector('input[type="checkbox"]');el.classList.toggle('selected',cb.checked);}); const checked=document.querySelectorAll('#dSNArea input[type="checkbox"]:checked').length; const msg=id('dMsg'); if(q>0){if(checked===q){msg.style.color='var(--secondary)';msg.textContent='✅ Correcto';}else if(checked>q){msg.style.color='var(--danger)';msg.textContent=`⚠️ ${checked}/${q}`;}else{msg.style.color='var(--warning)';msg.textContent=`⏳ ${checked}/${q}`;}} }
+function addDotItem() { const mId=id('dMat').value, q=parseInt(id('dCant').value), cat=id('dCategoria').value; if(!mId||!q) return alert('Datos inválidos'); const c=DB.cuadrillas.find(x=>x.id===TempLists.currentCId), m=c.materiales.find(x=>x.id===mId); let snes=[]; if(m.snes.length>0){snes=Object.keys(TempLists.dSelectedSNs);if(snes.length!==q) return alert(`Seleccione ${q} SNs`);} const inList=TempLists.dotItems.find(x=>x.id===mId)?.cant||0; if(q+inList>m.cantidad) return alert('Stock insuficiente'); const exist=TempLists.dotItems.find(x=>x.id===mId&&x.categoria===cat); if(exist){exist.cant+=q;exist.snes.push(...snes);}else TempLists.dotItems.push({id:m.id,nom:m.nombre,cant:q,tipo:m.tipo,unidad:m.unidad,snes:snes,categoria:cat}); TempLists.dSelectedSNs={}; showDotSNBox(); renderDList(); }
+function renderDList() { const el=id('dList'); if(!el) return; const catLabel = c => c==='herramienta'?'🎒':'🦺'; el.innerHTML=TempLists.dotItems.map((it,i)=>`<div class="item-list-item"><span>${catLabel(it.categoria)} ${it.nom} x${it.cant} ${it.unidad}${it.snes.length?' [SN:'+it.snes.join(', ')+']':''}</span><button class="btn btn-danger btn-sm" onclick="TempLists.dotItems.splice(${i},1);renderDList();">✕</button></div>`).join('')||'Vacío'; }
+function saveDotacionLogic() { const c=DB.cuadrillas.find(x=>x.id===TempLists.currentCId), t=c.tecnicos.find(x=>x.id===TempLists.currentTId); TempLists.dotItems.forEach(it => { const m=c.materiales.find(x=>x.id===it.id); m.cantidad-=it.cant; it.snes.forEach(s=>{const idx=m.snes.indexOf(s);if(idx>-1)m.snes.splice(idx,1);}); t.dotacion.push({...it,fecha:new Date().toLocaleDateString()}); }); logMsg(`Dotación a ${t.nombre}`); save(); closeModal(); renderTab('cuads'); }
+
+// ENTREGAS
+function renderEntregas(c) { let es=DB.entregas; if(USER.role==='bodega') es=es.filter(e=>e.bodegaId===USER.id); es.sort((a,b)=>new Date(b.reg)-new Date(a.reg)); c.innerHTML=`<div class="card"><div class="card-header"><h2>📤 Entregas</h2>${canDo('entregas','crear')?`<button class="btn btn-success btn-sm" onclick="modalNewEntrega()">➕ Nueva</button>`:''}</div>${es.length?`<table><thead><tr><th>Fecha</th><th>Origen</th><th>Destino</th><th>Receptor</th><th>Items</th><th></th></tr></thead><tbody>${es.map(e=>`<tr><td>${e.fecha}</td><td>${e.bodega}</td><td>${e.cuadrilla}</td><td>${e.receptor}</td><td>${e.mats.map(m=>`${m.nom}(${m.cant} ${m.unidad})${m.snes.length?' [SN:'+m.snes.join(',')+']':''}`).join(', ')}</td><td>${canDo('entregas','eliminar')?`<button class="btn btn-danger btn-sm" onclick="delEntrega('${e.id}')">✕</button>`:''}</td></tr>`).join('')}</tbody></table>`:'<p class="text-muted">Sin entregas</p>'}</div>`; }
+function modalNewEntrega() { const bs=getUserBodegas().map(b=>`<option value="${b.id}">${b.nombre}</option>`).join(''); TempLists.eItems=[]; TempLists.eSelectedSNs={}; openModal('📤 Entrega', `<div class="form-row"><div class="form-group"><label>Bodega Origen</label><select id="eBod" class="form-control" onchange="updateEOptions()">${bs}</select></div><div class="form-group"><label>Fecha</label><input id="eFecha" type="date" value="${new Date().toISOString().split('T')[0]}" class="form-control"></div></div><div class="form-group"><label>Cuadrilla</label><select id="eCuad" class="form-control" onchange="loadERec()"></select></div><div class="form-group"><label>Receptor</label><input id="eRec" readonly class="form-control"></div><hr style="margin:10px 0;"><div class="form-row"><div class="form-group"><label>Material</label><select id="eMat" class="form-control" onchange="showESNBox()"></select></div><div class="form-group"><label>Cantidad *</label><input id="eCant" type="number" value="1" min="1" class="form-control" onchange="showESNBox()"></div></div><div id="eSNArea"></div><div id="eMsg" class="text-muted text-sm"></div><button class="btn btn-outline btn-sm" onclick="addEItem()" style="margin-top:5px;">➕ Agregar</button><div id="eList" style="margin-top:10px;"></div>`, ()=>{ if(!TempLists.eItems.length||!id('eBod').value||!id('eCuad').value) return alert('Faltan datos'); saveEntregaLogic(); }); updateEOptions(); TempLists.eSelectedSNs={}; showESNBox(); }
+function updateEOptions() { const bId=id('eBod').value; id('eCuad').innerHTML=DB.cuadrillas.filter(c=>c.bodegaId===bId).map(c=>`<option value="${c.id}">${c.nombre}</option>`).join(''); loadERec(); const b=DB.bodegas.find(x=>x.id===bId); id('eMat').innerHTML=b?b.materiales.filter(m=>m.cantidad>0).map(m=>`<option value="${m.id}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`).join(''):'<option value="">-</option>'; showESNBox(); }
+function loadERec() { const c=DB.cuadrillas.find(x=>x.id===id('eCuad').value); id('eRec').value=c?c.receptor:''; }
+function showESNBox() { const mId=id('eMat').value, box=id('eSNArea'), msg=id('eMsg'); if(!mId||!box) return; const bId=id('eBod').value, b=DB.bodegas.find(x=>x.id===bId), m=b?.materiales.find(x=>x.id===mId); if(!m) return; TempLists.eSelectedSNs={}; const q=parseInt(id('eCant').value)||1; if(m.snes.length>0){ let html=`<div class="sn-select-area"><div class="flex" style="justify-content:space-between;margin-bottom:8px;"><strong>Seleccione ${q} SNs</strong><label style="font-size:0.85rem;cursor:pointer;"><input type="checkbox" onchange="toggleAllSN(this,'eSNChk')"> Todos</label></div>`; m.snes.forEach((sn,i)=>{html+=`<label class="sn-check"><input type="checkbox" id="eSNChk_${i}" value="${sn}" onchange="updateESelection(${q})"> <span class="sn-label">${sn}</span></label>`;}); html+=`</div>`; box.innerHTML=html; msg.textContent=`Seleccione ${q} seriales.`; }else{ box.innerHTML=`<div class="alert" style="background:#e8f5e9;color:#2e7d32;padding:8px;font-size:0.85rem;">Sin serial. Se entregarán ${q} ${m.unidad}.</div>`; msg.textContent=''; } }
+function toggleAllSN(master,prefix){ document.querySelectorAll(`input[id^="${prefix}"]`).forEach(cb=>{cb.checked=master.checked;}); updateESelection(parseInt(id('eCant').value)||1); }
+function updateESelection(q){ TempLists.eSelectedSNs={}; document.querySelectorAll('#eSNArea input[type="checkbox"]:checked').forEach(cb=>TempLists.eSelectedSNs[cb.value]=true); document.querySelectorAll('#eSNArea .sn-check').forEach(el=>{const cb=el.querySelector('input[type="checkbox"]');el.classList.toggle('selected',cb.checked);}); const checked=document.querySelectorAll('#eSNArea input[type="checkbox"]:checked').length; const msg=id('eMsg'); if(q>0){if(checked===q){msg.style.color='var(--secondary)';msg.textContent='✅ Correcto';}else if(checked>q){msg.style.color='var(--danger)';msg.textContent=`⚠️ ${checked}/${q}`;}else{msg.style.color='var(--warning)';msg.textContent=`⏳ ${checked}/${q}`;}} }
+function addEItem() { const mId=id('eMat').value, q=parseInt(id('eCant').value); if(!mId||!q) return alert('Datos inválidos'); const bId=id('eBod').value, b=DB.bodegas.find(x=>x.id===bId), m=b.materiales.find(x=>x.id===mId); let snes=[]; if(m.snes.length>0){snes=Object.keys(TempLists.eSelectedSNs);if(snes.length!==q) return alert(`Seleccione ${q} SNs`);} const inList=TempLists.eItems.find(x=>x.id===mId)?.cant||0; if(q+inList>m.cantidad) return alert('Stock insuficiente'); const exist=TempLists.eItems.find(x=>x.id===mId); if(exist){exist.cant+=q;exist.snes.push(...snes);} else TempLists.eItems.push({id:m.id,nom:m.nombre,cant:q,tipo:m.tipo,unidad:m.unidad,snes:snes}); TempLists.eSelectedSNs={}; showESNBox(); renderEList(); }
+function renderEList() { const el=id('eList'); if(!el) return; el.innerHTML=TempLists.eItems.map((it,i)=>`<div class="item-list-item"><span><strong>${it.nom}</strong> x${it.cant} ${it.unidad}${it.snes.length?' [SN:'+it.snes.join(', ')+']':''}</span><button class="btn btn-danger btn-sm" onclick="TempLists.eItems.splice(${i},1);renderEList();">✕</button></div>`).join('')||'Vacío'; }
+function saveEntregaLogic() { const b=DB.bodegas.find(x=>x.id===id('eBod').value), c=DB.cuadrillas.find(x=>x.id===id('eCuad').value); TempLists.eItems.forEach(it => { const m=b.materiales.find(x=>x.id===it.id); m.cantidad-=it.cant; it.snes.forEach(s=>{const idx=m.snes.indexOf(s);if(idx>-1)m.snes.splice(idx,1);}); const ex=c.materiales.find(x=>x.nombre===it.nom&&x.tipo===it.tipo); if(ex){ex.cantidad+=it.cant;if(it.snes.length)ex.snes.push(...it.snes);}else c.materiales.push({id:Date.now().toString(),nombre:it.nom,cantidad:it.cant,tipo:it.tipo,unidad:it.unidad,snes:it.snes,fecha:new Date().toLocaleDateString()}); }); DB.entregas.push({id:Date.now().toString(),bodegaId:b.id,bodega:b.nombre,cuadrillaId:c.id,cuadrilla:c.nombre,receptor:c.receptor,fecha:id('eFecha').value,mats:[...TempLists.eItems],reg:new Date().toISOString()}); logMsg(`Entrega ${b.nombre} ➜ ${c.nombre}`); save(); closeModal(); renderTab('entregas'); }
+function delEntrega(eid) { if(!confirm('¿Eliminar? Stock NO se devuelve.')) return; DB.entregas=DB.entregas.filter(x=>x.id!==eid); save(); renderTab('entregas'); }
+
+// INSTALACIONES
+function renderInst(c) { let is=DB.instalaciones; if(USER.role==='bodega'){const cIds=getUserCuads().map(x=>x.id);is=is.filter(x=>cIds.includes(x.cuadrillaId));} is.sort((a,b)=>new Date(b.reg)-new Date(a.reg)); c.innerHTML=`<div class="card"><div class="card-header"><h2>🔧 Instalaciones</h2>${canDo('inst','crear')?`<button class="btn btn-success btn-sm" onclick="modalNewInst()">➕ Nueva</button>`:''}</div>${is.length?is.map(i=>`<div style="border:1px solid #eee; padding:15px; border-radius:8px; margin-bottom:10px; background:white;"><div class="flex"><strong>🔧 ${i.cliente}</strong> <span class="badge badge-new">${i.fecha}</span></div><p class="text-muted">Cuadrilla: ${i.cuadrilla} | Tipo: ${i.tipo||'-'}</p><div style="margin-top:5px;">${i.mats.map(m=>`<span class="sn-tag">${m.nom}: ${m.cant} ${m.unidad}${m.snes.length?' [SN:'+m.snes.join(',')+']':''}</span>`).join(' ')}</div>${canDo('inst','eliminar')?`<button class="btn btn-danger btn-sm" style="margin-top:10px;" onclick="delInst('${i.id}')">✕</button>`:''}</div>`).join(''):'<p class="text-muted">Sin instalaciones</p>'}</div>`; }
+function modalNewInst() { const cs=getUserCuads().map(c=>`<option value="${c.id}">${c.nombre}</option>`).join(''); TempLists.iItems=[]; openModal('Nueva Instalación', `<div class="form-row"><div class="form-group"><label>Cuadrilla</label><select id="iCuad" class="form-control" onchange="loadIOptions()">${cs}</select></div><div class="form-group"><label>Fecha</label><input id="iFecha" type="date" value="${new Date().toISOString().split('T')[0]}" class="form-control"></div></div><div class="form-group"><label>Cliente</label><input id="iCli" class="form-control"></div><div class="form-group"><label>Tipo</label><input id="iTipo" class="form-control"></div><hr style="margin:10px 0;"><div class="form-row"><div class="form-group"><label>Material</label><select id="iMat" class="form-control"></select></div><div class="form-group"><label>Cantidad</label><input id="iCant" type="number" value="1" min="1" class="form-control"></div></div><button class="btn btn-outline btn-sm" onclick="addIItem()">➕ Agregar</button><div id="iList" style="margin-top:10px;"></div>`, ()=>{ if(!TempLists.iItems.length||!id('iCli').value) return alert('Faltan datos'); saveInstLogic(); }); loadIOptions(); }
+function loadIOptions() { const c=DB.cuadrillas.find(x=>x.id===id('iCuad').value); id('iMat').innerHTML=c?c.materiales.filter(m=>m.cantidad>0).map(m=>`<option value="${m.id}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`).join(''):''; }
+function addIItem() { const c=DB.cuadrillas.find(x=>x.id===id('iCuad').value), mId=id('iMat').value, q=parseInt(id('iCant').value); if(!mId||!q) return; const m=c.materiales.find(x=>x.id===mId); const inList=TempLists.iItems.find(x=>x.id===mId)?.cant||0; if(q+inList>m.cantidad) return alert('Stock insuficiente'); const exist=TempLists.iItems.find(x=>x.id===mId); if(exist) exist.cant+=q; else TempLists.iItems.push({id:m.id,nom:m.nombre,cant:q,tipo:m.tipo,unidad:m.unidad,snes:m.snes.slice(0,q)}); renderIList(); }
+function renderIList() { const el=id('iList'); if(!el) return; el.innerHTML=TempLists.iItems.map((it,i)=>`<div class="item-list-item"><span>${it.nom} x${it.cant} ${it.unidad}</span><button class="btn btn-danger btn-sm" onclick="TempLists.iItems.splice(${i},1);renderIList();">✕</button></div>`).join('')||'Vacío'; }
+function saveInstLogic() { const c=DB.cuadrillas.find(x=>x.id===id('iCuad').value), cli=id('iCli').value.trim(), tipo=id('iTipo').value.trim(), fecha=id('iFecha').value; TempLists.iItems.forEach(it => { const m=c.materiales.find(x=>x.id===it.id); m.cantidad-=it.cant; it.snes.forEach(s=>{const idx=m.snes.indexOf(s);if(idx>-1)m.snes.splice(idx,1);}); }); const instData = {id:Date.now().toString(),cuadrillaId:c.id,cuadrilla:c.nombre,fecha:fecha,cliente:cli,tipo:tipo,mats:[...TempLists.iItems],reg:new Date().toISOString()}; DB.instalaciones.push(instData); actualizarClientesDesdeInstalacion(instData); logMsg(`Instalación en ${cli}`); save(); closeModal(); renderTab('inst'); }
+function delInst(eid) { if(!confirm('¿Eliminar?')) return; DB.instalaciones=DB.instalaciones.filter(x=>x.id!==eid); save(); renderTab('inst'); }
+
+// ADMIN
+function renderAdmin(c) {
+    c.innerHTML = `<div class="card">
+        <div class="card-header"><h2>⚙️ Administración</h2></div>
+        <div class="form-group"><label>Contraseña Admin Actual</label>
+            <input id="aOld" type="password" class="form-control" style="margin-bottom:5px;">
+            <input id="aNew" type="password" placeholder="Nueva contraseña" class="form-control">
+        </div>
+        <button class="btn btn-warning" onclick="changeAdminPass()">🔑 Actualizar Contraseña</button>
+        <hr style="margin:20px 0;">
+        <div class="flex">
+            <button class="btn btn-primary" onclick="exportData()">📥 Exportar JSON</button>
+            <button class="btn btn-outline" onclick="document.getElementById('impFile').click()">📤 Importar JSON</button>
+            <input type="file" id="impFile" hidden accept=".json" onchange="importData(this)">
+            <button class="btn btn-danger" onclick="hardReset()">🗑️ Reset Total</button>
+            <button class="btn btn-outline" onclick="changeFirebaseConfig()">🔧 Firebase</button>
+        </div>
+    </div>
+
+    <div class="card" style="margin-top:15px;">
+        <div class="card-header"><h2>🔐 Permisos por Bodega</h2></div>
+        <p class="text-muted" style="margin-bottom:15px;">Define qué puede ver y hacer cada jefe de bodega en el sistema.</p>
+        ${DB.bodegas.length ? DB.bodegas.map(b => {
+            const perms = getBodegaPermisos(b.id);
+            return `<details style="margin-bottom:12px;border:1px solid #eee;border-radius:8px;padding:12px;background:white;">
+                <summary style="cursor:pointer;font-weight:bold;font-size:1rem;">🏭 ${b.nombre} <small class="text-muted">(${b.responsable||'Sin jefe'})</small></summary>
+                <div style="margin-top:15px;">
+                    ${MODULOS_PERMISOS.map(mod => `
+                        <div style="margin-bottom:12px;padding:10px;background:#f8f9fa;border-radius:6px;">
+                            <div style="font-weight:bold;margin-bottom:8px;">${mod.label}</div>
+                            <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                                ${mod.acciones.map(ac => `
+                                    <label style="display:flex;align-items:center;gap:5px;cursor:pointer;background:white;padding:5px 10px;border-radius:15px;border:1px solid #dee2e6;font-size:0.82rem;">
+                                        <input type="checkbox" 
+                                            id="perm_${b.id}_${mod.key}_${ac}" 
+                                            ${perms[mod.key][ac]!==false?'checked':''}
+                                            onchange="togglePerm('${b.id}','${mod.key}','${ac}',this.checked)">
+                                        ${ACCION_LABELS[ac]||ac}
+                                    </label>`).join('')}
+                            </div>
+                        </div>`).join('')}
+                    <button class="btn btn-success btn-sm" onclick="savePermisos('${b.id}')">💾 Guardar Permisos</button>
+                    <button class="btn btn-outline btn-sm" onclick="resetPermisos('${b.id}')">↺ Restaurar Todo</button>
+                </div>
+            </details>`;
+        }).join('') : '<p class="text-muted">No hay bodegas creadas.</p>'}
+    </div>`;
+}
+
+function togglePerm(bId, modulo, accion, val) {
+    const b = DB.bodegas.find(x=>x.id===bId);
+    if(!b) return;
+    if(!b.permisos) b.permisos = getDefaultPermisos();
+    if(!b.permisos[modulo]) b.permisos[modulo] = {};
+    b.permisos[modulo][accion] = val;
+    // Si desactiva "ver", desactiva todas las acciones del módulo
+    if(accion === 'ver' && !val) {
+        const mod = MODULOS_PERMISOS.find(m=>m.key===modulo);
+        if(mod) mod.acciones.forEach(a => {
+            b.permisos[modulo][a] = false;
+            const cb = document.getElementById(`perm_${bId}_${modulo}_${a}`);
+            if(cb) cb.checked = false;
+        });
+    }
+    // Si activa cualquier acción, activa "ver" automáticamente
+    if(accion !== 'ver' && val) {
+        b.permisos[modulo]['ver'] = true;
+        const cbVer = document.getElementById(`perm_${bId}_${modulo}_ver`);
+        if(cbVer) cbVer.checked = true;
+    }
+}
+
+function savePermisos(bId) {
+    const b = DB.bodegas.find(x=>x.id===bId);
+    if(!b) return;
+    if(!b.permisos) b.permisos = {};
+    // Leer todos los checkboxes de esta bodega
+    MODULOS_PERMISOS.forEach(mod => {
+        b.permisos[mod.key] = {};
+        mod.acciones.forEach(ac => {
+            const cb = document.getElementById(`perm_${bId}_${mod.key}_${ac}`);
+            b.permisos[mod.key][ac] = cb ? cb.checked : true;
+        });
+    });
+    logMsg(`Permisos actualizados para ${b.nombre}`);
+    save();
+    alert(`✅ Permisos guardados para ${b.nombre}`);
+}
+
+function resetPermisos(bId) {
+    if(!confirm('¿Restaurar todos los permisos a activo para esta bodega?')) return;
+    const b = DB.bodegas.find(x=>x.id===bId);
+    if(!b) return;
+    b.permisos = getDefaultPermisos();
+    save();
+    renderTab('admin');
+    alert('✅ Permisos restaurados');
+}
+function changeAdminPass() { const old=id('aOld').value, nw=id('aNew').value; if(old!==DB.adminPass) return alert('Incorrecta'); if(!nw) return alert('Ingrese nueva'); DB.adminPass=nw; save(); alert('✅ Actualizada'); renderTab('admin'); }
+function exportData() { const b=new Blob([JSON.stringify(DB,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=`backup_${new Date().toLocaleDateString()}.json`; a.click(); }
+function importData(inp) { const f=inp.files[0]; if(!f) return; const r=new FileReader(); r.onload=e=>{try{const j=JSON.parse(e.target.result);DB={...DB,...j};if(!DB.deleteRequests)DB.deleteRequests=[];if(!DB.clientes)DB.clientes=[];save();setTimeout(()=>{alert('✅ Importado');location.reload();},800);}catch(err){alert('❌ Error');}};r.readAsText(f); }
+
+init();
+</script>
+
+<script type="module">
+import { initializeApp, getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+const FB_KEY = 'invPro_firebaseConfig';
+const DB_DOC = 'inventario/datos';
+let fsDB = null, saveTO = null;
+
+function showSync(state, text) {
+    const el=document.getElementById('syncStatus'), dot=document.getElementById('syncDot'), txt=document.getElementById('syncText');
+    el.style.display='flex'; dot.className='sync-dot sync-'+state; txt.textContent=text;
+}
+
+function fixDB() {
+    if(!DB.deleteRequests) DB.deleteRequests=[];
+    if(!DB.recuperados) DB.recuperados=[];
+    if(!DB.clientes) DB.clientes=[];
+    const fx=m=>{if(!Array.isArray(m.snes))m.snes=[];};
+    DB.bodegas.forEach(b=>b.materiales.forEach(fx));
+    DB.cuadrillas.forEach(c=>c.materiales.forEach(fx));
+    DB.clientes.forEach(c=>{if(c.equipos)c.equipos.forEach(e=>fx(e));});
+}
+
+window._fbSave = function() {
+    showSync('saving','Guardando...');
+    clearTimeout(saveTO);
+    saveTO = setTimeout(async ()=>{
+        try {
+            await setDoc(doc(fsDB, DB_DOC), JSON.parse(JSON.stringify(DB)));
+            showSync('ok','Guardado ✓');
+        } catch(e) { showSync('err','Error al guardar'); console.error(e); }
+    }, 600);
+};
+
+window.connectFirebase = async function() {
+    const apiKey=document.getElementById('fb_apiKey').value.trim();
+    const projectId=document.getElementById('fb_projectId').value.trim();
+    const appId=document.getElementById('fb_appId').value.trim();
+    const msg=document.getElementById('setupMsg');
+    if(!apiKey||!projectId||!appId){msg.style.color='var(--danger)';msg.textContent='⚠️ Completa todos los campos.';return;}
+    msg.style.color='var(--warning)';msg.textContent='⏳ Conectando...';
+    try {
+        const config={apiKey,projectId,appId,authDomain:`${projectId}.firebaseapp.com`,storageBucket:`${projectId}.appspot.com`};
+        await startFirebase(config);
+        localStorage.setItem(FB_KEY, JSON.stringify(config));
+    } catch(e) {
+        msg.style.color='var(--danger)';
+        msg.textContent='❌ Error: '+e.message;
+        console.error(e);
+    }
+};
+
+async function startFirebase(config) {
+    // Reuse existing app if already initialized, avoid duplicate app error
+    let app;
+    try {
+        app = getApps().length ? getApp() : initializeApp(config);
+    } catch(e) {
+        app = initializeApp(config, 'inv_app_' + config.projectId);
+    }
+    fsDB = getFirestore(app);
+    const ref = doc(fsDB, DB_DOC);
+
+    document.getElementById('firebase-setup').style.display='none';
+    document.getElementById('loading-screen').style.display='flex';
+
+    const snap = await getDoc(ref);
+    if(snap.exists()) { Object.assign(DB, snap.data()); fixDB(); }
+
+    document.getElementById('loading-screen').style.display='none';
+    document.getElementById('login-screen').style.display='flex';
+    showSync('ok','Sincronizado');
+    renderLoginBodegas();
+
+    onSnapshot(ref, s=>{
+        if(s.exists()){Object.assign(DB,s.data());fixDB();showSync('ok','Sincronizado');
+        renderLoginBodegas();if(window.USER)renderTab(document.querySelector('.nav-btn.active')?.dataset?.tab||'dash');}
+    }, (err)=>{showSync('err','Sin conexión'); console.error(err);});
+}
+
+// Auto-connect if config saved
+const saved = (()=>{try{return JSON.parse(localStorage.getItem(FB_KEY));}catch{return null;}})();
+if(saved) {
+    document.getElementById('firebase-setup').style.display='none';
+    startFirebase(saved).catch(e=>{
+        document.getElementById('firebase-setup').style.display='flex';
+        document.getElementById('loading-screen').style.display='none';
+        const msg=document.getElementById('setupMsg');
+        msg.style.color='var(--danger)';msg.textContent='❌ Error con config guardada. Reverifica tus credenciales.';
+        if(saved.apiKey) document.getElementById('fb_apiKey').value=saved.apiKey;
+        if(saved.projectId) document.getElementById('fb_projectId').value=saved.projectId;
+        if(saved.appId) document.getElementById('fb_appId').value=saved.appId;
+        console.error(e);
+    });
+}
+</script>
+</body>
+</html>
