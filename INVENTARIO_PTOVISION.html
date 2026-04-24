@@ -173,6 +173,7 @@
         <button class="nav-btn bodega-only" data-tab="inv_global">🔍 Inventario Bodegas</button>
         <button class="nav-btn" data-tab="transfer">🔄 Transferencias</button>
         <button class="nav-btn" data-tab="recuperados">♻️ Recuperados</button>
+        <button class="nav-btn" data-tab="danados">🔴 Equipos Dañados</button>
         <button class="nav-btn" data-tab="cuads">👷 Cuadrillas</button>
         <button class="nav-btn" data-tab="entregas">📤 Entregas</button>
         <button class="nav-btn" data-tab="inst">🔧 Instalaciones</button>
@@ -302,7 +303,7 @@ function setupNav() {
     });
 }
 function navigate(tab) { document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active')); document.querySelector(`.nav-btn[data-tab="${tab}"]`)?.classList.add('active'); renderTab(tab); }
-function renderTab(tab) { const main=id('main-content'); if(!main) return; try { switch(tab) { case 'dash': renderDash(main); break; case 'bodegas': renderBodegas(main); break; case 'clientes': renderClientes(main); break; case 'vista_global': renderVistaGlobal(main); break; case 'inv_global': renderInvGlobal(main); break; case 'transfer': renderTransfer(main); break; case 'recuperados': renderRecuperados(main); break; case 'cuads': renderCuads(main); break; case 'entregas': renderEntregas(main); break; case 'inst': renderInst(main); break; case 'delete_req': renderDeleteReq(main); break; case 'admin': renderAdmin(main); break; } } catch(e) { alert("Error: "+e.message); console.error(e); } }
+function renderTab(tab) { const main=id('main-content'); if(!main) return; try { switch(tab) { case 'dash': renderDash(main); break; case 'bodegas': renderBodegas(main); break; case 'clientes': renderClientes(main); break; case 'vista_global': renderVistaGlobal(main); break; case 'inv_global': renderInvGlobal(main); break; case 'transfer': renderTransfer(main); break; case 'recuperados': renderRecuperados(main); break; case 'danados': renderEquiposDanados(main); break; case 'cuads': renderCuads(main); break; case 'entregas': renderEntregas(main); break; case 'inst': renderInst(main); break; case 'delete_req': renderDeleteReq(main); break; case 'admin': renderAdmin(main); break; } } catch(e) { alert("Error: "+e.message); console.error(e); } }
 function getUserBodegas() { return USER.role==='admin'?DB.bodegas:DB.bodegas.filter(b=>b.id===USER.id); }
 function getUserCuads() { return USER.role==='admin'?DB.cuadrillas:DB.cuadrillas.filter(c=>c.bodegaId===USER.id); }
 function openModal(title, html, onConfirm) { id('mTitle').textContent=title; id('mBody').innerHTML=html; id('mFooter').innerHTML=`<button class="btn btn-danger" onclick="closeModal()">Cancelar</button><button class="btn btn-success" id="mSaveBtn">Guardar</button>`; id('mSaveBtn').onclick=onConfirm; id('modal').classList.add('show'); }
@@ -487,15 +488,19 @@ function renderClientes(c) {
     <div class="flex" style="margin-bottom:15px; gap:15px;">
         <span class="badge badge-ok">👥 ${cliCount} Clientes</span>
         <span class="badge badge-pend">📦 ${eqCount} Equipos registrados</span>
+        ${DB.equiposDanados?.length ? `<span class="badge badge-rej" style="cursor:pointer;" onclick="navigate('danados')">🔴 ${DB.equiposDanados.length} Equipos Dañados</span>` : ''}
     </div>
     <input type="text" id="searchCliente" class="form-control" placeholder="🔍 Buscar por nombre, dirección o equipo..." oninput="renderClientes(document.getElementById('main-content'))" style="margin-bottom:15px;">`;
     
-    if(filtered.length === 0) { html += '<p class="text-center text-muted" style="padding:20px;">No hay clientes registrados. Use Importar Excel o Agregar Manual.</p>'; }
+    if(filtered.length === 0) { html += '<p class="text-center text-muted" style="padding:20px;">No hay clientes registrados.</p>'; }
     else {
-        html += filtered.map(cl => `
+        html += filtered.map(cl => {
+            const danados = (DB.equiposDanados||[]).filter(d=>d.clienteId===cl.id);
+            return `
             <details style="margin-bottom:10px; border:1px solid #eee; border-radius:8px; background:white;">
                 <summary style="cursor:pointer; padding:12px; font-weight:bold; background:#f8f9fa; border-radius:8px;">
                     👤 ${cl.nombre} <span class="text-muted" style="font-weight:normal; font-size:0.85rem;">| 📍 ${cl.direccion||'Sin dirección'} | 📅 ${cl.fechaInstalacion||'-'} | 🛠️ ${cl.cuadrillaInstaladora||'-'}</span>
+                    ${danados.length ? `<span class="badge badge-rej" style="margin-left:8px;">🔴 ${danados.length} dañado(s)</span>` : ''}
                 </summary>
                 <div style="padding:15px;">
                     <div class="form-row" style="margin-bottom:10px; font-size:0.9rem;">
@@ -503,19 +508,37 @@ function renderClientes(c) {
                         <div><strong>📧 Email:</strong> ${cl.email||'-'}</div>
                     </div>
                     ${cl.observaciones?`<div style="margin-bottom:10px; font-size:0.85rem; color:var(--gray);">📝 ${cl.observaciones}</div>`:''}
-                    <h4 style="margin:10px 0;">📦 Equipos Instalados</h4>
+                    <h4 style="margin:10px 0;">📦 Equipos Activos</h4>
                     ${cl.equipos.length ? `
-                        <div class="table-wrap"><table><thead><tr><th>Artículo</th><th>Tipo</th><th>Cant</th><th>Unidad</th><th>SNs</th><th>Estado</th></tr></thead><tbody>
-                        ${cl.equipos.map(eq => `<tr><td><strong>${eq.nombre}</strong></td><td><span class="badge ${eq.tipo==='nuevo'?'badge-new':'badge-used'}">${eq.tipo}</span></td><td>${eq.cantidad}</td><td>${eq.unidad}</td><td>${eq.snes.length ? eq.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' ') : '-'}</td><td><span class="badge badge-ok">${eq.estado||'Activo'}</span></td></tr>`).join('')}
+                        <div class="table-wrap"><table><thead><tr><th>Artículo</th><th>Tipo</th><th>Cant</th><th>Unidad</th><th>SNs</th><th>Estado</th><th>Acción</th></tr></thead><tbody>
+                        ${cl.equipos.map((eq,eqIdx) => `<tr>
+                            <td><strong>${eq.nombre}</strong></td>
+                            <td><span class="badge ${eq.tipo==='nuevo'?'badge-new':'badge-used'}">${eq.tipo}</span></td>
+                            <td>${eq.cantidad}</td><td>${eq.unidad}</td>
+                            <td>${eq.snes.length ? eq.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' ') : '-'}</td>
+                            <td><span class="badge badge-ok">${eq.estado||'Activo'}</span></td>
+                            <td><button class="btn btn-warning btn-sm" onclick="modalCambioEquipo('${cl.id}',${eqIdx})">🔄 Cambiar</button></td>
+                        </tr>`).join('')}
                         </tbody></table></div>
                     ` : '<p class="text-muted">Sin equipos registrados</p>'}
+                    ${danados.length ? `
+                        <h4 style="margin:15px 0 8px; color:var(--danger);">🔴 Equipos Dañados de este Cliente</h4>
+                        <div class="table-wrap"><table><thead><tr><th>Artículo</th><th>SN Dañado</th><th>Reemplazado por</th><th>Fecha</th><th>Motivo</th></tr></thead><tbody>
+                        ${danados.map(d=>`<tr>
+                            <td>${d.equipoNombre}</td>
+                            <td>${d.snDanado||'-'}</td>
+                            <td>${d.equipoNuevo} ${d.snNuevo?`<span class="sn-tag">${d.snNuevo}</span>`:''}</td>
+                            <td>${d.fecha}</td>
+                            <td style="font-size:0.82rem;">${d.motivo}</td>
+                        </tr>`).join('')}
+                        </tbody></table></div>` : ''}
                     <div style="margin-top:10px; display:flex; gap:5px;">
                         <button class="btn btn-outline btn-sm" onclick="modalEditCliente('${cl.id}')">✏️ Editar</button>
                         <button class="btn btn-danger btn-sm" onclick="deleteCliente('${cl.id}')">🗑️ Eliminar</button>
                     </div>
                 </div>
-            </details>
-        `).join('');
+            </details>`;
+        }).join('');
     }
     html += '</div>';
     c.innerHTML = html;
@@ -567,6 +590,180 @@ function saveCliente(editId) {
     save(); closeModal(); renderClientes(document.getElementById('main-content'));
 }
 function deleteCliente(cliId) { if(!confirm('¿Eliminar cliente?')) return; DB.clientes = DB.clientes.filter(x=>x.id!==cliId); save(); renderClientes(document.getElementById('main-content')); }
+
+function modalCambioEquipo(cliId, eqIdx) {
+    const cl = DB.clientes.find(x=>x.id===cliId);
+    const eq = cl.equipos[eqIdx];
+    if(!eq) return;
+
+    // Opciones de bodega para seleccionar equipo de reemplazo
+    const bodegaOpts = DB.bodegas.map(b=>`<option value="${b.id}">${b.nombre}</option>`).join('');
+    const matOpts = () => {
+        const bId = document.getElementById('cbBodega')?.value;
+        const b = DB.bodegas.find(x=>x.id===bId);
+        return b ? b.materiales.filter(m=>m.cantidad>0).map(m=>`<option value="${m.id}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`).join('') : '';
+    };
+
+    openModal(`🔄 Cambio de Equipo — ${cl.nombre}`,
+        `<div style="background:#fff3cd;padding:10px;border-radius:6px;margin-bottom:15px;font-size:0.85rem;">
+            ⚠️ <strong>Equipo a reemplazar:</strong> ${eq.nombre} | Cant: ${eq.cantidad} | SNs: ${eq.snes.join(', ')||'Sin serial'}
+        </div>
+
+        <h4 style="margin-bottom:10px;">🔴 Equipo Dañado</h4>
+        <div class="form-row">
+            <div class="form-group"><label>Serial dañado (si aplica)</label>
+                <select id="cbSnDanado" class="form-control">
+                    <option value="">Sin serial / Todos</option>
+                    ${eq.snes.map(sn=>`<option value="${sn}">${sn}</option>`).join('')}
+                </select>
+            </div>
+            <div class="form-group"><label>Cantidad dañada</label>
+                <input id="cbCantDanada" type="number" value="1" min="1" max="${eq.cantidad}" class="form-control">
+            </div>
+        </div>
+        <div class="form-group"><label>Motivo del daño *</label>
+            <textarea id="cbMotivo" class="form-control" rows="2" placeholder="Describa el daño o motivo del cambio..."></textarea>
+        </div>
+
+        <h4 style="margin:15px 0 10px;">✅ Equipo de Reemplazo (desde Bodega)</h4>
+        <div class="form-row">
+            <div class="form-group"><label>Bodega</label>
+                <select id="cbBodega" class="form-control" onchange="document.getElementById('cbMat').innerHTML=window._matOpts(this.value)">
+                    <option value="">-- Seleccione --</option>${bodegaOpts}
+                </select>
+            </div>
+            <div class="form-group"><label>Material de reemplazo</label>
+                <select id="cbMat" class="form-control" onchange="window._loadCbSNs(this.value,document.getElementById('cbBodega').value)">
+                    <option value="">-- Seleccione bodega primero --</option>
+                </select>
+            </div>
+        </div>
+        <div id="cbSnArea"></div>
+        <div class="form-group"><label>Observaciones adicionales</label>
+            <input id="cbObs" class="form-control" placeholder="Opcional">
+        </div>`,
+        () => {
+            const snDanado   = id('cbSnDanado').value;
+            const cantDanada = parseInt(id('cbCantDanada').value)||1;
+            const motivo     = id('cbMotivo').value.trim();
+            const bId        = id('cbBodega').value;
+            const mId        = id('cbMat').value;
+            const obs        = id('cbObs').value.trim();
+
+            if(!motivo) return alert('El motivo del daño es obligatorio.');
+            if(!bId || !mId) return alert('Seleccione bodega y material de reemplazo.');
+
+            const bodega = DB.bodegas.find(x=>x.id===bId);
+            const matNuevo = bodega.materiales.find(x=>x.id===mId);
+            if(!matNuevo || matNuevo.cantidad < cantDanada) return alert('Stock insuficiente en bodega.');
+
+            // Obtener SN del equipo nuevo seleccionado
+            const snNuevoChecked = [...document.querySelectorAll('#cbSnArea input[type="checkbox"]:checked')].map(cb=>cb.value);
+            if(matNuevo.snes.length > 0 && snNuevoChecked.length !== cantDanada) return alert(`Seleccione exactamente ${cantDanada} serial(es) del equipo nuevo.`);
+            const snNuevo = snNuevoChecked.join(', ');
+
+            // 1. Registrar equipo dañado
+            if(!DB.equiposDanados) DB.equiposDanados = [];
+            DB.equiposDanados.push({
+                id: Date.now().toString(),
+                clienteId: cliId,
+                clienteNombre: cl.nombre,
+                equipoNombre: eq.nombre,
+                snDanado: snDanado,
+                cantidadDanada: cantDanada,
+                equipoNuevo: matNuevo.nombre,
+                snNuevo: snNuevo,
+                bodegaOrigen: bodega.nombre,
+                motivo: motivo,
+                obs: obs,
+                fecha: new Date().toLocaleDateString(),
+                fechaISO: new Date().toISOString()
+            });
+
+            // 2. Descontar equipo dañado del cliente (reducir cantidad o eliminar SN)
+            if(snDanado && eq.snes.includes(snDanado)) {
+                eq.snes = eq.snes.filter(s=>s!==snDanado);
+            }
+            eq.cantidad = Math.max(0, eq.cantidad - cantDanada);
+
+            // Si la cantidad llegó a 0, marcar como inactivo
+            if(eq.cantidad === 0) eq.estado = 'Reemplazado';
+
+            // 3. Agregar equipo nuevo al cliente
+            const eqExist = cl.equipos.find(e=>e.nombre===matNuevo.nombre&&e.tipo===matNuevo.tipo);
+            if(eqExist) {
+                eqExist.cantidad += cantDanada;
+                if(snNuevoChecked.length) eqExist.snes.push(...snNuevoChecked);
+            } else {
+                cl.equipos.push({
+                    nombre: matNuevo.nombre, cantidad: cantDanada,
+                    unidad: matNuevo.unidad, tipo: matNuevo.tipo,
+                    snes: snNuevoChecked, estado: 'Activo'
+                });
+            }
+
+            // 4. Descontar de bodega
+            matNuevo.cantidad -= cantDanada;
+            snNuevoChecked.forEach(sn => { matNuevo.snes = matNuevo.snes.filter(s=>s!==sn); });
+
+            logMsg(`Cambio equipo dañado "${eq.nombre}" → "${matNuevo.nombre}" en cliente "${cl.nombre}" — ${motivo}`);
+            save();
+            closeModal();
+            renderClientes(document.getElementById('main-content'));
+        });
+
+    // Helpers globales para el modal
+    window._matOpts = (bId) => {
+        const b = DB.bodegas.find(x=>x.id===bId);
+        return b ? b.materiales.filter(m=>m.cantidad>0).map(m=>`<option value="${m.id}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`).join('') : '';
+    };
+    window._loadCbSNs = (mId, bId) => {
+        const area = document.getElementById('cbSnArea');
+        if(!area) return;
+        const b = DB.bodegas.find(x=>x.id===bId);
+        const m = b?.materiales.find(x=>x.id===mId);
+        if(!m || !m.snes.length) { area.innerHTML = ''; return; }
+        area.innerHTML = `<div class="form-group"><label>Seleccione serial(es) del equipo nuevo</label>
+            <div class="sn-select-area">${m.snes.map(sn=>`<label class="sn-check"><input type="checkbox" value="${sn}"> <span class="sn-label">${sn}</span></label>`).join('')}</div></div>`;
+    };
+}
+
+function renderEquiposDanados(c) {
+    if(!DB.equiposDanados) DB.equiposDanados = [];
+    const danados = [...DB.equiposDanados].sort((a,b)=>new Date(b.fechaISO)-new Date(a.fechaISO));
+    c.innerHTML = `<div class="card">
+        <div class="card-header"><h2>🔴 Equipos Dañados</h2>
+            <span class="badge badge-rej">${danados.length} registros</span>
+        </div>
+        ${danados.length ? `
+        <input type="text" id="searchDanados" class="form-control" placeholder="🔍 Buscar cliente, equipo o serial..." oninput="filterDanados()" style="margin-bottom:15px;">
+        <div id="danadosTable">
+        <div class="table-wrap"><table>
+            <thead><tr><th>Fecha</th><th>Cliente</th><th>Equipo Dañado</th><th>SN Dañado</th><th>Cant</th><th>Reemplazado por</th><th>SN Nuevo</th><th>Bodega</th><th>Motivo</th><th>Observaciones</th></tr></thead>
+            <tbody id="danadosTbody">
+            ${danados.map(d=>`<tr>
+                <td>${d.fecha}</td>
+                <td><strong>${d.clienteNombre}</strong></td>
+                <td>${d.equipoNombre}</td>
+                <td>${d.snDanado?`<span class="sn-tag">${d.snDanado}</span>`:'-'}</td>
+                <td>${d.cantidadDanada||1}</td>
+                <td><strong>${d.equipoNuevo}</strong></td>
+                <td>${d.snNuevo?`<span class="sn-tag">${d.snNuevo}</span>`:'-'}</td>
+                <td>${d.bodegaOrigen}</td>
+                <td style="max-width:200px;font-size:0.82rem;">${d.motivo}</td>
+                <td style="font-size:0.82rem;">${d.obs||'-'}</td>
+            </tr>`).join('')}
+            </tbody>
+        </table></div></div>` : '<p class="text-muted text-center" style="padding:20px;">No hay equipos dañados registrados.</p>'}
+    </div>`;
+
+    window.filterDanados = () => {
+        const q = document.getElementById('searchDanados')?.value.toLowerCase()||'';
+        document.querySelectorAll('#danadosTbody tr').forEach(tr=>{
+            tr.style.display = tr.textContent.toLowerCase().includes(q) ? '' : 'none';
+        });
+    };
+}
 
 function actualizarClientesDesdeInstalacion(inst) {
     let cli = DB.clientes.find(c => c.nombre.toLowerCase() === inst.cliente.toLowerCase());
@@ -820,7 +1017,7 @@ function renderBodegas(c) {
                     ${USER.role==='admin'?`<button class="btn btn-outline btn-sm" onclick="modalEditPass('${b.id}')">🔑</button><button class="btn btn-danger btn-sm" onclick="delBodega('${b.id}')">🗑️</button>`:''}
                 </div>
                 ${b.materiales.length?`<table><thead><tr><th>Artículo</th><th>Tipo</th><th>Cant</th><th>Unidad</th><th>SNs</th><th>Acción</th></tr></thead><tbody>
-                ${b.materiales.map(m=>`<tr><td><strong>${m.nombre}</strong></td><td><span class="badge ${m.tipo==='nuevo'?'badge-new':'badge-used'}">${m.tipo}</span></td><td>${m.cantidad}</td><td>${m.unidad}</td><td>${m.snes.length?m.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' '):`<button class="btn btn-warning btn-sm" onclick="modalAddSN('${b.id}','${m.id}')">➕ SN</button>`}</td><td><button class="btn btn-warning btn-sm" onclick="modalRestock('${b.id}','${m.id}')">📥</button><button class="btn btn-danger btn-sm" onclick="delMat('${b.id}','${m.id}')">✕</button></td></tr>`).join('')}
+                ${b.materiales.map(m=>`<tr><td><strong>${m.nombre}</strong></td><td><span class="badge ${m.tipo==='nuevo'?'badge-new':'badge-used'}">${m.tipo}</span></td><td>${m.cantidad}${m.stockMin?` <small style="color:#e74c3c;">(mín:${m.stockMin})</small>`:''}</td><td>${m.unidad}</td><td>${m.snes.length?m.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' '):`<button class="btn btn-warning btn-sm" onclick="modalAddSN('${b.id}','${m.id}')">➕ SN</button>`}</td><td>${canDo('bodegas','editar')?`<button class="btn btn-outline btn-sm" onclick="modalEditMat('${b.id}','${m.id}')">✏️</button>`:''}<button class="btn btn-warning btn-sm" onclick="modalRestock('${b.id}','${m.id}')">📥</button><button class="btn btn-danger btn-sm" onclick="delMat('${b.id}','${m.id}')">✕</button></td></tr>`).join('')}
                 </tbody></table>`:'<p class="text-muted">Sin materiales</p>'}
             </div>
         </details>`;
@@ -958,6 +1155,97 @@ function delBodega(bId) { if(!confirm('¿Borrar bodega?')) return; DB.bodegas=DB
 function modalAddSN(bId, mId) { const b=DB.bodegas.find(x=>x.id===bId), m=b.materiales.find(x=>x.id===mId); openModal(`➕ Agregar Serial: ${m.nombre}`, `<p>Stock: ${m.cantidad} ${m.unidad}</p><div class="form-group"><label>Nuevos SN</label><textarea id="newSNs" class="form-control"></textarea></div>`, ()=>{ const raw=id('newSNs').value.trim(); if(!raw) return alert('Ingrese SN'); const sns=raw.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean); m.snes.push(...sns); logMsg(`SN agregado a "${m.nombre}"`); save(); closeModal(); renderTab('bodegas'); }); }
 function modalAddMat(bId) { openModal('Agregar Material', `<input type="hidden" id="matBId" value="${bId}"><div class="form-group"><label>Nombre</label><input id="mNom" class="form-control"></div><div class="form-row"><div class="form-group"><label>Cantidad</label><input id="mCant" type="number" value="1" min="1" class="form-control"></div><div class="form-group"><label>Tipo</label><select id="mTipo" class="form-control"><option value="nuevo">🟢 Nuevo</option><option value="usado">🟡 Usado</option></select></div></div><div class="form-row"><div class="form-group"><label>Unidad</label><select id="mUnidad" class="form-control">${getUnidadesOptions()}</select></div><div class="form-group"><label>⚠️ Stock Mínimo (alerta)</label><input id="mStockMin" type="number" value="0" min="0" class="form-control" placeholder="0 = sin alerta"></div></div><div class="form-group"><label>SNs (Opcional)</label><textarea id="mSNs" class="form-control"></textarea></div>`, ()=>{ const b=DB.bodegas.find(x=>x.id===id('matBId').value); const nom=id('mNom').value, cant=parseInt(id('mCant').value), tipo=id('mTipo').value, un=id('mUnidad').value, stockMin=parseInt(id('mStockMin').value)||0; const rawSN=id('mSNs').value.trim(); if(!nom) return alert('Nombre requerido'); const snes=rawSN?rawSN.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean):[]; if(snes.length>cant) return alert(`SNs > cantidad`); b.materiales.push({id:Date.now().toString(),nombre:nom,cantidad:cant,tipo:tipo,unidad:un,snes:snes,stockMin:stockMin,fecha:new Date().toLocaleDateString()}); logMsg(`Material "${nom}" añadido`); save(); closeModal(); renderTab('bodegas'); }); }
 function modalRestock(bId, mId) { const b=DB.bodegas.find(x=>x.id===bId), m=b.materiales.find(x=>x.id===mId); openModal('📥 Reabastecer', `<input type="hidden" id="rBId" value="${bId}"><input type="hidden" id="rMId" value="${mId}"><p>Stock: <strong>${m.cantidad} ${m.unidad}</strong></p><div class="form-group"><label>Cantidad</label><input id="rCant" type="number" value="1" min="1" class="form-control"></div><div class="form-group"><label>Nuevos SN</label><textarea id="rSNs" class="form-control"></textarea></div>`, ()=>{ const mat=DB.bodegas.find(x=>x.id===id('rBId').value).materiales.find(x=>x.id===id('rMId').value); const q=parseInt(id('rCant').value); if(!q) return alert('Cantidad inválida'); mat.cantidad+=q; const rawSN=id('rSNs').value.trim(); if(rawSN) mat.snes.push(...rawSN.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean)); logMsg(`Reabastecido "${mat.nombre}" (+${q})`); save(); closeModal(); renderTab('bodegas'); }); }
+
+function modalEditMat(bId, mId) {
+    const b = DB.bodegas.find(x=>x.id===bId);
+    const m = b.materiales.find(x=>x.id===mId);
+    const isAdmin = USER.role === 'admin';
+    const snCheckboxes = m.snes.length ? `
+        <div class="form-group">
+            <label>Seriales actuales <small class="text-muted">(marca los que quieres eliminar)</small></label>
+            <div class="sn-select-area" style="max-height:150px;overflow-y:auto;">
+                ${m.snes.map((sn,i)=>`<label class="sn-check"><input type="checkbox" id="snDel_${i}" value="${sn}"> <span class="sn-label">${sn}</span></label>`).join('')}
+            </div>
+        </div>` : '';
+    openModal(`✏️ Editar Material: ${m.nombre}`,
+        `<div style="background:#e3f2fd;padding:10px;border-radius:6px;margin-bottom:15px;font-size:0.85rem;">
+            📋 <strong>Estado actual:</strong> ${m.nombre} | ${m.cantidad} ${m.unidad} | ${m.tipo} | ${m.snes.length} seriales
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>Nombre</label><input id="emNom" class="form-control" value="${m.nombre}"></div>
+            <div class="form-group"><label>Tipo</label>
+                <select id="emTipo" class="form-control">
+                    <option value="nuevo" ${m.tipo==='nuevo'?'selected':''}>🟢 Nuevo</option>
+                    <option value="usado" ${m.tipo==='usado'?'selected':''}>🟡 Usado</option>
+                </select>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>Cantidad</label><input id="emCant" type="number" min="0" class="form-control" value="${m.cantidad}"></div>
+            <div class="form-group"><label>Unidad</label><select id="emUnidad" class="form-control">${getUnidadesOptions().replace(`value="${m.unidad}"`,`value="${m.unidad}" selected`)}</select></div>
+            <div class="form-group"><label>⚠️ Stock Mínimo</label><input id="emStockMin" type="number" min="0" class="form-control" value="${m.stockMin||0}"></div>
+        </div>
+        ${snCheckboxes}
+        <div class="form-group">
+            <label>Nuevos Seriales a agregar <small class="text-muted">(opcional, uno por línea)</small></label>
+            <textarea id="emNewSNs" class="form-control" rows="2" placeholder="SN001&#10;SN002"></textarea>
+        </div>
+        ${!isAdmin ? `<div class="form-group">
+            <label>Motivo del cambio <span style="color:var(--danger);">*</span></label>
+            <textarea id="emMotivo" class="form-control" placeholder="Explique por qué se modifica este material..." rows="3"></textarea>
+            <small class="text-muted">Este motivo quedará registrado en el historial.</small>
+        </div>` : ''}`,
+        () => {
+            const nuevoNom  = id('emNom').value.trim();
+            const nuevoCant = parseInt(id('emCant').value);
+            const nuevoTipo = id('emTipo').value;
+            const nuevoUnd  = id('emUnidad').value;
+            const nuevoMin  = parseInt(id('emStockMin').value)||0;
+            const motivo    = !isAdmin ? id('emMotivo')?.value.trim() : '';
+            const newSNsRaw = id('emNewSNs')?.value.trim();
+            const newSNs    = newSNsRaw ? newSNsRaw.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean) : [];
+
+            // SNs marcados para eliminar
+            const snToDelete = [];
+            m.snes.forEach((sn,i) => {
+                const cb = document.getElementById(`snDel_${i}`);
+                if(cb && cb.checked) snToDelete.push(sn);
+            });
+
+            if(!nuevoNom) return alert('El nombre es requerido.');
+            if(isNaN(nuevoCant) || nuevoCant < 0) return alert('Cantidad inválida.');
+            if(!isAdmin && !motivo) return alert('El motivo del cambio es obligatorio.');
+
+            const cambios = [];
+            if(m.nombre !== nuevoNom) cambios.push(`nombre: "${m.nombre}" → "${nuevoNom}"`);
+            if(m.cantidad !== nuevoCant) cambios.push(`cantidad: ${m.cantidad} → ${nuevoCant}`);
+            if(m.tipo !== nuevoTipo) cambios.push(`tipo: ${m.tipo} → ${nuevoTipo}`);
+            if(m.unidad !== nuevoUnd) cambios.push(`unidad: ${m.unidad} → ${nuevoUnd}`);
+            if((m.stockMin||0) !== nuevoMin) cambios.push(`stock mínimo: ${m.stockMin||0} → ${nuevoMin}`);
+            if(snToDelete.length) cambios.push(`SNs eliminados: ${snToDelete.join(', ')}`);
+            if(newSNs.length) cambios.push(`SNs agregados: ${newSNs.join(', ')}`);
+
+            if(!cambios.length) { closeModal(); return; }
+
+            // Aplicar cambios
+            m.nombre   = nuevoNom;
+            m.cantidad = nuevoCant;
+            m.tipo     = nuevoTipo;
+            m.unidad   = nuevoUnd;
+            m.stockMin = nuevoMin;
+            m.snes     = m.snes.filter(sn => !snToDelete.includes(sn));
+            m.snes.push(...newSNs.filter(sn => !m.snes.includes(sn)));
+
+            const logEntry = isAdmin
+                ? `Admin editó "${nuevoNom}" en ${b.nombre}: ${cambios.join(' | ')}`
+                : `Edición de "${nuevoNom}" en ${b.nombre}: ${cambios.join(' | ')} — Motivo: ${motivo}`;
+
+            logMsg(logEntry);
+            save();
+            closeModal();
+            renderTab('bodegas');
+        });
+}
 function delMat(bId, mId) { const m = DB.bodegas.find(x=>x.id===bId).materiales.find(x=>x.id===mId); if(USER.role==='admin') { if(!confirm(`¿Eliminar "${m.nombre}"?`)) return; DB.bodegas.find(x=>x.id===bId).materiales = DB.bodegas.find(x=>x.id===bId).materiales.filter(x=>x.id!==mId); logMsg(`Admin eliminó "${m.nombre}"`); save(); renderTab('bodegas'); return; } openModal('🗑️ Solicitud Eliminación', `<div class="form-group"><label>Artículo</label><input value="${m.nombre} (${m.cantidad} ${m.unidad})" readonly class="form-control"></div><div class="form-group"><label>Observación *</label><textarea id="delObs" class="form-control" placeholder="Motivo..."></textarea></div>`, ()=>{ const obs=id('delObs').value.trim(); if(!obs) return alert('Ingrese observación'); DB.deleteRequests.push({id:Date.now().toString(),bodegaId:bId,bodegaNombre:getUserBodegas().find(x=>x.id===bId)?.nombre||'',materialId:mId,materialNombre:m.nombre,cantidad:m.cantidad,tipo:m.tipo,unidad:m.unidad,snes:[...m.snes],fecha:new Date().toISOString(),obs,estado:'pendiente'}); logMsg(`Solicitud eliminación "${m.nombre}"`); save(); closeModal(); alert('✅ Enviada'); renderTab('bodegas'); }); }
 function renderDeleteReq(c) { if(USER.role!=='admin') return navigate('dash'); const pend=DB.deleteRequests.filter(r=>r.estado==='pendiente'), done=DB.deleteRequests.filter(r=>r.estado!=='pendiente'); c.innerHTML=`<div class="card"><div class="card-header"><h2>🗑️ Solicitudes</h2></div>${pend.length?`<table><thead><tr><th>Fecha</th><th>Bodega</th><th>Artículo</th><th>Cant</th><th>Motivo</th><th></th></tr></thead><tbody>${pend.map(r=>`<tr><td>${new Date(r.fecha).toLocaleDateString()}</td><td>${r.bodegaNombre}</td><td>${r.materialNombre}</td><td>${r.cantidad}</td><td style="max-width:200px;overflow:hidden;">${r.obs}</td><td><button class="btn btn-success btn-sm" onclick="approveDelete('${r.id}','aprobada')">✅</button> <button class="btn btn-danger btn-sm" onclick="approveDelete('${r.id}','rechazada')">❌</button></td></tr>`).join('')}</tbody></table>`:'<p class="text-muted">Sin pendientes</p>'}${done.length?`<h3 style="margin:15px 0 10px;color:var(--gray);">Historial</h3><table><thead><tr><th>Fecha</th><th>Bodega</th><th>Artículo</th><th>Estado</th></tr></thead><tbody>${done.map(r=>`<tr><td>${new Date(r.fecha).toLocaleDateString()}</td><td>${r.bodegaNombre}</td><td>${r.materialNombre}</td><td><span class="badge ${r.estado==='aprobada'?'badge-ok':'badge-rej'}">${r.estado}</span></td></tr>`).join('')}</tbody></table>`:''}</div>`; }
 function approveDelete(reqId, act) { const req=DB.deleteRequests.find(r=>r.id===reqId); if(!req||req.estado!=='pendiente') return; req.estado=act; if(act==='aprobada'){const b=DB.bodegas.find(x=>x.id===req.bodegaId);if(b)b.materiales=b.materiales.filter(m=>m.id!==req.materialId);logMsg(`Aprobado: ${req.materialNombre}`);}else{logMsg(`Rechazado: ${req.materialNombre}`);} save(); renderTab('delete_req'); }
@@ -1330,6 +1618,7 @@ function fixDB() {
     if(!DB.deleteRequests) DB.deleteRequests=[];
     if(!DB.recuperados) DB.recuperados=[];
     if(!DB.clientes) DB.clientes=[];
+    if(!DB.equiposDanados) DB.equiposDanados=[];
     const fx=m=>{if(!Array.isArray(m.snes))m.snes=[];};
     DB.bodegas.forEach(b=>b.materiales.forEach(fx));
     DB.cuadrillas.forEach(c=>c.materiales.forEach(fx));
