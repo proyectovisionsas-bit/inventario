@@ -204,6 +204,59 @@ const UNIDADES = [
 ];
 function getUnidadesOptions() { return UNIDADES.map(u => `<option value="${u.val}">${u.label}</option>`).join(''); }
 
+// ─── SISTEMA DE PERMISOS ─────────────────────────────────────────────────────
+const MODULOS_PERMISOS = [
+    { key:'bodegas',    label:'🏭 Bodegas',       acciones:['ver','agregar_material','editar','eliminar','importar_excel','exportar_excel'] },
+    { key:'transfer',   label:'🔄 Transferencias', acciones:['ver','enviar','aceptar_rechazar'] },
+    { key:'recuperados',label:'♻️ Recuperados',    acciones:['ver','registrar','integrar'] },
+    { key:'cuads',      label:'👷 Cuadrillas',     acciones:['ver','agregar_cuadrilla','editar_cuadrilla','agregar_tecnico','editar_tecnico','dotar','dotacion_directa','devolver_material'] },
+    { key:'entregas',   label:'📤 Entregas',       acciones:['ver','crear','eliminar'] },
+    { key:'inst',       label:'🔧 Instalaciones',  acciones:['ver','crear','eliminar'] },
+    { key:'clientes',   label:'👥 Clientes',       acciones:['ver','agregar','editar','eliminar','importar_excel'] },
+    { key:'inv_global', label:'🔍 Inv. Global',    acciones:['ver'] },
+];
+
+const ACCION_LABELS = {
+    ver:'👁️ Ver', agregar_material:'➕ Agregar Material', editar:'✏️ Editar', eliminar:'🗑️ Eliminar',
+    importar_excel:'📤 Importar Excel', exportar_excel:'📥 Exportar Excel', enviar:'📤 Enviar',
+    aceptar_rechazar:'✅ Aceptar/Rechazar', registrar:'➕ Registrar', integrar:'✅ Integrar',
+    agregar_cuadrilla:'➕ Nueva Cuadrilla', editar_cuadrilla:'✏️ Editar Cuadrilla',
+    agregar_tecnico:'👤 Agregar Técnico', editar_tecnico:'✏️ Editar Técnico',
+    dotar:'🎒 Dotar', dotacion_directa:'📦 Dotación Directa', devolver_material:'↩️ Devolver Material',
+    crear:'➕ Crear', agregar:'➕ Agregar',
+};
+
+function getDefaultPermisos() {
+    const p = {};
+    MODULOS_PERMISOS.forEach(m => {
+        p[m.key] = {};
+        m.acciones.forEach(a => p[m.key][a] = true);
+    });
+    return p;
+}
+
+function getBodegaPermisos(bId) {
+    const b = DB.bodegas.find(x=>x.id===bId);
+    if(!b || !b.permisos) return getDefaultPermisos();
+    // Merge with defaults to avoid missing keys
+    const defaults = getDefaultPermisos();
+    const merged = {};
+    MODULOS_PERMISOS.forEach(m => {
+        merged[m.key] = { ...defaults[m.key], ...(b.permisos[m.key]||{}) };
+    });
+    return merged;
+}
+
+function canDo(modulo, accion) {
+    if(USER.role === 'admin') return true;
+    const perms = getBodegaPermisos(USER.id);
+    return perms[modulo]?.[accion] !== false;
+}
+
+function canSee(modulo) {
+    return canDo(modulo, 'ver');
+}
+
 function init() {
     // Firebase will handle data loading
     renderLoginBodegas();
@@ -237,7 +290,17 @@ function applyRoles() {
     document.querySelectorAll('.admin-only').forEach(e=>e.style.display=USER.role==='admin'?'':'none');
     document.querySelectorAll('.bodega-only').forEach(e=>e.style.display=USER.role==='bodega'?'':'none');
 }
-function setupNav() { document.querySelectorAll('.nav-btn').forEach(btn=>{ btn.onclick=()=>{ if(btn.classList.contains('admin-only')&&USER.role!=='admin') return; if(btn.classList.contains('bodega-only')&&USER.role!=='bodega') return; navigate(btn.dataset.tab); }; }); }
+function setupNav() {
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+        const tab = btn.dataset.tab;
+        if(btn.classList.contains('admin-only') && USER.role !== 'admin') { btn.style.display='none'; return; }
+        if(btn.classList.contains('bodega-only') && USER.role !== 'bodega') { btn.style.display='none'; return; }
+        // Check module visibility permission for bodega users
+        if(USER.role === 'bodega' && tab && !canSee(tab)) { btn.style.display='none'; return; }
+        btn.style.display='';
+        btn.onclick = () => navigate(tab);
+    });
+}
 function navigate(tab) { document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active')); document.querySelector(`.nav-btn[data-tab="${tab}"]`)?.classList.add('active'); renderTab(tab); }
 function renderTab(tab) { const main=id('main-content'); if(!main) return; try { switch(tab) { case 'dash': renderDash(main); break; case 'bodegas': renderBodegas(main); break; case 'clientes': renderClientes(main); break; case 'vista_global': renderVistaGlobal(main); break; case 'inv_global': renderInvGlobal(main); break; case 'transfer': renderTransfer(main); break; case 'recuperados': renderRecuperados(main); break; case 'cuads': renderCuads(main); break; case 'entregas': renderEntregas(main); break; case 'inst': renderInst(main); break; case 'delete_req': renderDeleteReq(main); break; case 'admin': renderAdmin(main); break; } } catch(e) { alert("Error: "+e.message); console.error(e); } }
 function getUserBodegas() { return USER.role==='admin'?DB.bodegas:DB.bodegas.filter(b=>b.id===USER.id); }
@@ -260,17 +323,151 @@ function modalChangeBodegaPass() {
 }
 
 // DASHBOARD
+function getAlertasMaterial() {
+    const alertas = [];
+    const bodegas = getUserBodegas();
+    bodegas.forEach(b => {
+        b.materiales.forEach(m => {
+            if(m.stockMin && m.cantidad <= m.stockMin) {
+                alertas.push({ bodega: b.nombre, material: m.nombre, actual: m.cantidad, min: m.stockMin, unidad: m.unidad });
+            }
+        });
+    });
+    return alertas;
+}
+
 function renderDash(c) {
     const bs=getUserBodegas(), cs=getUserCuads();
-    const tb=bs.reduce((s,b)=>s+b.materiales.reduce((ss,m)=>ss+m.cantidad,0),0), tc=cs.reduce((s,c)=>s+c.materiales.reduce((ss,m)=>ss+m.cantidad,0),0);
-    const trPend = DB.transfers.filter(t=>USER.role==='bodega'?(t.oriId===USER.id||t.desId===USER.id)&&t.estado==='pendiente':t.estado==='pendiente');
-    c.innerHTML=`<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:15px; margin-bottom:20px;">
-        <div class="card text-center" style="border-left:5px solid var(--primary);cursor:pointer;transition:0.2s;" onclick="navigate('bodegas')" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''"><h2>${bs.length}</h2><p class="text-muted">🏭 Bodegas</p><small style="color:var(--primary-light);font-size:0.75rem;">Ver →</small></div>
-        <div class="card text-center" style="border-left:5px solid var(--secondary);cursor:pointer;transition:0.2s;" onclick="navigate('cuads')" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''"><h2>${cs.length}</h2><p class="text-muted">👷 Cuadrillas</p><small style="color:var(--secondary);font-size:0.75rem;">Ver →</small></div>
-        <div class="card text-center" style="border-left:5px solid var(--warning);cursor:pointer;transition:0.2s;" onclick="navigate('bodegas')" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''"><h2>${tb}</h2><p class="text-muted">📦 Stock Bodegas</p><small style="color:var(--warning);font-size:0.75rem;">Ver →</small></div>
-        <div class="card text-center" style="border-left:5px solid #8e44ad;cursor:pointer;transition:0.2s;" onclick="navigate('cuads')" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''"><h2>${tc}</h2><p class="text-muted">🎒 Stock Cuadrillas</p><small style="color:#8e44ad;font-size:0.75rem;">Ver →</small></div>
-        ${trPend.length?`<div class="card text-center" style="border-left:5px solid #e74c3c;cursor:pointer;transition:0.2s;" onclick="navigate('transfer')" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''"><h2>${trPend.length}</h2><p class="text-muted">⏳ Transferencias Pendientes</p><small style="color:#e74c3c;font-size:0.75rem;">Ver →</small></div>`:''}
-    </div><div class="card"><div class="card-header"><h2>📋 Actividad Reciente</h2></div>${DB.logs.length?DB.logs.slice(0,10).map(l=>`<div style="padding:8px 0; border-bottom:1px solid #eee; display:flex; justify-content:space-between; font-size:0.88rem;"><span>${l.msg}</span><small class="text-muted">${new Date(l.t).toLocaleString()}</small></div>`).join(''):'<p class="text-muted text-center">Sin actividad</p>'}</div>`;
+    const tb=bs.reduce((s,b)=>s+b.materiales.reduce((ss,m)=>ss+m.cantidad,0),0);
+    const tc=cs.reduce((s,cu)=>s+cu.materiales.reduce((ss,m)=>ss+m.cantidad,0),0);
+    const trPend=DB.transfers.filter(t=>USER.role==='bodega'?(t.oriId===USER.id||t.desId===USER.id)&&t.estado==='pendiente':t.estado==='pendiente');
+    const alertas = getAlertasMaterial();
+    const totalTecs = cs.reduce((s,cu)=>s+cu.tecnicos.length,0);
+    const totalClientes = DB.clientes.length;
+
+    // Datos para gráficos
+    const stockPorBodega = bs.map(b=>({nombre:b.nombre, stock:b.materiales.reduce((s,m)=>s+m.cantidad,0)}));
+    const matPorTipo = { nuevo: 0, usado: 0 };
+    bs.forEach(b=>b.materiales.forEach(m=>{ matPorTipo[m.tipo]=(matPorTipo[m.tipo]||0)+m.cantidad; }));
+    const top5Mats = {};
+    bs.forEach(b=>b.materiales.forEach(m=>{ top5Mats[m.nombre]=(top5Mats[m.nombre]||0)+m.cantidad; }));
+    const top5 = Object.entries(top5Mats).sort((a,b)=>b[1]-a[1]).slice(0,5);
+
+    c.innerHTML = `
+    ${alertas.length ? `<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:10px;padding:12px 16px;margin-bottom:15px;cursor:pointer;" onclick="navigate('bodegas')">
+        <strong>⚠️ ${alertas.length} alerta${alertas.length>1?'s':''} de stock mínimo:</strong>
+        ${alertas.map(a=>`<span class="sn-tag" style="background:#ffe69c;margin:3px;">⚠️ ${a.material} en ${a.bodega}: ${a.actual}/${a.min} ${a.unidad}</span>`).join('')}
+    </div>` : ''}
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px;">
+        <div class="card text-center" style="border-left:5px solid var(--primary);cursor:pointer;transition:0.2s;" onclick="navigate('bodegas')" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''"><h2>${bs.length}</h2><p class="text-muted">🏭 Bodegas</p><small style="color:var(--primary-light);">Ver →</small></div>
+        <div class="card text-center" style="border-left:5px solid var(--secondary);cursor:pointer;transition:0.2s;" onclick="navigate('cuads')" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''"><h2>${cs.length}</h2><p class="text-muted">👷 Cuadrillas</p><small style="color:var(--secondary);">Ver →</small></div>
+        <div class="card text-center" style="border-left:5px solid #3498db;cursor:pointer;transition:0.2s;" onclick="navigate('cuads')" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''"><h2>${totalTecs}</h2><p class="text-muted">👤 Técnicos</p><small style="color:#3498db;">Ver →</small></div>
+        <div class="card text-center" style="border-left:5px solid var(--warning);cursor:pointer;transition:0.2s;" onclick="navigate('bodegas')" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''"><h2>${tb}</h2><p class="text-muted">📦 Stock Bodegas</p><small style="color:var(--warning);">Ver →</small></div>
+        <div class="card text-center" style="border-left:5px solid #8e44ad;cursor:pointer;transition:0.2s;" onclick="navigate('cuads')" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''"><h2>${tc}</h2><p class="text-muted">🎒 Stock Cuadrillas</p><small style="color:#8e44ad;">Ver →</small></div>
+        <div class="card text-center" style="border-left:5px solid #16a085;cursor:pointer;transition:0.2s;" onclick="navigate('inst')" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''"><h2>${totalClientes}</h2><p class="text-muted">👥 Clientes</p><small style="color:#16a085;">Ver →</small></div>
+        ${trPend.length?`<div class="card text-center" style="border-left:5px solid #e74c3c;cursor:pointer;transition:0.2s;" onclick="navigate('transfer')" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''"><h2>${trPend.length}</h2><p class="text-muted">⏳ Transferencias</p><small style="color:#e74c3c;">Ver →</small></div>`:''}
+        ${alertas.length?`<div class="card text-center" style="border-left:5px solid #f39c12;cursor:pointer;transition:0.2s;" onclick="navigate('bodegas')" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''"><h2>${alertas.length}</h2><p class="text-muted">⚠️ Alertas Stock</p><small style="color:#f39c12;">Ver →</small></div>`:''}
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-bottom:20px;">
+        <!-- GRÁFICO BARRAS: Stock por Bodega -->
+        <div class="card">
+            <div class="card-header"><h2>📊 Stock por Bodega</h2></div>
+            ${stockPorBodega.length ? stockPorBodega.map(b=>{
+                const pct = tb>0?Math.round((b.stock/tb)*100):0;
+                const maxStock = Math.max(...stockPorBodega.map(x=>x.stock),1);
+                const barW = Math.round((b.stock/maxStock)*100);
+                return `<div style="margin-bottom:12px;">
+                    <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:3px;">
+                        <span title="${b.nombre}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%;">🏭 ${b.nombre}</span>
+                        <strong>${b.stock} uds (${pct}%)</strong>
+                    </div>
+                    <div style="background:#e9ecef;border-radius:6px;height:14px;">
+                        <div style="background:var(--primary);width:${barW}%;height:100%;border-radius:6px;transition:0.5s;"></div>
+                    </div>
+                </div>`;
+            }).join('') : '<p class="text-muted">Sin datos</p>'}
+        </div>
+
+        <!-- GRÁFICO DONA: Nuevo vs Usado -->
+        <div class="card" style="display:flex;flex-direction:column;align-items:center;">
+            <div class="card-header" style="width:100%;"><h2>🥧 Distribución por Tipo</h2></div>
+            <canvas id="donaChart" width="180" height="180" style="margin:10px auto;"></canvas>
+            <div style="display:flex;gap:15px;margin-top:5px;font-size:0.85rem;">
+                <span><span style="display:inline-block;width:12px;height:12px;background:#27ae60;border-radius:50%;margin-right:4px;"></span>Nuevo: ${matPorTipo.nuevo}</span>
+                <span><span style="display:inline-block;width:12px;height:12px;background:#f39c12;border-radius:50%;margin-right:4px;"></span>Usado: ${matPorTipo.usado}</span>
+            </div>
+        </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-bottom:20px;">
+        <!-- TOP 5 Materiales -->
+        <div class="card">
+            <div class="card-header"><h2>🏆 Top 5 Materiales</h2></div>
+            ${top5.length ? top5.map(([nom,cant],i)=>{
+                const maxV = top5[0][1]||1;
+                const barW = Math.round((cant/maxV)*100);
+                const colors=['#1a5276','#2980b9','#27ae60','#f39c12','#8e44ad'];
+                return `<div style="margin-bottom:10px;">
+                    <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:3px;">
+                        <span>${i+1}. ${nom}</span><strong>${cant} uds</strong>
+                    </div>
+                    <div style="background:#e9ecef;border-radius:6px;height:12px;">
+                        <div style="background:${colors[i]};width:${barW}%;height:100%;border-radius:6px;"></div>
+                    </div>
+                </div>`;
+            }).join('') : '<p class="text-muted">Sin materiales registrados</p>'}
+        </div>
+
+        <!-- ACTIVIDAD RECIENTE -->
+        <div class="card">
+            <div class="card-header"><h2>📋 Actividad Reciente</h2></div>
+            ${DB.logs.length ? DB.logs.slice(0,8).map(l=>`
+                <div style="padding:6px 0;border-bottom:1px solid #eee;display:flex;justify-content:space-between;font-size:0.82rem;">
+                    <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:65%;">${l.msg}</span>
+                    <small class="text-muted">${new Date(l.t).toLocaleString()}</small>
+                </div>`).join('') : '<p class="text-muted text-center">Sin actividad</p>'}
+        </div>
+    </div>`;
+
+    // Dibujar dona
+    setTimeout(()=>{
+        const canvas = document.getElementById('donaChart');
+        if(!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const total = matPorTipo.nuevo + matPorTipo.usado || 1;
+        const data = [
+            {val:matPorTipo.nuevo, color:'#27ae60'},
+            {val:matPorTipo.usado, color:'#f39c12'}
+        ];
+        let startAngle = -Math.PI/2;
+        const cx=90,cy=90,r=70,ri=40;
+        ctx.clearRect(0,0,180,180);
+        data.forEach(d=>{
+            const sliceAngle = (d.val/total)*(2*Math.PI);
+            ctx.beginPath();
+            ctx.moveTo(cx,cy);
+            ctx.arc(cx,cy,r,startAngle,startAngle+sliceAngle);
+            ctx.closePath();
+            ctx.fillStyle=d.color;
+            ctx.fill();
+            startAngle+=sliceAngle;
+        });
+        // Hueco dona
+        ctx.beginPath();
+        ctx.arc(cx,cy,ri,0,2*Math.PI);
+        ctx.fillStyle='white';
+        ctx.fill();
+        // Texto centro
+        ctx.fillStyle='#2c3e50';
+        ctx.font='bold 16px sans-serif';
+        ctx.textAlign='center';
+        ctx.fillText(total,cx,cy-4);
+        ctx.font='11px sans-serif';
+        ctx.fillStyle='#95a5a6';
+        ctx.fillText('total',cx,cy+12);
+    }, 100);
 }
 
 // CLIENTES INSTALADOS
@@ -610,8 +807,8 @@ function renderBodegas(c) {
     const bs = getUserBodegas();
     c.innerHTML = `<div class="card"><div class="card-header"><h2>🏭 ${USER.role==='admin'?'Bodegas':'Mi Bodega'}</h2><div class="flex">
         ${USER.role==='admin'?`<button class="btn btn-primary btn-sm" onclick="modalNewBodega()">➕ Nueva</button>`:''}
-        <button class="btn btn-success btn-sm" onclick="exportBodegaExcel()">📥 Exportar Excel</button>
-        <button class="btn btn-outline btn-sm" onclick="modalImportBodegaExcel()">📤 Importar Excel</button>
+        ${canDo('bodegas','exportar_excel')?`<button class="btn btn-success btn-sm" onclick="exportBodegaExcel()">📥 Exportar Excel</button>`:''}
+        ${canDo('bodegas','importar_excel')?`<button class="btn btn-outline btn-sm" onclick="modalImportBodegaExcel()">📤 Importar Excel</button>`:''}
     </div></div>` + bs.map(b => {
         const total = b.materiales.reduce((s,m)=>s+m.cantidad,0);
         return `<details style="margin-bottom:10px;border:1px solid #eee;border-radius:8px;padding:10px;background:white;">
@@ -619,7 +816,7 @@ function renderBodegas(c) {
             <div style="margin-top:10px;padding-left:10px;">
                 <p class="text-muted">Jefe: ${b.responsable||'-'}</p>
                 <div style="display:flex;gap:5px;margin:10px 0;flex-wrap:wrap;">
-                    <button class="btn btn-primary btn-sm" onclick="modalAddMat('${b.id}')">📦 + Material</button>
+                    ${canDo('bodegas','agregar_material')?`<button class="btn btn-primary btn-sm" onclick="modalAddMat('${b.id}')">📦 + Material</button>`:''}
                     ${USER.role==='admin'?`<button class="btn btn-outline btn-sm" onclick="modalEditPass('${b.id}')">🔑</button><button class="btn btn-danger btn-sm" onclick="delBodega('${b.id}')">🗑️</button>`:''}
                 </div>
                 ${b.materiales.length?`<table><thead><tr><th>Artículo</th><th>Tipo</th><th>Cant</th><th>Unidad</th><th>SNs</th><th>Acción</th></tr></thead><tbody>
@@ -759,14 +956,14 @@ function modalNewBodega() { openModal('Nueva Bodega', `<div class="form-group"><
 function modalEditPass(bId) { openModal('Cambiar Contraseña', `<input type="hidden" id="editBId" value="${bId}"><div class="form-group"><label>Nueva Contraseña</label><input id="newPass" type="password" class="form-control"></div>`, ()=>{const p=id('newPass').value;if(!p)return alert('Ingrese contraseña');DB.bodegas.find(x=>x.id===id('editBId').value).password=p;save();closeModal();alert('✅ Actualizada');}); }
 function delBodega(bId) { if(!confirm('¿Borrar bodega?')) return; DB.bodegas=DB.bodegas.filter(x=>x.id!==bId); DB.cuadrillas=DB.cuadrillas.filter(x=>x.bodegaId!==bId); save(); renderTab('bodegas'); }
 function modalAddSN(bId, mId) { const b=DB.bodegas.find(x=>x.id===bId), m=b.materiales.find(x=>x.id===mId); openModal(`➕ Agregar Serial: ${m.nombre}`, `<p>Stock: ${m.cantidad} ${m.unidad}</p><div class="form-group"><label>Nuevos SN</label><textarea id="newSNs" class="form-control"></textarea></div>`, ()=>{ const raw=id('newSNs').value.trim(); if(!raw) return alert('Ingrese SN'); const sns=raw.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean); m.snes.push(...sns); logMsg(`SN agregado a "${m.nombre}"`); save(); closeModal(); renderTab('bodegas'); }); }
-function modalAddMat(bId) { openModal('Agregar Material', `<input type="hidden" id="matBId" value="${bId}"><div class="form-group"><label>Nombre</label><input id="mNom" class="form-control"></div><div class="form-row"><div class="form-group"><label>Cantidad</label><input id="mCant" type="number" value="1" min="1" class="form-control"></div><div class="form-group"><label>Tipo</label><select id="mTipo" class="form-control"><option value="nuevo">🟢 Nuevo</option><option value="usado">🟡 Usado</option></select></div></div><div class="form-group"><label>Unidad</label><select id="mUnidad" class="form-control">${getUnidadesOptions()}</select></div><div class="form-group"><label>SNs (Opcional)</label><textarea id="mSNs" class="form-control"></textarea></div>`, ()=>{ const b=DB.bodegas.find(x=>x.id===id('matBId').value); const nom=id('mNom').value, cant=parseInt(id('mCant').value), tipo=id('mTipo').value, un=id('mUnidad').value; const rawSN=id('mSNs').value.trim(); if(!nom) return alert('Nombre requerido'); const snes=rawSN?rawSN.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean):[]; if(snes.length>cant) return alert(`SNs > cantidad`); b.materiales.push({id:Date.now().toString(),nombre:nom,cantidad:cant,tipo:tipo,unidad:un,snes:snes,fecha:new Date().toLocaleDateString()}); logMsg(`Material "${nom}" añadido`); save(); closeModal(); renderTab('bodegas'); }); }
+function modalAddMat(bId) { openModal('Agregar Material', `<input type="hidden" id="matBId" value="${bId}"><div class="form-group"><label>Nombre</label><input id="mNom" class="form-control"></div><div class="form-row"><div class="form-group"><label>Cantidad</label><input id="mCant" type="number" value="1" min="1" class="form-control"></div><div class="form-group"><label>Tipo</label><select id="mTipo" class="form-control"><option value="nuevo">🟢 Nuevo</option><option value="usado">🟡 Usado</option></select></div></div><div class="form-row"><div class="form-group"><label>Unidad</label><select id="mUnidad" class="form-control">${getUnidadesOptions()}</select></div><div class="form-group"><label>⚠️ Stock Mínimo (alerta)</label><input id="mStockMin" type="number" value="0" min="0" class="form-control" placeholder="0 = sin alerta"></div></div><div class="form-group"><label>SNs (Opcional)</label><textarea id="mSNs" class="form-control"></textarea></div>`, ()=>{ const b=DB.bodegas.find(x=>x.id===id('matBId').value); const nom=id('mNom').value, cant=parseInt(id('mCant').value), tipo=id('mTipo').value, un=id('mUnidad').value, stockMin=parseInt(id('mStockMin').value)||0; const rawSN=id('mSNs').value.trim(); if(!nom) return alert('Nombre requerido'); const snes=rawSN?rawSN.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean):[]; if(snes.length>cant) return alert(`SNs > cantidad`); b.materiales.push({id:Date.now().toString(),nombre:nom,cantidad:cant,tipo:tipo,unidad:un,snes:snes,stockMin:stockMin,fecha:new Date().toLocaleDateString()}); logMsg(`Material "${nom}" añadido`); save(); closeModal(); renderTab('bodegas'); }); }
 function modalRestock(bId, mId) { const b=DB.bodegas.find(x=>x.id===bId), m=b.materiales.find(x=>x.id===mId); openModal('📥 Reabastecer', `<input type="hidden" id="rBId" value="${bId}"><input type="hidden" id="rMId" value="${mId}"><p>Stock: <strong>${m.cantidad} ${m.unidad}</strong></p><div class="form-group"><label>Cantidad</label><input id="rCant" type="number" value="1" min="1" class="form-control"></div><div class="form-group"><label>Nuevos SN</label><textarea id="rSNs" class="form-control"></textarea></div>`, ()=>{ const mat=DB.bodegas.find(x=>x.id===id('rBId').value).materiales.find(x=>x.id===id('rMId').value); const q=parseInt(id('rCant').value); if(!q) return alert('Cantidad inválida'); mat.cantidad+=q; const rawSN=id('rSNs').value.trim(); if(rawSN) mat.snes.push(...rawSN.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean)); logMsg(`Reabastecido "${mat.nombre}" (+${q})`); save(); closeModal(); renderTab('bodegas'); }); }
 function delMat(bId, mId) { const m = DB.bodegas.find(x=>x.id===bId).materiales.find(x=>x.id===mId); if(USER.role==='admin') { if(!confirm(`¿Eliminar "${m.nombre}"?`)) return; DB.bodegas.find(x=>x.id===bId).materiales = DB.bodegas.find(x=>x.id===bId).materiales.filter(x=>x.id!==mId); logMsg(`Admin eliminó "${m.nombre}"`); save(); renderTab('bodegas'); return; } openModal('🗑️ Solicitud Eliminación', `<div class="form-group"><label>Artículo</label><input value="${m.nombre} (${m.cantidad} ${m.unidad})" readonly class="form-control"></div><div class="form-group"><label>Observación *</label><textarea id="delObs" class="form-control" placeholder="Motivo..."></textarea></div>`, ()=>{ const obs=id('delObs').value.trim(); if(!obs) return alert('Ingrese observación'); DB.deleteRequests.push({id:Date.now().toString(),bodegaId:bId,bodegaNombre:getUserBodegas().find(x=>x.id===bId)?.nombre||'',materialId:mId,materialNombre:m.nombre,cantidad:m.cantidad,tipo:m.tipo,unidad:m.unidad,snes:[...m.snes],fecha:new Date().toISOString(),obs,estado:'pendiente'}); logMsg(`Solicitud eliminación "${m.nombre}"`); save(); closeModal(); alert('✅ Enviada'); renderTab('bodegas'); }); }
 function renderDeleteReq(c) { if(USER.role!=='admin') return navigate('dash'); const pend=DB.deleteRequests.filter(r=>r.estado==='pendiente'), done=DB.deleteRequests.filter(r=>r.estado!=='pendiente'); c.innerHTML=`<div class="card"><div class="card-header"><h2>🗑️ Solicitudes</h2></div>${pend.length?`<table><thead><tr><th>Fecha</th><th>Bodega</th><th>Artículo</th><th>Cant</th><th>Motivo</th><th></th></tr></thead><tbody>${pend.map(r=>`<tr><td>${new Date(r.fecha).toLocaleDateString()}</td><td>${r.bodegaNombre}</td><td>${r.materialNombre}</td><td>${r.cantidad}</td><td style="max-width:200px;overflow:hidden;">${r.obs}</td><td><button class="btn btn-success btn-sm" onclick="approveDelete('${r.id}','aprobada')">✅</button> <button class="btn btn-danger btn-sm" onclick="approveDelete('${r.id}','rechazada')">❌</button></td></tr>`).join('')}</tbody></table>`:'<p class="text-muted">Sin pendientes</p>'}${done.length?`<h3 style="margin:15px 0 10px;color:var(--gray);">Historial</h3><table><thead><tr><th>Fecha</th><th>Bodega</th><th>Artículo</th><th>Estado</th></tr></thead><tbody>${done.map(r=>`<tr><td>${new Date(r.fecha).toLocaleDateString()}</td><td>${r.bodegaNombre}</td><td>${r.materialNombre}</td><td><span class="badge ${r.estado==='aprobada'?'badge-ok':'badge-rej'}">${r.estado}</span></td></tr>`).join('')}</tbody></table>`:''}</div>`; }
 function approveDelete(reqId, act) { const req=DB.deleteRequests.find(r=>r.id===reqId); if(!req||req.estado!=='pendiente') return; req.estado=act; if(act==='aprobada'){const b=DB.bodegas.find(x=>x.id===req.bodegaId);if(b)b.materiales=b.materiales.filter(m=>m.id!==req.materialId);logMsg(`Aprobado: ${req.materialNombre}`);}else{logMsg(`Rechazado: ${req.materialNombre}`);} save(); renderTab('delete_req'); }
 
 // TRANSFERENCIAS
-function renderTransfer(c) { let ts=DB.transfers; if(USER.role==='bodega') ts=ts.filter(t=>t.oriId===USER.id||t.desId===USER.id); ts.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)); c.innerHTML=`<div class="card"><div class="card-header"><h2>🔄 Transferencias</h2>${USER.role==='bodega'?`<button class="btn btn-primary btn-sm" onclick="modalSendTrans()">📤 Enviar</button>`:''}</div>${ts.length?ts.map(t=>`<div style="border:1px solid #eee; border-radius:8px; padding:15px; margin-bottom:10px; background:${t.estado==='pendiente'?'#fff':'#f9f9f9'}"><div class="flex"><strong>🔄 ${t.oriName} ➜ ${t.desName}</strong><span class="badge ${t.estado==='pendiente'?'badge-pend':t.estado==='aceptada'?'badge-ok':'badge-rej'}">${t.estado.toUpperCase()}</span></div><div class="text-muted" style="font-size:0.85rem; margin:5px 0;">📅 ${t.fecha}</div><div style="margin-bottom:10px;">${t.mats.map(m=>`<span class="sn-tag">${m.nom}: ${m.cant} ${m.unidad}${m.snes.length?' [SN:'+m.snes.join(', ')+']':''}</span>`).join(' ')}</div>${t.estado==='pendiente'&&t.desId===USER.id?`<div class="flex"><button class="btn btn-success btn-sm" onclick="procTrans('${t.id}','aceptada')">✅</button><button class="btn btn-danger btn-sm" onclick="procTrans('${t.id}','rechazada')">❌</button></div>`:''}</div>`).join(''):'<p class="text-center text-muted">Sin transferencias</p>'}</div>`; }
+function renderTransfer(c) { let ts=DB.transfers; if(USER.role==='bodega') ts=ts.filter(t=>t.oriId===USER.id||t.desId===USER.id); ts.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)); c.innerHTML=`<div class="card"><div class="card-header"><h2>🔄 Transferencias</h2>${USER.role==='bodega'&&canDo('transfer','enviar')?`<button class="btn btn-primary btn-sm" onclick="modalSendTrans()">📤 Enviar</button>`:''}</div>${ts.length?ts.map(t=>`<div style="border:1px solid #eee; border-radius:8px; padding:15px; margin-bottom:10px; background:${t.estado==='pendiente'?'#fff':'#f9f9f9'}"><div class="flex"><strong>🔄 ${t.oriName} ➜ ${t.desName}</strong><span class="badge ${t.estado==='pendiente'?'badge-pend':t.estado==='aceptada'?'badge-ok':'badge-rej'}">${t.estado.toUpperCase()}</span></div><div class="text-muted" style="font-size:0.85rem; margin:5px 0;">📅 ${t.fecha}</div><div style="margin-bottom:10px;">${t.mats.map(m=>`<span class="sn-tag">${m.nom}: ${m.cant} ${m.unidad}${m.snes.length?' [SN:'+m.snes.join(', ')+']':''}</span>`).join(' ')}</div>${t.estado==='pendiente'&&t.desId===USER.id?`<div class="flex"><button class="btn btn-success btn-sm" onclick="procTrans('${t.id}','aceptada')">✅</button><button class="btn btn-danger btn-sm" onclick="procTrans('${t.id}','rechazada')">❌</button></div>`:''}</div>`).join(''):'<p class="text-center text-muted">Sin transferencias</p>'}</div>`; }
 function modalSendTrans() { if(USER.role!=='bodega') return; const dests=DB.bodegas.filter(b=>b.id!==USER.id).map(b=>`<option value="${b.id}">${b.nombre}</option>`).join(''); const mats=DB.bodegas.find(x=>x.id===USER.id).materiales.filter(m=>m.cantidad>0).map(m=>`<option value="${m.id}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`).join(''); TempLists.transItems=[]; openModal('🔄 Transferencia', `<div class="form-group"><label>Destino</label><select id="tDest" class="form-control"><option value="">...</option>${dests}</select></div><hr style="margin:15px 0;"><div class="form-row"><div class="form-group"><label>Material</label><select id="tMat" class="form-control" onchange="showTransferSNBox()">${mats}</select></div><div class="form-group"><label>Cantidad</label><input id="tCant" type="number" value="1" min="1" class="form-control" onchange="showTransferSNBox()"></div></div><div id="tSNArea"></div><div id="tMsg" class="text-muted text-sm"></div><button class="btn btn-outline btn-sm" onclick="addTransItem()" style="margin-top:10px;">➕ Agregar</button><div id="tList" style="margin-top:10px;"></div><div class="form-group"><label>Observaciones</label><input id="tObs" class="form-control"></div>`, ()=>{ if(!id('tDest').value||!TempLists.transItems.length) return alert('Faltan datos'); sendTransLogic(); }); TempLists.tSelectedSNs={}; showTransferSNBox(); renderTList(); }
 function showTransferSNBox() { const mId=id('tMat').value, box=id('tSNArea'), msg=id('tMsg'); if(!mId||!box) return; const m=DB.bodegas.find(x=>x.id===USER.id)?.materiales.find(x=>x.id===mId); if(!m) { box.innerHTML=''; return; } TempLists.tSelectedSNs={}; const q = parseInt(id('tCant').value) || 1; if(m.snes.length > 0) { let html=`<div class="sn-select-area"><div class="flex" style="justify-content:space-between;margin-bottom:8px;"><strong>Seleccione ${q} SNs</strong><label style="font-size:0.85rem;cursor:pointer;"><input type="checkbox" onchange="toggleAllSN(this,'tSNChk')"> Todos</label></div>`; m.snes.forEach((sn,i)=>{ html+=`<label class="sn-check"><input type="checkbox" id="tSNChk_${i}" value="${sn}" onchange="updateTSelection(${q})"> <span class="sn-label">${sn}</span></label>`; }); html+=`</div>`; box.innerHTML=html; msg.textContent = `Seleccione ${q} seriales.`; } else { box.innerHTML = `<div class="alert" style="background:#e8f5e9;color:#2e7d32;padding:8px;font-size:0.85rem;">✅ Sin serial. Se transferirán ${q} ${m.unidad}.</div>`; msg.textContent = ''; } }
 function toggleAllSN(master, prefix) { document.querySelectorAll(`input[id^="${prefix}"]`).forEach(cb=>{cb.checked=master.checked;}); updateTSelection(parseInt(id('tCant').value)||1); }
@@ -777,22 +974,25 @@ function sendTransLogic() { const ori=DB.bodegas.find(x=>x.id===USER.id), des=DB
 function procTrans(tId,act) { const t=DB.transfers.find(x=>x.id===tId); if(!t||t.estado!=='pendiente') return; t.estado=act; if(act==='aceptada'){const des=DB.bodegas.find(x=>x.id===t.desId);t.mats.forEach(it=>{const ex=des.materiales.find(m=>m.nombre===it.nom&&m.tipo===it.tipo);if(ex){ex.cantidad+=it.cant;if(it.snes.length)ex.snes.push(...it.snes);}else des.materiales.push({id:Date.now().toString(),nombre:it.nom,cantidad:it.cant,tipo:it.tipo,unidad:it.unidad,snes:it.snes,fecha:new Date().toLocaleDateString()});});}else{const ori=DB.bodegas.find(x=>x.id===t.oriId);t.mats.forEach(it=>{let m=ori.materiales.find(x=>x.nombre===it.nom&&x.tipo===it.tipo);if(!m){m={id:Date.now().toString(),nombre:it.nom,cantidad:0,tipo:it.tipo,unidad:it.unidad,snes:[],fecha:new Date().toLocaleDateString()};ori.materiales.push(m);}m.cantidad+=it.cant;if(it.snes.length)m.snes.push(...it.snes);});} logMsg(`Transferencia ${act}`); save(); renderTab('transfer'); }
 
 // RECUPERADOS
-function renderRecuperados(c) { let items=DB.recuperados; if(USER.role==='bodega') items=items.filter(r=>r.bodegaId===USER.id); c.innerHTML=`<div class="card"><div class="card-header"><h2>♻️ Recuperados</h2><button class="btn btn-primary btn-sm" onclick="modalAddRecuperado()">➕ Registrar</button></div>${items.length?`<table><thead><tr><th>Fecha</th><th>${USER.role==='admin'?'Bodega':'Origen'}</th><th>Artículo</th><th>Cant</th><th>Unidad</th><th>Tipo</th><th>SNs</th><th>Estado</th><th></th></tr></thead><tbody>${items.map((r,i)=>`<tr><td>${r.fecha}</td><td>${USER.role==='admin'?r.bodegaNombre:r.origen}</td><td><strong>${r.nom}</strong></td><td>${r.cant}</td><td>${r.unidad}</td><td><span class="badge ${r.tipo==='nuevo'?'badge-new':'badge-used'}">${r.tipo}</span></td><td>${r.snes.length?r.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' '):'-'}</td><td><span class="badge ${r.estado==='pendiente'?'badge-pend':'badge-ok'}">${r.estado}</span></td><td>${r.estado==='pendiente'?`<button class="btn btn-success btn-sm" onclick="integrarRecuperado(${DB.recuperados.indexOf(r)})">✅</button>`:'-'}</td></tr>`).join('')}</tbody></table>`:'<p class="text-muted">Vacío</p>'}</div>`; }
+function renderRecuperados(c) { let items=DB.recuperados; if(USER.role==='bodega') items=items.filter(r=>r.bodegaId===USER.id); c.innerHTML=`<div class="card"><div class="card-header"><h2>♻️ Recuperados</h2>${canDo('recuperados','registrar')?`<button class="btn btn-primary btn-sm" onclick="modalAddRecuperado()">➕ Registrar</button>`:''}</div>${items.length?`<table><thead><tr><th>Fecha</th><th>${USER.role==='admin'?'Bodega':'Origen'}</th><th>Artículo</th><th>Cant</th><th>Unidad</th><th>Tipo</th><th>SNs</th><th>Estado</th><th></th></tr></thead><tbody>${items.map((r,i)=>`<tr><td>${r.fecha}</td><td>${USER.role==='admin'?r.bodegaNombre:r.origen}</td><td><strong>${r.nom}</strong></td><td>${r.cant}</td><td>${r.unidad}</td><td><span class="badge ${r.tipo==='nuevo'?'badge-new':'badge-used'}">${r.tipo}</span></td><td>${r.snes.length?r.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' '):'-'}</td><td><span class="badge ${r.estado==='pendiente'?'badge-pend':'badge-ok'}">${r.estado}</span></td><td>${r.estado==='pendiente'?`<button class="btn btn-success btn-sm" onclick="integrarRecuperado(${DB.recuperados.indexOf(r)})">✅</button>`:'-'}</td></tr>`).join('')}</tbody></table>`:'<p class="text-muted">Vacío</p>'}</div>`; }
 function modalAddRecuperado() { const bs=DB.bodegas.map(b=>`<option value="${b.id}" ${USER.role==='bodega'&&b.id===USER.id?'selected':''}>${b.nombre}</option>`).join(''); openModal('Registrar Recuperado', `<div class="form-group"><label>Bodega</label><select id="recBod" class="form-control">${bs}</select></div><div class="form-row"><div class="form-group"><label>Artículo</label><input id="recNom" class="form-control"></div><div class="form-group"><label>Cantidad</label><input id="recCant" type="number" value="1" min="1" class="form-control"></div></div><div class="form-row"><div class="form-group"><label>Tipo</label><select id="recTipo" class="form-control"><option value="usado">🟡 Usado</option><option value="nuevo">🟢 Nuevo</option></select></div><div class="form-group"><label>Unidad</label><select id="recUnidad" class="form-control">${getUnidadesOptions()}</select></div></div><div class="form-group"><label>Origen</label><input id="recOrigen" class="form-control"></div><div class="form-group"><label>SNs</label><textarea id="recSNs" class="form-control"></textarea></div><div class="form-group"><label>Fecha</label><input id="recFecha" type="date" value="${new Date().toISOString().split('T')[0]}" class="form-control"></div>`, ()=>{ const nom=id('recNom').value,cant=parseInt(id('recCant').value),tipo=id('recTipo').value,unid=id('recUnidad').value,origen=id('recOrigen').value,rawSN=id('recSNs').value.trim(),fecha=id('recFecha').value,bId=id('recBod').value; if(!nom||!cant||!origen||!bId) return alert('Complete campos'); DB.recuperados.push({id:Date.now().toString(),bodegaId:bId,bodegaNombre:DB.bodegas.find(x=>x.id===bId)?.nombre,nom,cant,tipo,unidad:unid,origen,snes:rawSN?rawSN.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean):[],fecha,estado:'pendiente'}); logMsg(`Recuperado: ${nom}`); save(); closeModal(); renderTab('recuperados'); }); }
 function integrarRecuperado(idx) { const r=DB.recuperados[idx]; if(!r||r.estado!=='pendiente') return; const b=DB.bodegas.find(x=>x.id===r.bodegaId); if(!b) return alert("Bodega no existe"); const ex=b.materiales.find(m=>m.nombre===r.nom&&m.tipo===r.tipo); if(ex){ex.cantidad+=r.cant;if(r.snes.length)ex.snes.push(...r.snes);}else b.materiales.push({id:Date.now().toString(),nombre:r.nom,cantidad:r.cant,tipo:r.tipo,unidad:r.unidad,snes:r.snes,fecha:r.fecha}); r.estado='integrado'; logMsg(`Integrado "${r.nom}"`); save(); renderTab('recuperados'); }
 
 // CUADRILLAS
 function renderCuads(c) {
     const cs = getUserCuads();
-    c.innerHTML = `<div class="card"><div class="card-header"><h2>👷 Cuadrillas</h2><div class="flex"><button class="btn btn-primary btn-sm" onclick="modalNewCuad()">➕ Cuadrilla</button><button class="btn btn-outline btn-sm" onclick="modalNewTec()">👤 Técnico</button></div></div>
+    c.innerHTML = `<div class="card"><div class="card-header"><h2>👷 Cuadrillas</h2><div class="flex">
+        ${canDo('cuads','agregar_cuadrilla')?`<button class="btn btn-primary btn-sm" onclick="modalNewCuad()">➕ Cuadrilla</button>`:''}
+        ${canDo('cuads','agregar_tecnico')?`<button class="btn btn-outline btn-sm" onclick="modalNewTec()">👤 Técnico</button>`:''}
+    </div></div>
     ${cs.length ? cs.map(cu => `
         <details style="border:1px solid #eee;border-radius:8px;padding:10px;margin-bottom:10px;background:white;">
         <summary style="cursor:pointer;font-weight:bold;">👷 ${cu.nombre} <span class="badge badge-new">${cu.materiales.reduce((s,m)=>s+m.cantidad,0)} uds</span> <span class="text-muted" style="font-size:0.8rem;">· ${cu.especialidad||''}</span></summary>
         <div style="margin-top:10px;padding-left:10px;">
             <p class="text-muted">Receptor: ${cu.receptor}</p>
             <div class="flex" style="margin:10px 0;">
-                <button class="btn btn-outline btn-sm" onclick="modalEditCuad('${cu.id}')">✏️ Editar</button>
-                <button class="btn btn-warning btn-sm" onclick="modalDevolverMat('${cu.id}')">↩️ Devolver Material</button>
+                ${canDo('cuads','editar_cuadrilla')?`<button class="btn btn-outline btn-sm" onclick="modalEditCuad('${cu.id}')">✏️ Editar</button>`:''}
+                ${canDo('cuads','devolver_material')?`<button class="btn btn-warning btn-sm" onclick="modalDevolverMat('${cu.id}')">↩️ Devolver Material</button>`:''}
             </div>
             <h4 style="margin:10px 0;">👤 Técnicos</h4>
             ${cu.tecnicos.map(t => `
@@ -802,9 +1002,11 @@ function renderCuads(c) {
                         <span class="text-muted" style="font-size:0.8rem">ID:${t.cedula||'-'} | 🎒 Herramientas: ${t.dotacion.filter(d=>d.categoria==='herramienta').length} | 🦺 Seg: ${t.dotacion.filter(d=>d.categoria==='seguridad').length}</span>
                     </div>
                     <div class="flex">
-                        <button class="btn btn-warning btn-sm" onclick="modalDotar('${cu.id}','${t.id}')">🎒 Dotar</button>
+                        ${canDo('cuads','editar_tecnico')?`<button class="btn btn-outline btn-sm" onclick="modalEditTec('${cu.id}','${t.id}')">✏️</button>`:''}
+                        ${canDo('cuads','dotar')?`<button class="btn btn-warning btn-sm" onclick="modalDotar('${cu.id}','${t.id}')">🎒 Dotar</button>`:''}
+                        ${canDo('cuads','dotacion_directa')?`<button class="btn btn-primary btn-sm" onclick="modalDotacionDirecta('${cu.id}','${t.id}')">📦 Directo</button>`:''}
                         <button class="btn btn-outline btn-sm" onclick="modalVerDotacion('${cu.id}','${t.id}')">👁️</button>
-                        <button class="btn btn-danger btn-sm" onclick="delTec('${cu.id}','${t.id}')">✕</button>
+                        ${canDo('cuads','agregar_tecnico')?`<button class="btn btn-danger btn-sm" onclick="delTec('${cu.id}','${t.id}')">✕</button>`:''}
                     </div>
                 </div>`).join('') || '<p class="text-muted">Sin técnicos</p>'}
             <h4 style="margin:15px 0 10px;">📦 Inventario Cuadrilla</h4>
@@ -868,7 +1070,10 @@ function modalVerDotacion(cId, tId) {
     const herramientas = t.dotacion.filter(d=>d.categoria==='herramienta');
     const seguridad = t.dotacion.filter(d=>d.categoria==='seguridad');
     const otros = t.dotacion.filter(d=>!d.categoria);
-    const renderDot = (items, label, icon) => items.length ? `<h4 style="margin:10px 0 5px;">${icon} ${label}</h4><table><thead><tr><th>Artículo</th><th>Cant</th><th>Tipo</th><th>SNs</th><th>Fecha</th></tr></thead><tbody>${items.map(d=>`<tr><td>${d.nom}</td><td>${d.cant}</td><td><span class="badge ${d.tipo==='nuevo'?'badge-new':'badge-used'}">${d.tipo}</span></td><td>${d.snes?.length?d.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' '):'-'}</td><td>${d.fecha||'-'}</td></tr>`).join('')}</tbody></table>` : '';
+    const renderDot = (items, label, icon) => items.length ? `<h4 style="margin:10px 0 5px;">${icon} ${label}</h4><table><thead><tr><th>Artículo</th><th>Cant</th><th>Tipo</th><th>SNs</th><th>Fecha</th><th>Origen</th><th></th></tr></thead><tbody>${items.map((d,i)=>{
+        const realIdx = t.dotacion.indexOf(d);
+        return `<tr><td>${d.nom}</td><td>${d.cant}</td><td><span class="badge ${d.tipo==='nuevo'?'badge-new':'badge-used'}">${d.tipo}</span></td><td>${d.snes?.length?d.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' '):'-'}</td><td>${d.fecha||'-'}</td><td>${d.directo?'<span class="badge badge-pend">Directo</span>':'<span class="badge badge-ok">Cuadrilla</span>'}</td><td><button class="btn btn-danger btn-sm" onclick="delTecDotItem('${cId}','${tId}',${realIdx})">🗑️</button></td></tr>`;
+    }).join('')}</tbody></table>` : '';
     id('mTitle').textContent = `👁️ Dotación de ${t.nombre}`;
     id('mBody').innerHTML = `${renderDot(herramientas,'Herramientas','🎒')}${renderDot(seguridad,'Elementos de Seguridad','🦺')}${renderDot(otros,'Otros','📦')}` || '<p class="text-muted">Sin dotación asignada</p>';
     id('mFooter').innerHTML = `<button class="btn btn-primary" onclick="closeModal()">Cerrar</button>`;
@@ -877,7 +1082,86 @@ function modalVerDotacion(cId, tId) {
 
 function modalNewCuad() { const bs=getUserBodegas().map(b=>`<option value="${b.id}">${b.nombre}</option>`).join(''); openModal('Nueva Cuadrilla', `<div class="form-group"><label>Bodega</label><select id="cBod" class="form-control">${bs}</select></div><div class="form-group"><label>Nombre</label><input id="cNom" class="form-control"></div><div class="form-group"><label>Receptor</label><input id="cRec" class="form-control"></div><div class="form-group"><label>Especialidad</label><input id="cEsp" class="form-control"></div>`, ()=>{ DB.cuadrillas.push({id:Date.now().toString(),bodegaId:id('cBod').value,nombre:id('cNom').value,receptor:id('cRec').value,especialidad:id('cEsp').value,tecnicos:[],materiales:[]}); logMsg(`Cuadrilla "${id('cNom').value}" creada`); save(); closeModal(); renderTab('cuads'); }); }
 function modalNewTec() { const cs=getUserCuads().map(c=>`<option value="${c.id}">${c.nombre}</option>`).join(''); openModal('Nuevo Técnico', `<div class="form-group"><label>Cuadrilla</label><select id="tCuad" class="form-control">${cs}</select></div><div class="form-row"><div class="form-group"><label>Nombre</label><input id="tNom" class="form-control"></div><div class="form-group"><label>Cédula</label><input id="tCed" class="form-control"></div></div><div class="form-row"><div class="form-group"><label>Cargo</label><input id="tCargo" class="form-control"></div><div class="form-group"><label>Teléfono</label><input id="tTel" class="form-control"></div></div><div class="form-group"><label>Email</label><input id="tEmail" class="form-control"></div>`, ()=>{ const cu=DB.cuadrillas.find(x=>x.id===id('tCuad').value); cu.tecnicos.push({id:`T${Date.now()}`,nombre:id('tNom').value,cedula:id('tCed').value,cargo:id('tCargo').value,telefono:id('tTel').value,email:id('tEmail').value,dotacion:[]}); logMsg(`Técnico "${id('tNom').value}" agregado`); save(); closeModal(); renderTab('cuads'); }); }
-function delTec(cId, tId) { if(!confirm('¿Borrar técnico?')) return; DB.cuadrillas.find(x=>x.id===cId).tecnicos=DB.cuadrillas.find(x=>x.id===cId).tecnicos.filter(x=>x.id!==tId); save(); renderTab('cuads'); }
+
+function modalEditTec(cId, tId) {
+    const cu = DB.cuadrillas.find(x=>x.id===cId);
+    const t = cu.tecnicos.find(x=>x.id===tId);
+    openModal(`✏️ Editar Técnico: ${t.nombre}`,
+        `<div class="form-row"><div class="form-group"><label>Nombre</label><input id="etNom" class="form-control" value="${t.nombre}"></div><div class="form-group"><label>Cédula</label><input id="etCed" class="form-control" value="${t.cedula||''}"></div></div>
+        <div class="form-row"><div class="form-group"><label>Cargo</label><input id="etCargo" class="form-control" value="${t.cargo||''}"></div><div class="form-group"><label>Teléfono</label><input id="etTel" class="form-control" value="${t.telefono||''}"></div></div>
+        <div class="form-group"><label>Email</label><input id="etEmail" class="form-control" value="${t.email||''}"></div>`,
+        () => {
+            t.nombre = id('etNom').value || t.nombre;
+            t.cedula = id('etCed').value;
+            t.cargo = id('etCargo').value;
+            t.telefono = id('etTel').value;
+            t.email = id('etEmail').value;
+            logMsg(`Técnico "${t.nombre}" editado`); save(); closeModal(); renderTab('cuads');
+        });
+}
+
+function modalDotacionDirecta(cId, tId) {
+    const cu = DB.cuadrillas.find(x=>x.id===cId);
+    const t = cu.tecnicos.find(x=>x.id===tId);
+    TempLists.dirItems = [];
+    openModal(`📦 Agregar Material Directo a ${t.nombre}`,
+        `<div style="background:#e3f2fd;padding:8px;border-radius:6px;margin-bottom:12px;font-size:0.85rem;">
+            ℹ️ Este material se asigna directamente al técnico sin pasar por bodega ni cuadrilla.
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>Categoría *</label><select id="ddCat" class="form-control"><option value="herramienta">🎒 Herramienta</option><option value="seguridad">🦺 Elemento de Seguridad</option></select></div>
+            <div class="form-group"><label>Artículo *</label><input id="ddNom" class="form-control" placeholder="Nombre del material"></div>
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>Cantidad</label><input id="ddCant" type="number" value="1" min="1" class="form-control"></div>
+            <div class="form-group"><label>Tipo</label><select id="ddTipo" class="form-control"><option value="nuevo">🟢 Nuevo</option><option value="usado">🟡 Usado</option></select></div>
+            <div class="form-group"><label>Unidad</label><select id="ddUnidad" class="form-control">${getUnidadesOptions()}</select></div>
+        </div>
+        <div class="form-group"><label>Seriales (Opcional, uno por línea)</label><textarea id="ddSNs" class="form-control" rows="3"></textarea></div>
+        <button class="btn btn-outline btn-sm" onclick="addDirItem()" style="margin-top:5px;">➕ Agregar a lista</button>
+        <div id="dirList" style="margin-top:10px;"></div>`,
+        () => {
+            if(!TempLists.dirItems.length) return alert('Agrega al menos un artículo.');
+            TempLists.dirItems.forEach(item => {
+                t.dotacion.push({...item, fecha: new Date().toLocaleDateString(), directo: true});
+            });
+            logMsg(`Material directo asignado a ${t.nombre}`); save(); closeModal(); renderTab('cuads');
+        });
+}
+
+function addDirItem() {
+    const nom = id('ddNom').value.trim();
+    const cant = parseInt(id('ddCant').value)||1;
+    const cat = id('ddCat').value;
+    const tipo = id('ddTipo').value;
+    const unidad = id('ddUnidad').value;
+    const rawSN = id('ddSNs').value.trim();
+    const snes = rawSN ? rawSN.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean) : [];
+    if(!nom) return alert('Ingresa el nombre del artículo');
+    TempLists.dirItems.push({id:'D'+Date.now()+Math.random().toString(36).substr(2,4), nom, cant, tipo, unidad, snes, categoria:cat});
+    id('ddNom').value=''; id('ddCant').value=1; id('ddSNs').value='';
+    const el = id('dirList');
+    if(el) el.innerHTML = TempLists.dirItems.map((it,i)=>`<div class="item-list-item"><span>${it.categoria==='herramienta'?'🎒':'🦺'} ${it.nom} x${it.cant} ${it.unidad} <span class="badge ${it.tipo==='nuevo'?'badge-new':'badge-used'}">${it.tipo}</span>${it.snes.length?' [SN:'+it.snes.join(',')+']':''}</span><button class="btn btn-danger btn-sm" onclick="TempLists.dirItems.splice(${i},1);addDirItem();return false;">✕</button></div>`).join('') || 'Vacío';
+}
+
+function delTecDotItem(cId, tId, idx) {
+    const cu = DB.cuadrillas.find(x=>x.id===cId);
+    const t = cu.tecnicos.find(x=>x.id===tId);
+    const item = t.dotacion[idx];
+    openModal('🗑️ Eliminar de Dotación',
+        `<div style="background:#fff3cd;padding:10px;border-radius:6px;margin-bottom:10px;">⚠️ Debes indicar el motivo para eliminar este ítem de la dotación del técnico.</div>
+        <p><strong>Artículo:</strong> ${item.nom} (${item.cant} ${item.unidad})</p>
+        <div class="form-group"><label>Motivo de eliminación *</label><textarea id="delDotObs" class="form-control" placeholder="Explique el motivo..."></textarea></div>`,
+        () => {
+            const obs = id('delDotObs').value.trim();
+            if(!obs) return alert('El motivo es obligatorio.');
+            t.dotacion.splice(idx, 1);
+            logMsg(`Eliminado de dotación de ${t.nombre}: ${item.nom} — Motivo: ${obs}`);
+            save(); closeModal(); renderTab('cuads');
+        });
+}
+
+function delTec(cId, tId) { if(!confirm('¿Borrar técnico y toda su dotación?')) return; DB.cuadrillas.find(x=>x.id===cId).tecnicos=DB.cuadrillas.find(x=>x.id===cId).tecnicos.filter(x=>x.id!==tId); save(); renderTab('cuads'); }
 
 function modalDotar(cId, tId) {
     TempLists.currentCId=cId; TempLists.currentTId=tId; TempLists.dotItems=[]; TempLists.dSelectedSNs={};
@@ -903,7 +1187,7 @@ function renderDList() { const el=id('dList'); if(!el) return; const catLabel = 
 function saveDotacionLogic() { const c=DB.cuadrillas.find(x=>x.id===TempLists.currentCId), t=c.tecnicos.find(x=>x.id===TempLists.currentTId); TempLists.dotItems.forEach(it => { const m=c.materiales.find(x=>x.id===it.id); m.cantidad-=it.cant; it.snes.forEach(s=>{const idx=m.snes.indexOf(s);if(idx>-1)m.snes.splice(idx,1);}); t.dotacion.push({...it,fecha:new Date().toLocaleDateString()}); }); logMsg(`Dotación a ${t.nombre}`); save(); closeModal(); renderTab('cuads'); }
 
 // ENTREGAS
-function renderEntregas(c) { let es=DB.entregas; if(USER.role==='bodega') es=es.filter(e=>e.bodegaId===USER.id); es.sort((a,b)=>new Date(b.reg)-new Date(a.reg)); c.innerHTML=`<div class="card"><div class="card-header"><h2>📤 Entregas</h2><button class="btn btn-success btn-sm" onclick="modalNewEntrega()">➕ Nueva</button></div>${es.length?`<table><thead><tr><th>Fecha</th><th>Origen</th><th>Destino</th><th>Receptor</th><th>Items</th><th></th></tr></thead><tbody>${es.map(e=>`<tr><td>${e.fecha}</td><td>${e.bodega}</td><td>${e.cuadrilla}</td><td>${e.receptor}</td><td>${e.mats.map(m=>`${m.nom}(${m.cant} ${m.unidad})${m.snes.length?' [SN:'+m.snes.join(',')+']':''}`).join(', ')}</td><td><button class="btn btn-danger btn-sm" onclick="delEntrega('${e.id}')">✕</button></td></tr>`).join('')}</tbody></table>`:'<p class="text-muted">Sin entregas</p>'}</div>`; }
+function renderEntregas(c) { let es=DB.entregas; if(USER.role==='bodega') es=es.filter(e=>e.bodegaId===USER.id); es.sort((a,b)=>new Date(b.reg)-new Date(a.reg)); c.innerHTML=`<div class="card"><div class="card-header"><h2>📤 Entregas</h2>${canDo('entregas','crear')?`<button class="btn btn-success btn-sm" onclick="modalNewEntrega()">➕ Nueva</button>`:''}</div>${es.length?`<table><thead><tr><th>Fecha</th><th>Origen</th><th>Destino</th><th>Receptor</th><th>Items</th><th></th></tr></thead><tbody>${es.map(e=>`<tr><td>${e.fecha}</td><td>${e.bodega}</td><td>${e.cuadrilla}</td><td>${e.receptor}</td><td>${e.mats.map(m=>`${m.nom}(${m.cant} ${m.unidad})${m.snes.length?' [SN:'+m.snes.join(',')+']':''}`).join(', ')}</td><td>${canDo('entregas','eliminar')?`<button class="btn btn-danger btn-sm" onclick="delEntrega('${e.id}')">✕</button>`:''}</td></tr>`).join('')}</tbody></table>`:'<p class="text-muted">Sin entregas</p>'}</div>`; }
 function modalNewEntrega() { const bs=getUserBodegas().map(b=>`<option value="${b.id}">${b.nombre}</option>`).join(''); TempLists.eItems=[]; TempLists.eSelectedSNs={}; openModal('📤 Entrega', `<div class="form-row"><div class="form-group"><label>Bodega Origen</label><select id="eBod" class="form-control" onchange="updateEOptions()">${bs}</select></div><div class="form-group"><label>Fecha</label><input id="eFecha" type="date" value="${new Date().toISOString().split('T')[0]}" class="form-control"></div></div><div class="form-group"><label>Cuadrilla</label><select id="eCuad" class="form-control" onchange="loadERec()"></select></div><div class="form-group"><label>Receptor</label><input id="eRec" readonly class="form-control"></div><hr style="margin:10px 0;"><div class="form-row"><div class="form-group"><label>Material</label><select id="eMat" class="form-control" onchange="showESNBox()"></select></div><div class="form-group"><label>Cantidad *</label><input id="eCant" type="number" value="1" min="1" class="form-control" onchange="showESNBox()"></div></div><div id="eSNArea"></div><div id="eMsg" class="text-muted text-sm"></div><button class="btn btn-outline btn-sm" onclick="addEItem()" style="margin-top:5px;">➕ Agregar</button><div id="eList" style="margin-top:10px;"></div>`, ()=>{ if(!TempLists.eItems.length||!id('eBod').value||!id('eCuad').value) return alert('Faltan datos'); saveEntregaLogic(); }); updateEOptions(); TempLists.eSelectedSNs={}; showESNBox(); }
 function updateEOptions() { const bId=id('eBod').value; id('eCuad').innerHTML=DB.cuadrillas.filter(c=>c.bodegaId===bId).map(c=>`<option value="${c.id}">${c.nombre}</option>`).join(''); loadERec(); const b=DB.bodegas.find(x=>x.id===bId); id('eMat').innerHTML=b?b.materiales.filter(m=>m.cantidad>0).map(m=>`<option value="${m.id}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`).join(''):'<option value="">-</option>'; showESNBox(); }
 function loadERec() { const c=DB.cuadrillas.find(x=>x.id===id('eCuad').value); id('eRec').value=c?c.receptor:''; }
@@ -916,7 +1200,7 @@ function saveEntregaLogic() { const b=DB.bodegas.find(x=>x.id===id('eBod').value
 function delEntrega(eid) { if(!confirm('¿Eliminar? Stock NO se devuelve.')) return; DB.entregas=DB.entregas.filter(x=>x.id!==eid); save(); renderTab('entregas'); }
 
 // INSTALACIONES
-function renderInst(c) { let is=DB.instalaciones; if(USER.role==='bodega'){const cIds=getUserCuads().map(x=>x.id);is=is.filter(x=>cIds.includes(x.cuadrillaId));} is.sort((a,b)=>new Date(b.reg)-new Date(a.reg)); c.innerHTML=`<div class="card"><div class="card-header"><h2>🔧 Instalaciones</h2><button class="btn btn-success btn-sm" onclick="modalNewInst()">➕ Nueva</button></div>${is.length?is.map(i=>`<div style="border:1px solid #eee; padding:15px; border-radius:8px; margin-bottom:10px; background:white;"><div class="flex"><strong>🔧 ${i.cliente}</strong> <span class="badge badge-new">${i.fecha}</span></div><p class="text-muted">Cuadrilla: ${i.cuadrilla} | Tipo: ${i.tipo||'-'}</p><div style="margin-top:5px;">${i.mats.map(m=>`<span class="sn-tag">${m.nom}: ${m.cant} ${m.unidad}${m.snes.length?' [SN:'+m.snes.join(',')+']':''}</span>`).join(' ')}</div><button class="btn btn-danger btn-sm" style="margin-top:10px;" onclick="delInst('${i.id}')">✕</button></div>`).join(''):'<p class="text-muted">Sin instalaciones</p>'}</div>`; }
+function renderInst(c) { let is=DB.instalaciones; if(USER.role==='bodega'){const cIds=getUserCuads().map(x=>x.id);is=is.filter(x=>cIds.includes(x.cuadrillaId));} is.sort((a,b)=>new Date(b.reg)-new Date(a.reg)); c.innerHTML=`<div class="card"><div class="card-header"><h2>🔧 Instalaciones</h2><button class="btn btn-success btn-sm" onclick="modalNewInst()">➕ Nueva</button>`:''}</div>${is.length?is.map(i=>`<div style="border:1px solid #eee; padding:15px; border-radius:8px; margin-bottom:10px; background:white;"><div class="flex"><strong>🔧 ${i.cliente}</strong> <span class="badge badge-new">${i.fecha}</span></div><p class="text-muted">Cuadrilla: ${i.cuadrilla} | Tipo: ${i.tipo||'-'}</p><div style="margin-top:5px;">${i.mats.map(m=>`<span class="sn-tag">${m.nom}: ${m.cant} ${m.unidad}${m.snes.length?' [SN:'+m.snes.join(',')+']':''}</span>`).join(' ')}</div>${canDo('inst','eliminar')?`<button class="btn btn-danger btn-sm" style="margin-top:10px;" onclick="delInst('${i.id}')">✕</button>`:''}</div>`).join(''):'<p class="text-muted">Sin instalaciones</p>'}</div>`; }
 function modalNewInst() { const cs=getUserCuads().map(c=>`<option value="${c.id}">${c.nombre}</option>`).join(''); TempLists.iItems=[]; openModal('Nueva Instalación', `<div class="form-row"><div class="form-group"><label>Cuadrilla</label><select id="iCuad" class="form-control" onchange="loadIOptions()">${cs}</select></div><div class="form-group"><label>Fecha</label><input id="iFecha" type="date" value="${new Date().toISOString().split('T')[0]}" class="form-control"></div></div><div class="form-group"><label>Cliente</label><input id="iCli" class="form-control"></div><div class="form-group"><label>Tipo</label><input id="iTipo" class="form-control"></div><hr style="margin:10px 0;"><div class="form-row"><div class="form-group"><label>Material</label><select id="iMat" class="form-control"></select></div><div class="form-group"><label>Cantidad</label><input id="iCant" type="number" value="1" min="1" class="form-control"></div></div><button class="btn btn-outline btn-sm" onclick="addIItem()">➕ Agregar</button><div id="iList" style="margin-top:10px;"></div>`, ()=>{ if(!TempLists.iItems.length||!id('iCli').value) return alert('Faltan datos'); saveInstLogic(); }); loadIOptions(); }
 function loadIOptions() { const c=DB.cuadrillas.find(x=>x.id===id('iCuad').value); id('iMat').innerHTML=c?c.materiales.filter(m=>m.cantidad>0).map(m=>`<option value="${m.id}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`).join(''):''; }
 function addIItem() { const c=DB.cuadrillas.find(x=>x.id===id('iCuad').value), mId=id('iMat').value, q=parseInt(id('iCant').value); if(!mId||!q) return; const m=c.materiales.find(x=>x.id===mId); const inList=TempLists.iItems.find(x=>x.id===mId)?.cant||0; if(q+inList>m.cantidad) return alert('Stock insuficiente'); const exist=TempLists.iItems.find(x=>x.id===mId); if(exist) exist.cant+=q; else TempLists.iItems.push({id:m.id,nom:m.nombre,cant:q,tipo:m.tipo,unidad:m.unidad,snes:m.snes.slice(0,q)}); renderIList(); }
@@ -925,7 +1209,103 @@ function saveInstLogic() { const c=DB.cuadrillas.find(x=>x.id===id('iCuad').valu
 function delInst(eid) { if(!confirm('¿Eliminar?')) return; DB.instalaciones=DB.instalaciones.filter(x=>x.id!==eid); save(); renderTab('inst'); }
 
 // ADMIN
-function renderAdmin(c) { c.innerHTML=`<div class="card"><div class="card-header"><h2>⚙️ Administración</h2></div><div class="form-group"><label>Contraseña Admin Actual</label><input id="aOld" type="password" class="form-control" style="margin-bottom:5px;"><input id="aNew" type="password" placeholder="Nueva" class="form-control"></div><button class="btn btn-warning" onclick="changeAdminPass()">🔑 Actualizar</button><hr style="margin:20px 0;"><div class="flex"><button class="btn btn-primary" onclick="exportData()">📥 Exportar</button><button class="btn btn-outline" onclick="document.getElementById('impFile').click()">📤 Importar</button><input type="file" id="impFile" hidden accept=".json" onchange="importData(this)"><button class="btn btn-danger" onclick="hardReset()">🗑️ Reset</button></div></div>`; }
+function renderAdmin(c) {
+    c.innerHTML = `<div class="card">
+        <div class="card-header"><h2>⚙️ Administración</h2></div>
+        <div class="form-group"><label>Contraseña Admin Actual</label>
+            <input id="aOld" type="password" class="form-control" style="margin-bottom:5px;">
+            <input id="aNew" type="password" placeholder="Nueva contraseña" class="form-control">
+        </div>
+        <button class="btn btn-warning" onclick="changeAdminPass()">🔑 Actualizar Contraseña</button>
+        <hr style="margin:20px 0;">
+        <div class="flex">
+            <button class="btn btn-primary" onclick="exportData()">📥 Exportar JSON</button>
+            <button class="btn btn-outline" onclick="document.getElementById('impFile').click()">📤 Importar JSON</button>
+            <input type="file" id="impFile" hidden accept=".json" onchange="importData(this)">
+            <button class="btn btn-danger" onclick="hardReset()">🗑️ Reset Total</button>
+            <button class="btn btn-outline" onclick="changeFirebaseConfig()">🔧 Firebase</button>
+        </div>
+    </div>
+
+    <div class="card" style="margin-top:15px;">
+        <div class="card-header"><h2>🔐 Permisos por Bodega</h2></div>
+        <p class="text-muted" style="margin-bottom:15px;">Define qué puede ver y hacer cada jefe de bodega en el sistema.</p>
+        ${DB.bodegas.length ? DB.bodegas.map(b => {
+            const perms = getBodegaPermisos(b.id);
+            return `<details style="margin-bottom:12px;border:1px solid #eee;border-radius:8px;padding:12px;background:white;">
+                <summary style="cursor:pointer;font-weight:bold;font-size:1rem;">🏭 ${b.nombre} <small class="text-muted">(${b.responsable||'Sin jefe'})</small></summary>
+                <div style="margin-top:15px;">
+                    ${MODULOS_PERMISOS.map(mod => `
+                        <div style="margin-bottom:12px;padding:10px;background:#f8f9fa;border-radius:6px;">
+                            <div style="font-weight:bold;margin-bottom:8px;">${mod.label}</div>
+                            <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                                ${mod.acciones.map(ac => `
+                                    <label style="display:flex;align-items:center;gap:5px;cursor:pointer;background:white;padding:5px 10px;border-radius:15px;border:1px solid #dee2e6;font-size:0.82rem;">
+                                        <input type="checkbox" 
+                                            id="perm_${b.id}_${mod.key}_${ac}" 
+                                            ${perms[mod.key][ac]!==false?'checked':''}
+                                            onchange="togglePerm('${b.id}','${mod.key}','${ac}',this.checked)">
+                                        ${ACCION_LABELS[ac]||ac}
+                                    </label>`).join('')}
+                            </div>
+                        </div>`).join('')}
+                    <button class="btn btn-success btn-sm" onclick="savePermisos('${b.id}')">💾 Guardar Permisos</button>
+                    <button class="btn btn-outline btn-sm" onclick="resetPermisos('${b.id}')">↺ Restaurar Todo</button>
+                </div>
+            </details>`;
+        }).join('') : '<p class="text-muted">No hay bodegas creadas.</p>'}
+    </div>`;
+}
+
+function togglePerm(bId, modulo, accion, val) {
+    const b = DB.bodegas.find(x=>x.id===bId);
+    if(!b) return;
+    if(!b.permisos) b.permisos = getDefaultPermisos();
+    if(!b.permisos[modulo]) b.permisos[modulo] = {};
+    b.permisos[modulo][accion] = val;
+    // Si desactiva "ver", desactiva todas las acciones del módulo
+    if(accion === 'ver' && !val) {
+        const mod = MODULOS_PERMISOS.find(m=>m.key===modulo);
+        if(mod) mod.acciones.forEach(a => {
+            b.permisos[modulo][a] = false;
+            const cb = document.getElementById(`perm_${bId}_${modulo}_${a}`);
+            if(cb) cb.checked = false;
+        });
+    }
+    // Si activa cualquier acción, activa "ver" automáticamente
+    if(accion !== 'ver' && val) {
+        b.permisos[modulo]['ver'] = true;
+        const cbVer = document.getElementById(`perm_${bId}_${modulo}_ver`);
+        if(cbVer) cbVer.checked = true;
+    }
+}
+
+function savePermisos(bId) {
+    const b = DB.bodegas.find(x=>x.id===bId);
+    if(!b) return;
+    if(!b.permisos) b.permisos = {};
+    // Leer todos los checkboxes de esta bodega
+    MODULOS_PERMISOS.forEach(mod => {
+        b.permisos[mod.key] = {};
+        mod.acciones.forEach(ac => {
+            const cb = document.getElementById(`perm_${bId}_${mod.key}_${ac}`);
+            b.permisos[mod.key][ac] = cb ? cb.checked : true;
+        });
+    });
+    logMsg(`Permisos actualizados para ${b.nombre}`);
+    save();
+    alert(`✅ Permisos guardados para ${b.nombre}`);
+}
+
+function resetPermisos(bId) {
+    if(!confirm('¿Restaurar todos los permisos a activo para esta bodega?')) return;
+    const b = DB.bodegas.find(x=>x.id===bId);
+    if(!b) return;
+    b.permisos = getDefaultPermisos();
+    save();
+    renderTab('admin');
+    alert('✅ Permisos restaurados');
+}
 function changeAdminPass() { const old=id('aOld').value, nw=id('aNew').value; if(old!==DB.adminPass) return alert('Incorrecta'); if(!nw) return alert('Ingrese nueva'); DB.adminPass=nw; save(); alert('✅ Actualizada'); renderTab('admin'); }
 function exportData() { const b=new Blob([JSON.stringify(DB,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=`backup_${new Date().toLocaleDateString()}.json`; a.click(); }
 function importData(inp) { const f=inp.files[0]; if(!f) return; const r=new FileReader(); r.onload=e=>{try{const j=JSON.parse(e.target.result);DB={...DB,...j};if(!DB.deleteRequests)DB.deleteRequests=[];if(!DB.clientes)DB.clientes=[];save();setTimeout(()=>{alert('✅ Importado');location.reload();},800);}catch(err){alert('❌ Error');}};r.readAsText(f); }
