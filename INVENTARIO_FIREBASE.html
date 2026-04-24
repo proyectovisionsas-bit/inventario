@@ -606,7 +606,155 @@ function renderInvGlobal(c) { if(USER.role!=='bodega') return navigate('dash');
 }
 
 // BODEGAS (CRUD)
-function renderBodegas(c) { const bs=getUserBodegas(); c.innerHTML=`<div class="card"><div class="card-header"><h2>🏭 ${USER.role==='admin'?'Bodegas':'Mi Bodega'}</h2>${USER.role==='admin'?`<button class="btn btn-primary btn-sm" onclick="modalNewBodega()">➕ Nueva</button>`:''}</div>`+bs.map(b=>{ const total=b.materiales.reduce((s,m)=>s+m.cantidad,0); return `<details style="margin-bottom:10px;border:1px solid #eee;border-radius:8px;padding:10px;background:white;"><summary style="cursor:pointer;font-weight:bold;font-size:1.1rem;">🏭 ${b.nombre} <span class="badge badge-new">${total} uds</span></summary><div style="margin-top:10px;padding-left:10px;"><p class="text-muted">Jefe: ${b.responsable||'-'}</p><div style="display:flex;gap:5px;margin:10px 0;"><button class="btn btn-primary btn-sm" onclick="modalAddMat('${b.id}')">📦 + Material</button>${USER.role==='admin'?`<button class="btn btn-outline btn-sm" onclick="modalEditPass('${b.id}')">🔑</button><button class="btn btn-danger btn-sm" onclick="delBodega('${b.id}')">🗑️</button>`:''}</div>${b.materiales.length?`<table><thead><tr><th>Artículo</th><th>Tipo</th><th>Cant</th><th>Unidad</th><th>SNs</th><th>Acción</th></tr></thead><tbody>${b.materiales.map(m=>`<tr><td><strong>${m.nombre}</strong></td><td><span class="badge ${m.tipo==='nuevo'?'badge-new':'badge-used'}">${m.tipo}</span></td><td>${m.cantidad}</td><td>${m.unidad}</td><td>${m.snes.length?m.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' '):`<button class="btn btn-warning btn-sm" onclick="modalAddSN('${b.id}','${m.id}')">➕ SN</button>`}</td><td><button class="btn btn-warning btn-sm" onclick="modalRestock('${b.id}','${m.id}')">📥</button><button class="btn btn-danger btn-sm" onclick="delMat('${b.id}','${m.id}')">✕</button></td></tr>`).join('')}</tbody></table>`:'<p class="text-muted">Sin materiales</p>'}</div></details>`; }).join('')+'</div>'; }
+function renderBodegas(c) {
+    const bs = getUserBodegas();
+    c.innerHTML = `<div class="card"><div class="card-header"><h2>🏭 ${USER.role==='admin'?'Bodegas':'Mi Bodega'}</h2><div class="flex">
+        ${USER.role==='admin'?`<button class="btn btn-primary btn-sm" onclick="modalNewBodega()">➕ Nueva</button>`:''}
+        <button class="btn btn-success btn-sm" onclick="exportBodegaExcel()">📥 Exportar Excel</button>
+        <button class="btn btn-outline btn-sm" onclick="modalImportBodegaExcel()">📤 Importar Excel</button>
+    </div></div>` + bs.map(b => {
+        const total = b.materiales.reduce((s,m)=>s+m.cantidad,0);
+        return `<details style="margin-bottom:10px;border:1px solid #eee;border-radius:8px;padding:10px;background:white;">
+            <summary style="cursor:pointer;font-weight:bold;font-size:1.1rem;">🏭 ${b.nombre} <span class="badge badge-new">${total} uds</span></summary>
+            <div style="margin-top:10px;padding-left:10px;">
+                <p class="text-muted">Jefe: ${b.responsable||'-'}</p>
+                <div style="display:flex;gap:5px;margin:10px 0;flex-wrap:wrap;">
+                    <button class="btn btn-primary btn-sm" onclick="modalAddMat('${b.id}')">📦 + Material</button>
+                    ${USER.role==='admin'?`<button class="btn btn-outline btn-sm" onclick="modalEditPass('${b.id}')">🔑</button><button class="btn btn-danger btn-sm" onclick="delBodega('${b.id}')">🗑️</button>`:''}
+                </div>
+                ${b.materiales.length?`<table><thead><tr><th>Artículo</th><th>Tipo</th><th>Cant</th><th>Unidad</th><th>SNs</th><th>Acción</th></tr></thead><tbody>
+                ${b.materiales.map(m=>`<tr><td><strong>${m.nombre}</strong></td><td><span class="badge ${m.tipo==='nuevo'?'badge-new':'badge-used'}">${m.tipo}</span></td><td>${m.cantidad}</td><td>${m.unidad}</td><td>${m.snes.length?m.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' '):`<button class="btn btn-warning btn-sm" onclick="modalAddSN('${b.id}','${m.id}')">➕ SN</button>`}</td><td><button class="btn btn-warning btn-sm" onclick="modalRestock('${b.id}','${m.id}')">📥</button><button class="btn btn-danger btn-sm" onclick="delMat('${b.id}','${m.id}')">✕</button></td></tr>`).join('')}
+                </tbody></table>`:'<p class="text-muted">Sin materiales</p>'}
+            </div>
+        </details>`;
+    }).join('') + '</div>';
+}
+
+const MAX_SNS_BODEGA = 200;
+
+function exportBodegaExcel() {
+    const bs = getUserBodegas();
+    if(!bs.length) return alert('No hay bodegas para exportar');
+    // Encabezados: columnas base + SN1...SN200
+    const snHeaders = Array.from({length:MAX_SNS_BODEGA}, (_,i)=>`SN${i+1}`);
+    const headers = ['Bodega','Artículo','Tipo','Cantidad','Unidad',...snHeaders];
+    const rows = [headers];
+    bs.forEach(b => {
+        if(!b.materiales.length) rows.push([b.nombre,'(sin materiales)','','','',...Array(MAX_SNS_BODEGA).fill('')]);
+        else b.materiales.forEach(m => {
+            const snCols = Array(MAX_SNS_BODEGA).fill('');
+            m.snes.forEach((sn,i)=>{ if(i<MAX_SNS_BODEGA) snCols[i]=sn; });
+            rows.push([b.nombre, m.nombre, m.tipo, m.cantidad, m.unidad, ...snCols]);
+        });
+    });
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [20,25,10,10,10,...Array(MAX_SNS_BODEGA).fill(12)].map(w=>({wch:w}));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Inventario Bodegas');
+    XLSX.writeFile(wb, `inventario_bodegas_${new Date().toLocaleDateString().replace(/\//g,'-')}.xlsx`);
+}
+
+function modalImportBodegaExcel() {
+    TempLists.bodegaImport = [];
+    openModal('📤 Importar Material a Bodega desde Excel',
+        `<div style="background:#e3f2fd;padding:10px;border-radius:6px;margin-bottom:15px;font-size:0.85rem;">
+            <strong>Formato de columnas:</strong><br>
+            A: Nombre Bodega &nbsp;|&nbsp; B: Artículo * &nbsp;|&nbsp; C: Tipo (nuevo/usado) &nbsp;|&nbsp; D: Cantidad &nbsp;|&nbsp; E: Unidad &nbsp;|&nbsp; F: SN1 &nbsp;|&nbsp; G: SN2 &nbsp;|&nbsp; ... hasta SN200 (col. HX)<br>
+            <span style="color:#1a5276;">📌 Cada serial va en su propia columna. Si el artículo no tiene serial, deja las columnas vacías.</span>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:10px;">
+            <button class="btn btn-outline btn-sm" onclick="downloadPlantillaBodega()">📄 Descargar Plantilla</button>
+        </div>
+        <div id="bodImportDrop" style="border:2px dashed #cbd5e1;border-radius:8px;padding:30px;text-align:center;cursor:pointer;" onclick="document.getElementById('bodImportFile').click()">
+            📊 <strong>Clic o arrastre un archivo Excel aquí</strong><br><span style="color:#94a3b8;font-size:0.85rem;">.xlsx, .xls, .csv</span>
+            <input type="file" id="bodImportFile" accept=".xlsx,.xls,.csv" style="display:none;" onchange="processBodegaExcel(this)">
+        </div>
+        <div id="bodImportPreview" style="margin-top:15px;"></div>`,
+        () => saveBodegaImport()
+    );
+    setTimeout(()=>{
+        const dz = document.getElementById('bodImportDrop');
+        if(!dz) return;
+        dz.addEventListener('dragover', e=>{e.preventDefault();dz.style.background='#e3f2fd';});
+        dz.addEventListener('dragleave', ()=>dz.style.background='');
+        dz.addEventListener('drop', e=>{e.preventDefault();dz.style.background='';const f=e.dataTransfer.files[0];if(f)processBodegaExcelFile(f);});
+    }, 200);
+}
+
+function downloadPlantillaBodega() {
+    const bs = getUserBodegas();
+    const snHeaders = Array.from({length:MAX_SNS_BODEGA}, (_,i)=>`SN${i+1}`);
+    const headers = ['Nombre Bodega','Artículo','Tipo (nuevo/usado)','Cantidad','Unidad',...snHeaders];
+    // Fila de ejemplo con 3 seriales
+    const ejemplo = [bs.length?bs[0].nombre:'Mi Bodega', 'Ejemplo Artículo', 'nuevo', 3, 'Und', 'SN001','SN002','SN003', ...Array(MAX_SNS_BODEGA-3).fill('')];
+    // Fila sin seriales
+    const ejemplo2 = [bs.length?bs[0].nombre:'Mi Bodega', 'Artículo Sin Serial', 'usado', 5, 'm', ...Array(MAX_SNS_BODEGA).fill('')];
+    const ws = XLSX.utils.aoa_to_sheet([headers, ejemplo, ejemplo2]);
+    ws['!cols'] = [20,25,15,10,10,...Array(MAX_SNS_BODEGA).fill(12)].map(w=>({wch:w}));
+    ws['!freeze'] = {xSplit:0, ySplit:1};
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Plantilla');
+    XLSX.writeFile(wb, 'plantilla_inventario_bodega.xlsx');
+}
+
+function processBodegaExcel(input) { if(input.files[0]) processBodegaExcelFile(input.files[0]); }
+
+function processBodegaExcelFile(file) {
+    const reader = new FileReader();
+    reader.onload = e => {
+        try {
+            const wb = XLSX.read(e.target.result, {type:'binary'});
+            const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1, defval:''});
+            TempLists.bodegaImport = [];
+            let errores = [];
+            for(let i=1; i<rows.length; i++) {
+                const r = rows[i];
+                if(!r[1] || String(r[1]).trim()==='') continue;
+                const bodNom = String(r[0]||'').trim();
+                const artNom = String(r[1]||'').trim();
+                const tipo = ['nuevo','usado'].includes(String(r[2]||'').trim().toLowerCase()) ? String(r[2]).trim().toLowerCase() : 'nuevo';
+                const cant = parseInt(r[3])||1;
+                const unidad = String(r[4]||'Und').trim();
+                // Leer seriales desde columna F (índice 5) hasta SN200 (índice 5+199=204)
+                const snes = [];
+                for(let s=5; s<5+MAX_SNS_BODEGA; s++) {
+                    const sn = String(r[s]||'').trim();
+                    if(sn) snes.push(sn);
+                }
+                const bodega = DB.bodegas.find(b=>b.nombre.toLowerCase()===bodNom.toLowerCase());
+                if(!bodNom || !bodega) { errores.push(`Fila ${i+1}: Bodega "${bodNom}" no encontrada`); continue; }
+                TempLists.bodegaImport.push({bodegaId:bodega.id, bodegaNombre:bodega.nombre, nombre:artNom, tipo, cantidad:cant, unidad, snes});
+            }
+            const prev = document.getElementById('bodImportPreview');
+            if(!prev) return;
+            if(TempLists.bodegaImport.length) {
+                prev.innerHTML = `<p style="color:var(--secondary);font-weight:bold;">✅ ${TempLists.bodegaImport.length} artículos listos para importar</p>
+                <table><thead><tr><th>Bodega</th><th>Artículo</th><th>Tipo</th><th>Cant</th><th>Unidad</th><th>SNs</th></tr></thead><tbody>
+                ${TempLists.bodegaImport.map(r=>`<tr><td>${r.bodegaNombre}</td><td>${r.nombre}</td><td><span class="badge ${r.tipo==='nuevo'?'badge-new':'badge-used'}">${r.tipo}</span></td><td>${r.cantidad}</td><td>${r.unidad}</td><td>${r.snes.length?`<span class="badge badge-new">${r.snes.length} seriales</span>`:'-'}</td></tr>`).join('')}
+                </tbody></table>`;
+            } else prev.innerHTML = `<p style="color:var(--danger);">Sin artículos válidos.</p>`;
+            if(errores.length) prev.innerHTML += `<div style="background:#fff3cd;padding:8px;border-radius:6px;margin-top:8px;font-size:0.82rem;"><strong>⚠️ Errores:</strong><br>${errores.join('<br>')}</div>`;
+        } catch(err) { alert('Error al leer el archivo: '+err.message); }
+    };
+    reader.readAsBinaryString(file);
+}
+
+function saveBodegaImport() {
+    if(!TempLists.bodegaImport?.length) return alert('No hay artículos para importar. Carga un archivo primero.');
+    let importados = 0;
+    TempLists.bodegaImport.forEach(item => {
+        const b = DB.bodegas.find(x=>x.id===item.bodegaId);
+        if(!b) return;
+        const ex = b.materiales.find(m=>m.nombre.toLowerCase()===item.nombre.toLowerCase()&&m.tipo===item.tipo);
+        if(ex) { ex.cantidad+=item.cantidad; if(item.snes.length) ex.snes.push(...item.snes.filter(s=>!ex.snes.includes(s))); }
+        else b.materiales.push({id:Date.now().toString()+Math.random().toString(36).substr(2,4), nombre:item.nombre, cantidad:item.cantidad, tipo:item.tipo, unidad:item.unidad, snes:item.snes, fecha:new Date().toLocaleDateString()});
+        importados++;
+    });
+    logMsg(`Importación Excel bodega: ${importados} artículos`);
+    save(); closeModal();
+    alert(`✅ ${importados} artículos importados correctamente`);
+    renderTab('bodegas');
+}
 function modalNewBodega() { openModal('Nueva Bodega', `<div class="form-group"><label>Nombre</label><input id="bNom" class="form-control"></div><div class="form-group"><label>Ubicación</label><input id="bUbic" class="form-control"></div><div class="form-group"><label>Jefe</label><input id="bJefe" class="form-control"></div><div class="form-group"><label>Contraseña</label><input id="bPass" type="password" class="form-control"></div>`, ()=>{const n=id('bNom').value,j=id('bJefe').value,p=id('bPass').value;if(!n||!j||!p)return alert('Complete campos');DB.bodegas.push({id:Date.now().toString(),nombre:n,ubicacion:id('bUbic').value,responsable:j,password:p,materiales:[]});logMsg(`Bodega "${n}" creada`);save();closeModal();renderTab('bodegas');}); }
 function modalEditPass(bId) { openModal('Cambiar Contraseña', `<input type="hidden" id="editBId" value="${bId}"><div class="form-group"><label>Nueva Contraseña</label><input id="newPass" type="password" class="form-control"></div>`, ()=>{const p=id('newPass').value;if(!p)return alert('Ingrese contraseña');DB.bodegas.find(x=>x.id===id('editBId').value).password=p;save();closeModal();alert('✅ Actualizada');}); }
 function delBodega(bId) { if(!confirm('¿Borrar bodega?')) return; DB.bodegas=DB.bodegas.filter(x=>x.id!==bId); DB.cuadrillas=DB.cuadrillas.filter(x=>x.bodegaId!==bId); save(); renderTab('bodegas'); }
@@ -634,16 +782,124 @@ function modalAddRecuperado() { const bs=DB.bodegas.map(b=>`<option value="${b.i
 function integrarRecuperado(idx) { const r=DB.recuperados[idx]; if(!r||r.estado!=='pendiente') return; const b=DB.bodegas.find(x=>x.id===r.bodegaId); if(!b) return alert("Bodega no existe"); const ex=b.materiales.find(m=>m.nombre===r.nom&&m.tipo===r.tipo); if(ex){ex.cantidad+=r.cant;if(r.snes.length)ex.snes.push(...r.snes);}else b.materiales.push({id:Date.now().toString(),nombre:r.nom,cantidad:r.cant,tipo:r.tipo,unidad:r.unidad,snes:r.snes,fecha:r.fecha}); r.estado='integrado'; logMsg(`Integrado "${r.nom}"`); save(); renderTab('recuperados'); }
 
 // CUADRILLAS
-function renderCuads(c) { const cs=getUserCuads(); c.innerHTML=`<div class="card"><div class="card-header"><h2>👷 Cuadrillas</h2><div class="flex"><button class="btn btn-primary btn-sm" onclick="modalNewCuad()">➕ Cuadrilla</button><button class="btn btn-outline btn-sm" onclick="modalNewTec()">👤 Técnico</button></div></div>${cs.length?cs.map(cu=>`<details style="border:1px solid #eee;border-radius:8px;padding:10px;margin-bottom:10px;background:white;"><summary style="cursor:pointer;font-weight:bold;">👷 ${cu.nombre} <span class="badge badge-new">${cu.materiales.reduce((s,m)=>s+m.cantidad,0)} uds</span></summary><div style="margin-top:10px;padding-left:10px;"><p class="text-muted">Receptor: ${cu.receptor}</p><h4 style="margin:10px 0;">👤 Técnicos</h4>${cu.tecnicos.map(t=>`<div class="item-list-item"><div><strong>${t.nombre}</strong> <small>(${t.cargo||''})</small><br><span class="text-muted" style="font-size:0.8rem">ID:${t.cedula||'-'} | Dotación: ${t.dotacion.length} items</span></div><div class="flex"><button class="btn btn-warning btn-sm" onclick="modalDotar('${cu.id}','${t.id}')">🎒</button><button class="btn btn-danger btn-sm" onclick="delTec('${cu.id}','${t.id}')">✕</button></div></div>`).join('')||'<p class="text-muted">Sin técnicos</p>'}<h4 style="margin:15px 0 10px;">📦 Inventario</h4>${cu.materiales.length?`<table><thead><tr><th>Artículo</th><th>Tipo</th><th>Cant</th><th>Unidad</th><th>SNs</th></tr></thead><tbody>${cu.materiales.map(m=>`<tr><td>${m.nombre}</td><td><span class="badge ${m.tipo==='nuevo'?'badge-new':'badge-used'}">${m.tipo}</span></td><td>${m.cantidad}</td><td>${m.unidad}</td><td>${m.snes.length?m.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' '):'Sin serial'}</td></tr>`).join('')}</tbody></table>`:'<p class="text-muted">Vacío</p>'}</div></details>`).join(''):'<p class="text-muted">Sin cuadrillas</p>'}</div>`; }
+function renderCuads(c) {
+    const cs = getUserCuads();
+    c.innerHTML = `<div class="card"><div class="card-header"><h2>👷 Cuadrillas</h2><div class="flex"><button class="btn btn-primary btn-sm" onclick="modalNewCuad()">➕ Cuadrilla</button><button class="btn btn-outline btn-sm" onclick="modalNewTec()">👤 Técnico</button></div></div>
+    ${cs.length ? cs.map(cu => `
+        <details style="border:1px solid #eee;border-radius:8px;padding:10px;margin-bottom:10px;background:white;">
+        <summary style="cursor:pointer;font-weight:bold;">👷 ${cu.nombre} <span class="badge badge-new">${cu.materiales.reduce((s,m)=>s+m.cantidad,0)} uds</span> <span class="text-muted" style="font-size:0.8rem;">· ${cu.especialidad||''}</span></summary>
+        <div style="margin-top:10px;padding-left:10px;">
+            <p class="text-muted">Receptor: ${cu.receptor}</p>
+            <div class="flex" style="margin:10px 0;">
+                <button class="btn btn-outline btn-sm" onclick="modalEditCuad('${cu.id}')">✏️ Editar</button>
+                <button class="btn btn-warning btn-sm" onclick="modalDevolverMat('${cu.id}')">↩️ Devolver Material</button>
+            </div>
+            <h4 style="margin:10px 0;">👤 Técnicos</h4>
+            ${cu.tecnicos.map(t => `
+                <div class="item-list-item">
+                    <div>
+                        <strong>${t.nombre}</strong> <small>(${t.cargo||''})</small><br>
+                        <span class="text-muted" style="font-size:0.8rem">ID:${t.cedula||'-'} | 🎒 Herramientas: ${t.dotacion.filter(d=>d.categoria==='herramienta').length} | 🦺 Seg: ${t.dotacion.filter(d=>d.categoria==='seguridad').length}</span>
+                    </div>
+                    <div class="flex">
+                        <button class="btn btn-warning btn-sm" onclick="modalDotar('${cu.id}','${t.id}')">🎒 Dotar</button>
+                        <button class="btn btn-outline btn-sm" onclick="modalVerDotacion('${cu.id}','${t.id}')">👁️</button>
+                        <button class="btn btn-danger btn-sm" onclick="delTec('${cu.id}','${t.id}')">✕</button>
+                    </div>
+                </div>`).join('') || '<p class="text-muted">Sin técnicos</p>'}
+            <h4 style="margin:15px 0 10px;">📦 Inventario Cuadrilla</h4>
+            ${cu.materiales.length ? `<table><thead><tr><th>Artículo</th><th>Tipo</th><th>Cant</th><th>Unidad</th><th>SNs</th></tr></thead><tbody>
+                ${cu.materiales.map(m=>`<tr><td>${m.nombre}</td><td><span class="badge ${m.tipo==='nuevo'?'badge-new':'badge-used'}">${m.tipo}</span></td><td>${m.cantidad}</td><td>${m.unidad}</td><td>${m.snes.length?m.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' '):'Sin serial'}</td></tr>`).join('')}
+            </tbody></table>` : '<p class="text-muted">Vacío</p>'}
+        </div></details>`).join('') : '<p class="text-muted">Sin cuadrillas</p>'}
+    </div>`;
+}
+
+function modalEditCuad(cId) {
+    const cu = DB.cuadrillas.find(x=>x.id===cId);
+    const bs = getUserBodegas().map(b=>`<option value="${b.id}" ${b.id===cu.bodegaId?'selected':''}>${b.nombre}</option>`).join('');
+    openModal(`✏️ Editar Cuadrilla: ${cu.nombre}`,
+        `<div class="form-group"><label>Bodega</label><select id="ecBod" class="form-control">${bs}</select></div>
+        <div class="form-group"><label>Nombre</label><input id="ecNom" class="form-control" value="${cu.nombre}"></div>
+        <div class="form-group"><label>Receptor</label><input id="ecRec" class="form-control" value="${cu.receptor}"></div>
+        <div class="form-group"><label>Especialidad</label><input id="ecEsp" class="form-control" value="${cu.especialidad||''}"></div>`,
+        () => {
+            cu.bodegaId = id('ecBod').value;
+            cu.nombre = id('ecNom').value;
+            cu.receptor = id('ecRec').value;
+            cu.especialidad = id('ecEsp').value;
+            logMsg(`Cuadrilla "${cu.nombre}" editada`); save(); closeModal(); renderTab('cuads');
+        });
+}
+
+function modalDevolverMat(cId) {
+    const cu = DB.cuadrillas.find(x=>x.id===cId);
+    const mats = cu.materiales.filter(m=>m.cantidad>0);
+    if(!mats.length) return alert('La cuadrilla no tiene material para devolver.');
+    const bodega = DB.bodegas.find(b=>b.id===cu.bodegaId);
+    openModal(`↩️ Devolver Material — ${cu.nombre}`,
+        `<div style="background:#fff3cd;padding:10px;border-radius:6px;margin-bottom:15px;font-size:0.88rem;">⚠️ El material seleccionado regresará al inventario de <strong>${bodega?.nombre||'la bodega'}</strong>.</div>
+        <table><thead><tr><th>Artículo</th><th>Disponible</th><th>Cant a devolver</th></tr></thead><tbody>
+        ${mats.map(m=>`<tr><td>${m.nombre} <span class="badge ${m.tipo==='nuevo'?'badge-new':'badge-used'}">${m.tipo}</span></td><td>${m.cantidad} ${m.unidad}</td><td><input type="number" class="form-control" id="dev_${m.id}" min="0" max="${m.cantidad}" value="0" style="width:80px;"></td></tr>`).join('')}
+        </tbody></table>`,
+        () => {
+            if(!bodega) return alert('Bodega no encontrada');
+            let devuelto = 0;
+            mats.forEach(m => {
+                const q = parseInt(document.getElementById(`dev_${m.id}`)?.value)||0;
+                if(q<=0 || q>m.cantidad) return;
+                m.cantidad -= q;
+                // Devolver al inventario bodega
+                const ex = bodega.materiales.find(bm=>bm.nombre===m.nombre&&bm.tipo===m.tipo);
+                if(ex) ex.cantidad += q;
+                else bodega.materiales.push({id:Date.now().toString()+Math.random(),nombre:m.nombre,cantidad:q,tipo:m.tipo,unidad:m.unidad,snes:[],fecha:new Date().toLocaleDateString()});
+                devuelto += q;
+            });
+            // Limpiar materiales con cantidad 0
+            cu.materiales = cu.materiales.filter(m=>m.cantidad>0);
+            if(devuelto>0) { logMsg(`Devolución de ${devuelto} uds de "${cu.nombre}" a "${bodega.nombre}"`); save(); closeModal(); renderTab('cuads'); }
+            else alert('Ingresa al menos una cantidad a devolver.');
+        });
+}
+
+function modalVerDotacion(cId, tId) {
+    const cu = DB.cuadrillas.find(x=>x.id===cId);
+    const t = cu.tecnicos.find(x=>x.id===tId);
+    const herramientas = t.dotacion.filter(d=>d.categoria==='herramienta');
+    const seguridad = t.dotacion.filter(d=>d.categoria==='seguridad');
+    const otros = t.dotacion.filter(d=>!d.categoria);
+    const renderDot = (items, label, icon) => items.length ? `<h4 style="margin:10px 0 5px;">${icon} ${label}</h4><table><thead><tr><th>Artículo</th><th>Cant</th><th>Tipo</th><th>SNs</th><th>Fecha</th></tr></thead><tbody>${items.map(d=>`<tr><td>${d.nom}</td><td>${d.cant}</td><td><span class="badge ${d.tipo==='nuevo'?'badge-new':'badge-used'}">${d.tipo}</span></td><td>${d.snes?.length?d.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' '):'-'}</td><td>${d.fecha||'-'}</td></tr>`).join('')}</tbody></table>` : '';
+    id('mTitle').textContent = `👁️ Dotación de ${t.nombre}`;
+    id('mBody').innerHTML = `${renderDot(herramientas,'Herramientas','🎒')}${renderDot(seguridad,'Elementos de Seguridad','🦺')}${renderDot(otros,'Otros','📦')}` || '<p class="text-muted">Sin dotación asignada</p>';
+    id('mFooter').innerHTML = `<button class="btn btn-primary" onclick="closeModal()">Cerrar</button>`;
+    id('modal').classList.add('show');
+}
+
 function modalNewCuad() { const bs=getUserBodegas().map(b=>`<option value="${b.id}">${b.nombre}</option>`).join(''); openModal('Nueva Cuadrilla', `<div class="form-group"><label>Bodega</label><select id="cBod" class="form-control">${bs}</select></div><div class="form-group"><label>Nombre</label><input id="cNom" class="form-control"></div><div class="form-group"><label>Receptor</label><input id="cRec" class="form-control"></div><div class="form-group"><label>Especialidad</label><input id="cEsp" class="form-control"></div>`, ()=>{ DB.cuadrillas.push({id:Date.now().toString(),bodegaId:id('cBod').value,nombre:id('cNom').value,receptor:id('cRec').value,especialidad:id('cEsp').value,tecnicos:[],materiales:[]}); logMsg(`Cuadrilla "${id('cNom').value}" creada`); save(); closeModal(); renderTab('cuads'); }); }
 function modalNewTec() { const cs=getUserCuads().map(c=>`<option value="${c.id}">${c.nombre}</option>`).join(''); openModal('Nuevo Técnico', `<div class="form-group"><label>Cuadrilla</label><select id="tCuad" class="form-control">${cs}</select></div><div class="form-row"><div class="form-group"><label>Nombre</label><input id="tNom" class="form-control"></div><div class="form-group"><label>Cédula</label><input id="tCed" class="form-control"></div></div><div class="form-row"><div class="form-group"><label>Cargo</label><input id="tCargo" class="form-control"></div><div class="form-group"><label>Teléfono</label><input id="tTel" class="form-control"></div></div><div class="form-group"><label>Email</label><input id="tEmail" class="form-control"></div>`, ()=>{ const cu=DB.cuadrillas.find(x=>x.id===id('tCuad').value); cu.tecnicos.push({id:`T${Date.now()}`,nombre:id('tNom').value,cedula:id('tCed').value,cargo:id('tCargo').value,telefono:id('tTel').value,email:id('tEmail').value,dotacion:[]}); logMsg(`Técnico "${id('tNom').value}" agregado`); save(); closeModal(); renderTab('cuads'); }); }
 function delTec(cId, tId) { if(!confirm('¿Borrar técnico?')) return; DB.cuadrillas.find(x=>x.id===cId).tecnicos=DB.cuadrillas.find(x=>x.id===cId).tecnicos.filter(x=>x.id!==tId); save(); renderTab('cuads'); }
-function modalDotar(cId, tId) { TempLists.currentCId=cId; TempLists.currentTId=tId; TempLists.dotItems=[]; TempLists.dSelectedSNs={}; const c=DB.cuadrillas.find(x=>x.id===cId); const t=c.tecnicos.find(x=>x.id===tId); const mats=c.materiales.filter(m=>m.cantidad>0).map(m=>`<option value="${m.id}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`).join(''); openModal(`Dotar a ${t.nombre}`, `<div class="form-group"><label>Material</label><select id="dMat" class="form-control" onchange="showDotSNBox()">${mats}</select></div><div class="form-row"><div class="form-group"><label>Cantidad</label><input id="dCant" type="number" value="1" min="1" class="form-control" onchange="showDotSNBox()"></div></div><div id="dSNArea"></div><div id="dMsg" class="text-muted text-sm"></div><button class="btn btn-outline btn-sm" onclick="addDotItem()" style="margin-top:5px;">➕ Agregar</button><div id="dList" style="margin-top:10px;"></div>`, ()=>{ if(!TempLists.dotItems.length) return alert('Agregue material'); saveDotacionLogic(); }); TempLists.dSelectedSNs={}; showDotSNBox(); renderDList(); }
+
+function modalDotar(cId, tId) {
+    TempLists.currentCId=cId; TempLists.currentTId=tId; TempLists.dotItems=[]; TempLists.dSelectedSNs={};
+    const cu=DB.cuadrillas.find(x=>x.id===cId); const t=cu.tecnicos.find(x=>x.id===tId);
+    const mats=cu.materiales.filter(m=>m.cantidad>0).map(m=>`<option value="${m.id}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`).join('');
+    openModal(`🎒 Dotar a ${t.nombre}`,
+        `<div class="form-row">
+            <div class="form-group"><label>Categoría *</label><select id="dCategoria" class="form-control"><option value="herramienta">🎒 Herramienta</option><option value="seguridad">🦺 Elemento de Seguridad</option></select></div>
+            <div class="form-group"><label>Material</label><select id="dMat" class="form-control" onchange="showDotSNBox()">${mats}</select></div>
+        </div>
+        <div class="form-row"><div class="form-group"><label>Cantidad</label><input id="dCant" type="number" value="1" min="1" class="form-control" onchange="showDotSNBox()"></div></div>
+        <div id="dSNArea"></div><div id="dMsg" class="text-muted text-sm"></div>
+        <button class="btn btn-outline btn-sm" onclick="addDotItem()" style="margin-top:5px;">➕ Agregar</button>
+        <div id="dList" style="margin-top:10px;"></div>`,
+        ()=>{ if(!TempLists.dotItems.length) return alert('Agregue material'); saveDotacionLogic(); });
+    TempLists.dSelectedSNs={}; showDotSNBox(); renderDList();
+}
 function showDotSNBox() { const mId=id('dMat').value, box=id('dSNArea'), msg=id('dMsg'); if(!mId||!box) return; const c=DB.cuadrillas.find(x=>x.id===TempLists.currentCId), m=c.materiales.find(x=>x.id===mId); if(!m) return; TempLists.dSelectedSNs={}; const q=parseInt(id('dCant').value)||1; if(m.snes.length>0){ let html=`<div class="sn-select-area"><div class="flex" style="justify-content:space-between;margin-bottom:8px;"><strong>Seleccione ${q} SNs</strong><label style="font-size:0.85rem;cursor:pointer;"><input type="checkbox" onchange="toggleAllSN(this,'dSNChk')"> Todos</label></div>`; m.snes.forEach((sn,i)=>{html+=`<label class="sn-check"><input type="checkbox" id="dSNChk_${i}" value="${sn}" onchange="updateDSelection(${q})"> <span class="sn-label">${sn}</span></label>`;}); html+=`</div>`; box.innerHTML=html; msg.textContent=`Seleccione ${q} de ${m.snes.length} disponibles.`; }else{ box.innerHTML=`<div class="alert" style="background:#e8f5e9;color:#2e7d32;padding:8px;font-size:0.85rem;">Sin serial. Se asignarán ${q} ${m.unidad}.</div>`; msg.textContent=''; } }
 function toggleAllSN(master,prefix){ document.querySelectorAll(`input[id^="${prefix}"]`).forEach(cb=>{cb.checked=master.checked;}); updateDSelection(parseInt(id('dCant').value)||1); }
 function updateDSelection(q){ TempLists.dSelectedSNs={}; document.querySelectorAll('#dSNArea input[type="checkbox"]:checked').forEach(cb=>TempLists.dSelectedSNs[cb.value]=true); document.querySelectorAll('#dSNArea .sn-check').forEach(el=>{const cb=el.querySelector('input[type="checkbox"]');el.classList.toggle('selected',cb.checked);}); const checked=document.querySelectorAll('#dSNArea input[type="checkbox"]:checked').length; const msg=id('dMsg'); if(q>0){if(checked===q){msg.style.color='var(--secondary)';msg.textContent='✅ Correcto';}else if(checked>q){msg.style.color='var(--danger)';msg.textContent=`⚠️ ${checked}/${q}`;}else{msg.style.color='var(--warning)';msg.textContent=`⏳ ${checked}/${q}`;}} }
-function addDotItem() { const mId=id('dMat').value, q=parseInt(id('dCant').value); if(!mId||!q) return alert('Datos inválidos'); const c=DB.cuadrillas.find(x=>x.id===TempLists.currentCId), m=c.materiales.find(x=>x.id===mId); let snes=[]; if(m.snes.length>0){snes=Object.keys(TempLists.dSelectedSNs);if(snes.length!==q) return alert(`Seleccione ${q} SNs`);} const inList=TempLists.dotItems.find(x=>x.id===mId)?.cant||0; if(q+inList>m.cantidad) return alert('Stock insuficiente'); const exist=TempLists.dotItems.find(x=>x.id===mId); if(exist){exist.cant+=q;exist.snes.push(...snes);}else TempLists.dotItems.push({id:m.id,nom:m.nombre,cant:q,tipo:m.tipo,unidad:m.unidad,snes:snes}); TempLists.dSelectedSNs={}; showDotSNBox(); renderDList(); }
-function renderDList() { const el=id('dList'); if(!el) return; el.innerHTML=TempLists.dotItems.map((it,i)=>`<div class="item-list-item"><span>${it.nom} x${it.cant} ${it.unidad}${it.snes.length?' [SN:'+it.snes.join(', ')+']':''}</span><button class="btn btn-danger btn-sm" onclick="TempLists.dotItems.splice(${i},1);renderDList();">✕</button></div>`).join('')||'Vacío'; }
+function addDotItem() { const mId=id('dMat').value, q=parseInt(id('dCant').value), cat=id('dCategoria').value; if(!mId||!q) return alert('Datos inválidos'); const c=DB.cuadrillas.find(x=>x.id===TempLists.currentCId), m=c.materiales.find(x=>x.id===mId); let snes=[]; if(m.snes.length>0){snes=Object.keys(TempLists.dSelectedSNs);if(snes.length!==q) return alert(`Seleccione ${q} SNs`);} const inList=TempLists.dotItems.find(x=>x.id===mId)?.cant||0; if(q+inList>m.cantidad) return alert('Stock insuficiente'); const exist=TempLists.dotItems.find(x=>x.id===mId&&x.categoria===cat); if(exist){exist.cant+=q;exist.snes.push(...snes);}else TempLists.dotItems.push({id:m.id,nom:m.nombre,cant:q,tipo:m.tipo,unidad:m.unidad,snes:snes,categoria:cat}); TempLists.dSelectedSNs={}; showDotSNBox(); renderDList(); }
+function renderDList() { const el=id('dList'); if(!el) return; const catLabel = c => c==='herramienta'?'🎒':'🦺'; el.innerHTML=TempLists.dotItems.map((it,i)=>`<div class="item-list-item"><span>${catLabel(it.categoria)} ${it.nom} x${it.cant} ${it.unidad}${it.snes.length?' [SN:'+it.snes.join(', ')+']':''}</span><button class="btn btn-danger btn-sm" onclick="TempLists.dotItems.splice(${i},1);renderDList();">✕</button></div>`).join('')||'Vacío'; }
 function saveDotacionLogic() { const c=DB.cuadrillas.find(x=>x.id===TempLists.currentCId), t=c.tecnicos.find(x=>x.id===TempLists.currentTId); TempLists.dotItems.forEach(it => { const m=c.materiales.find(x=>x.id===it.id); m.cantidad-=it.cant; it.snes.forEach(s=>{const idx=m.snes.indexOf(s);if(idx>-1)m.snes.splice(idx,1);}); t.dotacion.push({...it,fecha:new Date().toLocaleDateString()}); }); logMsg(`Dotación a ${t.nombre}`); save(); closeModal(); renderTab('cuads'); }
 
 // ENTREGAS
