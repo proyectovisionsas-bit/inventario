@@ -637,9 +637,10 @@ function renderDash(c) {
 // CLIENTES INSTALADOS
 function renderClientes(c) {
     const search = (document.getElementById('searchCliente')?.value || '').toLowerCase();
-    const filtered = DB.clientes.filter(cl => cl.nombre.toLowerCase().includes(search) || (cl.direccion||'').toLowerCase().includes(search));
-    let cliCount = DB.clientes.length;
-    let eqCount = DB.clientes.reduce((s,cl)=>s+cl.equipos.length,0);
+    const misClientes = USER.role==='bodega' ? DB.clientes.filter(cl=>cl.bodegaId===USER.id) : DB.clientes;
+    const filtered = misClientes.filter(cl => cl.nombre.toLowerCase().includes(search) || (cl.direccion||'').toLowerCase().includes(search));
+    let cliCount = misClientes.length;
+    let eqCount = misClientes.reduce((s,cl)=>s+cl.equipos.length,0);
     
     let html = `<div class="card"><div class="card-header"><h2>👥 Clientes Instalados</h2>
         <div class="flex">
@@ -662,7 +663,7 @@ function renderClientes(c) {
             return `
             <details style="margin-bottom:10px; border:1px solid #eee; border-radius:8px; background:white;">
                 <summary style="cursor:pointer; padding:12px; font-weight:bold; background:#f8f9fa; border-radius:8px;">
-                    👤 ${cl.nombre} <span class="text-muted" style="font-weight:normal; font-size:0.85rem;">| 📍 ${cl.direccion||'Sin dirección'} | 📅 ${cl.fechaInstalacion||'-'} | 🛠️ ${cl.cuadrillaInstaladora||'-'}</span>
+                    👤 ${cl.nombre} <span class="text-muted" style="font-weight:normal; font-size:0.85rem;">| 📍 ${cl.direccion||'Sin dirección'} | 📅 ${cl.fechaInstalacion||'-'} | 🛠️ ${cl.cuadrillaInstaladora||'-'}${USER.role==='admin'&&cl.bodegaId?' | 🏭 '+( DB.bodegas.find(b=>b.id===cl.bodegaId)?.nombre||'Sin bodega'):''}</span>
                     ${danados.length ? `<span class="badge badge-rej" style="margin-left:8px;">🔴 ${danados.length} dañado(s)</span>` : ''}
                 </summary>
                 <div style="padding:15px;">
@@ -717,7 +718,9 @@ function modalEditCliente(cliId) {
     openModal('✏️ Editar Cliente: '+cl.nombre, formClienteHTML(cl), ()=>saveCliente(cliId)); 
 }
 function formClienteHTML(cli={}) {
+    const bodegaSel = USER.role==='admin' ? `<div class="form-group"><label>🏭 Bodega asignada</label><select id="cliBodega" class="form-control"><option value="">-- Sin bodega --</option>${DB.bodegas.map(b=>`<option value="${b.id}" ${(cli.bodegaId||'')==b.id?'selected':''}>${b.nombre}</option>`).join('')}</select></div>` : '';
     return `<input type="hidden" id="cliId" value="${cli.id||''}">
+    ${bodegaSel}
     <div class="form-row"><div class="form-group"><label>Nombre Cliente *</label><input id="cliNom" class="form-control" value="${cli.nombre||''}"></div><div class="form-group"><label>Dirección</label><input id="cliDir" class="form-control" value="${cli.direccion||''}"></div></div>
     <div class="form-row"><div class="form-group"><label>Teléfono</label><input id="cliTel" class="form-control" value="${cli.telefono||''}"></div><div class="form-group"><label>Email</label><input id="cliEmail" class="form-control" value="${cli.email||''}"></div></div>
     <div class="form-row"><div class="form-group"><label>Fecha Instalación</label><input id="cliFecha" type="date" class="form-control" value="${cli.fechaInstalacion||new Date().toISOString().split('T')[0]}"></div><div class="form-group"><label>Cuadrilla</label><input id="cliCuad" class="form-control" value="${cli.cuadrillaInstaladora||''}"></div></div>
@@ -747,10 +750,10 @@ function saveCliente(editId) {
     const equipos = TempLists.cliEquipos.filter(e=>e.nombre.trim()!=='').map(e=>({...e, nombre:e.nombre.trim(), snes:(e.snes||[]).filter(s=>s)}));
     if(editId) {
         const cl = DB.clientes.find(x=>x.id===editId);
-        cl.nombre=nom; cl.direccion=dir; cl.telefono=tel; cl.email=email; cl.fechaInstalacion=fecha; cl.cuadrillaInstaladora=cuad; cl.observaciones=obs; cl.equipos=equipos;
+        cl.nombre=nom; cl.direccion=dir; cl.telefono=tel; cl.email=email; cl.fechaInstalacion=fecha; cl.cuadrillaInstaladora=cuad; cl.observaciones=obs; cl.equipos=equipos; if(USER.role==='admin'&&id('cliBodega')) cl.bodegaId=id('cliBodega').value;
         logMsg(`Cliente "${nom}" editado`);
     } else {
-        DB.clientes.push({id:Date.now().toString(), nombre:nom, direccion:dir, telefono:tel, email:email, fechaInstalacion:fecha, cuadrillaInstaladora:cuad, observaciones:obs, equipos:equipos});
+        const bodId = USER.role==='bodega' ? USER.id : (id('cliBodega')?.value || ''); DB.clientes.push({id:Date.now().toString(), nombre:nom, bodegaId:bodId, direccion:dir, telefono:tel, email:email, fechaInstalacion:fecha, cuadrillaInstaladora:cuad, observaciones:obs, equipos:equipos});
         logMsg(`Cliente "${nom}" creado`);
     }
     save(); closeModal(); renderClientes(document.getElementById('main-content'));
@@ -2044,6 +2047,14 @@ function renderAdmin(c) {
             <button class="btn btn-danger" onclick="hardReset()">🗑️ Reset Total</button>
             <button class="btn btn-outline" onclick="changeFirebaseConfig()">🔧 Firebase</button>
         </div>
+        <hr style="margin:20px 0;">
+        <div style="background:#fff3cd;padding:12px;border-radius:8px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+            <div>
+                <strong>🏭 Asignación de Clientes a Bodegas</strong>
+                <p class="text-muted" style="margin:2px 0 0;font-size:0.85rem;">Clientes sin bodega asignada: <strong>${DB.clientes.filter(cl=>!cl.bodegaId).length}</strong></p>
+            </div>
+            <button class="btn btn-warning btn-sm" onclick="renderAsignarClientesBodega(document.getElementById('main-content')||document.getElementById('adminConfigContent'))">🏭 Asignar Clientes</button>
+        </div>
     </div>
 
     <div class="card" style="margin-top:15px;">
@@ -2126,6 +2137,79 @@ function resetPermisos(bId) {
     alert('✅ Permisos restaurados');
 }
 function changeAdminPass() { const old=id('aOld').value, nw=id('aNew').value; if(old!==DB.adminPass) return alert('Contraseña incorrecta'); if(!nw) return alert('Ingrese nueva contraseña'); DB.adminPass=nw; save(); alert('✅ Contraseña admin actualizada'); renderTab('admin'); }
+
+function renderAsignarClientesBodega(c) {
+    const todosClientes = DB.clientes;
+    const bodegaOpts = DB.bodegas.map(b=>`<option value="${b.id}">${b.nombre}</option>`).join('');
+    c.innerHTML = `<div class="card">
+        <div class="card-header"><h2>🏭 Asignar Clientes a Bodega</h2></div>
+
+        <!-- Asignación masiva -->
+        <div style="background:#f0f4ff;padding:14px;border-radius:10px;margin-bottom:18px;">
+            <strong>⚡ Asignación Masiva</strong>
+            <div class="form-row" style="margin-top:10px;align-items:flex-end;">
+                <div class="form-group">
+                    <label>Bodega destino</label>
+                    <select id="asigBodegaTodos" class="form-control">${bodegaOpts}</select>
+                </div>
+                <div class="form-group">
+                    <button class="btn btn-primary" onclick="asignarSeleccionados()">✅ Asignar seleccionados</button>
+                    <button class="btn btn-outline btn-sm" style="margin-left:6px;" onclick="toggleSelectAll()">☑️ Seleccionar todos</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabla de clientes con checkboxes -->
+        <div class="table-wrap">
+        <table>
+            <thead><tr>
+                <th><input type="checkbox" id="chkAll" onchange="toggleSelectAll(this.checked)" style="width:16px;height:16px;"></th>
+                <th>Cliente</th>
+                <th>Dirección</th>
+                <th>Bodega actual</th>
+            </tr></thead>
+            <tbody>
+            ${todosClientes.map(cl => {
+                const bodActual = DB.bodegas.find(b=>b.id===cl.bodegaId);
+                return `<tr>
+                    <td><input type="checkbox" class="chkCliente" data-id="${cl.id}" style="width:16px;height:16px;"></td>
+                    <td><strong>${cl.nombre}</strong></td>
+                    <td>${cl.direccion||'-'}</td>
+                    <td>${bodActual ? `<span class="badge badge-ok">🏭 ${bodActual.nombre}</span>` : '<span class="badge badge-rej">Sin asignar</span>'}</td>
+                </tr>`;
+            }).join('')}
+            </tbody>
+        </table>
+        </div>
+        <p class="text-muted" style="margin-top:10px;font-size:0.85rem;">Total clientes: <strong>${todosClientes.length}</strong> | Sin bodega: <strong>${todosClientes.filter(cl=>!cl.bodegaId).length}</strong></p>
+    </div>`;
+}
+
+function toggleSelectAll(val) {
+    const chks = document.querySelectorAll('.chkCliente');
+    const master = document.getElementById('chkAll');
+    const newVal = val !== undefined ? val : (master ? !master.checked : true);
+    chks.forEach(cb => cb.checked = newVal);
+    if(master) master.checked = newVal;
+}
+window.toggleSelectAll = toggleSelectAll;
+
+function asignarSeleccionados() {
+    const bId = id('asigBodegaTodos')?.value;
+    if(!bId) return alert('Selecciona una bodega destino');
+    const seleccionados = [...document.querySelectorAll('.chkCliente:checked')].map(cb=>cb.dataset.id);
+    if(!seleccionados.length) return alert('Selecciona al menos un cliente');
+    seleccionados.forEach(cliId => {
+        const cl = DB.clientes.find(x=>x.id===cliId);
+        if(cl) cl.bodegaId = bId;
+    });
+    const bodNom = DB.bodegas.find(b=>b.id===bId)?.nombre || '';
+    logMsg(`${seleccionados.length} cliente(s) asignados a bodega "${bodNom}"`);
+    save();
+    alert(`✅ ${seleccionados.length} cliente(s) asignados a "${bodNom}"`);
+    renderAsignarClientesBodega(document.getElementById('main-content') || document.getElementById('adminConfigContent'));
+}
+window.asignarSeleccionados = asignarSeleccionados;
 function exportData() { const b=new Blob([JSON.stringify(DB,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=`backup_${new Date().toLocaleDateString()}.json`; a.click(); }
 function importData(inp) { const f=inp.files[0]; if(!f) return; const r=new FileReader(); r.onload=e=>{try{const j=JSON.parse(e.target.result);DB={...DB,...j};if(!DB.deleteRequests)DB.deleteRequests=[];if(!DB.clientes)DB.clientes=[];save();setTimeout(()=>{alert('✅ Importado');location.reload();},800);}catch(err){alert('❌ Error');}};r.readAsText(f); }
 
@@ -2645,14 +2729,50 @@ function fixDB() {
     DB.clientes.forEach(c=>{if(c.equipos)c.equipos.forEach(e=>fx(e));});
 }
 
+// Compress image to max ~30KB
+async function compressImage(base64, maxW=400, quality=0.5) {
+    return new Promise(resolve => {
+        const img = new Image();
+        img.onload = () => {
+            const scale = Math.min(1, maxW / Math.max(img.width, img.height));
+            const w = Math.round(img.width * scale);
+            const h = Math.round(img.height * scale);
+            const canvas = document.createElement('canvas');
+            canvas.width = w; canvas.height = h;
+            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+            resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = () => resolve(base64);
+        img.src = base64;
+    });
+}
+
 window._fbSave = function() {
     showSync('saving','Guardando...');
     clearTimeout(saveTO);
     saveTO = setTimeout(async ()=>{
         try {
-            await setDoc(doc(fsDB, DB_DOC), JSON.parse(JSON.stringify(DB)));
+            // Compress all fotos before saving to Firebase
+            const dbCopy = JSON.parse(JSON.stringify(DB));
+            for(const b of dbCopy.bodegas) {
+                for(const m of b.materiales) {
+                    if(m.fotos && m.fotos.length) {
+                        const compressed = [];
+                        for(const foto of m.fotos) {
+                            if(foto && foto.startsWith('data:')) {
+                                compressed.push(await compressImage(foto));
+                            }
+                        }
+                        m.fotos = compressed;
+                    }
+                }
+            }
+            await setDoc(doc(fsDB, DB_DOC), dbCopy);
             showSync('ok','Guardado ✓');
-        } catch(e) { showSync('err','Error al guardar'); console.error(e); }
+        } catch(e) {
+            showSync('err','Error al guardar');
+            console.error(e);
+        }
     }, 600);
 };
 
@@ -2698,7 +2818,8 @@ async function startFirebase(config) {
 
     onSnapshot(ref, s=>{
         if(s.exists()){Object.assign(DB,s.data());fixDB();showSync('ok','Sincronizado');
-        renderLoginBodegas();if(window.USER)renderTab(document.querySelector('.nav-btn.active')?.dataset?.tab||'dash');}
+        renderLoginBodegas();
+        if(window.USER) renderTab(document.querySelector('.nav-btn.active')?.dataset?.tab||'dash');}
     }, (err)=>{showSync('err','Sin conexión'); console.error(err);});
 }
 
