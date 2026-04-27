@@ -302,7 +302,7 @@
 
 <script>
 const DB_KEY = 'invPro_V9_Seguro';
-let DB = { bodegas:[], cuadrillas:[], entregas:[], instalaciones:[], logs:[], transfers:[], recuperados:[], deleteRequests:[], clientes:[], adminPass:'admin123' };
+let DB = { bodegas:[], cuadrillas:[], entregas:[], instalaciones:[], logs:[], transfers:[], recuperados:[], deleteRequests:[], editRequests:[], clientes:[], adminPass:'admin123' };
 let USER = null, selBodegaLogin = null, TempLists = {};
 
 const UNIDADES = [
@@ -378,7 +378,7 @@ function save() {
 }
 function logMsg(msg) { DB.logs.unshift({ msg, t: new Date().toISOString() }); if(DB.logs.length > 60) DB.logs.pop(); save(); }
 function id(x) { return document.getElementById(x); }
-function hardReset() { if(!confirm('⚠️ BORRAR TODOS LOS DATOS EN LA NUBE?')) return; DB={bodegas:[],cuadrillas:[],entregas:[],instalaciones:[],logs:[],transfers:[],recuperados:[],deleteRequests:[],clientes:[],adminPass:'admin123'}; save(); setTimeout(()=>location.reload(),800); }
+function hardReset() { if(!confirm('⚠️ BORRAR TODOS LOS DATOS EN LA NUBE?')) return; DB={bodegas:[],cuadrillas:[],entregas:[],instalaciones:[],logs:[],transfers:[],recuperados:[],deleteRequests:[],editRequests:[],clientes:[],adminPass:'admin123'}; save(); setTimeout(()=>location.reload(),800); }
 
 function switchLogin(type) {
     document.querySelectorAll('.login-tab').forEach(t => t.classList.remove('active'));
@@ -1731,14 +1731,39 @@ function modalEditMat(bId, mId) {
             m.snes         = m.snes.filter(sn=>!snToDelete.includes(sn));
             m.snes.push(...newSNs.filter(sn=>!m.snes.includes(sn)));
 
-            if(cambios.length) {
-                const logEntry = isAdmin
-                    ? `Admin editó "${nuevoNom}" en ${b.nombre}: ${cambios.join(' | ')}`
-                    : `Edición "${nuevoNom}" en ${b.nombre}: ${cambios.join(' | ')} — ${motivo}`;
-                logMsg(logEntry);
-                registrarMovimiento(bId, mId, 'ajuste', 0, logEntry);
+            if(!cambios.length && m.categoria===nuevoCat && m.observaciones===(nuevoObs||'')) { closeModal(); return; }
+
+            if(isAdmin) {
+                // Admin: apply immediately
+                const logEntry = `Admin editó "${nuevoNom}" en ${b.nombre}: ${cambios.join(' | ')}`;
+                if(cambios.length) { logMsg(logEntry); registrarMovimiento(bId, mId, 'ajuste', 0, logEntry); }
+                save(); closeModal(); renderTab('bodegas');
+            } else {
+                // Bodega: send edit request for admin approval
+                if(!DB.editRequests) DB.editRequests = [];
+                DB.editRequests.push({
+                    id: Date.now().toString(),
+                    tipo: 'edicion',
+                    bodegaId: bId,
+                    bodegaNombre: b.nombre,
+                    materialId: mId,
+                    materialNombre: m.nombre,
+                    cambios: cambios,
+                    motivo: motivo,
+                    datos: {
+                        nombre: nuevoNom, cantidad: nuevoCant, tipo: nuevoTipo,
+                        unidad: nuevoUnd, stockMin: nuevoMin, categoria: nuevoCat,
+                        observaciones: nuevoObs, fotos: fotosFinales,
+                        snes: m.snes.filter(sn=>!snToDelete.includes(sn)).concat(newSNs.filter(sn=>!m.snes.includes(sn)))
+                    },
+                    fecha: new Date().toISOString(),
+                    estado: 'pendiente'
+                });
+                logMsg(`Solicitud de edición "${m.nombre}" enviada al Admin`);
+                save(); closeModal();
+                alert('✅ Solicitud enviada al administrador para aprobación.');
+                renderTab('bodegas');
             }
-            save(); closeModal(); renderTab('bodegas');
         });
 
     // Init temp lists for this edit session
@@ -1779,7 +1804,104 @@ function editAddFotos(input) {
 }
 window.editAddFotos = editAddFotos;
 function delMat(bId, mId) { const m = DB.bodegas.find(x=>x.id===bId).materiales.find(x=>x.id===mId); if(USER.role==='admin') { if(!confirm(`¿Eliminar "${m.nombre}"?`)) return; DB.bodegas.find(x=>x.id===bId).materiales = DB.bodegas.find(x=>x.id===bId).materiales.filter(x=>x.id!==mId); logMsg(`Admin eliminó "${m.nombre}"`); save(); renderTab('bodegas'); return; } openModal('🗑️ Solicitud Eliminación', `<div class="form-group"><label>Artículo</label><input value="${m.nombre} (${m.cantidad} ${m.unidad})" readonly class="form-control"></div><div class="form-group"><label>Observación *</label><textarea id="delObs" class="form-control" placeholder="Motivo..."></textarea></div>`, ()=>{ const obs=id('delObs').value.trim(); if(!obs) return alert('Ingrese observación'); DB.deleteRequests.push({id:Date.now().toString(),bodegaId:bId,bodegaNombre:getUserBodegas().find(x=>x.id===bId)?.nombre||'',materialId:mId,materialNombre:m.nombre,cantidad:m.cantidad,tipo:m.tipo,unidad:m.unidad,snes:[...m.snes],fecha:new Date().toISOString(),obs,estado:'pendiente'}); logMsg(`Solicitud eliminación "${m.nombre}"`); save(); closeModal(); alert('✅ Enviada'); renderTab('bodegas'); }); }
-function renderDeleteReq(c) { if(USER.role!=='admin') return navigate('dash'); const pend=DB.deleteRequests.filter(r=>r.estado==='pendiente'), done=DB.deleteRequests.filter(r=>r.estado!=='pendiente'); c.innerHTML=`<div class="card"><div class="card-header"><h2>🗑️ Solicitudes</h2></div>${pend.length?`<table><thead><tr><th>Fecha</th><th>Bodega</th><th>Artículo</th><th>Cant</th><th>Motivo</th><th></th></tr></thead><tbody>${pend.map(r=>`<tr><td>${new Date(r.fecha).toLocaleDateString()}</td><td>${r.bodegaNombre}</td><td>${r.materialNombre}</td><td>${r.cantidad}</td><td style="max-width:200px;overflow:hidden;">${r.obs}</td><td><button class="btn btn-success btn-sm" onclick="approveDelete('${r.id}','aprobada')">✅</button> <button class="btn btn-danger btn-sm" onclick="approveDelete('${r.id}','rechazada')">❌</button></td></tr>`).join('')}</tbody></table>`:'<p class="text-muted">Sin pendientes</p>'}${done.length?`<h3 style="margin:15px 0 10px;color:var(--gray);">Historial</h3><table><thead><tr><th>Fecha</th><th>Bodega</th><th>Artículo</th><th>Estado</th></tr></thead><tbody>${done.map(r=>`<tr><td>${new Date(r.fecha).toLocaleDateString()}</td><td>${r.bodegaNombre}</td><td>${r.materialNombre}</td><td><span class="badge ${r.estado==='aprobada'?'badge-ok':'badge-rej'}">${r.estado}</span></td></tr>`).join('')}</tbody></table>`:''}</div>`; }
+function renderDeleteReq(c) {
+    if(USER.role!=='admin') return navigate('dash');
+    if(!DB.editRequests) DB.editRequests = [];
+    const pendDel  = DB.deleteRequests.filter(r=>r.estado==='pendiente');
+    const doneDel  = DB.deleteRequests.filter(r=>r.estado!=='pendiente');
+    const pendEdit = DB.editRequests.filter(r=>r.estado==='pendiente');
+    const doneEdit = DB.editRequests.filter(r=>r.estado!=='pendiente');
+
+    c.innerHTML = `<div class="card">
+        <div class="card-header"><h2>📋 Solicitudes Pendientes</h2>
+            <div class="flex">
+                <span class="badge badge-rej">${pendDel.length} eliminación(es)</span>
+                <span class="badge badge-pend">${pendEdit.length} edición(es)</span>
+            </div>
+        </div>
+
+        <!-- SOLICITUDES DE EDICIÓN -->
+        <h3 style="margin:15px 0 10px;color:#4f46e5;">✏️ Solicitudes de Edición</h3>
+        ${pendEdit.length ? `
+        <div class="table-wrap"><table>
+            <thead><tr><th>Fecha</th><th>Bodega</th><th>Artículo</th><th>Cambios</th><th>Motivo</th><th>Acción</th></tr></thead>
+            <tbody>${pendEdit.map(r=>`<tr>
+                <td style="white-space:nowrap;">${new Date(r.fecha).toLocaleDateString()}</td>
+                <td>${r.bodegaNombre}</td>
+                <td><strong>${r.materialNombre}</strong></td>
+                <td style="font-size:0.8rem;max-width:200px;">${r.cambios.join('<br>')}</td>
+                <td style="font-size:0.82rem;max-width:150px;">${r.motivo}</td>
+                <td style="white-space:nowrap;">
+                    <button class="btn btn-success btn-sm" onclick="approveEdit('${r.id}','aprobada')">✅ Aprobar</button>
+                    <button class="btn btn-danger btn-sm" onclick="approveEdit('${r.id}','rechazada')">❌ Rechazar</button>
+                </td>
+            </tr>`).join('')}
+            </tbody>
+        </table></div>` : '<p class="text-muted" style="padding:10px;">Sin solicitudes de edición pendientes.</p>'}
+
+        <!-- SOLICITUDES DE ELIMINACIÓN -->
+        <h3 style="margin:20px 0 10px;color:var(--danger);">🗑️ Solicitudes de Eliminación</h3>
+        ${pendDel.length ? `
+        <div class="table-wrap"><table>
+            <thead><tr><th>Fecha</th><th>Bodega</th><th>Artículo</th><th>Cant</th><th>Motivo</th><th>Acción</th></tr></thead>
+            <tbody>${pendDel.map(r=>`<tr>
+                <td>${new Date(r.fecha).toLocaleDateString()}</td>
+                <td>${r.bodegaNombre}</td>
+                <td>${r.materialNombre}</td>
+                <td>${r.cantidad}</td>
+                <td style="max-width:200px;">${r.obs}</td>
+                <td>
+                    <button class="btn btn-success btn-sm" onclick="approveDelete('${r.id}','aprobada')">✅</button>
+                    <button class="btn btn-danger btn-sm" onclick="approveDelete('${r.id}','rechazada')">❌</button>
+                </td>
+            </tr>`).join('')}
+            </tbody>
+        </table></div>` : '<p class="text-muted" style="padding:10px;">Sin solicitudes de eliminación pendientes.</p>'}
+
+        <!-- HISTORIAL -->
+        ${(doneDel.length||doneEdit.length) ? `
+        <h3 style="margin:20px 0 10px;color:var(--gray);">📜 Historial</h3>
+        <div class="table-wrap"><table>
+            <thead><tr><th>Fecha</th><th>Tipo</th><th>Bodega</th><th>Artículo</th><th>Estado</th></tr></thead>
+            <tbody>
+            ${doneEdit.map(r=>`<tr>
+                <td>${new Date(r.fecha).toLocaleDateString()}</td>
+                <td><span class="badge badge-pend">✏️ Edición</span></td>
+                <td>${r.bodegaNombre}</td><td>${r.materialNombre}</td>
+                <td><span class="badge ${r.estado==='aprobada'?'badge-ok':'badge-rej'}">${r.estado}</span></td>
+            </tr>`).join('')}
+            ${doneDel.map(r=>`<tr>
+                <td>${new Date(r.fecha).toLocaleDateString()}</td>
+                <td><span class="badge badge-rej">🗑️ Eliminación</span></td>
+                <td>${r.bodegaNombre}</td><td>${r.materialNombre}</td>
+                <td><span class="badge ${r.estado==='aprobada'?'badge-ok':'badge-rej'}">${r.estado}</span></td>
+            </tr>`).join('')}
+            </tbody>
+        </table></div>` : ''}
+    </div>`;
+}
+
+function approveEdit(reqId, accion) {
+    if(!DB.editRequests) return;
+    const req = DB.editRequests.find(r=>r.id===reqId);
+    if(!req || req.estado!=='pendiente') return;
+    req.estado = accion;
+    if(accion === 'aprobada') {
+        const b = DB.bodegas.find(x=>x.id===req.bodegaId);
+        const m = b?.materiales.find(x=>x.id===req.materialId);
+        if(m && req.datos) {
+            Object.assign(m, req.datos);
+            logMsg(`Admin aprobó edición de "${req.materialNombre}" en ${req.bodegaNombre}`);
+            registrarMovimiento(req.bodegaId, req.materialId, 'ajuste', 0, `Edición aprobada: ${req.cambios.join(' | ')}`);
+        }
+    } else {
+        logMsg(`Admin rechazó edición de "${req.materialNombre}" en ${req.bodegaNombre}`);
+    }
+    save();
+    renderDeleteReq(document.getElementById('main-content') || document.getElementById('adminInvContent'));
+    alert(`✅ Solicitud ${accion === 'aprobada' ? 'aprobada' : 'rechazada'}`);
+}
+window.approveEdit = approveEdit;
 function approveDelete(reqId, act) { const req=DB.deleteRequests.find(r=>r.id===reqId); if(!req||req.estado!=='pendiente') return; req.estado=act; if(act==='aprobada'){const b=DB.bodegas.find(x=>x.id===req.bodegaId);if(b)b.materiales=b.materiales.filter(m=>m.id!==req.materialId);logMsg(`Aprobado: ${req.materialNombre}`);}else{logMsg(`Rechazado: ${req.materialNombre}`);} save(); renderTab('delete_req'); }
 
 // TRANSFERENCIAS
@@ -2620,6 +2742,8 @@ function buildNotifications() {
 
     // Pending delete requests (admin only)
     if(USER.role === 'admin') {
+        const pendEdit2 = (DB.editRequests||[]).filter(r=>r.estado==='pendiente');
+        pendEdit2.forEach(r => { notifData.push({id:'edit_'+r.id,icon:'✏️',tipo:'edicion',texto:`Solicitud edición: <strong>${r.materialNombre}</strong> en ${r.bodegaNombre}`,tiempo:new Date(r.fecha).toLocaleDateString(),leido:false,accion:()=>navigate('delete_req')}); });
         const pendDel = DB.deleteRequests.filter(r=>r.estado==='pendiente');
         pendDel.forEach(r => {
             notifData.push({
@@ -2720,6 +2844,7 @@ function showSync(state, text) {
 
 function fixDB() {
     if(!DB.deleteRequests) DB.deleteRequests=[];
+    if(!DB.editRequests) DB.editRequests=[];
     if(!DB.recuperados) DB.recuperados=[];
     if(!DB.clientes) DB.clientes=[];
     if(!DB.equiposDanados) DB.equiposDanados=[];
