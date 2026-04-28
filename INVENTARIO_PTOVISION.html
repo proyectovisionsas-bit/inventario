@@ -867,14 +867,10 @@ function modalCambioEquipo(cliId, eqIdx) {
     const eq = cl.equipos[eqIdx];
     if(!eq) return;
 
-    // Solo mostrar bodegas permitidas: admin ve todas, bodega solo la suya
-    const bodegasDisponibles = USER.role === 'admin' ? DB.bodegas : DB.bodegas.filter(b=>b.id===USER.id);
+    const bodegasDisponibles = USER.role==='admin' ? DB.bodegas : DB.bodegas.filter(b=>b.id===USER.id);
+    const cuadsDisponibles   = getUserCuads();
     const bodegaOpts = bodegasDisponibles.map(b=>`<option value="${b.id}">${b.nombre}</option>`).join('');
-    const matOpts = () => {
-        const bId = document.getElementById('cbBodega')?.value;
-        const b = DB.bodegas.find(x=>x.id===bId);
-        return b ? b.materiales.filter(m=>m.cantidad>0).map(m=>`<option value="${m.id}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`).join('') : '';
-    };
+    const cuadOpts   = cuadsDisponibles.map(cu=>`<option value="${cu.id}">${cu.nombre}</option>`).join('');
 
     openModal(`🔄 Cambio de Equipo — ${cl.nombre}`,
         `<div style="background:#fff3cd;padding:10px;border-radius:6px;margin-bottom:15px;font-size:0.85rem;">
@@ -897,19 +893,50 @@ function modalCambioEquipo(cliId, eqIdx) {
             <textarea id="cbMotivo" class="form-control" rows="2" placeholder="Describa el daño o motivo del cambio..."></textarea>
         </div>
 
-        <h4 style="margin:15px 0 10px;">✅ Equipo de Reemplazo (desde Bodega)</h4>
-        <div class="form-row">
-            <div class="form-group"><label>Bodega</label>
-                <select id="cbBodega" class="form-control" onchange="document.getElementById('cbMat').innerHTML=window._matOpts(this.value)">
-                    <option value="">-- Seleccione --</option>${bodegaOpts}
-                </select>
-            </div>
-            <div class="form-group"><label>Material de reemplazo</label>
-                <select id="cbMat" class="form-control" onchange="window._loadCbSNs(this.value,document.getElementById('cbBodega').value)">
-                    <option value="">-- Seleccione bodega primero --</option>
-                </select>
+        <h4 style="margin:15px 0 10px;">✅ Equipo de Reemplazo</h4>
+        <div class="form-group"><label>Origen del equipo nuevo *</label>
+            <div style="display:flex;gap:15px;margin-top:5px;">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600;">
+                    <input type="radio" name="cbOrigen" value="bodega" checked onchange="window._switchOrigenCambio('bodega')"> 🏭 Desde Bodega
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600;">
+                    <input type="radio" name="cbOrigen" value="cuadrilla" onchange="window._switchOrigenCambio('cuadrilla')"> 👷 Desde Cuadrilla
+                </label>
             </div>
         </div>
+
+        <!-- BODEGA -->
+        <div id="cbOrigenBodega">
+            <div class="form-row">
+                <div class="form-group"><label>Bodega</label>
+                    <select id="cbBodega" class="form-control" onchange="document.getElementById('cbMat').innerHTML=window._matOpts(this.value,'bodega')">
+                        <option value="">-- Seleccione --</option>${bodegaOpts}
+                    </select>
+                </div>
+                <div class="form-group"><label>Material de reemplazo</label>
+                    <select id="cbMat" class="form-control" onchange="window._loadCbSNs(this.value,document.getElementById('cbBodega').value,'bodega')">
+                        <option value="">-- Seleccione bodega primero --</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- CUADRILLA -->
+        <div id="cbOrigenCuadrilla" style="display:none;">
+            <div class="form-row">
+                <div class="form-group"><label>Cuadrilla</label>
+                    <select id="cbCuad" class="form-control" onchange="document.getElementById('cbMatCuad').innerHTML=window._matOpts(this.value,'cuadrilla')">
+                        <option value="">-- Seleccione --</option>${cuadOpts}
+                    </select>
+                </div>
+                <div class="form-group"><label>Material de reemplazo</label>
+                    <select id="cbMatCuad" class="form-control" onchange="window._loadCbSNs(this.value,document.getElementById('cbCuad').value,'cuadrilla')">
+                        <option value="">-- Seleccione cuadrilla primero --</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
         <div id="cbSnArea"></div>
         <div class="form-group"><label>Observaciones adicionales</label>
             <input id="cbObs" class="form-control" placeholder="Opcional">
@@ -918,86 +945,111 @@ function modalCambioEquipo(cliId, eqIdx) {
             const snDanado   = id('cbSnDanado').value;
             const cantDanada = parseInt(id('cbCantDanada').value)||1;
             const motivo     = id('cbMotivo').value.trim();
-            const bId        = id('cbBodega').value;
-            const mId        = id('cbMat').value;
             const obs        = id('cbObs').value.trim();
+            const origen     = document.querySelector('input[name="cbOrigen"]:checked')?.value || 'bodega';
 
             if(!motivo) return alert('El motivo del daño es obligatorio.');
-            if(!bId || !mId) return alert('Seleccione bodega y material de reemplazo.');
 
-            const bodega = DB.bodegas.find(x=>x.id===bId);
-            const matNuevo = bodega.materiales.find(x=>x.id===mId);
-            if(!matNuevo || matNuevo.cantidad < cantDanada) return alert('Stock insuficiente en bodega.');
+            let fuente, mId, fuenteNombre;
+            if(origen === 'bodega') {
+                const bId = id('cbBodega').value;
+                mId = id('cbMat').value;
+                if(!bId || !mId) return alert('Seleccione bodega y material.');
+                fuente = DB.bodegas.find(x=>x.id===bId);
+                fuenteNombre = '🏭 ' + fuente?.nombre;
+            } else {
+                const cuadId = id('cbCuad').value;
+                mId = id('cbMatCuad').value;
+                if(!cuadId || !mId) return alert('Seleccione cuadrilla y material.');
+                fuente = DB.cuadrillas.find(x=>x.id===cuadId);
+                fuenteNombre = '👷 ' + fuente?.nombre;
+            }
 
-            // Obtener SN del equipo nuevo seleccionado
-            const snNuevoChecked = [...document.querySelectorAll('#cbSnArea input[type="checkbox"]:checked')].map(cb=>cb.value);
-            if(matNuevo.snes.length > 0 && snNuevoChecked.length !== cantDanada) return alert(`Seleccione exactamente ${cantDanada} serial(es) del equipo nuevo.`);
+            const matNuevo = fuente?.materiales.find(x=>x.id===mId);
+            if(!matNuevo) return alert('Material no encontrado.');
+
+            // Get replacement quantity and SNs
+            const cantReemplazo = parseInt(id('cbCantReemplazo')?.value)||cantDanada;
+            const snNuevoChecked = [...document.querySelectorAll('.cbSnReemplazo:checked')].map(cb=>cb.value);
+
+            if(cantReemplazo > matNuevo.cantidad) return alert(`Stock insuficiente. Disponible: ${matNuevo.cantidad} ${matNuevo.unidad}`);
+            if(matNuevo.snes.length > 0 && snNuevoChecked.length !== cantReemplazo) return alert(`Seleccione exactamente ${cantReemplazo} serial(es) del equipo de reemplazo.`);
             const snNuevo = snNuevoChecked.join(', ');
 
             // 1. Registrar equipo dañado
             if(!DB.equiposDanados) DB.equiposDanados = [];
             DB.equiposDanados.push({
                 id: Date.now().toString(),
-                clienteId: cliId,
-                clienteNombre: cl.nombre,
-                equipoNombre: eq.nombre,
-                snDanado: snDanado,
+                clienteId: cliId, clienteNombre: cl.nombre,
+                equipoNombre: eq.nombre, snDanado,
                 cantidadDanada: cantDanada,
-                equipoNuevo: matNuevo.nombre,
-                snNuevo: snNuevo,
-                bodegaOrigen: bodega.nombre,
-                motivo: motivo,
-                obs: obs,
+                equipoNuevo: matNuevo.nombre, snNuevo,
+                origenNombre: fuenteNombre,
+                motivo, obs,
                 fecha: new Date().toLocaleDateString(),
                 fechaISO: new Date().toISOString()
             });
 
-            // 2. Descontar equipo dañado del cliente (reducir cantidad o eliminar SN)
-            if(snDanado && eq.snes.includes(snDanado)) {
-                eq.snes = eq.snes.filter(s=>s!==snDanado);
-            }
+            // 2. Actualizar equipo dañado del cliente
+            if(snDanado && eq.snes.includes(snDanado)) eq.snes = eq.snes.filter(s=>s!==snDanado);
             eq.cantidad = Math.max(0, eq.cantidad - cantDanada);
-
-            // Si la cantidad llegó a 0, marcar como inactivo
             if(eq.cantidad === 0) eq.estado = 'Reemplazado';
 
             // 3. Agregar equipo nuevo al cliente
             const eqExist = cl.equipos.find(e=>e.nombre===matNuevo.nombre&&e.tipo===matNuevo.tipo);
             if(eqExist) {
-                eqExist.cantidad += cantDanada;
+                eqExist.cantidad += cantReemplazo;
                 if(snNuevoChecked.length) eqExist.snes.push(...snNuevoChecked);
             } else {
-                cl.equipos.push({
-                    nombre: matNuevo.nombre, cantidad: cantDanada,
-                    unidad: matNuevo.unidad, tipo: matNuevo.tipo,
-                    snes: snNuevoChecked, estado: 'Activo'
-                });
+                cl.equipos.push({nombre:matNuevo.nombre, cantidad:cantReemplazo, unidad:matNuevo.unidad, tipo:matNuevo.tipo, snes:snNuevoChecked, estado:'Activo'});
             }
 
-            // 4. Descontar de bodega
-            matNuevo.cantidad -= cantDanada;
+            // 4. Descontar de fuente (bodega o cuadrilla)
+            matNuevo.cantidad -= cantReemplazo;
             snNuevoChecked.forEach(sn => { matNuevo.snes = matNuevo.snes.filter(s=>s!==sn); });
 
-            logMsg(`Cambio equipo dañado "${eq.nombre}" → "${matNuevo.nombre}" en cliente "${cl.nombre}" — ${motivo}`);
-            save();
-            closeModal();
-            renderClientes(document.getElementById('main-content'));
+            logMsg(`Cambio equipo "${eq.nombre}" → "${matNuevo.nombre}" desde ${fuenteNombre} en "${cl.nombre}" — ${motivo}`);
+            save(); closeModal();
+            renderClientes(document.getElementById('main-content') || document.getElementById('adminInvContent'));
         });
 
-    // Helpers globales para el modal
-    window._matOpts = (bId) => {
-        const bodegasDisponibles = USER.role === 'admin' ? DB.bodegas : DB.bodegas.filter(b=>b.id===USER.id);
-        const b = bodegasDisponibles.find(x=>x.id===bId);
-        return b ? b.materiales.filter(m=>m.cantidad>0).map(m=>`<option value="${m.id}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`).join('') : '';
+    // Helpers
+    window._switchOrigenCambio = (origen) => {
+        id('cbOrigenBodega').style.display   = origen==='bodega'    ? 'block' : 'none';
+        id('cbOrigenCuadrilla').style.display= origen==='cuadrilla' ? 'block' : 'none';
+        id('cbSnArea').innerHTML = '';
     };
-    window._loadCbSNs = (mId, bId) => {
-        const area = document.getElementById('cbSnArea');
+    window._matOpts = (srcId, tipo) => {
+        const src = tipo==='bodega' ? DB.bodegas.find(x=>x.id===srcId) : DB.cuadrillas.find(x=>x.id===srcId);
+        return src ? src.materiales.filter(m=>m.cantidad>0).map(m=>`<option value="${m.id}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`).join('') : '';
+    };
+    window._loadCbSNs = (mId, srcId, tipo) => {
+        const area = id('cbSnArea');
         if(!area) return;
-        const b = DB.bodegas.find(x=>x.id===bId);
-        const m = b?.materiales.find(x=>x.id===mId);
-        if(!m || !m.snes.length) { area.innerHTML = ''; return; }
-        area.innerHTML = `<div class="form-group"><label>Seleccione serial(es) del equipo nuevo</label>
-            <div class="sn-select-area">${m.snes.map(sn=>`<label class="sn-check"><input type="checkbox" value="${sn}"> <span class="sn-label">${sn}</span></label>`).join('')}</div></div>`;
+        const src = tipo==='bodega' ? DB.bodegas.find(x=>x.id===srcId) : DB.cuadrillas.find(x=>x.id===srcId);
+        const m = src?.materiales.find(x=>x.id===mId);
+        if(!m) { area.innerHTML=''; return; }
+        area.innerHTML = `
+            <div class="form-row" style="margin-top:10px;">
+                <div class="form-group">
+                    <label>Cantidad a usar del reemplazo *</label>
+                    <input id="cbCantReemplazo" type="number" value="1" min="1" max="${m.cantidad}" class="form-control"
+                        placeholder="Máx: ${m.cantidad} ${m.unidad}">
+                    <small class="text-muted">Disponible: ${m.cantidad} ${m.unidad}</small>
+                </div>
+            </div>
+            ${m.snes.length ? `
+            <div class="form-group">
+                <label>Seriales del equipo de reemplazo *</label>
+                <small class="text-muted d-block" style="margin-bottom:6px;">Selecciona los seriales que se van a instalar</small>
+                <div class="sn-select-area" style="max-height:150px;overflow-y:auto;">
+                    ${m.snes.map(sn=>`<label class="sn-check">
+                        <input type="checkbox" class="cbSnReemplazo" value="${sn}">
+                        <span class="sn-label">${sn}</span>
+                    </label>`).join('')}
+                </div>
+            </div>` : '<p class="text-muted" style="font-size:0.85rem;margin-top:5px;">📦 Este material no tiene seriales registrados.</p>'}
+        `;
     };
 }
 
