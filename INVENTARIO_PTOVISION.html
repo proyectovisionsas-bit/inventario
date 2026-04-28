@@ -1,4 +1,4 @@
-<!DOCTYPE html> 
+<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
@@ -1812,7 +1812,7 @@ function editAddFotos(input) {
     });
 }
 window.editAddFotos = editAddFotos;
-function delMat(bId, mId) { const m = DB.bodegas.find(x=>x.id===bId).materiales.find(x=>x.id===mId); if(USER.role==='admin') { if(!confirm(`¿Eliminar "${m.nombre}"?`)) return; DB.bodegas.find(x=>x.id===bId).materiales = DB.bodegas.find(x=>x.id===bId).materiales.filter(x=>x.id!==mId); logMsg(`Admin eliminó "${m.nombre}"`); save(); renderTab('bodegas'); return; } openModal('🗑️ Solicitud Eliminación', `<div class="form-group"><label>Artículo</label><input value="${m.nombre} (${m.cantidad} ${m.unidad})" readonly class="form-control"></div><div class="form-group"><label>Observación *</label><textarea id="delObs" class="form-control" placeholder="Motivo..."></textarea></div>`, ()=>{ const obs=id('delObs').value.trim(); if(!obs) return alert('Ingrese observación'); DB.deleteRequests.push({id:Date.now().toString(),bodegaId:bId,bodegaNombre:getUserBodegas().find(x=>x.id===bId)?.nombre||'',materialId:mId,materialNombre:m.nombre,cantidad:m.cantidad,tipo:m.tipo,unidad:m.unidad,snes:[...m.snes],fecha:new Date().toISOString(),obs,estado:'pendiente'}); logMsg(`Solicitud eliminación "${m.nombre}"`); save(); closeModal(); alert('✅ Enviada'); renderTab('bodegas'); }); }
+function delMat(bId, mId) { const m = DB.bodegas.find(x=>x.id===bId).materiales.find(x=>x.id===mId); if(USER.role==='admin') { if(!confirm(`¿Eliminar "${m.nombre}"?`)) return; DB.bodegas.find(x=>x.id===bId).materiales = DB.bodegas.find(x=>x.id===bId).materiales.filter(x=>x.id!==mId); logMsg(`Admin eliminó "${m.nombre}"`); save(); renderTab('bodegas'); return; } openModal('🗑️ Solicitud Eliminación', `<div class="form-group"><label>Artículo</label><input value="${m.nombre} (${m.cantidad} ${m.unidad})" readonly class="form-control"></div><div class="form-group"><label>Observación *</label><textarea id="delObs" class="form-control" placeholder="Motivo..."></textarea></div>`, ()=>{ const obs=id('delObs').value.trim(); if(!obs) return alert('Ingrese observación'); DB.deleteRequests.push({id:Date.now().toString(),bodegaId:bId,bodegaNombre:getUserBodegas().find(x=>x.id===bId)?.nombre||'',materialId:mId,materialNombre:m.nombre,cantidad:m.cantidad,tipo:m.tipo,unidad:m.unidad,snes:[...m.snes],stockMin:m.stockMin||0,categoria:m.categoria||'material',observaciones:m.observaciones||'',fotos:m.fotos||[],fechaMat:m.fecha||'',fecha:new Date().toISOString(),obs,estado:'pendiente'}); logMsg(`Solicitud eliminación "${m.nombre}"`); save(); closeModal(); alert('✅ Enviada'); renderTab('bodegas'); }); }
 function renderDeleteReq(c) {
     if(USER.role!=='admin') return navigate('dash');
     if(!DB.editRequests) DB.editRequests = [];
@@ -1911,7 +1911,43 @@ function approveEdit(reqId, accion) {
     alert(`✅ Solicitud ${accion === 'aprobada' ? 'aprobada' : 'rechazada'}`);
 }
 window.approveEdit = approveEdit;
-function approveDelete(reqId, act) { const req=DB.deleteRequests.find(r=>r.id===reqId); if(!req||req.estado!=='pendiente') return; req.estado=act; if(act==='aprobada'){const b=DB.bodegas.find(x=>x.id===req.bodegaId);if(b)b.materiales=b.materiales.filter(m=>m.id!==req.materialId);logMsg(`Aprobado: ${req.materialNombre}`);}else{logMsg(`Rechazado: ${req.materialNombre}`);} save(); renderTab('delete_req'); }
+function approveDelete(reqId, act) {
+    const req = DB.deleteRequests.find(r=>r.id===reqId);
+    if(!req || req.estado!=='pendiente') return;
+    req.estado = act;
+    if(act === 'aprobada') {
+        // Remove material from bodega
+        const b = DB.bodegas.find(x=>x.id===req.bodegaId);
+        if(b) b.materiales = b.materiales.filter(m=>m.id!==req.materialId);
+        logMsg(`Admin aprobó eliminación de "${req.materialNombre}" en ${req.bodegaNombre}`);
+    } else {
+        // Rejected: restore material to bodega if it was removed
+        const b = DB.bodegas.find(x=>x.id===req.bodegaId);
+        if(b) {
+            const exists = b.materiales.find(m=>m.id===req.materialId);
+            if(!exists) {
+                // Material was removed, restore it
+                b.materiales.push({
+                    id: req.materialId,
+                    nombre: req.materialNombre,
+                    cantidad: req.cantidad,
+                    tipo: req.tipo,
+                    unidad: req.unidad,
+                    snes: req.snes||[],
+                    stockMin: req.stockMin||0,
+                    categoria: req.categoria||'material',
+                    observaciones: req.observaciones||'',
+                    fotos: req.fotos||[],
+                    fecha: req.fechaMat||new Date().toLocaleDateString()
+                });
+            }
+        }
+        logMsg(`Admin rechazó eliminación de "${req.materialNombre}" en ${req.bodegaNombre} — material restaurado`);
+    }
+    save();
+    renderDeleteReq(document.getElementById('main-content') || document.getElementById('adminInvContent'));
+    alert(`✅ Solicitud ${act === 'aprobada' ? 'aprobada' : 'rechazada — material restaurado en bodega'}`);
+}
 
 // TRANSFERENCIAS
 function renderTransfer(c) { let ts=DB.transfers; if(USER.role==='bodega') ts=ts.filter(t=>t.oriId===USER.id||t.desId===USER.id); ts.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)); c.innerHTML=`<div class="card"><div class="card-header"><h2>🔄 Transferencias</h2>${USER.role==='bodega'&&canDo('transfer','enviar')?`<button class="btn btn-primary btn-sm" onclick="modalSendTrans()">📤 Enviar</button>`:''}</div>${ts.length?ts.map(t=>`<div style="border:1px solid #eee; border-radius:8px; padding:15px; margin-bottom:10px; background:${t.estado==='pendiente'?'#fff':'#f9f9f9'}"><div class="flex"><strong>🔄 ${t.oriName} ➜ ${t.desName}</strong><span class="badge ${t.estado==='pendiente'?'badge-pend':t.estado==='aceptada'?'badge-ok':'badge-rej'}">${t.estado.toUpperCase()}</span></div><div class="text-muted" style="font-size:0.85rem; margin:5px 0;">📅 ${t.fecha}</div><div style="margin-bottom:10px;">${t.mats.map(m=>`<span class="sn-tag">${m.nom}: ${m.cant} ${m.unidad}${m.snes.length?' [SN:'+m.snes.join(', ')+']':''}</span>`).join(' ')}</div>${t.estado==='pendiente'&&t.desId===USER.id?`<div class="flex"><button class="btn btn-success btn-sm" onclick="procTrans('${t.id}','aceptada')">✅</button><button class="btn btn-danger btn-sm" onclick="procTrans('${t.id}','rechazada')">❌</button></div>`:''}</div>`).join(''):'<p class="text-center text-muted">Sin transferencias</p>'}</div>`; }
@@ -2154,7 +2190,39 @@ function delEntrega(eid) { if(!confirm('¿Eliminar? Stock NO se devuelve.')) ret
 function renderInst(c) { let is=DB.instalaciones; if(USER.role==='bodega'){const cIds=getUserCuads().map(x=>x.id);is=is.filter(x=>cIds.includes(x.cuadrillaId));} is.sort((a,b)=>new Date(b.reg)-new Date(a.reg)); c.innerHTML=`<div class="card"><div class="card-header"><h2>🔧 Instalaciones</h2>${canDo('inst','crear')?`<button class="btn btn-success btn-sm" onclick="modalNewInst()">➕ Nueva</button>`:''}</div>${is.length?is.map(i=>`<div style="border:1px solid #eee; padding:15px; border-radius:8px; margin-bottom:10px; background:white;"><div class="flex"><strong>🔧 ${i.cliente}</strong> <span class="badge badge-new">${i.fecha}</span></div><p class="text-muted">Cuadrilla: ${i.cuadrilla} | Tipo: ${i.tipo||'-'}</p><div style="margin-top:5px;">${i.mats.map(m=>`<span class="sn-tag">${m.nom}: ${m.cant} ${m.unidad}${m.snes.length?' [SN:'+m.snes.join(',')+']':''}</span>`).join(' ')}</div>${canDo('inst','eliminar')?`<button class="btn btn-danger btn-sm" style="margin-top:10px;" onclick="delInst('${i.id}')">✕</button>`:''}</div>`).join(''):'<p class="text-muted">Sin instalaciones</p>'}</div>`; }
 function modalNewInst() { const cs=getUserCuads().map(c=>`<option value="${c.id}">${c.nombre}</option>`).join(''); TempLists.iItems=[]; openModal('Nueva Instalación', `<div class="form-row"><div class="form-group"><label>Cuadrilla</label><select id="iCuad" class="form-control" onchange="loadIOptions()">${cs}</select></div><div class="form-group"><label>Fecha</label><input id="iFecha" type="date" value="${new Date().toISOString().split('T')[0]}" class="form-control"></div></div><div class="form-group"><label>Cliente</label><input id="iCli" class="form-control"></div><div class="form-group"><label>Tipo</label><input id="iTipo" class="form-control"></div><hr style="margin:10px 0;"><div class="form-row"><div class="form-group"><label>Material</label><select id="iMat" class="form-control"></select></div><div class="form-group"><label>Cantidad</label><input id="iCant" type="number" value="1" min="1" class="form-control"></div></div><button class="btn btn-outline btn-sm" onclick="addIItem()">➕ Agregar</button><div id="iList" style="margin-top:10px;"></div>`, ()=>{ if(!TempLists.iItems.length||!id('iCli').value) return alert('Faltan datos'); saveInstLogic(); }); loadIOptions(); }
 function loadIOptions() { const c=DB.cuadrillas.find(x=>x.id===id('iCuad').value); id('iMat').innerHTML=c?c.materiales.filter(m=>m.cantidad>0).map(m=>`<option value="${m.id}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`).join(''):''; }
-function addIItem() { const c=DB.cuadrillas.find(x=>x.id===id('iCuad').value), mId=id('iMat').value, q=parseInt(id('iCant').value); if(!mId||!q) return; const m=c.materiales.find(x=>x.id===mId); const inList=TempLists.iItems.find(x=>x.id===mId)?.cant||0; if(q+inList>m.cantidad) return alert('Stock insuficiente'); const exist=TempLists.iItems.find(x=>x.id===mId); if(exist) exist.cant+=q; else TempLists.iItems.push({id:m.id,nom:m.nombre,cant:q,tipo:m.tipo,unidad:m.unidad,snes:m.snes.slice(0,q)}); renderIList(); }
+function addIItem() {
+    const cuad = DB.cuadrillas.find(x=>x.id===id('iCuad').value);
+    const mId = id('iMat').value;
+    const q = parseInt(id('iCant').value);
+    if(!mId||!q||!cuad) return;
+    const m = cuad.materiales.find(x=>x.id===mId);
+    if(!m) return;
+    const inList = TempLists.iItems.find(x=>x.id===mId)?.cant||0;
+    if(q+inList > m.cantidad) return alert('Stock insuficiente');
+
+    // If material has SNs, show selector
+    const snesDisponibles = m.snes.filter(sn => !TempLists.iItems.find(it=>it.id===mId&&it.snes.includes(sn)));
+    if(snesDisponibles.length > 0) {
+        openModal(`🔢 Seriales — ${m.nombre}`,
+            `<p class="text-muted" style="margin-bottom:10px;">Selecciona exactamente <strong>${q}</strong> serial(es) a instalar:</p>
+            <div class="sn-select-area" style="max-height:200px;overflow-y:auto;">
+                ${snesDisponibles.map(sn=>`<label class="sn-check"><input type="checkbox" class="snInstCheck" value="${sn}"> <span class="sn-label">${sn}</span></label>`).join('')}
+            </div>`,
+            () => {
+                const checked = [...document.querySelectorAll('.snInstCheck:checked')].map(cb=>cb.value);
+                if(checked.length !== q) { alert(`Selecciona exactamente ${q} serial(es). Seleccionaste ${checked.length}.`); return; }
+                const exist = TempLists.iItems.find(x=>x.id===mId);
+                if(exist) { exist.cant+=q; exist.snes.push(...checked); }
+                else TempLists.iItems.push({id:m.id, nom:m.nombre, cant:q, tipo:m.tipo, unidad:m.unidad, snes:checked});
+                renderIList();
+            });
+    } else {
+        const exist = TempLists.iItems.find(x=>x.id===mId);
+        if(exist) exist.cant+=q;
+        else TempLists.iItems.push({id:m.id, nom:m.nombre, cant:q, tipo:m.tipo, unidad:m.unidad, snes:[]});
+        renderIList();
+    }
+}
 function renderIList() { const el=id('iList'); if(!el) return; el.innerHTML=TempLists.iItems.map((it,i)=>`<div class="item-list-item"><span>${it.nom} x${it.cant} ${it.unidad}</span><button class="btn btn-danger btn-sm" onclick="TempLists.iItems.splice(${i},1);renderIList();">✕</button></div>`).join('')||'Vacío'; }
 function saveInstLogic() { const c=DB.cuadrillas.find(x=>x.id===id('iCuad').value), cli=id('iCli').value.trim(), tipo=id('iTipo').value.trim(), fecha=id('iFecha').value; TempLists.iItems.forEach(it => { const m=c.materiales.find(x=>x.id===it.id); m.cantidad-=it.cant; it.snes.forEach(s=>{const idx=m.snes.indexOf(s);if(idx>-1)m.snes.splice(idx,1);}); }); const instData = {id:Date.now().toString(),cuadrillaId:c.id,cuadrilla:c.nombre,fecha:fecha,cliente:cli,tipo:tipo,mats:[...TempLists.iItems],reg:new Date().toISOString()}; DB.instalaciones.push(instData); actualizarClientesDesdeInstalacion(instData); logMsg(`Instalación en ${cli}`); save(); closeModal(); renderTab('inst'); }
 function delInst(eid) { if(!confirm('¿Eliminar?')) return; DB.instalaciones=DB.instalaciones.filter(x=>x.id!==eid); save(); renderTab('inst'); }
