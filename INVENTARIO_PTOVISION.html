@@ -1386,11 +1386,27 @@ function importExcelData() {
         added++;
     });
     
-    logMsg(`Importación masiva: ${added} clientes desde Excel`);
-    save();
-    closeModal();
-    alert(`✅ ${added} clientes importados correctamente`);
-    renderClientes(document.getElementById('main-content'));
+    // Add to log directly without triggering save
+    DB.logs.unshift({ msg: `Importación masiva: ${added} clientes desde Excel`, t: new Date().toISOString() });
+    if(DB.logs.length > 60) DB.logs.pop();
+    
+    // Use immediate save for bulk import - bypass debounce
+    showSync('saving', 'Guardando ' + added + ' clientes...');
+    if(window._fbSaveImmediate) {
+        window._fbSaveImmediate().then(() => {
+            closeModal();
+            alert(`✅ ${added} clientes importados y guardados correctamente`);
+            renderClientes(document.getElementById('main-content'));
+        }).catch(e => {
+            console.error(e);
+            alert('❌ Error al guardar en Firebase. Intenta de nuevo.');
+        });
+    } else {
+        save();
+        closeModal();
+        alert(`✅ ${added} clientes importados correctamente`);
+        renderClientes(document.getElementById('main-content'));
+    }
 }
 
 function downloadTemplateExcel() {
@@ -3087,7 +3103,6 @@ window._fbSave = function() {
     clearTimeout(saveTO);
     saveTO = setTimeout(async ()=>{
         try {
-            // Compress all fotos before saving to Firebase
             const dbCopy = JSON.parse(JSON.stringify(DB));
             for(const b of dbCopy.bodegas) {
                 for(const m of b.materiales) {
@@ -3109,6 +3124,29 @@ window._fbSave = function() {
             console.error(e);
         }
     }, 600);
+};
+
+// Immediate save - no debounce, for bulk operations
+window._fbSaveImmediate = async function() {
+    clearTimeout(saveTO);
+    showSync('saving','Guardando...');
+    const dbCopy = JSON.parse(JSON.stringify(DB));
+    // Compress fotos
+    for(const b of dbCopy.bodegas) {
+        for(const m of b.materiales) {
+            if(m.fotos && m.fotos.length) {
+                const compressed = [];
+                for(const foto of m.fotos) {
+                    if(foto && foto.startsWith('data:')) {
+                        compressed.push(await compressImage(foto));
+                    }
+                }
+                m.fotos = compressed;
+            }
+        }
+    }
+    await setDoc(doc(fsDB, DB_DOC), dbCopy);
+    showSync('ok','Guardado ✓');
 };
 
 window.connectFirebase = async function() {
