@@ -1271,25 +1271,31 @@ function handleExcelFile(file) {
             
             for(let i=1; i<rows.length; i++) {
                 const row = rows[i];
-                if(!row || !row[0] || String(row[0]).trim()==='') continue;
+                if(!row) continue;
+
+                // Skip completely empty rows
+                if(row.every(cell => !cell || String(cell).trim() === '')) continue;
                 
                 // Skip reference row (starts with "Bodegas disponibles:")
-                if(String(row[0]).startsWith('Bodegas disponibles:')) continue;
+                if(row[0] && String(row[0]).startsWith('Bodegas disponibles:')) continue;
 
-                // Col 0: Bodega, Col 1: Nombre, Col 2: Dir, etc.
-                // Support both old format (no Bodega col) and new format (with Bodega col)
+                // Detect format: new format has Bodega as first column
+                // Only treat as bodega column if it EXACTLY matches a known bodega name
                 let colOffset = 0;
                 let bodegaNombre = '';
-
-                // Detect if first column is a bodega name or client name
                 const firstCell = String(row[0]||'').trim();
-                const isBodegaCol = DB.bodegas.some(b => b.nombre.toLowerCase() === firstCell.toLowerCase());
-                if(isBodegaCol || DB.bodegas.find(b=>b.nombre.toLowerCase()===firstCell.toLowerCase())) {
+                const secondCell = String(row[1]||'').trim();
+
+                // Check if first cell is a bodega name AND second cell is client name (not empty)
+                const matchesBodega = DB.bodegas.find(b => b.nombre.toLowerCase() === firstCell.toLowerCase());
+                if(matchesBodega && secondCell) {
                     bodegaNombre = firstCell;
                     colOffset = 1;
                 }
 
                 const nombre = String(row[colOffset+0]||'').trim();
+                if(!nombre) continue; // Skip if client name is empty
+
                 const direccion = String(row[colOffset+1]||'').trim();
                 const telefono = String(row[colOffset+2]||'').trim();
                 const email = String(row[colOffset+3]||'').trim();
@@ -1306,9 +1312,9 @@ function handleExcelFile(file) {
                 const observaciones = String(row[colOffset+6]||'').trim();
                 
                 // Find bodegaId from bodega name
-                const bodegaId = DB.bodegas.find(b=>b.nombre.toLowerCase()===bodegaNombre.toLowerCase())?.id || '';
+                const bodegaId = bodegaNombre ? (DB.bodegas.find(b=>b.nombre.toLowerCase()===bodegaNombre.toLowerCase())?.id || '') : '';
                 
-                // Leer equipos desde columna 8 con offset (índice 7+offset) en adelante
+                // Read equipment columns
                 let equipos = [];
                 const MAX_EQUIPOS = 30;
                 for(let e=0; e<MAX_EQUIPOS; e++) {
@@ -1323,7 +1329,6 @@ function handleExcelFile(file) {
                     equipos.push({ nombre:eNom, cantidad:eCant, unidad:eUnd, tipo:eTipo, snes:eSNs, estado:'Activo' });
                 }
                 
-                if(!nombre) continue;
                 excelImportData.push({ nombre, bodegaNombre, bodegaId, direccion, telefono, email, fecha, cuadrilla, observaciones, equipos, error:false });
             }
             
