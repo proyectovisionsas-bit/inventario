@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OFICINAS · PROYECTOVISION</title>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
     <style>
         :root {
             --bg: #0a0f1e;
@@ -338,16 +340,25 @@ function showSync(t,msg){
     d.className='sync-dot sync-'+t; s.textContent=msg;
 }
 
-function save(){
-    try{ localStorage.setItem('pv_oficinas_v1', JSON.stringify(DB)); showSync('ok','Guardado ✓'); }
-    catch(e){ showSync('err','Error al guardar'); }
+// ─── FIREBASE ───────────────────────────────────────────────────────────────
+let db = null;
+const DOC_ID = 'main'; // documento único en colección "oficinas_sistema"
+
+async function save(){
+    if(!db){ showSync('err','Sin conexión Firebase'); return; }
+    showSync('saving','Guardando...');
+    try{
+        await db.collection('oficinas_sistema').doc(DOC_ID).set(DB);
+        showSync('ok','Guardado ✓');
+    }catch(e){ showSync('err','Error al guardar'); console.error(e); }
 }
 
-function load(){
+async function load(){
+    if(!db) return;
     try{
-        const s = localStorage.getItem('pv_oficinas_v1');
-        if(s){ Object.assign(DB, JSON.parse(s)); }
-    }catch(e){}
+        const snap = await db.collection('oficinas_sistema').doc(DOC_ID).get();
+        if(snap.exists){ Object.assign(DB, snap.data()); }
+    }catch(e){ console.error('Error cargando:', e); }
 }
 
 // ─── LOGIN ──────────────────────────────────────────────────────────────────
@@ -1301,12 +1312,30 @@ function openModal(title,body,footer=''){
 function closeModal(){ document.getElementById('modal').classList.remove('show'); }
 document.getElementById('modal').addEventListener('click',function(e){ if(e.target===this) closeModal(); });
 
-// ─── INIT ──────────────────────────────────────────────────────────────────
-(function init(){
-    load();
-    document.getElementById('loading-screen').style.display='none';
-    document.getElementById('login-screen').style.display='flex';
-    document.getElementById('syncStatus').style.display='flex';
+// ─── FIREBASE INIT ──────────────────────────────────────────────────────────
+const firebaseConfig = {
+    apiKey: "AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w",
+    authDomain: "inventario-88a28.firebaseapp.com",
+    projectId: "inventario-88a28",
+    storageBucket: "inventario-88a28.firebasestorage.app",
+    messagingSenderId: "981251888141",
+    appId: "1:981251888141:web:85e27f09ec4350c27c7144"
+};
+
+(async function init(){
+    try{
+        firebase.initializeApp(firebaseConfig);
+        db = firebase.firestore();
+        showSync("saving","Conectando...");
+        await load();
+        showSync("ok","Conectado ✓");
+    }catch(e){
+        showSync("err","Error de conexion");
+        console.error(e);
+    }
+    document.getElementById("loading-screen").style.display="none";
+    document.getElementById("login-screen").style.display="flex";
+    document.getElementById("syncStatus").style.display="flex";
     renderLoginOficinas();
 })();
 </script>
