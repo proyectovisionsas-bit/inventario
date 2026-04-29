@@ -2327,7 +2327,10 @@ function renderAdmin(c) {
                 <strong>🏭 Asignación de Clientes a Bodegas</strong>
                 <p class="text-muted" style="margin:2px 0 0;font-size:0.85rem;">Clientes sin bodega asignada: <strong>${DB.clientes.filter(cl=>!cl.bodegaId).length}</strong></p>
             </div>
-            <button class="btn btn-warning btn-sm" onclick="renderAsignarClientesBodega(document.getElementById('main-content')||document.getElementById('adminConfigContent'))">🏭 Asignar Clientes</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-warning btn-sm" onclick="renderAsignarClientesBodega(document.getElementById('main-content')||document.getElementById('adminConfigContent'))">🏭 Asignar Clientes</button>
+                <button class="btn btn-danger btn-sm" onclick="eliminarTodosClientes()">🗑️ Eliminar Todos los Clientes</button>
+            </div>
         </div>
     </div>
 
@@ -2412,14 +2415,46 @@ function resetPermisos(bId) {
 }
 function changeAdminPass() { const old=id('aOld').value, nw=id('aNew').value; if(old!==DB.adminPass) return alert('Contraseña incorrecta'); if(!nw) return alert('Ingrese nueva contraseña'); DB.adminPass=nw; save(); alert('✅ Contraseña admin actualizada'); renderTab('admin'); }
 
+function eliminarTodosClientes() {
+    if(!DB.clientes.length) return alert('No hay clientes registrados.');
+    const pass1 = prompt(`⚠️ ACCIÓN IRREVERSIBLE\n\nSe eliminarán ${DB.clientes.length} cliente(s) y todos sus equipos registrados.\n\nIngresa la contraseña de administrador para continuar:`);
+    if(pass1 === null) return;
+    if(pass1 !== DB.adminPass) { alert('❌ Contraseña incorrecta. Operación cancelada.'); return; }
+    const pass2 = prompt('⚠️ CONFIRMA NUEVAMENTE\n\nEscribe la contraseña de administrador por segunda vez:');
+    if(pass2 === null) return;
+    if(pass2 !== DB.adminPass) { alert('❌ Las contraseñas no coinciden. Operación cancelada.'); return; }
+    if(!confirm(`🚨 ÚLTIMA CONFIRMACIÓN\n\n¿Estás ABSOLUTAMENTE seguro de eliminar los ${DB.clientes.length} clientes?\n\nEsta acción NO se puede deshacer.`)) return;
+    const total = DB.clientes.length;
+    DB.clientes = [];
+    DB.equiposDanados = [];
+    logMsg(`Admin eliminó todos los clientes (${total} registros)`);
+    save();
+    alert(`✅ ${total} cliente(s) eliminados correctamente.`);
+    renderTab('admin');
+}
+window.eliminarTodosClientes = eliminarTodosClientes;
+
 function renderAsignarClientesBodega(c) {
     const todosClientes = DB.clientes;
     const bodegaOpts = DB.bodegas.map(b=>`<option value="${b.id}">${b.nombre}</option>`).join('');
     c.innerHTML = `<div class="card">
         <div class="card-header"><h2>🏭 Asignar Clientes a Bodega</h2></div>
-
-        <!-- Asignación masiva -->
-        <div style="background:#f0f4ff;padding:14px;border-radius:10px;margin-bottom:18px;">
+        <div style="background:#f8fafc;padding:14px;border-radius:10px;margin-bottom:15px;display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;">
+            <div class="form-group" style="margin:0;flex:1;min-width:180px;">
+                <label style="font-size:0.82rem;">🔍 Buscar cliente</label>
+                <input type="text" id="filterCliNom" class="form-control" placeholder="Nombre o dirección..." oninput="filtrarAsignacion()">
+            </div>
+            <div class="form-group" style="margin:0;min-width:180px;">
+                <label style="font-size:0.82rem;">🏭 Filtrar por bodega actual</label>
+                <select id="filterCliBod" class="form-control" onchange="filtrarAsignacion()">
+                    <option value="">Todas las bodegas</option>
+                    <option value="sin">⚠️ Sin bodega asignada</option>
+                    ${DB.bodegas.map(b=>`<option value="${b.id}">${b.nombre}</option>`).join('')}
+                </select>
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="filtrarAsignacion(true)">✕ Limpiar</button>
+        </div>
+        <div style="background:#f0f4ff;padding:14px;border-radius:10px;margin-bottom:15px;">
             <strong>⚡ Asignación Masiva</strong>
             <div class="form-row" style="margin-top:10px;align-items:flex-end;">
                 <div class="form-group">
@@ -2428,36 +2463,56 @@ function renderAsignarClientesBodega(c) {
                 </div>
                 <div class="form-group">
                     <button class="btn btn-primary" onclick="asignarSeleccionados()">✅ Asignar seleccionados</button>
-                    <button class="btn btn-outline btn-sm" style="margin-left:6px;" onclick="toggleSelectAll()">☑️ Seleccionar todos</button>
+                    <button class="btn btn-outline btn-sm" style="margin-left:6px;" onclick="toggleSelectAll()">☑️ Sel. todos visibles</button>
                 </div>
             </div>
         </div>
-
-        <!-- Tabla de clientes con checkboxes -->
-        <div class="table-wrap">
-        <table>
+        <div class="table-wrap"><table>
             <thead><tr>
                 <th><input type="checkbox" id="chkAll" onchange="toggleSelectAll(this.checked)" style="width:16px;height:16px;"></th>
-                <th>Cliente</th>
-                <th>Dirección</th>
-                <th>Bodega actual</th>
+                <th>Cliente</th><th>Dirección</th><th>Bodega actual</th>
             </tr></thead>
-            <tbody>
+            <tbody id="asigTbody">
             ${todosClientes.map(cl => {
                 const bodActual = DB.bodegas.find(b=>b.id===cl.bodegaId);
-                return `<tr>
+                return `<tr data-nombre="${(cl.nombre||'').toLowerCase()}" data-dir="${(cl.direccion||'').toLowerCase()}" data-bodid="${cl.bodegaId||''}">
                     <td><input type="checkbox" class="chkCliente" data-id="${cl.id}" style="width:16px;height:16px;"></td>
                     <td><strong>${cl.nombre}</strong></td>
                     <td>${cl.direccion||'-'}</td>
-                    <td>${bodActual ? `<span class="badge badge-ok">🏭 ${bodActual.nombre}</span>` : '<span class="badge badge-rej">Sin asignar</span>'}</td>
+                    <td>${bodActual?`<span class="badge badge-ok">🏭 ${bodActual.nombre}</span>`:'<span class="badge badge-rej">Sin asignar</span>'}</td>
                 </tr>`;
             }).join('')}
             </tbody>
-        </table>
-        </div>
-        <p class="text-muted" style="margin-top:10px;font-size:0.85rem;">Total clientes: <strong>${todosClientes.length}</strong> | Sin bodega: <strong>${todosClientes.filter(cl=>!cl.bodegaId).length}</strong></p>
+        </table></div>
+        <p class="text-muted" style="margin-top:10px;font-size:0.85rem;" id="asigCount">
+            Total: <strong>${todosClientes.length}</strong> | Sin bodega: <strong>${todosClientes.filter(cl=>!cl.bodegaId).length}</strong>
+        </p>
     </div>`;
 }
+window.eliminarTodosClientes = eliminarTodosClientes;
+
+function filtrarAsignacion(limpiar) {
+    if(limpiar) {
+        const ni = id('filterCliNom'); if(ni) ni.value='';
+        const bi = id('filterCliBod'); if(bi) bi.value='';
+    }
+    const q = (id('filterCliNom')?.value||'').toLowerCase();
+    const bFil = id('filterCliBod')?.value||'';
+    let visibles = 0;
+    document.querySelectorAll('#asigTbody tr').forEach(tr => {
+        const nom = tr.dataset.nombre||'';
+        const dir = tr.dataset.dir||'';
+        const bodId = tr.dataset.bodid||'';
+        const matchQ = !q || nom.includes(q) || dir.includes(q);
+        const matchB = !bFil || (bFil==='sin' ? !bodId : bodId===bFil);
+        const show = matchQ && matchB;
+        tr.style.display = show ? '' : 'none';
+        if(show) visibles++;
+    });
+    const cnt = id('asigCount');
+    if(cnt) cnt.innerHTML = `Mostrando: <strong>${visibles}</strong> de <strong>${DB.clientes.length}</strong> | Sin bodega: <strong>${DB.clientes.filter(cl=>!cl.bodegaId).length}</strong>`;
+}
+window.filtrarAsignacion = filtrarAsignacion;
 
 function toggleSelectAll(val) {
     const chks = document.querySelectorAll('.chkCliente');
