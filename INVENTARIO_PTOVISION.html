@@ -1367,25 +1367,22 @@ function importExcelData() {
     if(!valid.length) return alert('No hay datos válidos para importar');
     
     let added = 0;
+    let merged = 0;
     valid.forEach(d => {
-        // Check if exists
-        let cli = DB.clientes.find(c => c.nombre.toLowerCase() === d.nombre.toLowerCase());
-        if(!cli) {
-            cli = { id: Date.now().toString() + Math.random().toString(36).substr(2,5), nombre: d.nombre, bodegaId: d.bodegaId||'', direccion: d.direccion, telefono: d.telefono, email: d.email, fechaInstalacion: d.fecha || new Date().toISOString().split('T')[0], cuadrillaInstaladora: d.cuadrilla, observaciones: d.observaciones, equipos: [] };
-            DB.clientes.push(cli);
-        } else {
-            cli.direccion = cli.direccion || d.direccion;
-            cli.telefono = cli.telefono || d.telefono;
-            cli.email = cli.email || d.email;
-            if(d.fecha) cli.fechaInstalacion = d.fecha;
-            if(d.cuadrilla) cli.cuadrillaInstaladora = d.cuadrilla;
-        }
-        // Add/merge equipos
-        d.equipos.forEach(eq => {
-            let existing = cli.equipos.find(e => e.nombre.toLowerCase() === eq.nombre.toLowerCase() && e.tipo === eq.tipo);
-            if(existing) { existing.cantidad += eq.cantidad; existing.snes.push(...eq.snes.filter(s=>!existing.snes.includes(s))); }
-            else { cli.equipos.push({...eq}); }
-        });
+        // Always create a new client - never merge duplicates from Excel
+        const cli = {
+            id: Date.now().toString() + Math.random().toString(36).substr(2,6),
+            nombre: d.nombre,
+            bodegaId: d.bodegaId||'',
+            direccion: d.direccion,
+            telefono: d.telefono,
+            email: d.email,
+            fechaInstalacion: d.fecha || new Date().toISOString().split('T')[0],
+            cuadrillaInstaladora: d.cuadrilla,
+            observaciones: d.observaciones,
+            equipos: d.equipos.map(eq => ({...eq}))
+        };
+        DB.clientes.push(cli);
         added++;
     });
     
