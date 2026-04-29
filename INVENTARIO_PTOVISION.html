@@ -1365,12 +1365,10 @@ function renderExcelPreview() {
 function importExcelData() {
     const valid = excelImportData.filter(d=>!d.error);
     if(!valid.length) return alert('No hay datos válidos para importar');
-    
+
     let added = 0;
-    let merged = 0;
     valid.forEach((d, idx) => {
-        // Always create a new client - use idx to guarantee unique ID
-        const cli = {
+        DB.clientes.push({
             id: Date.now().toString() + '_' + idx + '_' + Math.random().toString(36).substr(2,6),
             nombre: d.nombre,
             bodegaId: d.bodegaId||'',
@@ -1381,31 +1379,38 @@ function importExcelData() {
             cuadrillaInstaladora: d.cuadrilla,
             observaciones: d.observaciones,
             equipos: d.equipos.map(eq => ({...eq}))
-        };
-        DB.clientes.push(cli);
+        });
         added++;
     });
-    
-    // Add to log directly without triggering save
+
     DB.logs.unshift({ msg: `Importación masiva: ${added} clientes desde Excel`, t: new Date().toISOString() });
     if(DB.logs.length > 60) DB.logs.pop();
-    
-    // Use immediate save for bulk import - bypass debounce
-    showSync('saving', 'Guardando ' + added + ' clientes...');
+
+    closeModal();
+    showSync('saving', `Guardando ${added} clientes...`);
+
     if(window._fbSaveImmediate) {
-        window._fbSaveImmediate().then(() => {
-            closeModal();
-            alert(`✅ ${added} clientes importados y guardados correctamente`);
-            renderClientes(document.getElementById('main-content'));
-        }).catch(e => {
-            console.error(e);
-            alert('❌ Error al guardar en Firebase. Intenta de nuevo.');
-        });
+        window._fbSaveImmediate()
+            .then(() => {
+                showSync('ok', `✓ ${added} clientes guardados`);
+                alert(`✅ ${added} clientes importados correctamente`);
+                renderClientes(document.getElementById('main-content'));
+            })
+            .catch(e => {
+                console.error(e);
+                // Fallback to regular save
+                if(window._fbSave) window._fbSave();
+                setTimeout(() => {
+                    alert(`✅ ${added} clientes importados (guardado en proceso)`);
+                    renderClientes(document.getElementById('main-content'));
+                }, 1500);
+            });
     } else {
         save();
-        closeModal();
-        alert(`✅ ${added} clientes importados correctamente`);
-        renderClientes(document.getElementById('main-content'));
+        setTimeout(() => {
+            alert(`✅ ${added} clientes importados correctamente`);
+            renderClientes(document.getElementById('main-content'));
+        }, 800);
     }
 }
 
