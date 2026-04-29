@@ -1272,30 +1272,48 @@ function handleExcelFile(file) {
                 const row = rows[i];
                 if(!row || !row[0] || String(row[0]).trim()==='') continue;
                 
-                const nombre = String(row[0]||'').trim();
-                const direccion = String(row[1]||'').trim();
-                const telefono = String(row[2]||'').trim();
-                const email = String(row[3]||'').trim();
+                // Skip reference row (starts with "Bodegas disponibles:")
+                if(String(row[0]).startsWith('Bodegas disponibles:')) continue;
+
+                // Col 0: Bodega, Col 1: Nombre, Col 2: Dir, etc.
+                // Support both old format (no Bodega col) and new format (with Bodega col)
+                let colOffset = 0;
+                let bodegaNombre = '';
+
+                // Detect if first column is a bodega name or client name
+                const firstCell = String(row[0]||'').trim();
+                const isBodegaCol = DB.bodegas.some(b => b.nombre.toLowerCase() === firstCell.toLowerCase());
+                if(isBodegaCol || DB.bodegas.find(b=>b.nombre.toLowerCase()===firstCell.toLowerCase())) {
+                    bodegaNombre = firstCell;
+                    colOffset = 1;
+                }
+
+                const nombre = String(row[colOffset+0]||'').trim();
+                const direccion = String(row[colOffset+1]||'').trim();
+                const telefono = String(row[colOffset+2]||'').trim();
+                const email = String(row[colOffset+3]||'').trim();
                 let fecha = '';
-                if(row[4]) {
-                    if(row[4] instanceof Date) { fecha = row[4].toISOString().split('T')[0]; }
+                if(row[colOffset+4]) {
+                    if(row[colOffset+4] instanceof Date) { fecha = row[colOffset+4].toISOString().split('T')[0]; }
                     else {
-                        const parts = String(row[4]).split(/[\/\-\.]/);
+                        const parts = String(row[colOffset+4]).split(/[\/\-\.]/);
                         if(parts.length===3) { fecha = `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`; }
-                        if(!fecha) fecha = String(row[4]).trim();
+                        if(!fecha) fecha = String(row[colOffset+4]).trim();
                     }
                 }
-                const cuadrilla = String(row[5]||'').trim();
-                const observaciones = String(row[6]||'').trim();
+                const cuadrilla = String(row[colOffset+5]||'').trim();
+                const observaciones = String(row[colOffset+6]||'').trim();
                 
-                // Leer equipos desde columna H (índice 7) en adelante
-                // Cada equipo ocupa 5 columnas: Nombre | Cantidad | Unidad | Tipo | SN
+                // Find bodegaId from bodega name
+                const bodegaId = DB.bodegas.find(b=>b.nombre.toLowerCase()===bodegaNombre.toLowerCase())?.id || '';
+                
+                // Leer equipos desde columna 8 con offset (índice 7+offset) en adelante
                 let equipos = [];
                 const MAX_EQUIPOS = 30;
                 for(let e=0; e<MAX_EQUIPOS; e++) {
-                    const base = 7 + (e * 5);
+                    const base = colOffset + 7 + (e * 5);
                     const eNom = String(row[base]||'').trim();
-                    if(!eNom) continue; // si no hay nombre de equipo, saltar
+                    if(!eNom) continue;
                     const eCant = parseInt(row[base+1])||1;
                     const eUnd = String(row[base+2]||'Und').trim();
                     const eTipo = String(row[base+3]||'nuevo').trim().toLowerCase();
@@ -1305,7 +1323,7 @@ function handleExcelFile(file) {
                 }
                 
                 if(!nombre) continue;
-                excelImportData.push({ nombre, direccion, telefono, email, fecha, cuadrilla, observaciones, equipos, error:false });
+                excelImportData.push({ nombre, bodegaNombre, bodegaId, direccion, telefono, email, fecha, cuadrilla, observaciones, equipos, error:false });
             }
             
             renderExcelPreview();
@@ -1325,9 +1343,10 @@ function renderExcelPreview() {
     let html = `<div class="alert" style="background:#e8f5e9;color:#2e7d32;padding:10px;margin:15px 0;">✅ <strong>${valid.length} clientes válidos</strong> listos para importar${invalid.length?` | ⚠️ ${invalid.length} con errores`:''}</div>`;
     
     if(valid.length > 0) {
-        html += `<div class="excel-preview-table"><table><thead><tr><th>#</th><th>Nombre</th><th>Dirección</th><th>Tel</th><th>Email</th><th>Fecha</th><th>Cuadrilla</th><th>Equipos</th><th></th></tr></thead><tbody>`;
+        html += `<div class="excel-preview-table"><table><thead><tr><th>#</th><th>Bodega</th><th>Nombre</th><th>Dirección</th><th>Tel</th><th>Fecha</th><th>Cuadrilla</th><th>Equipos</th><th></th></tr></thead><tbody>`;
         valid.forEach((d,i) => {
-            html += `<tr class="excel-row-ok"><td>${i+1}</td><td><strong>${d.nombre}</strong></td><td>${d.direccion}</td><td>${d.telefono}</td><td>${d.email}</td><td>${d.fecha}</td><td>${d.cuadrilla}</td><td>${d.equipos.length} items</td><td><span class="excel-success">✅ OK</span></td></tr>`;
+            const bodNom = d.bodegaNombre || (d.bodegaId ? DB.bodegas.find(b=>b.id===d.bodegaId)?.nombre : '') || '⚠️ Sin bodega';
+            html += `<tr class="excel-row-ok"><td>${i+1}</td><td>${bodNom}</td><td><strong>${d.nombre}</strong></td><td>${d.direccion}</td><td>${d.telefono}</td><td>${d.fecha}</td><td>${d.cuadrilla}</td><td>${d.equipos.length} items</td><td><span class="excel-success">✅ OK</span></td></tr>`;
         });
         html += '</tbody></table></div>';
     }
@@ -1346,7 +1365,7 @@ function importExcelData() {
         // Check if exists
         let cli = DB.clientes.find(c => c.nombre.toLowerCase() === d.nombre.toLowerCase());
         if(!cli) {
-            cli = { id: Date.now().toString() + Math.random().toString(36).substr(2,5), nombre: d.nombre, direccion: d.direccion, telefono: d.telefono, email: d.email, fechaInstalacion: d.fecha || new Date().toISOString().split('T')[0], cuadrillaInstaladora: d.cuadrilla, observaciones: d.observaciones, equipos: [] };
+            cli = { id: Date.now().toString() + Math.random().toString(36).substr(2,5), nombre: d.nombre, bodegaId: d.bodegaId||'', direccion: d.direccion, telefono: d.telefono, email: d.email, fechaInstalacion: d.fecha || new Date().toISOString().split('T')[0], cuadrillaInstaladora: d.cuadrilla, observaciones: d.observaciones, equipos: [] };
             DB.clientes.push(cli);
         } else {
             cli.direccion = cli.direccion || d.direccion;
@@ -1373,29 +1392,34 @@ function importExcelData() {
 
 function downloadTemplateExcel() {
     const MAX_EQUIPOS = 30;
-    // Construir cabeceras
-    const baseHeaders = ['Nombre Cliente','Dirección','Teléfono','Email','Fecha Instalación (YYYY-MM-DD)','Cuadrilla','Observaciones'];
+    // Bodega names for reference
+    const bodegaNames = DB.bodegas.map(b=>b.nombre).join(', ') || 'Nombre de la bodega';
+
+    // Construir cabeceras - Bodega added as first column
+    const baseHeaders = ['Bodega (nombre exacto)','Nombre Cliente','Dirección','Teléfono','Email','Fecha Instalación (YYYY-MM-DD)','Cuadrilla','Observaciones'];
     const eqHeaders = [];
     for(let i=1; i<=MAX_EQUIPOS; i++) {
         eqHeaders.push(`Equipo${i}`, `Cantidad${i}`, `Unidad${i}`, `Tipo${i} (nuevo/usado)`, `Seriales${i} (separar con coma)`);
     }
     const headers = [...baseHeaders, ...eqHeaders];
 
+    // Fila de referencia con bodegas disponibles
+    const refRow = [`Bodegas disponibles: ${bodegaNames}`, '', '', '', '', '', '', ''];
+    while(refRow.length < headers.length) refRow.push('');
+
     // Fila de ejemplo con 2 equipos
     const ejemplo = [
+        DB.bodegas[0]?.nombre || 'Nombre Bodega',
         'Juan Pérez','Calle 123 #45-67','3001234567','juan@email.com','2024-01-15','Cuadrilla A','Instalación residencial',
         'Router','2','Und','nuevo','R001,R002',
         'Cable UTP','100','m','nuevo',''
     ];
-    // Rellenar columnas vacías hasta completar 30 equipos
     while(ejemplo.length < headers.length) ejemplo.push('');
 
-    const ws = XLSX.utils.aoa_to_sheet([headers, ejemplo]);
+    const ws = XLSX.utils.aoa_to_sheet([headers, refRow, ejemplo]);
 
-    // Dar ancho a columnas base
-    ws['!cols'] = headers.map((h, i) => ({ wch: i < 7 ? 20 : (i % 5 === 0 ? 18 : 10) }));
-
-    // Congelar primera fila
+    // Column widths
+    ws['!cols'] = headers.map((h, i) => ({ wch: i === 0 ? 25 : (i < 8 ? 20 : (i % 5 === 0 ? 18 : 10)) }));
     ws['!freeze'] = { xSplit: 0, ySplit: 1 };
 
     const wb = XLSX.utils.book_new();
