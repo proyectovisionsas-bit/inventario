@@ -1614,11 +1614,11 @@ function renderVendedores(){
         ${filtrados.length===0
             ?'<p style="color:var(--muted);text-align:center;padding:30px;">Sin vendedores registrados.</p>'
             :`<div class="table-wrap"><table>
-            <thead><tr><th>Vendedor</th><th>Teléfono</th><th>Oficina(s)</th><th>% Instalación</th><th>% 1er mes</th><th>% 2do mes</th><th>Estado</th><th>Comisiones</th><th></th></tr></thead>
+            <thead><tr><th>Vendedor</th><th>Teléfono</th><th>Oficina(s)</th><th>% Inst</th><th>% M1</th><th>% M2</th><th>Estado</th><th>Ventas del mes · Comisiones</th><th></th></tr></thead>
             <tbody>
                 ${filtrados.map(v=>{
                     const oNombres=(v.oficinas||[]).map(oid=>(DB.oficinas||[]).find(o=>o.id===oid)?.nombre||oid).join(', ')||'<span style="color:var(--muted)">Global</span>';
-                    const comTotal=calcComisionesVendedor(v.id);
+                    const st=statsVendedor(v.id);
                     return `<tr>
                         <td><strong>${v.nombre}</strong><br><small style="color:var(--muted)">${v.cedula||''}</small></td>
                         <td>${v.telefono||'-'}</td>
@@ -1626,12 +1626,17 @@ function renderVendedores(){
                         <td><span class="tag tag-ing">${v.pctInstalacion||0}%</span></td>
                         <td><span class="tag tag-banc">${v.pct1Mes||0}%</span></td>
                         <td><span class="tag tag-ef">${v.pct2Mes||0}%</span></td>
-                        <td><span class="motivo-tag ${v.activo!==false?'motivo-activo':'motivo-retirado'}">${v.activo!==false?'Activo':'Inactivo'}</span></td>
-                        <td><strong class="money pos">${fmtShort(comTotal)}</strong></td>
+                        <td>
+                            <span class="motivo-tag ${v.activo!==false?'motivo-activo':'motivo-retirado'}">${v.activo!==false?'Activo':'Inactivo'}</span>
+                        </td>
+                        <td>
+                            <div style="font-size:0.72rem;color:var(--muted);">📋 ${st.totalVentas} venta(s) · 🔧${st.instaladas} · M1:${st.m1} · M2:${st.m2}</div>
+                            <div style="margin-top:3px;"><span class="money pos" style="font-size:0.9rem;font-weight:800;">${fmtShort(st.total)}</span>
+                            ${st.pendiente>0?`<span style="font-size:0.7rem;color:#f59e0b;margin-left:6px;">⏳ ${fmtShort(st.pendiente)} pend.</span>`:''}</div>
+                        </td>
                         <td style="display:flex;gap:5px;flex-wrap:wrap;">
                             <button class="btn btn-outline btn-sm" onclick="modalVerVendedor('${v.id}')">👁️</button>
                             <button class="btn btn-outline btn-sm" onclick="modalEditarVendedor('${v.id}')">✏️</button>
-                            <button class="btn btn-primary btn-sm" onclick="modalRegistrarComisionVendedor('${v.id}')">💰</button>
                             ${USER.role==='admin'?`<button class="btn btn-danger btn-sm" onclick="eliminarVendedor('${v.id}')">🗑️</button>`:''}
                         </td>
                     </tr>`;
@@ -1643,13 +1648,42 @@ function renderVendedores(){
     `;
 }
 
+// Calcula comisiones de un vendedor leyendo desde DB.ventas (fuente única)
 function calcComisionesVendedor(vid){
-    // Suma todas las comisiones del mes actual
     const mes=new Date().getMonth(), año=new Date().getFullYear();
-    return (DB.vendedores||[]).find(v=>v.id===vid)?.comisiones?.filter(c=>{
-        const d=new Date(c.fecha);
+    return (DB.ventas||[]).filter(v=>{
+        if(v.vendedorId!==vid) return false;
+        const d=new Date(v.fecha);
         return d.getMonth()===mes&&d.getFullYear()===año;
-    }).reduce((s,c)=>s+parseFloat(c.valor||0),0)||0;
+    }).reduce((s,v)=>{
+        return s+(v.comisionInst||0)+(v.comisionM1||0)+(v.comisionM2||0);
+    },0);
+}
+
+// Estadísticas completas de un vendedor desde DB.ventas
+function statsVendedor(vid){
+    const mes=new Date().getMonth(), año=new Date().getFullYear();
+    const ventasMes=(DB.ventas||[]).filter(v=>{
+        if(v.vendedorId!==vid) return false;
+        const d=new Date(v.fecha);
+        return d.getMonth()===mes&&d.getFullYear()===año;
+    });
+    const totalVentas=ventasMes.length;
+    const instaladas=ventasMes.filter(v=>v.pagoInst).length;
+    const m1=ventasMes.filter(v=>v.pagoM1).length;
+    const m2=ventasMes.filter(v=>v.pagoM2).length;
+    const comInst=ventasMes.reduce((s,v)=>s+(v.comisionInst||0),0);
+    const comM1=ventasMes.reduce((s,v)=>s+(v.comisionM1||0),0);
+    const comM2=ventasMes.reduce((s,v)=>s+(v.comisionM2||0),0);
+    const total=comInst+comM1+comM2;
+    const pendiente=ventasMes.reduce((s,v)=>{
+        let p=0;
+        if(v.instalado&&!v.pagoInst) p+=(v.valor||0)*((v.pct?.instalacion||0)/100);
+        if(!v.pagoM1) p+=(v.valor||0)*((v.pct?.primerMes||0)/100);
+        if(!v.pagoM2) p+=(v.valor||0)*((v.pct?.segundoMes||0)/100);
+        return s+p;
+    },0);
+    return {totalVentas,instaladas,m1,m2,comInst,comM1,comM2,total,pendiente,ventasMes};
 }
 
 function renderTablaComisiones(filtOfi){
@@ -1886,33 +1920,52 @@ function actualizarVendedor(vid){
 function modalVerVendedor(vid){
     const v=(DB.vendedores||[]).find(x=>x.id===vid);
     if(!v) return;
-    const mes=new Date().getMonth(), año=new Date().getFullYear();
-    const comMes=(v.comisiones||[]).filter(c=>{const d=new Date(c.fecha);return d.getMonth()===mes&&d.getFullYear()===año;});
-    const totalMes=comMes.reduce((s,c)=>s+parseFloat(c.valor||0),0);
-    const pendiente=comMes.filter(c=>!c.pagado).reduce((s,c)=>s+parseFloat(c.valor||0),0);
-    const pagado=comMes.filter(c=>c.pagado).reduce((s,c)=>s+parseFloat(c.valor||0),0);
+    const st=statsVendedor(vid);
+    const bono=calcularBono(st.m1);
+    // Filas detalladas desde DB.ventas
+    const filas=st.ventasMes.slice().reverse();
     openModal('🧑‍💼 '+v.nombre,`
-        <div class="reporte-resumen">
-            <div class="reporte-item"><div class="r-label">📦 Comisión Instalación</div><div class="r-val" style="font-size:1rem;">${v.pctInstalacion||0}%</div></div>
-            <div class="reporte-item"><div class="r-label">📅 Comisión 1er Mes</div><div class="r-val" style="font-size:1rem;">${v.pct1Mes||0}%</div></div>
-            <div class="reporte-item"><div class="r-label">📅 Comisión 2do Mes</div><div class="r-val" style="font-size:1rem;">${v.pct2Mes||0}%</div></div>
-            <div class="reporte-item"><div class="r-label">💰 Total mes</div><div class="r-val" style="color:#10b981">${fmtShort(totalMes)}</div></div>
-            <div class="reporte-item"><div class="r-label">✅ Pagado</div><div class="r-val" style="color:#10b981;font-size:1rem;">${fmtShort(pagado)}</div></div>
-            <div class="reporte-item"><div class="r-label">⏳ Pendiente</div><div class="r-val" style="color:#f59e0b;font-size:1rem;">${fmtShort(pendiente)}</div></div>
+        <p style="font-size:0.8rem;color:var(--muted);margin-bottom:12px;">
+            📱 ${v.telefono||'-'} &nbsp;|&nbsp; 🪪 ${v.cedula||'-'} &nbsp;|&nbsp;
+            🏢 ${(v.oficinas||[]).map(oid=>(DB.oficinas||[]).find(o=>o.id===oid)?.nombre||oid).join(', ')||'Global'}
+        </p>
+        <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+            <div style="background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:8px;padding:8px 14px;font-size:0.8rem;">
+                % Def: 🔧${v.pctInstalacion||0} · M1:${v.pct1Mes||0} · M2:${v.pct2Mes||0}
+            </div>
         </div>
-        <p style="font-size:0.8rem;color:var(--muted);margin:10px 0 4px;"><strong style="color:var(--text)">Teléfono:</strong> ${v.telefono||'-'} &nbsp;|&nbsp; <strong style="color:var(--text)">Cédula:</strong> ${v.cedula||'-'}</p>
-        <p style="font-size:0.8rem;color:var(--muted);margin-bottom:12px;"><strong style="color:var(--text)">Oficinas:</strong> ${(v.oficinas||[]).map(oid=>(DB.oficinas||[]).find(o=>o.id===oid)?.nombre||oid).join(', ')||'Global'}</p>
-        <h4 style="font-size:0.85rem;margin-bottom:8px;">Historial de comisiones este mes:</h4>
-        ${comMes.length===0?'<p style="color:var(--muted);font-size:0.82rem;">Sin comisiones este mes.</p>':
+        <div class="reporte-resumen" style="margin-bottom:14px;">
+            <div class="reporte-item"><div class="r-label">📋 Ventas mes</div><div class="r-val" style="color:#3b82f6;">${st.totalVentas}</div></div>
+            <div class="reporte-item"><div class="r-label">🔧 Com. Instalación</div><div class="r-val" style="color:#10b981;">${fmtShort(st.comInst)}</div></div>
+            <div class="reporte-item"><div class="r-label">📅 Com. 1er Mes</div><div class="r-val" style="color:#3b82f6;">${fmtShort(st.comM1)}</div></div>
+            <div class="reporte-item"><div class="r-label">📅 Com. 2do Mes</div><div class="r-val" style="color:#f59e0b;">${fmtShort(st.comM2)}</div></div>
+            <div class="reporte-item"><div class="r-label">💰 Total comisiones</div><div class="r-val" style="color:#10b981;">${fmtShort(st.total)}</div></div>
+            <div class="reporte-item" style="${bono>0?'background:rgba(245,158,11,0.1);border-color:rgba(245,158,11,0.3);':''}">
+                <div class="r-label">🎁 Bono (${st.m1} con M1)</div>
+                <div class="r-val" style="color:#f59e0b;">${fmtShort(bono)}</div>
+            </div>
+        </div>
+        ${st.pendiente>0?`<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:0.82rem;">
+            ⏳ <strong style="color:#f59e0b;">Comisiones por cobrar: ${fmtShort(st.pendiente)}</strong>
+        </div>`:''}
+        <h4 style="font-size:0.85rem;margin-bottom:8px;color:var(--text);">📋 Detalle de ventas del mes:</h4>
+        ${filas.length===0?'<p style="color:var(--muted);font-size:0.82rem;padding:10px;">Sin ventas registradas este mes.</p>':
         `<div class="table-wrap"><table>
-            <thead><tr><th>Tipo</th><th>Cliente</th><th>Valor</th><th>Estado</th></tr></thead>
-            <tbody>${comMes.map(c=>`<tr>
-                <td>${c.tipo==='instalacion'?'🔧 Instalación':c.tipo==='primer_mes'?'📅 1er Mes':'📅 2do Mes'}</td>
-                <td>${c.cliente||'-'}</td>
-                <td class="money pos">${fmtShort(c.valor)}</td>
-                <td><span class="motivo-tag ${c.pagado?'motivo-activo':'motivo-moroso'}">${c.pagado?'Pagado':'Pendiente'}</span></td>
+            <thead><tr><th>Fecha</th><th>Cliente</th><th>Plan</th><th>Valor</th><th>🔧 Inst</th><th>📅 M1</th><th>📅 M2</th><th>Total com.</th></tr></thead>
+            <tbody>${filas.map(vv=>`<tr>
+                <td style="font-size:0.75rem;color:var(--muted);">${vv.fecha||'-'}</td>
+                <td>${vv.cliente||'-'}</td>
+                <td style="font-size:0.75rem;color:var(--muted);">${vv.plan||'-'}</td>
+                <td class="money pos">${fmtShort(vv.valor||0)}</td>
+                <td style="text-align:center;">${vv.pagoInst?'<span style="color:#10b981">✅</span>':'<span style="color:#64748b">⏳</span>'}</td>
+                <td style="text-align:center;">${vv.pagoM1?'<span style="color:#10b981">✅</span>':'<span style="color:#64748b">⏳</span>'}</td>
+                <td style="text-align:center;">${vv.pagoM2?'<span style="color:#10b981">✅</span>':'<span style="color:#64748b">⏳</span>'}</td>
+                <td class="money pos"><strong>${fmtShort((vv.comisionInst||0)+(vv.comisionM1||0)+(vv.comisionM2||0))}</strong></td>
             </tr>`).join('')}</tbody>
         </table></div>`}
+        <div style="text-align:right;margin-top:12px;font-size:0.85rem;font-weight:700;color:#10b981;">
+            Total a pagar: ${fmtShort(st.total+bono)}
+        </div>
     `,'');
 }
 
