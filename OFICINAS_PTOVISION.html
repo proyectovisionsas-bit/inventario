@@ -21,6 +21,35 @@
             --muted: #64748b;
             --card-shadow: 0 4px 24px rgba(0,0,0,0.4);
         }
+        body.light-mode {
+            --bg: #f0f4f8;
+            --surface: #ffffff;
+            --surface2: #e8edf3;
+            --border: #cbd5e1;
+            --accent: #059669;
+            --accent2: #10b981;
+            --danger: #dc2626;
+            --warning: #d97706;
+            --info: #2563eb;
+            --text: #1e293b;
+            --muted: #64748b;
+            --card-shadow: 0 4px 24px rgba(0,0,0,0.08);
+        }
+        body.light-mode .login-screen,
+        body.light-mode #login-screen {
+            background: radial-gradient(ellipse at 30% 40%, rgba(16,185,129,0.15) 0%, transparent 60%),
+                        linear-gradient(160deg,#e0f2f1 0%,#f0fdf4 60%,#ecfdf5 100%);
+        }
+        body.light-mode .bar-track { background:rgba(0,0,0,0.07); }
+        body.light-mode .stat-card { box-shadow:0 2px 12px rgba(0,0,0,0.06); }
+        body.light-mode select.form-control option { background:#fff; color:#1e293b; }
+        .theme-toggle {
+            background:none; border:1.5px solid var(--border);
+            border-radius:20px; padding:5px 12px; cursor:pointer;
+            color:var(--text); font-size:0.82rem; transition:0.2s;
+            display:flex; align-items:center; gap:6px;
+        }
+        .theme-toggle:hover { border-color:var(--accent); }
         * { margin:0; padding:0; box-sizing:border-box; }
         body { font-family:'Segoe UI',system-ui,sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
         .hidden { display:none!important; }
@@ -274,6 +303,7 @@
         </div>
         <div class="header-right">
             <span id="clock" style="font-size:0.78rem;color:var(--muted);"></span>
+            <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn">🌙 Nocturno</button>
             <button class="btn btn-outline btn-sm admin-only" onclick="openAdminPanel()">⚙️ Admin</button>
             <button class="btn btn-outline btn-sm oficina-only" onclick="modalCambiarPass()">🔑 Cambiar clave</button>
             <button class="btn btn-danger btn-sm" onclick="doLogout()">🚪 Salir</button>
@@ -284,6 +314,8 @@
         <button class="nav-btn" data-tab="registro">📝 Registro Diario</button>
         <button class="nav-btn" data-tab="clientes">👥 Clientes</button>
         <button class="nav-btn" data-tab="reportes">📈 Reportes</button>
+        <button class="nav-btn" data-tab="vendedores">🧑‍💼 Vendedores</button>
+        <button class="nav-btn" data-tab="ventas">📋 Ventas</button>
         <button class="nav-btn admin-only" data-tab="administracion">🛠️ Administración</button>
     </nav>
     <div class="container" id="appContent"></div>
@@ -304,7 +336,11 @@ let DB = {
     oficinas: [],
     adminPass: 'admin123',
     solicitudes: [],
-    logs: []
+    logs: [],
+    vendedores: [],
+    metas: [],
+    ventas: [],
+    bonusTiers: [{clientes:10,bono:200000},{clientes:20,bono:350000}]
 };
 let USER = null;
 let selOficinaLogin = null;
@@ -322,6 +358,15 @@ const CONCEPTOS_EGR = [
 const ESTADO_CLIENTE = ['Activo','Moroso','Retirado','Suspendido'];
 const PLANES = ['Internet 10Mb','Internet 20Mb','Internet 30Mb','Internet 50Mb',
     'Internet + TV Básico','Internet + TV Premium','Solo TV','Otro'];
+const PROMOS = {
+    'SIN_PROMOCION':{label:'Sin promoción',color:'#64748b'},
+    '1_MES_GRATIS':{label:'1 Mes Gratis',color:'#10b981'},
+    '6_MESES_GRATIS':{label:'6 Meses Gratis',color:'#3b82f6'},
+    '12_MESES_GRATIS':{label:'12 Meses Gratis',color:'#f59e0b'},
+    '50_PORCIENTO':{label:'50% Descuento',color:'#ef4444'},
+    'OTRA':{label:'Otra',color:'#8b5cf6'}
+};
+
 const MOTIVOS_NO_PAGO = ['Falta de dinero','Viaje','Problemas con el servicio',
     'Cambio de operador','Desconoce deuda','Sin contacto','Otro'];
 
@@ -402,6 +447,7 @@ function enterApp(){
     document.getElementById('login-screen').style.display='none';
     document.getElementById('app').classList.remove('hidden');
     applyRoles(); setupNav(); navigate('dash');
+    setTimeout(applyStoredTheme,50);
     setInterval(()=>{
         const c=document.getElementById('clock');
         if(c) c.textContent=new Date().toLocaleTimeString('es-CO');
@@ -425,8 +471,25 @@ function setupNav(){
 
 function navigate(tab){
     document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
-    const renders = { dash:renderDash, registro:renderRegistro, clientes:renderClientes, reportes:renderReportes, administracion:renderAdmin };
+    const renders = { dash:renderDash, registro:renderRegistro, clientes:renderClientes, reportes:renderReportes, vendedores:renderVendedores, incentivos:renderIncentivos, ventas:renderVentas2, administracion:renderAdmin };
     if(renders[tab]) renders[tab]();
+}
+
+function toggleTheme(){
+    const isLight=document.body.classList.toggle('light-mode');
+    const btn=document.getElementById('themeBtn');
+    if(btn) btn.textContent=isLight?'🌑 Nocturno':'🌙 Nocturno';
+    if(btn) btn.style.background=isLight?'rgba(5,150,105,0.1)':'';
+    localStorage.setItem('pv_theme',isLight?'light':'dark');
+}
+
+function applyStoredTheme(){
+    const t=localStorage.getItem('pv_theme');
+    if(t==='light'){
+        document.body.classList.add('light-mode');
+        const btn=document.getElementById('themeBtn');
+        if(btn) btn.textContent='🌑 Nocturno';
+    }
 }
 
 function doLogout(){
@@ -714,9 +777,9 @@ function registrarMovimiento(oid,tipo){
     const pfx=tipo==='ingreso'?'ing':'egr';
     const concepto=document.getElementById(pfx+'_concepto').value;
     const forma=document.getElementById(pfx+'_forma').value;
-    const valor=parseFloat(document.getElementById(pfx+'_valor').value||0);
+    const valorStr=document.getElementById(pfx+'_valor').value; const valor=valorStr===''?null:parseFloat(valorStr);
     const desc=document.getElementById(pfx+'_desc').value.trim();
-    if(!valor||valor<=0) return alert('⚠️ Ingresa un valor válido');
+    if(valor===null||valor===undefined||isNaN(valor)||valor<0) return alert('⚠️ Ingresa un valor válido (puede ser 0)');
     const o=DB.oficinas.find(x=>x.id===oid);
     if(!o) return;
     if(!o.movimientos) o.movimientos=[];
@@ -813,7 +876,11 @@ function renderClientes(){
     <div class="card">
         <div class="card-header">
             <h2>👥 Clientes <span>${o?.nombre||''} · ${filtrados.length} resultados</span></h2>
-            <button class="btn btn-primary" onclick="modalAgregarCliente('${oid}')">➕ Nuevo Cliente</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-outline btn-sm" onclick="descargarPlantillaExcel()">📥 Plantilla Excel</button>
+                <button class="btn btn-outline btn-sm" onclick="modalImportarExcel('${oid}')">📤 Importar Excel</button>
+                <button class="btn btn-primary" onclick="modalAgregarCliente('${oid}')">➕ Nuevo Cliente</button>
+            </div>
         </div>
         <div class="search-bar">
             <input class="form-control" type="text" placeholder="🔍 Buscar por nombre, teléfono, dirección..." value="${window._qCli||''}"
@@ -851,6 +918,10 @@ function renderClientes(){
 }
 
 function modalAgregarCliente(oid){
+    const vendedoresDisp=(DB.vendedores||[]).filter(v=>{
+        if(USER.role==='oficina') return (v.oficinas||[]).includes(USER.id)||!v.oficinas||v.oficinas.length===0;
+        return true;
+    });
     openModal('➕ Nuevo Cliente',`
     <div class="form-row">
         <div class="form-group-dark"><label>Nombre Completo *</label><input id="c_nombre" class="form-control" placeholder="Nombre del cliente"></div>
@@ -863,14 +934,83 @@ function modalAgregarCliente(oid){
         </div>
     </div>
     <div class="form-row">
-        <div class="form-group-dark"><label>Tarifa Mensual (COP)</label><input type="number" id="c_tarifa" class="form-control" placeholder="0"></div>
+        <div class="form-group-dark"><label>Tarifa Mensual (COP)</label><input type="number" id="c_tarifa" class="form-control" placeholder="0" oninput="recalcComisiones()"></div>
         <div class="form-group-dark"><label>Estado</label>
             <select id="c_estado" class="form-control">${ESTADO_CLIENTE.map(e=>`<option>${e}</option>`).join('')}</select>
         </div>
     </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>🧑‍💼 Vendedor que lo instaló</label>
+            <select id="c_vendedor" class="form-control" onchange="cargarPctVendedor()">
+                <option value="">Sin vendedor asignado</option>
+                ${vendedoresDisp.map(v=>`<option value="${v.id}" data-p1="${v.pctInstalacion||0}" data-p2="${v.pct1Mes||0}" data-p3="${v.pct2Mes||0}">${v.nombre}</option>`).join('')}
+            </select>
+        </div>
+        <div class="form-group-dark"><label>📅 Fecha de Instalación</label>
+            <input type="date" id="c_fecha_inst" class="form-control" value="${new Date().toISOString().slice(0,10)}">
+        </div>
+    </div>
+
+    <div id="com_panel" style="display:none;margin-top:4px;">
+        <div style="background:rgba(16,185,129,0.07);border:1px solid rgba(16,185,129,0.2);border-radius:10px;padding:14px;margin-bottom:10px;">
+            <p style="font-size:0.8rem;font-weight:700;color:var(--accent);margin-bottom:10px;">💰 Porcentajes de comisión para esta venta</p>
+            <p style="font-size:0.73rem;color:var(--muted);margin-bottom:10px;">Cargados del vendedor — puedes ajustarlos para esta venta específica. La suma puede ser hasta 100%.</p>
+            <div class="form-row">
+                <div class="form-group-dark">
+                    <label>% Al instalar</label>
+                    <input type="number" id="c_pct1" class="form-control" min="0" max="100" placeholder="0" oninput="recalcComisiones()">
+                    <small id="c_val1" style="color:var(--accent);font-size:0.72rem;margin-top:3px;display:block;"></small>
+                </div>
+                <div class="form-group-dark">
+                    <label>% 1er mes</label>
+                    <input type="number" id="c_pct2" class="form-control" min="0" max="100" placeholder="0" oninput="recalcComisiones()">
+                    <small id="c_val2" style="color:#3b82f6;font-size:0.72rem;margin-top:3px;display:block;"></small>
+                </div>
+                <div class="form-group-dark">
+                    <label>% 2do mes</label>
+                    <input type="number" id="c_pct3" class="form-control" min="0" max="100" placeholder="0" oninput="recalcComisiones()">
+                    <small id="c_val3" style="color:#f59e0b;font-size:0.72rem;margin-top:3px;display:block;"></small>
+                </div>
+            </div>
+            <div id="c_total_com" style="font-size:0.8rem;color:var(--muted);margin-top:4px;"></div>
+        </div>
+    </div>
+
     <div class="form-group-dark"><label>Observaciones</label><textarea id="c_obs" class="form-control" placeholder="Notas adicionales..."></textarea></div>
     `,`<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
        <button class="btn btn-primary" onclick="guardarCliente('${oid}')">✅ Guardar</button>`);
+}
+
+function cargarPctVendedor(){
+    const sel=document.getElementById('c_vendedor');
+    const opt=sel.options[sel.selectedIndex];
+    const panel=document.getElementById('com_panel');
+    if(!sel.value){ panel.style.display='none'; return; }
+    panel.style.display='';
+    document.getElementById('c_pct1').value=opt.dataset.p1||0;
+    document.getElementById('c_pct2').value=opt.dataset.p2||0;
+    document.getElementById('c_pct3').value=opt.dataset.p3||0;
+    recalcComisiones();
+}
+
+function recalcComisiones(){
+    const tarifa=parseFloat(document.getElementById('c_tarifa')?.value||0);
+    const p1=parseFloat(document.getElementById('c_pct1')?.value||0);
+    const p2=parseFloat(document.getElementById('c_pct2')?.value||0);
+    const p3=parseFloat(document.getElementById('c_pct3')?.value||0);
+    const v1=document.getElementById('c_val1');
+    const v2=document.getElementById('c_val2');
+    const v3=document.getElementById('c_val3');
+    const tot=document.getElementById('c_total_com');
+    if(v1) v1.textContent=tarifa?'= '+fmtShort(tarifa*p1/100):'';
+    if(v2) v2.textContent=tarifa?'= '+fmtShort(tarifa*p2/100):'';
+    if(v3) v3.textContent=tarifa?'= '+fmtShort(tarifa*p3/100):'';
+    if(tot){
+        const suma=p1+p2+p3;
+        const total=tarifa*(suma/100);
+        tot.innerHTML=`Total distribuido: <strong style="color:${suma>100?'#ef4444':'var(--accent)'}">${suma}%</strong>${tarifa?' = '+fmtShort(total):''}
+            ${suma>100?'<span style="color:#ef4444;margin-left:8px;">⚠️ Supera 100%</span>':''}`;
+    }
 }
 
 function guardarCliente(oid){
@@ -879,37 +1019,176 @@ function guardarCliente(oid){
     const o=DB.oficinas.find(x=>x.id===oid);
     if(!o) return;
     if(!o.clientes) o.clientes=[];
+    const tarifa=parseFloat(document.getElementById('c_tarifa').value||0);
+    const vendedorId=document.getElementById('c_vendedor')?.value||'';
+    const fechaInst=document.getElementById('c_fecha_inst')?.value||new Date().toISOString().slice(0,10);
+    // Porcentajes por venta (pueden diferir del vendedor)
+    const pct1=parseFloat(document.getElementById('c_pct1')?.value||0);
+    const pct2=parseFloat(document.getElementById('c_pct2')?.value||0);
+    const pct3=parseFloat(document.getElementById('c_pct3')?.value||0);
+    const cid=uid();
     o.clientes.push({
-        id:uid(), nombre,
+        id:cid, nombre,
         telefono:document.getElementById('c_tel').value.trim(),
         direccion:document.getElementById('c_dir').value.trim(),
         plan:document.getElementById('c_plan').value,
-        tarifaMensual:parseFloat(document.getElementById('c_tarifa').value||0),
+        tarifaMensual:tarifa,
         estado:document.getElementById('c_estado').value,
         observaciones:document.getElementById('c_obs').value.trim(),
+        vendedorId, fechaInstalacion:fechaInst,
+        // Guardar porcentajes específicos de esta venta
+        comisionPct:{instalacion:pct1, primerMes:pct2, segundoMes:pct3},
+        comisionesEstado:{instalacion:'pendiente', primerMes:'pendiente', segundoMes:'pendiente'},
         fechaRegistro:now()
     });
+    // Generar comisión de instalación si hay vendedor y % > 0
+    if(vendedorId && pct1>0){
+        const v=DB.vendedores.find(x=>x.id===vendedorId);
+        if(v){
+            if(!v.comisiones) v.comisiones=[];
+            const valorCom=tarifa*(pct1/100);
+            v.comisiones.push({
+                id:uid(), tipo:'instalacion', valor:valorCom,
+                cliente:nombre, clienteId:cid,
+                plan:document.getElementById('c_plan').value,
+                planValor:tarifa, pct:pct1,
+                pagado:false, fecha:now(), oid
+            });
+            // Marcar instalación como generada automáticamente
+            const clienteGuardado=(o.clientes||[]).find(x=>x.id===cid);
+            if(clienteGuardado) clienteGuardado.comisionesEstado.instalacion='generada';
+            verificarIncentivosVendedor(vendedorId);
+        }
+    }
     save(); closeModal(); renderClientes();
 }
 
 function modalVerCliente(oid,cid){
-    const o=getOficina(oid);
+    // Buscar oficina — tanto admin como jefe de oficina pueden acceder
+    const o=DB.oficinas.find(x=>x.id===oid)||getOficina(oid);
     const c=(o?.clientes||[]).find(x=>x.id===cid);
     if(!c) return;
+    const v=c.vendedorId?(DB.vendedores||[]).find(x=>x.id===c.vendedorId):null;
+    const ce=c.comisionesEstado||{instalacion:'pendiente',primerMes:'pendiente',segundoMes:'pendiente'};
+
+    // Helper para cada fila de comisión
+    // Usar porcentajes de la venta si existen, si no los del vendedor
+    const cp=c.comisionPct||{instalacion:v.pctInstalacion||0,primerMes:v.pct1Mes||0,segundoMes:v.pct2Mes||0};
+    function filaComision(label, emoji, tipoKey, tipoLabel, pct){
+        const est=ce[tipoKey]||'pendiente';
+        const valor=(c.tarifaMensual||0)*(pct/100);
+        const colores={pendiente:'#64748b',generada:'#f59e0b',pagada:'#10b981'};
+        const iconos={pendiente:'⏳',generada:'💰',pagada:'✅'};
+        const textos={pendiente:'PENDIENTE',generada:'GENERADO',pagada:'PAGADO'};
+        const bgColor={pendiente:'rgba(100,116,139,0.08)',generada:'rgba(245,158,11,0.08)',pagada:'rgba(16,185,129,0.08)'};
+        const bdColor={pendiente:'rgba(100,116,139,0.2)',generada:'rgba(245,158,11,0.3)',pagada:'rgba(16,185,129,0.3)'};
+        return `
+        <div style="background:${bgColor[est]};border:1.5px solid ${bdColor[est]};border-radius:12px;padding:14px 16px;margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <div style="font-size:1.8rem;">${iconos[est]}</div>
+                    <div>
+                        <div style="font-weight:700;font-size:0.92rem;">${emoji} ${label}</div>
+                        <div style="font-size:0.75rem;color:var(--muted);margin-top:2px;">${pct}% del plan mensual</div>
+                        <div style="font-size:1.1rem;font-weight:800;color:${colores[est]};margin-top:3px;">${fmtShort(valor)}</div>
+                    </div>
+                </div>
+                <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+                    <span style="font-size:0.7rem;font-weight:800;color:${colores[est]};background:${bgColor[est]};border:1px solid ${bdColor[est]};padding:3px 10px;border-radius:20px;">${textos[est]}</span>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
+                        ${est==='pendiente'?`<button class="btn btn-primary btn-sm" onclick="accionComision('${oid}','${cid}','${tipoKey}','generar')">💰 Generar comisión</button>`:''}
+                        ${est==='generada'?`<button class="btn btn-primary btn-sm" onclick="accionComision('${oid}','${cid}','${tipoKey}','pagar')">✅ Marcar como pagada</button>`:''}
+                        ${est==='pagada'?`<button class="btn btn-danger btn-sm" onclick="accionComision('${oid}','${cid}','${tipoKey}','eliminar')">🗑️ Eliminar</button>`:''}
+                        ${est!=='pendiente'?`<button class="btn btn-outline btn-sm" onclick="accionComision('${oid}','${cid}','${tipoKey}','revertir')">↩️ Revertir</button>`:''}
+                    </div>
+                </div>
+            </div>
+        </div>`;
+    }
+
     openModal('👁️ '+c.nombre,`
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
-            <div class="reporte-item"><div class="r-label">Plan</div><div class="r-val" style="font-size:1rem;">${c.plan||'-'}</div></div>
-            <div class="reporte-item"><div class="r-label">Tarifa mensual</div><div class="r-val">${fmtShort(c.tarifaMensual||0)}</div></div>
-            <div class="reporte-item"><div class="r-label">Teléfono</div><div class="r-val" style="font-size:1rem;">${c.telefono||'-'}</div></div>
-            <div class="reporte-item"><div class="r-label">Estado</div><div class="r-val" style="font-size:1rem;">${c.estado||'Activo'}</div></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+            <div class="reporte-item"><div class="r-label">📦 Plan</div><div class="r-val" style="font-size:0.95rem;">${c.plan||'-'}</div></div>
+            <div class="reporte-item"><div class="r-label">💵 Tarifa mensual</div><div class="r-val">${fmtShort(c.tarifaMensual||0)}</div></div>
+            <div class="reporte-item"><div class="r-label">📱 Teléfono</div><div class="r-val" style="font-size:0.95rem;">${c.telefono||'-'}</div></div>
+            <div class="reporte-item"><div class="r-label">🔴 Estado</div><div class="r-val" style="font-size:0.95rem;">${c.estado||'Activo'}</div></div>
         </div>
-        <p style="font-size:0.85rem;color:var(--muted);margin-bottom:6px;"><strong style="color:var(--text);">Dirección:</strong> ${c.direccion||'-'}</p>
-        ${c.motivoNoPago?`<p style="font-size:0.85rem;color:var(--muted);"><strong style="color:var(--text);">Motivo no pago:</strong> ${c.motivoNoPago}</p>`:''}
-        ${c.motivoRetiro?`<p style="font-size:0.85rem;color:var(--muted);"><strong style="color:var(--text);">Motivo retiro:</strong> ${c.motivoRetiro}</p>`:''}
-        ${c.observaciones?`<p style="font-size:0.85rem;color:var(--muted);margin-top:8px;"><strong style="color:var(--text);">Observaciones:</strong> ${c.observaciones}</p>`:''}
-        <p style="font-size:0.72rem;color:var(--muted);margin-top:12px;">Registrado: ${new Date(c.fechaRegistro||Date.now()).toLocaleDateString('es-CO')}</p>
-    `,'');
+        <p style="font-size:0.82rem;color:var(--muted);margin-bottom:4px;">📍 <strong style="color:var(--text);">Dirección:</strong> ${c.direccion||'-'}</p>
+        <p style="font-size:0.82rem;color:var(--muted);margin-bottom:4px;">🧑‍💼 <strong style="color:var(--text);">Vendedor:</strong> ${v?v.nombre:'Sin asignar'}</p>
+        <p style="font-size:0.82rem;color:var(--muted);margin-bottom:14px;">📅 <strong style="color:var(--text);">Fecha instalación:</strong> ${c.fechaInstalacion||'-'}</p>
+
+        ${v?`
+        <div style="margin-bottom:14px;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                <span style="font-size:0.85rem;font-weight:800;color:var(--accent);">💰 COMISIONES — ${v.nombre}</span>
+                <span style="font-size:0.7rem;color:var(--muted);background:rgba(255,255,255,0.05);padding:2px 8px;border-radius:10px;">
+                    Total: ${fmtShort(((c.tarifaMensual||0)*((cp.instalacion||0)+(cp.primerMes||0)+(cp.segundoMes||0))/100))}
+                </span>
+            </div>
+            ${filaComision('Al instalar el cliente','🔧','instalacion','instalacion',cp.instalacion||0)}
+            ${filaComision('Cuando paga el 1er mes','📅','primerMes','primer_mes',cp.primerMes||0)}
+            ${filaComision('Cuando paga el 2do mes','📅','segundoMes','segundo_mes',cp.segundoMes||0)}
+        </div>`:`
+        <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:12px;margin-bottom:12px;font-size:0.82rem;color:#f59e0b;">
+            ⚠️ Este cliente no tiene vendedor asignado. Edítalo para asignar uno.
+        </div>`}
+
+        ${c.motivoNoPago?`<p style="font-size:0.82rem;color:var(--muted);margin-bottom:4px;">⚠️ <strong style="color:var(--text);">Motivo no pago:</strong> ${c.motivoNoPago}</p>`:''}
+        ${c.motivoRetiro?`<p style="font-size:0.82rem;color:var(--muted);margin-bottom:4px;">↩️ <strong style="color:var(--text);">Motivo retiro:</strong> ${c.motivoRetiro}</p>`:''}
+        ${c.observaciones?`<p style="font-size:0.82rem;color:var(--muted);margin-top:6px;">📝 <strong style="color:var(--text);">Observaciones:</strong> ${c.observaciones}</p>`:''}
+        <p style="font-size:0.7rem;color:var(--muted);margin-top:10px;">Registrado: ${new Date(c.fechaRegistro||Date.now()).toLocaleDateString('es-CO')}</p>
+    `,`<button class="btn btn-outline" onclick="closeModal()">Cerrar</button>
+       <button class="btn btn-outline" onclick="closeModal();setTimeout(()=>modalEditarCliente('${oid}','${cid}'),100)">✏️ Editar cliente</button>`);
 }
+
+// Función central de acciones de comisión — accesible para admin Y jefes de oficina
+function accionComision(oid, cid, tipoKey, accion){
+    const o=DB.oficinas.find(x=>x.id===oid);
+    const c=(o?.clientes||[]).find(x=>x.id===cid);
+    if(!c) return;
+    const v=c.vendedorId?(DB.vendedores||[]).find(x=>x.id===c.vendedorId):null;
+    if(!v) return alert('Este cliente no tiene vendedor asignado');
+    const ce=c.comisionesEstado||{instalacion:'pendiente',primerMes:'pendiente',segundoMes:'pendiente'};
+    const tipoLabel=tipoKey==='instalacion'?'instalacion':tipoKey==='primerMes'?'primer_mes':'segundo_mes';
+    const cp2=c.comisionPct||{instalacion:v.pctInstalacion||0,primerMes:v.pct1Mes||0,segundoMes:v.pct2Mes||0};
+    const pct=tipoKey==='instalacion'?(cp2.instalacion||0):tipoKey==='primerMes'?(cp2.primerMes||0):(cp2.segundoMes||0);
+    const valor=(c.tarifaMensual||0)*(pct/100);
+
+    if(accion==='generar'){
+        if(!v.comisiones) v.comisiones=[];
+        const yaExiste=v.comisiones.find(x=>x.clienteId===cid&&x.tipo===tipoLabel);
+        if(!yaExiste) v.comisiones.push({id:uid(),tipo:tipoLabel,valor,cliente:c.nombre,clienteId:cid,plan:c.plan,planValor:c.tarifaMensual,pagado:false,fecha:now(),oid});
+        c.comisionesEstado={...ce,[tipoKey]:'generada'};
+        if(tipoKey==='primerMes') verificarIncentivosVendedor(v.id);
+
+    } else if(accion==='pagar'){
+        const com=(v.comisiones||[]).find(x=>x.clienteId===cid&&x.tipo===tipoLabel);
+        if(com) com.pagado=true;
+        c.comisionesEstado={...ce,[tipoKey]:'pagada'};
+
+    } else if(accion==='eliminar'){
+        if(!confirm(`¿Eliminar el registro de esta comisión pagada?
+Esto NO devuelve el dinero, solo elimina el registro.`)) return;
+        v.comisiones=(v.comisiones||[]).filter(x=>!(x.clienteId===cid&&x.tipo===tipoLabel));
+        c.comisionesEstado={...ce,[tipoKey]:'pendiente'};
+
+    } else if(accion==='revertir'){
+        const est=ce[tipoKey]||'pendiente';
+        if(!confirm('¿Revertir esta comisión al estado anterior?')) return;
+        if(est==='pagada'){
+            const com=(v.comisiones||[]).find(x=>x.clienteId===cid&&x.tipo===tipoLabel);
+            if(com) com.pagado=false;
+            c.comisionesEstado={...ce,[tipoKey]:'generada'};
+        } else if(est==='generada'){
+            v.comisiones=(v.comisiones||[]).filter(x=>!(x.clienteId===cid&&x.tipo===tipoLabel));
+            c.comisionesEstado={...ce,[tipoKey]:'pendiente'};
+        }
+    }
+    save();
+    setTimeout(()=>modalVerCliente(oid,cid),150);
+}
+
+// accionComision() reemplaza registrarPagoComisionCliente
 
 function modalEditarCliente(oid,cid){
     const o=getOficina(oid);
@@ -1298,6 +1577,1427 @@ function cambiarPassOficina(){
     if(!nueva) return alert('Ingresa la nueva contraseña');
     o.password=nueva;
     save(); closeModal(); alert('✅ Contraseña actualizada.');
+}
+
+
+// ─── VENDEDORES ──────────────────────────────────────────────────────────────
+function renderVendedores(){
+    const content=document.getElementById('appContent');
+    const oficinas=currentOficinas();
+    // Vendedores: globales + los de cada oficina del usuario
+    const vendedores = DB.vendedores||[];
+    const q=(window._qVend||'').toLowerCase();
+    const filtOfi=(window._filVendOfi||'todos');
+    const filtrados=vendedores.filter(v=>{
+        const matchQ=!q||(v.nombre||'').toLowerCase().includes(q)||(v.telefono||'').includes(q);
+        const matchOfi=filtOfi==='todos'||v.oficinas?.includes(filtOfi)||filtOfi==='global'&&(!v.oficinas||v.oficinas.length===0);
+        // Si es jefe de oficina, solo ve sus vendedores
+        if(USER.role==='oficina') return matchQ && (v.oficinas?.includes(USER.id)||!v.oficinas||v.oficinas.length===0);
+        return matchQ && matchOfi;
+    });
+
+    content.innerHTML=`
+    <div class="card">
+        <div class="card-header">
+            <h2>🧑‍💼 Vendedores <span>${filtrados.length} registrados</span></h2>
+            <button class="btn btn-primary" onclick="modalAgregarVendedor()">➕ Nuevo Vendedor</button>
+        </div>
+        <div class="search-bar">
+            <input class="form-control" type="text" placeholder="🔍 Buscar vendedor..." value="${window._qVend||''}"
+                oninput="window._qVend=this.value;renderVendedores()" style="flex:1;">
+            ${USER.role==='admin'?`<select class="form-control" style="width:auto;" onchange="window._filVendOfi=this.value;renderVendedores()">
+                <option value="todos">Todas las oficinas</option>
+                <option value="global">Globales</option>
+                ${(DB.oficinas||[]).map(o=>`<option value="${o.id}" ${filtOfi===o.id?'selected':''}>${o.nombre}</option>`).join('')}
+            </select>`:''}
+        </div>
+        ${filtrados.length===0
+            ?'<p style="color:var(--muted);text-align:center;padding:30px;">Sin vendedores registrados.</p>'
+            :`<div class="table-wrap"><table>
+            <thead><tr><th>Vendedor</th><th>Teléfono</th><th>Oficina(s)</th><th>% Instalación</th><th>% 1er mes</th><th>% 2do mes</th><th>Estado</th><th>Comisiones</th><th></th></tr></thead>
+            <tbody>
+                ${filtrados.map(v=>{
+                    const oNombres=(v.oficinas||[]).map(oid=>(DB.oficinas||[]).find(o=>o.id===oid)?.nombre||oid).join(', ')||'<span style="color:var(--muted)">Global</span>';
+                    const comTotal=calcComisionesVendedor(v.id);
+                    return `<tr>
+                        <td><strong>${v.nombre}</strong><br><small style="color:var(--muted)">${v.cedula||''}</small></td>
+                        <td>${v.telefono||'-'}</td>
+                        <td style="font-size:0.78rem;">${oNombres}</td>
+                        <td><span class="tag tag-ing">${v.pctInstalacion||0}%</span></td>
+                        <td><span class="tag tag-banc">${v.pct1Mes||0}%</span></td>
+                        <td><span class="tag tag-ef">${v.pct2Mes||0}%</span></td>
+                        <td><span class="motivo-tag ${v.activo!==false?'motivo-activo':'motivo-retirado'}">${v.activo!==false?'Activo':'Inactivo'}</span></td>
+                        <td><strong class="money pos">${fmtShort(comTotal)}</strong></td>
+                        <td style="display:flex;gap:5px;flex-wrap:wrap;">
+                            <button class="btn btn-outline btn-sm" onclick="modalVerVendedor('${v.id}')">👁️</button>
+                            <button class="btn btn-outline btn-sm" onclick="modalEditarVendedor('${v.id}')">✏️</button>
+                            <button class="btn btn-primary btn-sm" onclick="modalRegistrarComisionVendedor('${v.id}')">💰</button>
+                            ${USER.role==='admin'?`<button class="btn btn-danger btn-sm" onclick="eliminarVendedor('${v.id}')">🗑️</button>`:''}
+                        </td>
+                    </tr>`;
+                }).join('')}
+            </tbody>
+        </table></div>`}
+    </div>
+
+    `;
+}
+
+function calcComisionesVendedor(vid){
+    // Suma todas las comisiones del mes actual
+    const mes=new Date().getMonth(), año=new Date().getFullYear();
+    return (DB.vendedores||[]).find(v=>v.id===vid)?.comisiones?.filter(c=>{
+        const d=new Date(c.fecha);
+        return d.getMonth()===mes&&d.getFullYear()===año;
+    }).reduce((s,c)=>s+parseFloat(c.valor||0),0)||0;
+}
+
+function renderTablaComisiones(filtOfi){
+    const mes=new Date().getMonth(), año=new Date().getFullYear();
+    let todasComisiones=[];
+    (DB.vendedores||[]).forEach(v=>{
+        if(USER.role==='oficina'&&!((v.oficinas||[]).includes(USER.id))&&v.oficinas?.length>0) return;
+        (v.comisiones||[]).filter(c=>{
+            const d=new Date(c.fecha);
+            return d.getMonth()===mes&&d.getFullYear()===año;
+        }).forEach(c=>{
+            todasComisiones.push({...c, vendedorNombre:v.nombre, vendedorId:v.id});
+        });
+    });
+    todasComisiones.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+    if(todasComisiones.length===0) return '<p style="color:var(--muted);text-align:center;padding:20px;">Sin comisiones registradas este mes.</p>';
+
+    const totalPend=todasComisiones.filter(c=>!c.pagado).reduce((s,c)=>s+parseFloat(c.valor||0),0);
+    const totalPag=todasComisiones.filter(c=>c.pagado).reduce((s,c)=>s+parseFloat(c.valor||0),0);
+
+    return `
+    <div style="display:flex;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
+        <div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);border-radius:8px;padding:10px 16px;">
+            <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;">⏳ Por pagar</div>
+            <div style="font-size:1.15rem;font-weight:800;color:#f59e0b;">${fmtShort(totalPend)}</div>
+        </div>
+        <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.25);border-radius:8px;padding:10px 16px;">
+            <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;">✅ Pagado</div>
+            <div style="font-size:1.15rem;font-weight:800;color:#10b981;">${fmtShort(totalPag)}</div>
+        </div>
+        <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:10px 16px;display:flex;align-items:center;">
+            <span style="font-size:0.72rem;color:var(--muted);">💡 Haz click en el estado para cambiar el pago</span>
+        </div>
+    </div>
+    <div class="table-wrap"><table>
+        <thead><tr><th>Vendedor</th><th>Tipo</th><th>Cliente</th><th>Plan</th><th>Valor</th><th>Estado — click para cambiar</th><th>Fecha</th><th></th></tr></thead>
+        <tbody>${todasComisiones.map(c=>`<tr>
+            <td><strong>${c.vendedorNombre}</strong></td>
+            <td><span class="tag ${c.tipo==='instalacion'?'tag-ing':c.tipo==='primer_mes'?'tag-banc':'tag-ef'}">${c.tipo==='instalacion'?'🔧 Instalación':c.tipo==='primer_mes'?'📅 1er Mes':'📅 2do Mes'}</span></td>
+            <td>${c.cliente||'-'}</td>
+            <td style="font-size:0.78rem;color:var(--muted)">${c.plan||'-'}</td>
+            <td class="money pos">${fmtShort(c.valor)}</td>
+            <td>
+                <span onclick="clickEstadoComision('${c.vendedorId}','${c.id}',${c.pagado})"
+                    title="${c.pagado?'Click para marcar pendiente':'Click para confirmar pago'}"
+                    style="cursor:pointer;display:inline-flex;align-items:center;gap:5px;padding:5px 14px;border-radius:20px;font-size:0.75rem;font-weight:700;transition:0.15s;user-select:none;
+                    ${c.pagado
+                        ? 'background:rgba(16,185,129,0.15);color:#10b981;border:1.5px solid rgba(16,185,129,0.35);'
+                        : 'background:rgba(245,158,11,0.15);color:#f59e0b;border:1.5px dashed rgba(245,158,11,0.5);'}">
+                    ${c.pagado?'✅ Pagada':'⏳ Pendiente'}
+                </span>
+            </td>
+            <td style="font-size:0.75rem;color:var(--muted)">${new Date(c.fecha).toLocaleDateString('es-CO')}</td>
+            <td><button class="btn btn-danger btn-sm" title="Eliminar" onclick="eliminarComisionTabla('${c.vendedorId}','${c.id}')">🗑️</button></td>
+        </tr>`).join('')}</tbody>
+    </table></div>`;
+}
+
+function clickEstadoComision(vid, cid, esPagada){
+    const v=DB.vendedores.find(x=>x.id===vid);
+    const c=(v?.comisiones||[]).find(x=>x.id===cid);
+    if(!c) return;
+    if(esPagada){
+        if(!confirm('¿Marcar esta comisión como pendiente?')) return;
+        c.pagado=false;
+        // Sincronizar con cliente
+        if(c.clienteId&&c.oid){
+            const o=DB.oficinas.find(x=>x.id===c.oid);
+            const cl=(o?.clientes||[]).find(x=>x.id===c.clienteId);
+            if(cl?.comisionesEstado){
+                const k=c.tipo==='instalacion'?'instalacion':c.tipo==='primer_mes'?'primerMes':'segundoMes';
+                cl.comisionesEstado[k]='generada';
+            }
+        }
+    } else {
+        const label=c.tipo==='instalacion'?'🔧 Instalación':c.tipo==='primer_mes'?'📅 1er Mes':'📅 2do Mes';
+        if(!confirm(`¿Confirmar pago de comisión?\n${label} — ${c.cliente||''} — ${fmtShort(c.valor)}`)) return;
+        c.pagado=true;
+        // Sincronizar con cliente
+        if(c.clienteId&&c.oid){
+            const o=DB.oficinas.find(x=>x.id===c.oid);
+            const cl=(o?.clientes||[]).find(x=>x.id===c.clienteId);
+            if(cl?.comisionesEstado){
+                const k=c.tipo==='instalacion'?'instalacion':c.tipo==='primer_mes'?'primerMes':'segundoMes';
+                cl.comisionesEstado[k]='pagada';
+            }
+        }
+    }
+    save(); renderVendedores();
+}
+
+function eliminarComisionTabla(vid, cid){
+    if(!confirm('¿Eliminar este registro de comisión?')) return;
+    const v=DB.vendedores.find(x=>x.id===vid);
+    if(!v) return;
+    const c=(v.comisiones||[]).find(x=>x.id===cid);
+    if(c?.clienteId&&c?.oid){
+        const o=DB.oficinas.find(x=>x.id===c.oid);
+        const cl=(o?.clientes||[]).find(x=>x.id===c.clienteId);
+        if(cl?.comisionesEstado){
+            const k=c.tipo==='instalacion'?'instalacion':c.tipo==='primer_mes'?'primerMes':'segundoMes';
+            cl.comisionesEstado[k]='pendiente';
+        }
+    }
+    v.comisiones=(v.comisiones||[]).filter(x=>x.id!==cid);
+    save(); renderVendedores();
+}
+
+function modalAgregarVendedor(){
+    openModal('➕ Nuevo Vendedor',`
+    <div class="form-row">
+        <div class="form-group-dark"><label>Nombre Completo *</label><input id="v_nombre" class="form-control" placeholder="Nombre del vendedor"></div>
+        <div class="form-group-dark"><label>Cédula</label><input id="v_cedula" class="form-control" placeholder="N° de cédula"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Teléfono</label><input id="v_tel" class="form-control" placeholder="300 000 0000"></div>
+        <div class="form-group-dark"><label>Dirección</label><input id="v_dir" class="form-control" placeholder="Dirección"></div>
+    </div>
+    <p style="font-size:0.8rem;font-weight:700;color:var(--accent);margin:12px 0 8px;">💰 Porcentajes de Comisión</p>
+    <p style="font-size:0.75rem;color:var(--muted);margin-bottom:10px;">Los porcentajes se calculan sobre el valor del plan mensual del cliente.</p>
+    <div class="form-row">
+        <div class="form-group-dark"><label>% Al instalar</label><input type="number" id="v_pct1" class="form-control" placeholder="30" min="0" max="100"></div>
+        <div class="form-group-dark"><label>% Al pagar 1er mes</label><input type="number" id="v_pct2" class="form-control" placeholder="35" min="0" max="100"></div>
+        <div class="form-group-dark"><label>% Al pagar 2do mes</label><input type="number" id="v_pct3" class="form-control" placeholder="35" min="0" max="100"></div>
+    </div>
+    <div class="form-group-dark">
+        <label>Oficinas asignadas <span style="color:var(--muted);font-weight:400;">(deja vacío = acceso global)</span></label>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;">
+            ${(DB.oficinas||[]).map(o=>`
+            <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;cursor:pointer;background:rgba(255,255,255,0.04);padding:6px 10px;border-radius:8px;border:1px solid var(--border);">
+                <input type="checkbox" value="${o.id}" class="v_oficina_check"> ${o.nombre}
+            </label>`).join('')}
+        </div>
+    </div>
+    <div class="form-group-dark"><label>Observaciones</label><textarea id="v_obs" class="form-control" placeholder="Notas..."></textarea></div>
+    ${(DB.metas||[]).length>0?`
+    <div style="margin-top:14px;">
+        <p style="font-size:0.8rem;font-weight:700;color:#f59e0b;margin-bottom:8px;">🏆 Incentivos que aplican a este vendedor</p>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+            ${(DB.metas||[]).map(m=>`
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.82rem;cursor:pointer;background:rgba(245,158,11,0.05);padding:8px 12px;border-radius:8px;border:1px solid rgba(245,158,11,0.15);">
+                <input type="checkbox" value="${m.id}" class="v_meta_check" checked>
+                🏆 <strong>${m.nombre}</strong> — Bono: <strong style="color:#f59e0b;">${fmtShort(m.bono)}</strong>
+            </label>`).join('')}
+        </div>
+    </div>`:''}
+    `,`<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+       <button class="btn btn-primary" onclick="guardarVendedor()">✅ Guardar</button>`);
+}
+
+function guardarVendedor(){
+    const nombre=document.getElementById('v_nombre').value.trim();
+    if(!nombre) return alert('El nombre es obligatorio');
+    const oficinas=[...document.querySelectorAll('.v_oficina_check:checked')].map(c=>c.value);
+    const metasAsignadas=[...document.querySelectorAll('.v_meta_check:checked')].map(c=>c.value);
+    if(!DB.vendedores) DB.vendedores=[];
+    DB.vendedores.push({
+        id:uid(), nombre,
+        cedula:document.getElementById('v_cedula').value.trim(),
+        telefono:document.getElementById('v_tel').value.trim(),
+        direccion:document.getElementById('v_dir').value.trim(),
+        pctInstalacion:parseFloat(document.getElementById('v_pct1').value||0),
+        pct1Mes:parseFloat(document.getElementById('v_pct2').value||0),
+        pct2Mes:parseFloat(document.getElementById('v_pct3').value||0),
+        oficinas, metasAsignadas, activo:true,
+        observaciones:document.getElementById('v_obs').value.trim(),
+        comisiones:[], fechaRegistro:now()
+    });
+    save(); closeModal(); renderVendedores();
+}
+
+function modalEditarVendedor(vid){
+    const v=(DB.vendedores||[]).find(x=>x.id===vid);
+    if(!v) return;
+    openModal('✏️ Editar — '+v.nombre,`
+    <div class="form-row">
+        <div class="form-group-dark"><label>Nombre *</label><input id="ev_nombre" class="form-control" value="${v.nombre||''}"></div>
+        <div class="form-group-dark"><label>Cédula</label><input id="ev_cedula" class="form-control" value="${v.cedula||''}"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Teléfono</label><input id="ev_tel" class="form-control" value="${v.telefono||''}"></div>
+        <div class="form-group-dark"><label>Estado</label>
+            <select id="ev_activo" class="form-control">
+                <option value="true" ${v.activo!==false?'selected':''}>Activo</option>
+                <option value="false" ${v.activo===false?'selected':''}>Inactivo</option>
+            </select>
+        </div>
+    </div>
+    <p style="font-size:0.8rem;font-weight:700;color:var(--accent);margin:12px 0 8px;">💰 Porcentajes de Comisión</p>
+    <div class="form-row">
+        <div class="form-group-dark"><label>% Al instalar</label><input type="number" id="ev_pct1" class="form-control" value="${v.pctInstalacion||0}"></div>
+        <div class="form-group-dark"><label>% 1er mes</label><input type="number" id="ev_pct2" class="form-control" value="${v.pct1Mes||0}"></div>
+        <div class="form-group-dark"><label>% 2do mes</label><input type="number" id="ev_pct3" class="form-control" value="${v.pct2Mes||0}"></div>
+    </div>
+    <div class="form-group-dark">
+        <label>Oficinas asignadas</label>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;">
+            ${(DB.oficinas||[]).map(o=>`
+            <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;cursor:pointer;background:rgba(255,255,255,0.04);padding:6px 10px;border-radius:8px;border:1px solid var(--border);">
+                <input type="checkbox" value="${o.id}" class="ev_oficina_check" ${(v.oficinas||[]).includes(o.id)?'checked':''}> ${o.nombre}
+            </label>`).join('')}
+        </div>
+    </div>
+    ${(DB.metas||[]).length>0?`
+    <div style="margin-top:14px;">
+        <p style="font-size:0.8rem;font-weight:700;color:#f59e0b;margin-bottom:8px;">🏆 Incentivos asignados</p>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+            ${(DB.metas||[]).map(m=>`
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.82rem;cursor:pointer;background:rgba(245,158,11,0.05);padding:8px 12px;border-radius:8px;border:1px solid rgba(245,158,11,0.15);">
+                <input type="checkbox" value="${m.id}" class="ev_meta_check" ${(v.metasAsignadas||[]).includes(m.id)?'checked':'checked'}>
+                🏆 <strong>${m.nombre}</strong> — Bono: <strong style="color:#f59e0b;">${fmtShort(m.bono)}</strong>
+            </label>`).join('')}
+        </div>
+    </div>`:''}
+    `,`<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+       <button class="btn btn-primary" onclick="actualizarVendedor('${vid}')">💾 Guardar</button>`);
+}
+
+function actualizarVendedor(vid){
+    const v=DB.vendedores.find(x=>x.id===vid);
+    if(!v) return;
+    v.nombre=document.getElementById('ev_nombre').value.trim();
+    v.cedula=document.getElementById('ev_cedula').value.trim();
+    v.telefono=document.getElementById('ev_tel').value.trim();
+    v.activo=document.getElementById('ev_activo').value==='true';
+    v.pctInstalacion=parseFloat(document.getElementById('ev_pct1').value||0);
+    v.pct1Mes=parseFloat(document.getElementById('ev_pct2').value||0);
+    v.pct2Mes=parseFloat(document.getElementById('ev_pct3').value||0);
+    v.oficinas=[...document.querySelectorAll('.ev_oficina_check:checked')].map(c=>c.value);
+    v.metasAsignadas=[...document.querySelectorAll('.ev_meta_check:checked')].map(c=>c.value);
+    save(); closeModal(); renderVendedores();
+}
+
+function modalVerVendedor(vid){
+    const v=(DB.vendedores||[]).find(x=>x.id===vid);
+    if(!v) return;
+    const mes=new Date().getMonth(), año=new Date().getFullYear();
+    const comMes=(v.comisiones||[]).filter(c=>{const d=new Date(c.fecha);return d.getMonth()===mes&&d.getFullYear()===año;});
+    const totalMes=comMes.reduce((s,c)=>s+parseFloat(c.valor||0),0);
+    const pendiente=comMes.filter(c=>!c.pagado).reduce((s,c)=>s+parseFloat(c.valor||0),0);
+    const pagado=comMes.filter(c=>c.pagado).reduce((s,c)=>s+parseFloat(c.valor||0),0);
+    openModal('🧑‍💼 '+v.nombre,`
+        <div class="reporte-resumen">
+            <div class="reporte-item"><div class="r-label">📦 Comisión Instalación</div><div class="r-val" style="font-size:1rem;">${v.pctInstalacion||0}%</div></div>
+            <div class="reporte-item"><div class="r-label">📅 Comisión 1er Mes</div><div class="r-val" style="font-size:1rem;">${v.pct1Mes||0}%</div></div>
+            <div class="reporte-item"><div class="r-label">📅 Comisión 2do Mes</div><div class="r-val" style="font-size:1rem;">${v.pct2Mes||0}%</div></div>
+            <div class="reporte-item"><div class="r-label">💰 Total mes</div><div class="r-val" style="color:#10b981">${fmtShort(totalMes)}</div></div>
+            <div class="reporte-item"><div class="r-label">✅ Pagado</div><div class="r-val" style="color:#10b981;font-size:1rem;">${fmtShort(pagado)}</div></div>
+            <div class="reporte-item"><div class="r-label">⏳ Pendiente</div><div class="r-val" style="color:#f59e0b;font-size:1rem;">${fmtShort(pendiente)}</div></div>
+        </div>
+        <p style="font-size:0.8rem;color:var(--muted);margin:10px 0 4px;"><strong style="color:var(--text)">Teléfono:</strong> ${v.telefono||'-'} &nbsp;|&nbsp; <strong style="color:var(--text)">Cédula:</strong> ${v.cedula||'-'}</p>
+        <p style="font-size:0.8rem;color:var(--muted);margin-bottom:12px;"><strong style="color:var(--text)">Oficinas:</strong> ${(v.oficinas||[]).map(oid=>(DB.oficinas||[]).find(o=>o.id===oid)?.nombre||oid).join(', ')||'Global'}</p>
+        <h4 style="font-size:0.85rem;margin-bottom:8px;">Historial de comisiones este mes:</h4>
+        ${comMes.length===0?'<p style="color:var(--muted);font-size:0.82rem;">Sin comisiones este mes.</p>':
+        `<div class="table-wrap"><table>
+            <thead><tr><th>Tipo</th><th>Cliente</th><th>Valor</th><th>Estado</th></tr></thead>
+            <tbody>${comMes.map(c=>`<tr>
+                <td>${c.tipo==='instalacion'?'🔧 Instalación':c.tipo==='primer_mes'?'📅 1er Mes':'📅 2do Mes'}</td>
+                <td>${c.cliente||'-'}</td>
+                <td class="money pos">${fmtShort(c.valor)}</td>
+                <td><span class="motivo-tag ${c.pagado?'motivo-activo':'motivo-moroso'}">${c.pagado?'Pagado':'Pendiente'}</span></td>
+            </tr>`).join('')}</tbody>
+        </table></div>`}
+    `,'');
+}
+
+function modalRegistrarComision(){
+    const vendedores=(DB.vendedores||[]).filter(v=>{
+        if(USER.role==='oficina') return (v.oficinas||[]).includes(USER.id)||!v.oficinas||v.oficinas.length===0;
+        return true;
+    });
+    if(vendedores.length===0) return alert('No hay vendedores registrados.');
+    openModal('➕ Registrar Comisión',`
+    <div class="form-row">
+        <div class="form-group-dark"><label>Vendedor *</label>
+            <select id="rc_vend" class="form-control" onchange="calcularComisionAuto()">
+                <option value="">Seleccionar...</option>
+                ${vendedores.map(v=>`<option value="${v.id}">${v.nombre}</option>`).join('')}
+            </select>
+        </div>
+        <div class="form-group-dark"><label>Tipo de Comisión *</label>
+            <select id="rc_tipo" class="form-control" onchange="calcularComisionAuto()">
+                <option value="instalacion">🔧 Al instalar</option>
+                <option value="primer_mes">📅 1er mes pagado</option>
+                <option value="segundo_mes">📅 2do mes pagado</option>
+            </select>
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Nombre del Cliente</label><input id="rc_cliente" class="form-control" placeholder="Nombre del cliente instalado"></div>
+        <div class="form-group-dark"><label>Plan</label>
+            <select id="rc_plan" class="form-control">${['Internet 10Mb','Internet 20Mb','Internet 30Mb','Internet 50Mb','Internet + TV Básico','Internet + TV Premium','Solo TV','Otro'].map(p=>`<option>${p}</option>`).join('')}</select>
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Valor del Plan (COP/mes)</label>
+            <input type="number" id="rc_plan_valor" class="form-control" placeholder="Ej: 50000" oninput="calcularComisionAuto()">
+        </div>
+        <div class="form-group-dark"><label>Valor Comisión (calculado)</label>
+            <input type="number" id="rc_valor" class="form-control" placeholder="Se calcula automático">
+        </div>
+    </div>
+    <p id="rc_calc_info" style="font-size:0.78rem;color:var(--accent);margin-top:-6px;margin-bottom:10px;"></p>
+    `,`<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+       <button class="btn btn-primary" onclick="guardarComision()">✅ Registrar</button>`);
+}
+
+function calcularComisionAuto(){
+    const vid=document.getElementById('rc_vend')?.value;
+    const tipo=document.getElementById('rc_tipo')?.value;
+    const planValor=parseFloat(document.getElementById('rc_plan_valor')?.value||0);
+    if(!vid||!planValor) return;
+    const v=(DB.vendedores||[]).find(x=>x.id===vid);
+    if(!v) return;
+    const pct=tipo==='instalacion'?v.pctInstalacion:tipo==='primer_mes'?v.pct1Mes:v.pct2Mes;
+    const calc=(planValor*(pct/100));
+    document.getElementById('rc_valor').value=calc.toFixed(0);
+    document.getElementById('rc_calc_info').textContent=`${pct}% de ${fmtShort(planValor)} = ${fmtShort(calc)}`;
+}
+
+function guardarComision(){
+    const vid=document.getElementById('rc_vend').value;
+    const tipo=document.getElementById('rc_tipo').value;
+    const valor=parseFloat(document.getElementById('rc_valor').value||0);
+    if(!vid) return alert('Selecciona un vendedor');
+    if(!valor||valor<=0) return alert('Ingresa un valor válido');
+    const v=DB.vendedores.find(x=>x.id===vid);
+    if(!v) return;
+    if(!v.comisiones) v.comisiones=[];
+    v.comisiones.push({
+        id:uid(), tipo, valor,
+        cliente:document.getElementById('rc_cliente').value.trim(),
+        plan:document.getElementById('rc_plan').value,
+        planValor:parseFloat(document.getElementById('rc_plan_valor').value||0),
+        pagado:false, fecha:now()
+    });
+    save(); closeModal(); renderVendedores();
+}
+
+function togglePagoComision(vid,cid){
+    const v=DB.vendedores.find(x=>x.id===vid);
+    const c=(v?.comisiones||[]).find(x=>x.id===cid);
+    if(!c) return;
+    c.pagado=!c.pagado;
+    save(); renderVendedores();
+}
+
+// revertirComision() integrada en accionComision()
+
+// Comisión rápida desde el botón del vendedor
+function modalRegistrarComisionVendedor(vid){
+    const v=(DB.vendedores||[]).find(x=>x.id===vid);
+    if(!v) return;
+    openModal('💰 Registrar Comisión — '+v.nombre,`
+    <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:0.82rem;">
+        <strong style="color:var(--accent);">Porcentajes de ${v.nombre}:</strong>
+        🔧 Instalación: <strong>${v.pctInstalacion||0}%</strong> &nbsp;|&nbsp;
+        📅 1er Mes: <strong>${v.pct1Mes||0}%</strong> &nbsp;|&nbsp;
+        📅 2do Mes: <strong>${v.pct2Mes||0}%</strong>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Tipo de Comisión *</label>
+            <select id="rcv_tipo" class="form-control" onchange="calcComisionVendedor('${v.id}')">
+                <option value="instalacion">🔧 Al instalar</option>
+                <option value="primer_mes">📅 1er mes pagado</option>
+                <option value="segundo_mes">📅 2do mes pagado</option>
+            </select>
+        </div>
+        <div class="form-group-dark"><label>Nombre del Cliente</label>
+            <input id="rcv_cliente" class="form-control" placeholder="Nombre del cliente">
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Plan</label>
+            <select id="rcv_plan" class="form-control">${['Internet 10Mb','Internet 20Mb','Internet 30Mb','Internet 50Mb','Internet + TV Básico','Internet + TV Premium','Solo TV','Otro'].map(p=>'<option>'+p+'</option>').join('')}</select>
+        </div>
+        <div class="form-group-dark"><label>Valor del Plan (COP/mes)</label>
+            <input type="number" id="rcv_plan_valor" class="form-control" placeholder="Ej: 50000" oninput="calcComisionVendedor('${v.id}')">
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Valor Comisión (COP)</label>
+            <input type="number" id="rcv_valor" class="form-control" placeholder="Se calcula automático o ingresa manual">
+        </div>
+        <div class="form-group-dark"><label>¿Ya fue pagada?</label>
+            <select id="rcv_pagado" class="form-control">
+                <option value="false">⏳ Pendiente</option>
+                <option value="true">✅ Ya pagada</option>
+            </select>
+        </div>
+    </div>
+    <p id="rcv_info" style="font-size:0.78rem;color:var(--accent);margin-top:-6px;"></p>
+    `,`<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+       <button class="btn btn-primary" onclick="guardarComisionVendedor('${v.id}')">✅ Registrar</button>`);
+}
+
+function calcComisionVendedor(vid){
+    const v=(DB.vendedores||[]).find(x=>x.id===vid);
+    if(!v) return;
+    const tipo=document.getElementById('rcv_tipo')?.value;
+    const planValor=parseFloat(document.getElementById('rcv_plan_valor')?.value||0);
+    if(!planValor) return;
+    const pct=tipo==='instalacion'?v.pctInstalacion:tipo==='primer_mes'?v.pct1Mes:v.pct2Mes;
+    const calc=(planValor*(pct/100));
+    document.getElementById('rcv_valor').value=calc.toFixed(0);
+    document.getElementById('rcv_info').textContent=`${pct}% de ${fmtShort(planValor)} = ${fmtShort(calc)}`;
+}
+
+function guardarComisionVendedor(vid){
+    const tipo=document.getElementById('rcv_tipo').value;
+    const valor=parseFloat(document.getElementById('rcv_valor').value||0);
+    const pagado=document.getElementById('rcv_pagado').value==='true';
+    const v=DB.vendedores.find(x=>x.id===vid);
+    if(!v) return;
+    if(!v.comisiones) v.comisiones=[];
+    v.comisiones.push({
+        id:uid(), tipo, valor,
+        cliente:document.getElementById('rcv_cliente').value.trim(),
+        plan:document.getElementById('rcv_plan').value,
+        planValor:parseFloat(document.getElementById('rcv_plan_valor').value||0),
+        pagado, fecha:now()
+    });
+    // Verificar si gana algún incentivo con esta acción
+    verificarIncentivosVendedor(vid);
+    save(); closeModal(); renderVendedores();
+}
+
+function verificarIncentivosVendedor(vid){
+    const v=DB.vendedores.find(x=>x.id===vid);
+    if(!v) return;
+    const mes=new Date().getMonth(), año=new Date().getFullYear();
+    const comMes=(v.comisiones||[]).filter(c=>{const d=new Date(c.fecha);return d.getMonth()===mes&&d.getFullYear()===año;});
+    const instalaciones=comMes.filter(c=>c.tipo==='instalacion').length;
+    const primerMes=comMes.filter(c=>c.tipo==='primer_mes').length;
+    const metas=(DB.metas||[]).filter(m=>
+        m.aplica==='todas'||m.aplica===USER.id||USER.role==='admin'
+    );
+    let alertas=[];
+    metas.forEach(m=>{
+        if(m.tipo==='instalaciones'&&instalaciones===parseInt(m.meta)){
+            alertas.push(`🏆 ¡${v.nombre} acaba de alcanzar la meta "${m.nombre}"! Bono: ${fmtShort(m.bono)}`);
+        }
+        if(m.tipo==='primer_mes'&&primerMes===parseInt(m.meta)){
+            alertas.push(`🏆 ¡${v.nombre} alcanzó la meta "${m.nombre}" con ${primerMes} clientes con 1er mes! Bono: ${fmtShort(m.bono)}`);
+        }
+    });
+    if(alertas.length>0) setTimeout(()=>alert(alertas.join('\n\n')),300);
+}
+
+function eliminarVendedor(vid){
+    if(!confirm('¿Eliminar este vendedor y todas sus comisiones?')) return;
+    DB.vendedores=(DB.vendedores||[]).filter(v=>v.id!==vid);
+    save(); renderVendedores();
+}
+
+// ─── INCENTIVOS ──────────────────────────────────────────────────────────────
+function renderIncentivos(){
+    const content=document.getElementById('appContent');
+    const mes=new Date().getMonth(), año=new Date().getFullYear();
+    const metas=DB.metas||[];
+    const vendedores=DB.vendedores||[];
+
+    // Calcular stats de cada vendedor para el mes
+    const stats=vendedores
+        .filter(v=>USER.role==='oficina'?((v.oficinas||[]).includes(USER.id)||!v.oficinas||v.oficinas.length===0):true)
+        .map(v=>{
+            const comMes=(v.comisiones||[]).filter(c=>{const d=new Date(c.fecha);return d.getMonth()===mes&&d.getFullYear()===año;});
+            const instalaciones=comMes.filter(c=>c.tipo==='instalacion').length;
+            const primerMes=comMes.filter(c=>c.tipo==='primer_mes').length;
+            const segMes=comMes.filter(c=>c.tipo==='segundo_mes').length;
+            const totalCom=comMes.reduce((s,c)=>s+parseFloat(c.valor||0),0);
+            // Calcular incentivos ganados
+            const incentivosGanados=metas.filter(m=>{
+                if(m.tipo==='instalaciones') return instalaciones>=m.meta;
+                if(m.tipo==='primer_mes') return primerMes>=m.meta;
+                if(m.tipo==='cero_retiros'){
+                    // Revisar clientes retirados vinculados al vendedor (simplificado)
+                    return true; // Se maneja manualmente
+                }
+                return false;
+            });
+            const bonos=incentivosGanados.reduce((s,m)=>s+parseFloat(m.bono||0),0);
+            return {v, instalaciones, primerMes, segMes, totalCom, incentivosGanados, bonos};
+        }).sort((a,b)=>b.instalaciones-a.instalaciones);
+
+    content.innerHTML=`
+    <div class="two-cols" style="margin-bottom:16px;">
+        <div class="card" style="margin-bottom:0">
+            <div class="card-header">
+                <h2>🏆 Metas e Incentivos <span>configuración</span></h2>
+                <button class="btn btn-primary" onclick="modalCrearMeta()">➕ Nueva Meta</button>
+            </div>
+            ${metas.length===0
+                ? `<p style="color:var(--muted);text-align:center;padding:20px;">Sin metas configuradas.${USER.role==='admin'?' Crea la primera meta.':''}</p>`
+                : metas.map(m=>`
+                <div class="oficina-admin-card">
+                    <div>
+                        <div style="font-weight:700;">${m.nombre}</div>
+                        <div style="font-size:0.78rem;color:var(--muted);margin-top:3px;">
+                            ${m.tipo==='instalaciones'?`🔧 ${m.meta} instalaciones/mes`:
+                              m.tipo==='primer_mes'?`📅 ${m.meta} clientes con 1er mes pagado`:
+                              m.tipo==='cero_retiros'?`🛡️ 0 retiros en el mes`:
+                              m.tipo==='ranking'?`🥇 Top del ranking mensual`:''}
+                        </div>
+                        <div style="font-size:0.82rem;margin-top:4px;">
+                            Bono: <strong style="color:#10b981">${fmtShort(m.bono)}</strong>
+                            ${m.descripcion?`<span style="color:var(--muted);margin-left:8px;">${m.descripcion}</span>`:''}
+                        </div>
+                    </div>
+                    ${USER.role==='admin'?`<div style="display:flex;gap:6px;">
+                        <button class="btn btn-outline btn-sm" onclick="modalEditarMeta('${m.id}')">✏️</button>
+                        <button class="btn btn-danger btn-sm" onclick="eliminarMeta('${m.id}')">🗑️</button>
+                    </div>`:''}
+                </div>`).join('')}
+        </div>
+
+        <div class="card" style="margin-bottom:0">
+            <div class="card-header"><h2>📊 Resumen del Mes <span>${mesActual()}</span></h2></div>
+            <div class="stats-grid" style="grid-template-columns:1fr 1fr;gap:10px;">
+                <div class="stat-card green" style="padding:12px"><div class="label">Total instalaciones</div><div class="value">${stats.reduce((s,x)=>s+x.instalaciones,0)}</div></div>
+                <div class="stat-card blue" style="padding:12px"><div class="label">1er mes pagado</div><div class="value">${stats.reduce((s,x)=>s+x.primerMes,0)}</div></div>
+                <div class="stat-card yellow" style="padding:12px"><div class="label">Comisiones totales</div><div class="value" style="font-size:1.1rem">${fmtShort(stats.reduce((s,x)=>s+x.totalCom,0))}</div></div>
+                <div class="stat-card green" style="padding:12px"><div class="label">Bonos ganados</div><div class="value" style="font-size:1.1rem">${fmtShort(stats.reduce((s,x)=>s+x.bonos,0))}</div></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h2>🥇 Ranking de Vendedores <span>— ${mesActual()}</span></h2></div>
+        ${stats.length===0
+            ? '<p style="color:var(--muted);text-align:center;padding:30px;">Sin vendedores registrados.</p>'
+            : `<div class="table-wrap"><table>
+            <thead><tr><th>#</th><th>Vendedor</th><th>🔧 Instalaciones</th><th>📅 1er Mes</th><th>📅 2do Mes</th><th>💰 Comisiones</th><th>🏆 Bonos</th><th>Total</th></tr></thead>
+            <tbody>
+                ${stats.map((s,i)=>`<tr style="${i===0?'background:rgba(245,158,11,0.06);':i===1?'background:rgba(156,163,175,0.04);':i===2?'background:rgba(205,127,50,0.04);':''}">
+                    <td style="font-size:1.2rem;">${i===0?'🥇':i===1?'🥈':i===2?'🥉':`#${i+1}`}</td>
+                    <td>
+                        <strong>${s.v.nombre}</strong>
+                        ${s.incentivosGanados.length>0?`<br><small style="color:#f59e0b">🏆 ${s.incentivosGanados.map(m=>m.nombre).join(', ')}</small>`:''}
+                    </td>
+                    <td style="text-align:center;"><strong style="color:#10b981;font-size:1.1rem;">${s.instalaciones}</strong></td>
+                    <td style="text-align:center;"><strong style="color:#3b82f6;">${s.primerMes}</strong></td>
+                    <td style="text-align:center;"><strong style="color:#f59e0b;">${s.segMes}</strong></td>
+                    <td class="money pos">${fmtShort(s.totalCom)}</td>
+                    <td><strong style="color:#f59e0b;">${fmtShort(s.bonos)}</strong></td>
+                    <td class="money pos"><strong>${fmtShort(s.totalCom+s.bonos)}</strong></td>
+                </tr>`).join('')}
+            </tbody>
+        </table></div>`}
+    </div>
+    `;
+}
+
+function modalCrearMeta(){
+    openModal('➕ Nueva Meta / Incentivo',`
+    <div class="form-group-dark"><label>Nombre del Incentivo *</label>
+        <input id="m_nombre" class="form-control" placeholder="Ej: Bono por 10 instalaciones">
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Tipo de Meta *</label>
+            <select id="m_tipo" class="form-control" onchange="toggleMetaFields()">
+                <option value="instalaciones">🔧 Por N° de instalaciones</option>
+                <option value="primer_mes">📅 Por clientes con 1er mes pagado</option>
+                <option value="cero_retiros">🛡️ Premio por 0 retiros</option>
+                <option value="ranking">🥇 Premio al top del ranking</option>
+            </select>
+        </div>
+        <div class="form-group-dark" id="m_meta_wrap"><label>Meta (cantidad)</label>
+            <input type="number" id="m_meta" class="form-control" placeholder="Ej: 10" min="1">
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Bono en dinero (COP) *</label>
+            <input type="number" id="m_bono" class="form-control" placeholder="Ej: 50000">
+        </div>
+        <div class="form-group-dark"><label>Aplica a</label>
+            <select id="m_aplica" class="form-control">
+                ${USER.role==='admin'?`<option value="todas">Todas las oficinas</option>`:''}
+                ${USER.role==='oficina'?`<option value="${USER.id}" selected>${USER.nombre}</option>`:''}
+                ${USER.role==='admin'?(DB.oficinas||[]).map(o=>`<option value="${o.id}">${o.nombre}</option>`).join(''):''}
+            </select>
+        </div>
+    </div>
+    <div class="form-group-dark"><label>Descripción / Condiciones</label>
+        <textarea id="m_desc" class="form-control" placeholder="Detalla las condiciones del incentivo..."></textarea>
+    </div>
+    `,`<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+       <button class="btn btn-primary" onclick="guardarMeta()">✅ Crear Meta</button>`);
+}
+
+function toggleMetaFields(){
+    const tipo=document.getElementById('m_tipo')?.value;
+    const wrap=document.getElementById('m_meta_wrap');
+    if(wrap) wrap.style.display=(tipo==='cero_retiros'||tipo==='ranking')?'none':'';
+}
+
+function guardarMeta(){
+    const nombre=document.getElementById('m_nombre').value.trim();
+    const bono=parseFloat(document.getElementById('m_bono').value||0);
+    if(!nombre) return alert('El nombre es obligatorio');
+    if(!bono||bono<=0) return alert('Ingresa un bono válido');
+    if(!DB.metas) DB.metas=[];
+    DB.metas.push({
+        id:uid(), nombre,
+        tipo:document.getElementById('m_tipo').value,
+        meta:parseFloat(document.getElementById('m_meta')?.value||0),
+        bono,
+        aplica:document.getElementById('m_aplica').value,
+        descripcion:document.getElementById('m_desc').value.trim(),
+        activo:true, fecha:now()
+    });
+    save(); closeModal(); renderIncentivos();
+}
+
+function modalEditarMeta(mid){
+    const m=(DB.metas||[]).find(x=>x.id===mid);
+    if(!m) return;
+    openModal('✏️ Editar Meta — '+m.nombre,`
+    <div class="form-group-dark"><label>Nombre *</label><input id="em_nombre" class="form-control" value="${m.nombre}"></div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Tipo</label>
+            <select id="em_tipo" class="form-control">
+                <option value="instalaciones" ${m.tipo==='instalaciones'?'selected':''}>🔧 Por instalaciones</option>
+                <option value="primer_mes" ${m.tipo==='primer_mes'?'selected':''}>📅 Por 1er mes pagado</option>
+                <option value="cero_retiros" ${m.tipo==='cero_retiros'?'selected':''}>🛡️ 0 retiros</option>
+                <option value="ranking" ${m.tipo==='ranking'?'selected':''}>🥇 Top ranking</option>
+            </select>
+        </div>
+        <div class="form-group-dark"><label>Meta</label><input type="number" id="em_meta" class="form-control" value="${m.meta||0}"></div>
+    </div>
+    <div class="form-group-dark"><label>Bono (COP)</label><input type="number" id="em_bono" class="form-control" value="${m.bono||0}"></div>
+    <div class="form-group-dark"><label>Descripción</label><textarea id="em_desc" class="form-control">${m.descripcion||''}</textarea></div>
+    `,`<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+       <button class="btn btn-primary" onclick="actualizarMeta('${mid}')">💾 Guardar</button>`);
+}
+
+function actualizarMeta(mid){
+    const m=DB.metas.find(x=>x.id===mid);
+    if(!m) return;
+    m.nombre=document.getElementById('em_nombre').value.trim();
+    m.tipo=document.getElementById('em_tipo').value;
+    m.meta=parseFloat(document.getElementById('em_meta').value||0);
+    m.bono=parseFloat(document.getElementById('em_bono').value||0);
+    m.descripcion=document.getElementById('em_desc').value.trim();
+    save(); closeModal(); renderIncentivos();
+}
+
+function eliminarMeta(mid){
+    if(!confirm('¿Eliminar esta meta?')) return;
+    DB.metas=(DB.metas||[]).filter(m=>m.id!==mid);
+    save(); renderIncentivos();
+}
+
+
+// ── EXCEL IMPORT/EXPORT ──────────────────────────────────────────────────────
+function descargarPlantillaExcel(){
+    // Cargar SheetJS si no está disponible
+    if(typeof XLSX==='undefined'){
+        const s=document.createElement('script');
+        s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+        s.onload=()=>_generarExcel();
+        document.head.appendChild(s);
+    } else { _generarExcel(); }
+}
+
+function _generarExcel(){
+    const wb=XLSX.utils.book_new();
+    // Hoja de datos
+    const datos=[
+        ['nombre','telefono','direccion','plan','tarifaMensual','estado','observaciones','fechaInstalacion'],
+        ['Juan Pérez','3001234567','Calle 5 #10-20','Internet 30Mb',65000,'Activo','Cliente nuevo','2025-01-15'],
+        ['María López','3109876543','Carrera 8 #3-15','Internet + TV Básico',80000,'Activo','','2025-01-20'],
+        ['Carlos Ruiz','3205551234','Manzana 2 Casa 5','Internet 20Mb',55000,'Moroso','No ha pagado enero','2024-12-10'],
+    ];
+    const ws=XLSX.utils.aoa_to_sheet(datos);
+    // Estilos de ancho por columna
+    ws['!cols']=[
+        {wch:25},{wch:15},{wch:30},{wch:25},{wch:15},{wch:12},{wch:35},{wch:18}
+    ];
+    XLSX.utils.book_append_sheet(wb,ws,'Clientes');
+    // Hoja de referencia - planes válidos
+    const wsRef=XLSX.utils.aoa_to_sheet([
+        ['PLANES VÁLIDOS','ESTADOS VÁLIDOS'],
+        ['Internet 10Mb','Activo'],
+        ['Internet 20Mb','Moroso'],
+        ['Internet 30Mb','Retirado'],
+        ['Internet 50Mb','Suspendido'],
+        ['Internet + TV Básico',''],
+        ['Internet + TV Premium',''],
+        ['Solo TV',''],
+        ['Otro',''],
+    ]);
+    wsRef['!cols']=[{wch:25},{wch:15}];
+    XLSX.utils.book_append_sheet(wb,wsRef,'Referencia');
+    XLSX.writeFile(wb,'plantilla_clientes_ptovision.xlsx');
+}
+
+function modalImportarExcel(oid){
+    openModal('📤 Importar Clientes desde Excel/CSV',`
+    <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:8px;padding:12px;margin-bottom:14px;font-size:0.82rem;">
+        <strong style="color:#3b82f6;">ℹ️ Instrucciones:</strong><br>
+        1. Descarga la plantilla CSV con el botón <strong>"Plantilla Excel"</strong><br>
+        2. Ábrela en Excel o Google Sheets y llena los datos<br>
+        3. Guárdala como CSV y súbela aquí<br>
+        <span style="color:var(--muted);">Columnas: nombre, telefono, direccion, plan, tarifaMensual, estado, observaciones, fechaInstalacion</span>
+    </div>
+    <div class="form-group-dark">
+        <label>Selecciona el archivo CSV *</label>
+        <input type="file" id="excel_file" accept=".csv,.xlsx,.xls" class="form-control" onchange="previsualizarCSV(this)">
+    </div>
+    <div id="csv_preview" style="margin-top:12px;"></div>
+    `,`<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+       <button class="btn btn-primary" id="btn_importar" style="display:none" onclick="importarClientes('${oid}')">✅ Importar Clientes</button>`);
+}
+
+let _csvData = [];
+function previsualizarCSV(input){
+    const file=input.files[0];
+    if(!file) return;
+    const isXlsx=file.name.endsWith('.xlsx')||file.name.endsWith('.xls');
+    if(isXlsx){
+        if(typeof XLSX==='undefined'){
+            const s=document.createElement('script');
+            s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+            s.onload=()=>_leerExcel(file);
+            document.head.appendChild(s);
+        } else { _leerExcel(file); }
+        return;
+    }
+    // CSV normal
+    _previsualizarCSVRaw(input);
+}
+
+function _leerExcel(file){
+    const reader=new FileReader();
+    reader.onload=function(e){
+        const wb=XLSX.read(e.target.result,{type:'binary'});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+        _csvData=rows.map(r=>({
+            nombre:r['nombre']||r['Nombre']||'',
+            telefono:String(r['telefono']||r['Teléfono']||''),
+            direccion:r['direccion']||r['Dirección']||'',
+            plan:r['plan']||r['Plan']||'Otro',
+            tarifaMensual:parseFloat(r['tarifaMensual']||r['tarifa']||0),
+            estado:r['estado']||r['Estado']||'Activo',
+            observaciones:r['observaciones']||r['Observaciones']||'',
+            fechaInstalacion:r['fechaInstalacion']||r['fechainstalacion']||''
+        })).filter(r=>r.nombre);
+        _mostrarPrevisualizacion();
+    };
+    reader.readAsBinaryString(file);
+}
+
+function _mostrarPrevisualizacion(){
+    const prev=_csvData.slice(0,5);
+    document.getElementById('csv_preview').innerHTML=`
+        <p style="font-size:0.82rem;color:var(--accent);margin-bottom:8px;">✅ Se encontraron <strong>${_csvData.length}</strong> clientes para importar. Previsualización:</p>
+        <div class="table-wrap"><table>
+            <thead><tr><th>Nombre</th><th>Teléfono</th><th>Plan</th><th>Estado</th><th>Tarifa</th></tr></thead>
+            <tbody>${prev.map(r=>`<tr><td>${r.nombre}</td><td>${r.telefono||'-'}</td><td>${r.plan||'-'}</td><td>${r.estado||'Activo'}</td><td>${fmtShort(parseFloat(r.tarifaMensual||0))}</td></tr>`).join('')}
+            ${_csvData.length>5?`<tr><td colspan="5" style="color:var(--muted);text-align:center;">... y ${_csvData.length-5} más</td></tr>`:''}
+            </tbody>
+        </table></div>`;
+    const btn=document.getElementById('btn_importar');
+    if(btn) btn.style.display='';
+}
+
+function _previsualizarCSVRaw(input){
+    const file=input.files[0];
+    if(!file) return;
+    const reader=new FileReader();
+    reader.onload=function(e){
+        const text=e.target.result;
+        const lines=text.split('\n').filter(l=>l.trim());
+        if(lines.length<2){ document.getElementById('csv_preview').innerHTML='<p style="color:#ef4444">El archivo parece estar vacío o sin datos.</p>'; return; }
+        const headers=lines[0].split(',').map(h=>h.replace(/"/g,'').trim().toLowerCase());
+        const idxNombre=headers.indexOf('nombre');
+        if(idxNombre<0){ document.getElementById('csv_preview').innerHTML='<p style="color:#ef4444">No se encontró la columna "nombre". Usa la plantilla correcta.</p>'; return; }
+        _csvData=lines.slice(1).map(line=>{
+            const vals=line.split(',').map(v=>v.replace(/"/g,'').trim());
+            const obj={};
+            headers.forEach((h,i)=>obj[h]=vals[i]||'');
+            return obj;
+        }).filter(r=>r.nombre);
+        _mostrarPrevisualizacion();
+    };
+    reader.readAsText(file,'UTF-8');
+}
+
+function importarClientes(oid){
+    if(!_csvData||_csvData.length===0) return alert('No hay datos para importar');
+    const o=DB.oficinas.find(x=>x.id===oid);
+    if(!o) return;
+    if(!o.clientes) o.clientes=[];
+    let importados=0, duplicados=0;
+    _csvData.forEach(r=>{
+        const nombre=(r.nombre||'').trim();
+        if(!nombre) return;
+        // Evitar duplicados por nombre+teléfono
+        const existe=o.clientes.find(c=>c.nombre.toLowerCase()===nombre.toLowerCase()&&(c.telefono||'')===(r.telefono||'').trim());
+        if(existe){ duplicados++; return; }
+        const tarifa=parseFloat(r.tarifamensual||r.tarifaMensual||0);
+        o.clientes.push({
+            id:uid(), nombre,
+            telefono:(r.telefono||'').trim(),
+            direccion:(r.direccion||'').trim(),
+            plan:r.plan||'Otro',
+            tarifaMensual:tarifa,
+            estado:r.estado||'Activo',
+            observaciones:(r.observaciones||'').trim(),
+            fechaInstalacion:(r.fechainstalacion||r.fechaInstalacion||'').trim(),
+            vendedorId:'',
+            comisionesEstado:{instalacion:'pendiente',primerMes:'pendiente',segundoMes:'pendiente'},
+            fechaRegistro:now(), importado:true
+        });
+        importados++;
+    });
+    save(); closeModal(); _csvData=[];
+    alert(`✅ Importación completada:\n• ${importados} clientes importados\n• ${duplicados} duplicados omitidos`);
+    renderClientes();
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// MÓDULO VENTAS
+// ═══════════════════════════════════════════════════════════════
+
+// ── Helpers ventas ──────────────────────────────────────────────
+function getVentasOficina(){
+    if(USER.role==='admin') return DB.ventas||[];
+    return (DB.ventas||[]).filter(v=>v.oid===USER.id);
+}
+function promoTag(promo,otraPromo){
+    const p=PROMOS[promo]||{label:otraPromo||promo,color:'#8b5cf6'};
+    return `<span style="padding:2px 8px;border-radius:10px;font-size:0.68rem;font-weight:700;background:${p.color}22;color:${p.color};border:1px solid ${p.color}44;">${p.label}</span>`;
+}
+function estadoIcon(val){ return val?'<span style="color:#10b981;font-weight:700;">✅</span>':'<span style="color:#64748b;">⏳</span>'; }
+
+// ── RENDER PRINCIPAL ─────────────────────────────────────────────
+function renderVentas2(){
+    const content=document.getElementById('appContent');
+    const ventas=getVentasOficina();
+    const tab=window._ventasTab||'registro';
+    const oficinas=currentOficinas();
+    const oid=USER.role==='admin'?(window._selOfiVentas||oficinas[0]?.id):USER.id;
+
+    // Stats
+    const totalCom=ventas.reduce((s,v)=>s+(v.comisionInst||0)+(v.comisionM1||0)+(v.comisionM2||0),0);
+    const totalBonos=calcularTotalBonos(ventas);
+    const pendientes=ventas.filter(v=>v.instalado&&(!v.pagoInst||!v.pagoM1||!v.pagoM2)).length;
+    const conPromo=ventas.filter(v=>v.promo&&v.promo!=='SIN_PROMOCION').length;
+
+    content.innerHTML=`
+    ${USER.role==='admin'&&oficinas.length>1?`<div style="margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <label style="font-size:0.8rem;color:var(--muted);">Oficina:</label>
+        <select class="form-control" style="width:auto;" onchange="window._selOfiVentas=this.value;renderVentas2()">
+            <option value="">Todas</option>
+            ${oficinas.map(o=>`<option value="${o.id}" ${o.id===oid?'selected':''}>${o.nombre}</option>`).join('')}
+        </select>
+    </div>`:''}
+
+    <div class="stats-grid" style="margin-bottom:16px;">
+        <div class="stat-card blue"><div class="label">📋 Total ventas</div><div class="value">${ventas.length}</div></div>
+        <div class="stat-card green"><div class="label">💰 Comisiones</div><div class="value" style="font-size:1.1rem;">${fmtShort(totalCom)}</div></div>
+        <div class="stat-card yellow"><div class="label">🎁 Bonos</div><div class="value" style="font-size:1.1rem;">${fmtShort(totalBonos)}</div></div>
+        <div class="stat-card red"><div class="label">⏳ Pagos pend.</div><div class="value">${pendientes}</div></div>
+        <div class="stat-card blue"><div class="label">🎫 Con promoción</div><div class="value">${conPromo}</div></div>
+    </div>
+
+    <div style="display:flex;gap:6px;margin-bottom:16px;background:rgba(255,255,255,0.04);padding:4px;border-radius:10px;width:fit-content;flex-wrap:wrap;">
+        ${[['registro','📋 Registro'],['pagos','💳 Pagos pend.'],['resumen','📊 Resumen'],['bonos','🎁 Bonos']].map(([t,l])=>
+            `<button onclick="window._ventasTab='${t}';renderVentas2()" style="padding:8px 14px;border:none;border-radius:7px;cursor:pointer;font-weight:600;font-size:0.8rem;transition:0.2s;
+            background:${tab===t?'var(--accent)':'transparent'};color:${tab===t?'#fff':'var(--muted)'};">${l}</button>`
+        ).join('')}
+        <button class="btn btn-primary btn-sm" onclick="modalNuevaVenta()" style="margin-left:8px;">➕ Nueva Venta</button>
+        <button class="btn btn-outline btn-sm" onclick="exportarVentasExcel()">📥 Exportar</button>
+    </div>
+
+    <div id="ventas_tab_content"></div>
+    `;
+
+    if(tab==='registro') renderVentasTabla(ventas);
+    else if(tab==='pagos') renderVentasPagos(ventas);
+    else if(tab==='resumen') renderVentasResumen(ventas);
+    else if(tab==='bonos') renderVentasBonos();
+}
+
+// ── TAB REGISTRO ─────────────────────────────────────────────────
+function renderVentasTabla(ventas){
+    const q=(window._qVentas||'').toLowerCase();
+    const filtradas=ventas.filter(v=>!q||(v.cliente||'').toLowerCase().includes(q)||(v.vendedor||'').toLowerCase().includes(q));
+    document.getElementById('ventas_tab_content').innerHTML=`
+    <div class="card">
+        <div class="card-header"><h2>📋 Registro de Ventas <span>${filtradas.length} registros</span></h2></div>
+        <div class="search-bar" style="margin-bottom:12px;">
+            <input class="form-control" type="text" placeholder="🔍 Buscar cliente o vendedor..." value="${window._qVentas||''}"
+                oninput="window._qVentas=this.value;renderVentasTabla(getVentasOficina())" style="flex:1;">
+            <select class="form-control" style="width:auto;" onchange="window._filtroPromoV=this.value;renderVentasTabla(getVentasOficina())">
+                <option value="">Todas las promociones</option>
+                ${Object.entries(PROMOS).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('')}
+            </select>
+        </div>
+        ${filtradas.length===0?'<p style="color:var(--muted);text-align:center;padding:30px;">Sin ventas registradas.</p>':
+        `<div class="table-wrap"><table>
+            <thead><tr><th>Fecha</th><th>Vendedor</th><th>Cliente</th><th>Plan</th><th>Valor</th><th>Promoción</th><th>Inst</th><th>M1</th><th>M2</th><th>Comisión total</th><th></th></tr></thead>
+            <tbody>${filtradas.map((v,i)=>{
+                const idx=(DB.ventas||[]).indexOf(v);
+                const comTotal=(v.comisionInst||0)+(v.comisionM1||0)+(v.comisionM2||0);
+                return `<tr>
+                    <td style="font-size:0.78rem;color:var(--muted);">${v.fecha||'-'}</td>
+                    <td><strong>${v.vendedor||'-'}</strong></td>
+                    <td>${v.cliente||'-'}</td>
+                    <td style="font-size:0.78rem;">${v.plan||'-'}</td>
+                    <td class="money pos">${fmtShort(v.valor||0)}</td>
+                    <td>${promoTag(v.promo,v.otraPromo)}</td>
+                    <td style="text-align:center;">${estadoIcon(v.pagoInst)}</td>
+                    <td style="text-align:center;">${estadoIcon(v.pagoM1)}</td>
+                    <td style="text-align:center;">${estadoIcon(v.pagoM2)}</td>
+                    <td class="money pos"><strong>${fmtShort(comTotal)}</strong></td>
+                    <td style="display:flex;gap:4px;">
+                        <button class="btn btn-outline btn-sm" onclick="modalEditarVenta2(${idx})">✏️</button>
+                        <button class="btn btn-primary btn-sm" onclick="modalPagosVenta(${idx})">💳</button>
+                        <button class="btn btn-danger btn-sm" onclick="eliminarVenta2(${idx})">🗑️</button>
+                    </td>
+                </tr>`;
+            }).join('')}</tbody>
+        </table></div>`}
+    </div>`;
+}
+
+// ── TAB PAGOS PENDIENTES ─────────────────────────────────────────
+function renderVentasPagos(ventas){
+    const pendientes=ventas.filter(v=>v.instalado&&(!v.pagoInst||!v.pagoM1||!v.pagoM2));
+    document.getElementById('ventas_tab_content').innerHTML=`
+    <div class="card">
+        <div class="card-header"><h2>💳 Pagos Pendientes <span>${pendientes.length} ventas</span></h2></div>
+        ${pendientes.length===0?'<p style="color:var(--muted);text-align:center;padding:30px;">✅ Sin pagos pendientes.</p>':
+        `<div class="table-wrap"><table>
+            <thead><tr><th>Fecha</th><th>Vendedor</th><th>Cliente</th><th>Valor</th><th>Promoción</th><th>🔧 Inst</th><th>📅 M1</th><th>📅 M2</th><th></th></tr></thead>
+            <tbody>${pendientes.map(v=>{
+                const idx=(DB.ventas||[]).indexOf(v);
+                return `<tr>
+                    <td style="font-size:0.78rem;color:var(--muted);">${v.fecha}</td>
+                    <td><strong>${v.vendedor}</strong></td>
+                    <td>${v.cliente}</td>
+                    <td class="money pos">${fmtShort(v.valor)}</td>
+                    <td>${promoTag(v.promo,v.otraPromo)}</td>
+                    <td style="text-align:center;">${estadoIcon(v.pagoInst)}</td>
+                    <td style="text-align:center;">${estadoIcon(v.pagoM1)}</td>
+                    <td style="text-align:center;">${estadoIcon(v.pagoM2)}</td>
+                    <td><button class="btn btn-primary btn-sm" onclick="modalPagosVenta(${idx})">💳 Pagar</button></td>
+                </tr>`;
+            }).join('')}</tbody>
+        </table></div>`}
+    </div>`;
+}
+
+// ── TAB RESUMEN POR VENDEDOR ──────────────────────────────────────
+function renderVentasResumen(ventas){
+    const resumen={};
+    ventas.forEach(v=>{
+        if(!resumen[v.vendedor]) resumen[v.vendedor]={inst:0,m1:0,m2:0,total:0,clientesM1:0,ventas:0};
+        const d=resumen[v.vendedor];
+        d.inst+=v.comisionInst||0;
+        d.m1+=v.comisionM1||0;
+        d.m2+=v.comisionM2||0;
+        d.total+=(v.comisionInst||0)+(v.comisionM1||0)+(v.comisionM2||0);
+        if(v.pagoM1) d.clientesM1++;
+        d.ventas++;
+    });
+    const rows=Object.entries(resumen).sort((a,b)=>b[1].total-a[1].total);
+    document.getElementById('ventas_tab_content').innerHTML=`
+    <div class="card">
+        <div class="card-header"><h2>📊 Resumen por Vendedor</h2></div>
+        ${rows.length===0?'<p style="color:var(--muted);text-align:center;padding:30px;">Sin datos.</p>':
+        rows.map(([vend,d],i)=>{
+            const bono=calcularBono(d.clientesM1);
+            return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:10px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+                    <div style="font-size:1rem;font-weight:800;">${i===0?'🥇':i===1?'🥈':i===2?'🥉':'👔'} ${vend}</div>
+                    <div style="font-size:0.8rem;color:var(--muted);">${d.ventas} venta(s) · ${d.clientesM1} con M1 pagado</div>
+                </div>
+                <div class="reporte-resumen">
+                    <div class="reporte-item"><div class="r-label">🔧 Instalación</div><div class="r-val" style="color:#10b981;">${fmtShort(d.inst)}</div></div>
+                    <div class="reporte-item"><div class="r-label">📅 Mes 1</div><div class="r-val" style="color:#3b82f6;">${fmtShort(d.m1)}</div></div>
+                    <div class="reporte-item"><div class="r-label">📅 Mes 2</div><div class="r-val" style="color:#f59e0b;">${fmtShort(d.m2)}</div></div>
+                    <div class="reporte-item"><div class="r-label">💰 Comisiones</div><div class="r-val">${fmtShort(d.total)}</div></div>
+                    <div class="reporte-item" style="${bono>0?'background:rgba(245,158,11,0.1);border-color:rgba(245,158,11,0.3);':''}">
+                        <div class="r-label">🎁 Bono</div><div class="r-val" style="color:#f59e0b;">${fmtShort(bono)}</div>
+                    </div>
+                    <div class="reporte-item" style="background:rgba(16,185,129,0.08);border-color:rgba(16,185,129,0.2);">
+                        <div class="r-label">✅ Total a pagar</div><div class="r-val" style="color:#10b981;">${fmtShort(d.total+bono)}</div>
+                    </div>
+                </div>
+            </div>`;
+        }).join('')}
+    </div>`;
+}
+
+// ── TAB BONOS ────────────────────────────────────────────────────
+function renderVentasBonos(){
+    const tiers=DB.bonusTiers||[];
+    document.getElementById('ventas_tab_content').innerHTML=`
+    <div class="two-cols">
+        <div class="card" style="margin-bottom:0">
+            <div class="card-header"><h2>🎁 Configurar Niveles de Bono</h2></div>
+            <p style="font-size:0.8rem;color:var(--muted);margin-bottom:14px;">Define cuántos clientes con 1er mes pagado necesita un vendedor para ganar cada bono.</p>
+            <div id="bonus_tiers_list"></div>
+            <button class="btn btn-primary" style="width:100%;margin-top:10px;" onclick="agregarNivelBono()">➕ Agregar Nivel</button>
+            <button class="btn btn-outline" style="width:100%;margin-top:8px;" onclick="save();alert('✅ Guardado')">💾 Guardar configuración</button>
+        </div>
+        <div class="card" style="margin-bottom:0">
+            <div class="card-header"><h2>👁️ Vista Previa</h2></div>
+            <div id="bonus_preview"></div>
+        </div>
+    </div>`;
+    renderBonusTiers();
+}
+
+function renderBonusTiers(){
+    const tiers=DB.bonusTiers||[];
+    const list=document.getElementById('bonus_tiers_list');
+    if(!list) return;
+    list.innerHTML=tiers.map((t,i)=>`
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end;">
+        <div class="form-group-dark" style="margin:0">
+            <label>Nivel ${i+1} — Clientes M1</label>
+            <input type="number" value="${t.clientes}" min="1" class="form-control" oninput="DB.bonusTiers[${i}].clientes=parseInt(this.value)||0;renderBonusTiers()">
+        </div>
+        <div class="form-group-dark" style="margin:0">
+            <label>Bono (COP)</label>
+            <input type="number" value="${t.bono}" min="0" step="10000" class="form-control" oninput="DB.bonusTiers[${i}].bono=parseInt(this.value)||0;renderBonusTiers()">
+        </div>
+        <button class="btn btn-danger btn-sm" onclick="eliminarNivelBono(${i})" ${tiers.length<=1?'disabled':''}>🗑️</button>
+    </div>`).join('');
+
+    const prev=document.getElementById('bonus_preview');
+    if(!prev) return;
+    prev.innerHTML=tiers.sort((a,b)=>a.clientes-b.clientes).map((t,i)=>`
+    <div style="background:linear-gradient(135deg,rgba(16,185,129,0.1),rgba(6,214,160,0.05));border:1px solid rgba(16,185,129,0.2);border-radius:10px;padding:14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
+        <div>
+            <div style="font-weight:700;">👥 ${t.clientes} clientes con M1 pagado</div>
+            <div style="font-size:0.75rem;color:var(--muted);">Nivel ${i+1}</div>
+        </div>
+        <div style="font-size:1.3rem;font-weight:800;color:#f59e0b;">🎁 ${fmtShort(t.bono)}</div>
+    </div>`).join('');
+}
+
+function agregarNivelBono(){
+    if(!DB.bonusTiers) DB.bonusTiers=[];
+    const last=DB.bonusTiers[DB.bonusTiers.length-1];
+    DB.bonusTiers.push({clientes:last?last.clientes+10:10, bono:last?last.bono+150000:200000});
+    renderBonusTiers();
+}
+
+function eliminarNivelBono(i){
+    if((DB.bonusTiers||[]).length<=1) return;
+    DB.bonusTiers.splice(i,1);
+    renderBonusTiers();
+}
+
+function calcularBono(clientesM1){
+    const tiers=(DB.bonusTiers||[]).sort((a,b)=>b.clientes-a.clientes);
+    for(const t of tiers){ if(clientesM1>=t.clientes) return t.bono; }
+    return 0;
+}
+
+function calcularTotalBonos(ventas){
+    const resumen={};
+    ventas.forEach(v=>{ if(!resumen[v.vendedor]) resumen[v.vendedor]=0; if(v.pagoM1) resumen[v.vendedor]++; });
+    return Object.values(resumen).reduce((s,c)=>s+calcularBono(c),0);
+}
+
+// ── MODAL NUEVA VENTA ────────────────────────────────────────────
+function modalNuevaVenta(){
+    const vendedores=DB.vendedores||[];
+    const oid=USER.role==='admin'?(window._selOfiVentas||''):USER.id;
+    const vendDisp=vendedores.filter(v=>USER.role==='oficina'?((v.oficinas||[]).includes(USER.id)||!v.oficinas||v.oficinas.length===0):true);
+    openModal('➕ Nueva Venta',`
+    <div class="form-row">
+        <div class="form-group-dark"><label>Fecha *</label><input type="date" id="nv_fecha" class="form-control" value="${new Date().toISOString().slice(0,10)}"></div>
+        <div class="form-group-dark"><label>Cliente *</label><input type="text" id="nv_cliente" class="form-control" placeholder="Nombre del cliente"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>🧑‍💼 Vendedor *</label>
+            <select id="nv_vendedor" class="form-control" onchange="cargarTasasVenta()">
+                <option value="">Seleccionar...</option>
+                ${vendDisp.map(v=>`<option value="${v.id}" data-p1="${v.pctInstalacion||0}" data-p2="${v.pct1Mes||0}" data-p3="${v.pct2Mes||0}">${v.nombre}</option>`).join('')}
+            </select>
+        </div>
+        <div class="form-group-dark"><label>Plan / Descripción</label><input type="text" id="nv_plan" class="form-control" placeholder="Ej: Internet 30Mb"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Valor mensual (COP) *</label><input type="number" id="nv_valor" class="form-control" placeholder="0" oninput="recalcVenta()"></div>
+        <div class="form-group-dark"><label>Promoción</label>
+            <select id="nv_promo" class="form-control" onchange="toggleOtraPromoV()">
+                ${Object.entries(PROMOS).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('')}
+            </select>
+        </div>
+    </div>
+    <div class="form-group-dark hidden" id="nv_otra_wrap"><label>Especificar promoción</label><input id="nv_otra" class="form-control" placeholder="Describe la promoción"></div>
+    <div style="background:rgba(16,185,129,0.07);border:1px solid rgba(16,185,129,0.2);border-radius:10px;padding:14px;margin:10px 0;">
+        <p style="font-size:0.8rem;font-weight:700;color:var(--accent);margin-bottom:10px;">💰 Porcentajes de comisión para esta venta</p>
+        <div class="form-row">
+            <div class="form-group-dark" style="margin:0">
+                <label>% Al instalar</label>
+                <input type="number" id="nv_pct1" class="form-control" value="0" oninput="recalcVenta()">
+                <small id="nv_v1" style="color:var(--accent);font-size:0.72rem;"></small>
+            </div>
+            <div class="form-group-dark" style="margin:0">
+                <label>% 1er mes</label>
+                <input type="number" id="nv_pct2" class="form-control" value="0" oninput="recalcVenta()">
+                <small id="nv_v2" style="color:#3b82f6;font-size:0.72rem;"></small>
+            </div>
+            <div class="form-group-dark" style="margin:0">
+                <label>% 2do mes</label>
+                <input type="number" id="nv_pct3" class="form-control" value="0" oninput="recalcVenta()">
+                <small id="nv_v3" style="color:#f59e0b;font-size:0.72rem;"></small>
+            </div>
+        </div>
+        <div id="nv_total" style="font-size:0.8rem;color:var(--muted);margin-top:8px;"></div>
+    </div>
+    <div class="form-group-dark">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="nv_instalado"> ✅ Ya fue instalado (genera comisión de instalación)
+        </label>
+    </div>
+    ${USER.role==='admin'&&(currentOficinas().length>1)?`<div class="form-group-dark"><label>Oficina</label>
+        <select id="nv_oid" class="form-control">
+            ${currentOficinas().map(o=>`<option value="${o.id}" ${o.id===oid?'selected':''}>${o.nombre}</option>`).join('')}
+        </select>
+    </div>`:`<input type="hidden" id="nv_oid" value="${oid||USER.id}">`}
+    `,`<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+       <button class="btn btn-primary" onclick="guardarVenta2()">✅ Registrar venta</button>`);
+}
+
+function toggleOtraPromoV(){
+    const v=document.getElementById('nv_promo')?.value;
+    const w=document.getElementById('nv_otra_wrap');
+    if(w) w.style.display=v==='OTRA'?'':'none';
+}
+
+function cargarTasasVenta(){
+    const sel=document.getElementById('nv_vendedor');
+    const opt=sel?.options[sel.selectedIndex];
+    if(!opt||!opt.value) return;
+    document.getElementById('nv_pct1').value=opt.dataset.p1||0;
+    document.getElementById('nv_pct2').value=opt.dataset.p2||0;
+    document.getElementById('nv_pct3').value=opt.dataset.p3||0;
+    recalcVenta();
+}
+
+function recalcVenta(){
+    const val=parseFloat(document.getElementById('nv_valor')?.value||0);
+    const p1=parseFloat(document.getElementById('nv_pct1')?.value||0);
+    const p2=parseFloat(document.getElementById('nv_pct2')?.value||0);
+    const p3=parseFloat(document.getElementById('nv_pct3')?.value||0);
+    const v1=document.getElementById('nv_v1'); if(v1) v1.textContent=val?'= '+fmtShort(val*p1/100):'';
+    const v2=document.getElementById('nv_v2'); if(v2) v2.textContent=val?'= '+fmtShort(val*p2/100):'';
+    const v3=document.getElementById('nv_v3'); if(v3) v3.textContent=val?'= '+fmtShort(val*p3/100):'';
+    const tot=document.getElementById('nv_total');
+    if(tot){ const s=p1+p2+p3; tot.innerHTML=`Total: <strong style="color:${s>100?'#ef4444':'var(--accent)'}">${s}%</strong>${val?' = '+fmtShort(val*s/100):''}${s>100?'<span style="color:#ef4444;margin-left:8px;">⚠️ Supera 100%</span>':''}`; }
+}
+
+function guardarVenta2(){
+    const cliente=document.getElementById('nv_cliente').value.trim();
+    const vidSel=document.getElementById('nv_vendedor').value;
+    const valor=parseFloat(document.getElementById('nv_valor').value||0);
+    if(!cliente) return alert('El nombre del cliente es obligatorio');
+    if(!vidSel) return alert('Selecciona un vendedor');
+    const vend=DB.vendedores.find(x=>x.id===vidSel);
+    const p1=parseFloat(document.getElementById('nv_pct1').value||0);
+    const p2=parseFloat(document.getElementById('nv_pct2').value||0);
+    const p3=parseFloat(document.getElementById('nv_pct3').value||0);
+    const instalado=document.getElementById('nv_instalado').checked;
+    const oid=document.getElementById('nv_oid').value;
+    const venta={
+        id:uid(),
+        fecha:document.getElementById('nv_fecha').value,
+        vendedor:vend?.nombre||vidSel,
+        vendedorId:vidSel,
+        cliente:cliente.toUpperCase(),
+        plan:document.getElementById('nv_plan').value.trim(),
+        valor, oid,
+        promo:document.getElementById('nv_promo').value,
+        otraPromo:document.getElementById('nv_otra')?.value||'',
+        pct:{instalacion:p1,primerMes:p2,segundoMes:p3},
+        instalado,
+        pagoInst:instalado,
+        pagoM1:false, pagoM2:false,
+        fechaPagoInst:instalado?document.getElementById('nv_fecha').value:null,
+        fechaPagoM1:null, fechaPagoM2:null,
+        comisionInst:instalado?valor*(p1/100):0,
+        comisionM1:0, comisionM2:0
+    };
+    if(!DB.ventas) DB.ventas=[];
+    DB.ventas.push(venta);
+    save(); closeModal(); renderVentas2();
+}
+
+// ── MODAL EDITAR VENTA ────────────────────────────────────────────
+function modalEditarVenta2(idx){
+    const v=(DB.ventas||[])[idx];
+    if(!v) return;
+    const vendDisp=(DB.vendedores||[]).filter(x=>USER.role==='admin'||(x.oficinas||[]).includes(USER.id)||!x.oficinas||x.oficinas.length===0);
+    openModal('✏️ Editar Venta — '+v.cliente,`
+    <div class="form-row">
+        <div class="form-group-dark"><label>Fecha</label><input type="date" id="ev_fecha" class="form-control" value="${v.fecha||''}"></div>
+        <div class="form-group-dark"><label>Cliente</label><input type="text" id="ev_cliente" class="form-control" value="${v.cliente||''}"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Vendedor</label>
+            <select id="ev_vendedor" class="form-control">
+                ${vendDisp.map(x=>`<option value="${x.id}" ${x.id===v.vendedorId?'selected':''}>${x.nombre}</option>`).join('')}
+            </select>
+        </div>
+        <div class="form-group-dark"><label>Plan</label><input type="text" id="ev_plan" class="form-control" value="${v.plan||''}"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Valor (COP)</label><input type="number" id="ev_valor" class="form-control" value="${v.valor||0}"></div>
+        <div class="form-group-dark"><label>Promoción</label>
+            <select id="ev_promo" class="form-control">
+                ${Object.entries(PROMOS).map(([k,p])=>`<option value="${k}" ${v.promo===k?'selected':''}>${p.label}</option>`).join('')}
+            </select>
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>% Instalación</label><input type="number" id="ev_pct1" class="form-control" value="${v.pct?.instalacion||0}"></div>
+        <div class="form-group-dark"><label>% 1er mes</label><input type="number" id="ev_pct2" class="form-control" value="${v.pct?.primerMes||0}"></div>
+        <div class="form-group-dark"><label>% 2do mes</label><input type="number" id="ev_pct3" class="form-control" value="${v.pct?.segundoMes||0}"></div>
+    </div>
+    <div class="form-group-dark">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="ev_instalado" ${v.instalado?'checked':''}> ✅ Instalado
+        </label>
+    </div>
+    `,`<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+       <button class="btn btn-primary" onclick="actualizarVenta2(${idx})">💾 Guardar</button>`);
+}
+
+function actualizarVenta2(idx){
+    const v=DB.ventas[idx]; if(!v) return;
+    const vidSel=document.getElementById('ev_vendedor').value;
+    const vend=DB.vendedores.find(x=>x.id===vidSel);
+    const valor=parseFloat(document.getElementById('ev_valor').value||0);
+    const p1=parseFloat(document.getElementById('ev_pct1').value||0);
+    const p2=parseFloat(document.getElementById('ev_pct2').value||0);
+    const p3=parseFloat(document.getElementById('ev_pct3').value||0);
+    const instalado=document.getElementById('ev_instalado').checked;
+    DB.ventas[idx]={...v,
+        fecha:document.getElementById('ev_fecha').value,
+        cliente:document.getElementById('ev_cliente').value.trim().toUpperCase(),
+        vendedor:vend?.nombre||v.vendedor, vendedorId:vidSel,
+        plan:document.getElementById('ev_plan').value.trim(),
+        valor, promo:document.getElementById('ev_promo').value,
+        pct:{instalacion:p1,primerMes:p2,segundoMes:p3},
+        instalado,
+        pagoInst:instalado?(v.pagoInst||true):false,
+        comisionInst:instalado?valor*(p1/100):0,
+        fechaPagoInst:instalado?(v.fechaPagoInst||document.getElementById('ev_fecha').value):null
+    };
+    save(); closeModal(); renderVentas2();
+}
+
+// ── MODAL PAGOS ───────────────────────────────────────────────────
+function modalPagosVenta(idx){
+    const v=(DB.ventas||[])[idx]; if(!v) return;
+    const p=v.pct||{instalacion:30,primerMes:35,segundoMes:35};
+    openModal('💳 Registrar Pagos — '+v.cliente,`
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px;font-size:0.82rem;">
+        <strong>${v.vendedor}</strong> · ${v.plan||'-'} · <span class="money pos">${fmtShort(v.valor)}</span> · ${promoTag(v.promo,v.otraPromo)}
+    </div>
+
+    ${[
+        {key:'Inst',label:'🔧 Instalación',pct:p.instalacion,pagado:v.pagoInst,fecha:v.fechaPagoInst,com:v.comisionInst,cond:'requiere instalación'},
+        {key:'M1',label:'📅 1er mes pagado',pct:p.primerMes,pagado:v.pagoM1,fecha:v.fechaPagoM1,com:v.comisionM1,cond:''},
+        {key:'M2',label:'📅 2do mes pagado',pct:p.segundoMes,pagado:v.pagoM2,fecha:v.fechaPagoM2,com:v.comisionM2,cond:''},
+    ].map(r=>`
+    <div style="background:${r.pagado?'rgba(16,185,129,0.08)':'rgba(255,255,255,0.03)'};border:1.5px solid ${r.pagado?'rgba(16,185,129,0.3)':'var(--border)'};border-radius:10px;padding:14px;margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <div>
+                <div style="font-weight:700;">${r.label}</div>
+                <div style="font-size:0.75rem;color:var(--muted);">${r.pct}% = <strong style="color:var(--accent);">${fmtShort(v.valor*(r.pct/100))}</strong></div>
+            </div>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;">
+                <input type="checkbox" id="p${r.key}" ${r.pagado?'checked':''}> ${r.pagado?'✅ Pagado':'⏳ Pendiente'}
+            </label>
+        </div>
+        <div style="margin-top:8px;">
+            <label style="font-size:0.75rem;color:var(--muted);">Fecha de pago</label>
+            <input type="date" id="f${r.key}" class="form-control" value="${r.fecha||''}" style="margin-top:4px;">
+        </div>
+    </div>`).join('')}
+    `,`<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+       <button class="btn btn-primary" onclick="guardarPagosVenta(${idx})">💾 Guardar pagos</button>`);
+}
+
+function guardarPagosVenta(idx){
+    const v=DB.ventas[idx]; if(!v) return;
+    const p=v.pct||{instalacion:30,primerMes:35,segundoMes:35};
+    const pagoInst=document.getElementById('pInst').checked;
+    const pagoM1=document.getElementById('pM1').checked;
+    const pagoM2=document.getElementById('pM2').checked;
+    v.pagoInst=pagoInst&&v.instalado;
+    v.comisionInst=v.pagoInst?v.valor*(p.instalacion/100):0;
+    v.fechaPagoInst=pagoInst?document.getElementById('fInst').value||new Date().toISOString().slice(0,10):null;
+    v.pagoM1=pagoM1;
+    v.comisionM1=pagoM1?v.valor*(p.primerMes/100):0;
+    v.fechaPagoM1=pagoM1?document.getElementById('fM1').value||new Date().toISOString().slice(0,10):null;
+    v.pagoM2=pagoM2;
+    v.comisionM2=pagoM2?v.valor*(p.segundoMes/100):0;
+    v.fechaPagoM2=pagoM2?document.getElementById('fM2').value||new Date().toISOString().slice(0,10):null;
+    save(); closeModal(); renderVentas2();
+}
+
+function eliminarVenta2(idx){
+    if(!confirm('¿Eliminar esta venta?')) return;
+    DB.ventas.splice(idx,1);
+    save(); renderVentas2();
+}
+
+function exportarVentasExcel(){
+    if(typeof XLSX==='undefined'){
+        const s=document.createElement('script');
+        s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+        s.onload=()=>_exportarVentasExcel();
+        document.head.appendChild(s);
+    } else { _exportarVentasExcel(); }
+}
+
+function _exportarVentasExcel(){
+    const ventas=getVentasOficina();
+    if(!ventas.length) return alert('No hay ventas para exportar');
+    const data=[['Fecha','Vendedor','Cliente','Plan','Valor','Promoción','Instalado','Pago M1','Pago M2','Com. Inst','Com. M1','Com. M2','% Inst','% M1','% M2']];
+    ventas.forEach(v=>{
+        const p=v.pct||{instalacion:0,primerMes:0,segundoMes:0};
+        const promoLabel=PROMOS[v.promo]?.label||v.otraPromo||v.promo||'-';
+        data.push([v.fecha,v.vendedor,v.cliente,v.plan,v.valor,promoLabel,
+            v.instalado?'SI':'NO',v.pagoM1?'SI':'NO',v.pagoM2?'SI':'NO',
+            v.comisionInst||0,v.comisionM1||0,v.comisionM2||0,
+            p.instalacion,p.primerMes,p.segundoMes]);
+    });
+    const wb=XLSX.utils.book_new();
+    const ws=XLSX.utils.aoa_to_sheet(data);
+    ws['!cols']=[{wch:12},{wch:20},{wch:20},{wch:18},{wch:12},{wch:15},{wch:10},{wch:10},{wch:10},{wch:12},{wch:12},{wch:12},{wch:8},{wch:8},{wch:8}];
+    XLSX.utils.book_append_sheet(wb,ws,'Ventas');
+    XLSX.writeFile(wb,'Ventas_PV_'+new Date().toISOString().slice(0,10)+'.xlsx');
 }
 
 function openAdminPanel(){ navigate('administracion'); }
