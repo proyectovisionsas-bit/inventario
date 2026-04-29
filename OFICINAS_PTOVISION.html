@@ -163,6 +163,7 @@
         /* ── BADGES ── */
         .tag { padding:2px 8px; border-radius:10px; font-size:0.68rem; font-weight:700; display:inline-block; }
         .tag-ing { background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); }
+        .tag-admin { background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.4); }
         .tag-egr { background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); }
         .tag-ef { background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); }
         .tag-banc { background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); }
@@ -368,7 +369,9 @@
         <button class="nav-btn" data-tab="reportes">📈 Reportes</button>
         <button class="nav-btn" data-tab="vendedores">🧑‍💼 Vendedores</button>
         <button class="nav-btn" data-tab="ventas">📋 Ventas</button>
+        <button class="nav-btn admin-only" data-tab="pagos_admin">💳 Pagos Admin</button>
         <button class="nav-btn" data-tab="rrhh">👥 RRHH</button>
+        <button class="nav-btn admin-only" data-tab="pagos_admin">💳 Pagos Admin</button>
         <button class="nav-btn" data-tab="rrhh">👥 RRHH</button>
         <button class="nav-btn admin-only" data-tab="administracion">🛠️ Administración</button>
     </nav>
@@ -528,7 +531,7 @@ function setupNav(){
 
 function navigate(tab){
     document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
-    const renders = { dash:renderDash, registro:renderRegistro, clientes:renderClientes, reportes:renderReportes, vendedores:renderVendedores, incentivos:renderIncentivos, ventas:renderVentas2, rrhh:renderRRHH, administracion:renderAdmin };
+    const renders = { dash:renderDash, registro:renderRegistro, clientes:renderClientes, reportes:renderReportes, vendedores:renderVendedores, incentivos:renderIncentivos, ventas:renderVentas2, pagos_admin:renderPagosAdmin, rrhh:renderRRHH, administracion:renderAdmin };
     if(renders[tab]) renders[tab]();
 }
 
@@ -815,14 +818,20 @@ function renderRegistro(){
             : `<div class="table-wrap"><table>
             <thead><tr><th>Hora</th><th>Tipo</th><th>Concepto</th><th>Descripción</th><th>Forma Pago</th><th>Valor</th><th></th></tr></thead>
             <tbody>
-                ${hoyMovs.slice().reverse().map(m=>`<tr>
+                ${hoyMovs.slice().reverse().map(m=>`<tr style="${m.esPagoAdmin?'background:rgba(245,158,11,0.04);':''}" >
                     <td style="color:var(--muted);font-size:0.78rem;">${new Date(m.fecha).toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})}</td>
-                    <td><span class="tag ${m.tipo==='ingreso'?'tag-ing':'tag-egr'}">${m.tipo==='ingreso'?'Ingreso':'Egreso'}</span></td>
+                    <td>
+                        <span class="tag ${m.tipo==='ingreso'?'tag-ing':'tag-egr'}">${m.tipo==='ingreso'?'Ingreso':'Egreso'}</span>
+                        ${m.esPagoAdmin?'<span class="tag tag-admin" style="margin-left:4px;">👑 Admin</span>':''}
+                    </td>
                     <td>${m.concepto}</td>
-                    <td style="color:var(--muted)">${m.descripcion||'-'}</td>
+                    <td style="color:var(--muted);font-size:0.78rem;">${m.descripcion||'-'}</td>
                     <td><span class="tag ${m.forma==='Efectivo'?'tag-ef':m.forma==='Efecty'?'tag-efty':'tag-banc'}">${m.forma}</span></td>
                     <td class="money ${m.tipo==='ingreso'?'pos':'neg'}">${m.tipo==='ingreso'?'+':'-'}${fmtShort(m.valor)}</td>
-                    <td>${USER.role==='admin'?`<button class="btn btn-danger btn-sm" onclick="eliminarMovimiento('${oid}','${m.id}')">🗑️</button>`:`<button class="btn btn-outline btn-sm" onclick="solicitarEliminar('${oid}','${m.id}')">🗑️ Solicitar</button>`}</td>
+                    <td>${m.esPagoAdmin
+                        ? (USER.role==='admin'?`<button class="btn btn-danger btn-sm" onclick="eliminarMovimiento('${oid}','${m.id}')">🗑️</button>`:'<span style="font-size:0.72rem;color:var(--muted);">Pago Admin</span>')
+                        : (USER.role==='admin'?`<button class="btn btn-danger btn-sm" onclick="eliminarMovimiento('${oid}','${m.id}')">🗑️</button>`:`<button class="btn btn-outline btn-sm" onclick="solicitarEliminar('${oid}','${m.id}')">🗑️ Solicitar</button>`)
+                    }</td>
                 </tr>`).join('')}
             </tbody>
         </table></div>`}
@@ -4287,6 +4296,226 @@ function rrhhGuardarConfig(){
     DB.rrhh_config.interesesCesantias=parseFloat(document.getElementById('rh_conf_int').value||12);
     DB.rrhh_config.diasVacaciones=parseInt(document.getElementById('rh_conf_vac').value||15);
     saveRRHH(); alert('✅ Configuración guardada.'); rrhhConfig();
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// MÓDULO PAGOS ADMIN
+// ═══════════════════════════════════════════════════════════════
+
+function renderPagosAdmin(){
+    if(USER.role!=='admin'){ document.getElementById('appContent').innerHTML='<p style="color:var(--muted);text-align:center;padding:40px;">Acceso solo para administrador.</p>'; return; }
+    const content=document.getElementById('appContent');
+    const pagosAdmin=(DB.pagosAdmin||[]).slice().reverse();
+    const mes=new Date().getMonth(), año=new Date().getFullYear();
+    const pagosMes=pagosAdmin.filter(p=>{ const d=new Date(p.fecha); return d.getMonth()===mes&&d.getFullYear()===año; });
+    const totalMes=pagosMes.reduce((s,p)=>s+parseFloat(p.valor||0),0);
+    const oficinas=DB.oficinas||[];
+
+    content.innerHTML=`
+    <div class="stats-grid" style="margin-bottom:16px;">
+        <div class="stat-card yellow"><div class="label">💳 Pagos del mes</div><div class="value">${pagosMes.length}</div></div>
+        <div class="stat-card red"><div class="label">💰 Total enviado mes</div><div class="value" style="font-size:1.1rem;">${fmtShort(totalMes)}</div></div>
+        <div class="stat-card blue"><div class="label">🏢 Oficinas</div><div class="value">${oficinas.length}</div></div>
+    </div>
+
+    <div class="two-cols">
+        <!-- FORMULARIO -->
+        <div class="card" style="margin-bottom:0">
+            <div class="card-header"><h2>💳 Registrar Pago</h2></div>
+
+            <div class="form-group-dark">
+                <label>📅 Fecha del pago *</label>
+                <input type="date" id="pa_fecha" class="form-control" value="${new Date().toISOString().slice(0,10)}">
+            </div>
+
+            <div class="form-group-dark">
+                <label>🏢 Oficina(s) destinataria(s) *</label>
+                <p style="font-size:0.72rem;color:var(--muted);margin-bottom:8px;">Puedes seleccionar una o varias. Si seleccionas varias, el valor se registra en cada una.</p>
+                <div style="display:flex;flex-direction:column;gap:6px;" id="pa_oficinas_list">
+                    ${oficinas.map(o=>`
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.03);padding:8px 12px;border-radius:8px;border:1px solid var(--border);transition:0.2s;"
+                        onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+                        <input type="checkbox" value="${o.id}" class="pa_oficina_check">
+                        <span style="font-weight:600;">🏢 ${o.nombre}</span>
+                        <span style="font-size:0.72rem;color:var(--muted);margin-left:4px;">${o.ciudad||''}</span>
+                    </label>`).join('')}
+                    ${oficinas.length===0?'<p style="color:var(--muted);font-size:0.82rem;">Sin oficinas registradas.</p>':''}
+                </div>
+            </div>
+
+            <div class="form-group-dark">
+                <label>📂 Tipo de movimiento *</label>
+                <select id="pa_tipo" class="form-control">
+                    <option value="ingreso">📥 Ingreso (dinero que llega a la oficina)</option>
+                    <option value="egreso">📤 Egreso (gasto pagado por admin)</option>
+                </select>
+            </div>
+
+            <div class="form-group-dark">
+                <label>📋 Concepto *</label>
+                <select id="pa_concepto" class="form-control" onchange="actualizarConceptosPA()">
+                    <option value="">Seleccionar...</option>
+                </select>
+            </div>
+            <div class="form-group-dark" id="pa_concepto_otro_wrap" style="display:none;">
+                <label>Especificar concepto</label>
+                <input id="pa_concepto_otro" class="form-control" placeholder="Describe el concepto">
+            </div>
+
+            <div class="form-group-dark">
+                <label>💳 Forma de pago *</label>
+                <select id="pa_forma" class="form-control">
+                    <option value="Efectivo">💵 Efectivo</option>
+                    <option value="Efecty">📮 Efecty</option>
+                    <option value="Cta Bancolombia">🏦 Cta Bancolombia</option>
+                    <option value="Cruce de Cuentas">🔄 Cruce de Cuentas</option>
+                    <option value="Transferencia">📲 Transferencia Bancaria</option>
+                    <option value="Otro">Otro</option>
+                </select>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group-dark">
+                    <label>💰 Valor (COP) *</label>
+                    <input type="number" id="pa_valor" class="form-control" placeholder="0" min="0">
+                </div>
+                <div class="form-group-dark">
+                    <label>📝 Descripción / Nota</label>
+                    <input id="pa_desc" class="form-control" placeholder="Detalle del pago...">
+                </div>
+            </div>
+
+            <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:8px;padding:10px 14px;margin:10px 0;font-size:0.8rem;color:#f59e0b;">
+                ⚠️ Este pago aparecerá en el registro diario de la(s) oficina(s) seleccionada(s) con la etiqueta <strong>"Pago Admin"</strong> y la fecha que indiques.
+            </div>
+
+            <button class="btn btn-primary" style="width:100%;" onclick="guardarPagoAdmin()">✅ Registrar Pago</button>
+        </div>
+
+        <!-- HISTORIAL -->
+        <div class="card" style="margin-bottom:0">
+            <div class="card-header">
+                <h2>📋 Historial de Pagos Admin <span>todos los meses</span></h2>
+            </div>
+            ${pagosAdmin.length===0
+                ?'<p style="color:var(--muted);text-align:center;padding:30px;">Sin pagos registrados aún.</p>'
+                :pagosAdmin.map(p=>{
+                    const oNombres=(p.oficinas||[]).map(oid=>(DB.oficinas||[]).find(o=>o.id===oid)?.nombre||oid).join(', ')||'-';
+                    const d=new Date(p.fecha);
+                    return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:8px;">
+                        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
+                            <div style="flex:1;">
+                                <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap;">
+                                    <span class="tag ${p.tipo==='ingreso'?'tag-ing':'tag-egr'}">${p.tipo==='ingreso'?'📥 Ingreso':'📤 Egreso'}</span>
+                                    <span class="tag tag-admin">👑 Admin</span>
+                                    <span class="tag ${p.forma==='Efectivo'?'tag-ef':p.forma==='Efecty'?'tag-efty':'tag-banc'}">${p.forma}</span>
+                                </div>
+                                <div style="font-weight:700;font-size:0.95rem;">${p.concepto}</div>
+                                ${p.descripcion?`<div style="font-size:0.78rem;color:var(--muted);margin-top:3px;">${p.descripcion}</div>`:''}
+                                <div style="font-size:0.75rem;color:var(--muted);margin-top:4px;">
+                                    🏢 ${oNombres} · 📅 ${d.toLocaleDateString('es-CO')}
+                                </div>
+                            </div>
+                            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+                                <span class="money ${p.tipo==='ingreso'?'pos':'neg'}" style="font-size:1.05rem;font-weight:800;">${p.tipo==='ingreso'?'+':'-'}${fmtShort(p.valor)}</span>
+                                <button class="btn btn-danger btn-sm" onclick="eliminarPagoAdmin('${p.id}')">🗑️</button>
+                            </div>
+                        </div>
+                    </div>`;
+                }).join('')}
+        </div>
+    </div>`;
+
+    // Set concepto options based on tipo
+    actualizarConceptosPAInit();
+}
+
+function actualizarConceptosPAInit(){
+    actualizarConceptosPATipo(document.getElementById('pa_tipo')?.value||'ingreso');
+    document.getElementById('pa_tipo')?.addEventListener('change', function(){ actualizarConceptosPATipo(this.value); });
+}
+
+function actualizarConceptosPATipo(tipo){
+    const sel=document.getElementById('pa_concepto');
+    if(!sel) return;
+    const conceptos=tipo==='ingreso'?CONCEPTOS_ING:CONCEPTOS_EGR;
+    sel.innerHTML=conceptos.map(c=>`<option>${c}</option>`).join('');
+    document.getElementById('pa_concepto_otro_wrap').style.display='none';
+}
+
+function actualizarConceptosPA(){
+    const val=document.getElementById('pa_concepto')?.value;
+    document.getElementById('pa_concepto_otro_wrap').style.display=val==='Otro'?'':'none';
+}
+
+function guardarPagoAdmin(){
+    const oficinasSelIds=[...document.querySelectorAll('.pa_oficina_check:checked')].map(c=>c.value);
+    if(!oficinasSelIds.length) return alert('⚠️ Selecciona al menos una oficina');
+    const tipo=document.getElementById('pa_tipo').value;
+    const concepto=document.getElementById('pa_concepto').value==='Otro'
+        ? document.getElementById('pa_concepto_otro').value.trim()
+        : document.getElementById('pa_concepto').value;
+    if(!concepto) return alert('⚠️ Selecciona o escribe un concepto');
+    const forma=document.getElementById('pa_forma').value;
+    const valor=parseFloat(document.getElementById('pa_valor').value||0);
+    if(valor<0||isNaN(valor)) return alert('⚠️ Ingresa un valor válido');
+    const desc=document.getElementById('pa_desc').value.trim();
+    const fechaInput=document.getElementById('pa_fecha').value;
+    if(!fechaInput) return alert('⚠️ Selecciona una fecha');
+    // Construir fecha con hora actual para preservar orden pero día correcto
+    const [y,m,d]=fechaInput.split('-');
+    const fechaFinal=new Date(parseInt(y),parseInt(m)-1,parseInt(d),new Date().getHours(),new Date().getMinutes(),new Date().getSeconds()).toISOString();
+
+    // 1. Registrar en historial de pagos admin
+    if(!DB.pagosAdmin) DB.pagosAdmin=[];
+    const pagoId=uid();
+    DB.pagosAdmin.push({
+        id:pagoId, tipo, concepto, forma, valor, descripcion:desc,
+        oficinas:oficinasSelIds, fecha:fechaFinal, creadoEn:now()
+    });
+
+    // 2. Inyectar movimiento en cada oficina seleccionada
+    let oficinasOk=[];
+    oficinasSelIds.forEach(oid=>{
+        const o=DB.oficinas.find(x=>x.id===oid);
+        if(!o) return;
+        if(!o.movimientos) o.movimientos=[];
+        o.movimientos.push({
+            id:uid(),
+            tipo,
+            concepto,
+            forma,
+            descripcion: (desc?desc+' — ':'')+`Pago registrado por Administrador`,
+            valor,
+            fecha: fechaFinal,
+            esPagoAdmin: true,  // flag para identificarlo
+            pagoAdminId: pagoId
+        });
+        oficinasOk.push(o.nombre);
+    });
+
+    save();
+    alert('✅ Pago registrado exitosamente en:\n'+oficinasOk.map(n=>'• '+n).join('\n'));
+
+    // Reset form
+    document.querySelectorAll('.pa_oficina_check').forEach(c=>c.checked=false);
+    document.getElementById('pa_valor').value='';
+    document.getElementById('pa_desc').value='';
+    renderPagosAdmin();
+}
+
+function eliminarPagoAdmin(pid){
+    if(!confirm('¿Eliminar este pago del historial?\nNota: también se eliminará de los registros de las oficinas.')) return;
+    const pago=(DB.pagosAdmin||[]).find(p=>p.id===pid);
+    if(!pago) return;
+    // Eliminar de oficinas
+    (pago.oficinas||[]).forEach(oid=>{
+        const o=DB.oficinas.find(x=>x.id===oid);
+        if(o) o.movimientos=(o.movimientos||[]).filter(m=>m.pagoAdminId!==pid);
+    });
+    DB.pagosAdmin=DB.pagosAdmin.filter(p=>p.id!==pid);
+    save(); renderPagosAdmin();
 }
 
 function openAdminPanel(){ navigate('administracion'); }
