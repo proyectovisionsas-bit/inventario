@@ -709,8 +709,20 @@ function renderClientes(c) {
                             <td style="font-size:0.82rem;">${d.motivo}</td>
                         </tr>`).join('')}
                         </tbody></table></div>` : ''}
+                    ${cl.historialTraslados?.length ? `
+                    <details style="margin-top:10px;border:1px solid #e2e8f0;border-radius:8px;">
+                        <summary style="padding:8px 12px;cursor:pointer;font-size:0.85rem;font-weight:bold;">🚚 Historial de Traslados (${cl.historialTraslados.length})</summary>
+                        <div style="padding:10px;">
+                        ${cl.historialTraslados.map(t=>`
+                            <div style="border-left:3px solid #4f46e5;padding:6px 10px;margin-bottom:6px;font-size:0.82rem;">
+                                <strong>${t.fecha}</strong> — ${t.direccionAnterior} → ${t.direccionNueva}<br>
+                                <span class="text-muted">Motivo: ${t.motivo} | Cuadrilla: ${t.cuadrilla||'-'}</span>
+                                ${t.equiposRetirados?.length?`<br><span style="color:var(--danger);">Retirados: ${t.equiposRetirados.join(', ')}</span>`:''}
+                            </div>`).join('')}
+                        </div>
+                    </details>` : ''}
                     <div style="margin-top:10px; display:flex; gap:5px; flex-wrap:wrap;">
-                        <button class="btn btn-outline btn-sm" onclick="modalEditCliente('${cl.id}')">✏️ Editar</button>
+                        <button class="btn btn-primary btn-sm" onclick="modalTraslado('${cl.id}')">🚚 Traslado</button>
                         <button class="btn btn-warning btn-sm" onclick="deleteCliente('${cl.id}')">🔴 Retirar Cliente</button>
                     </div>
                 </div>
@@ -768,6 +780,111 @@ function saveCliente(editId) {
     }
     save(); closeModal(); renderClientes(document.getElementById('main-content'));
 }
+function modalTraslado(cliId) {
+    const cl = DB.clientes.find(x=>x.id===cliId);
+    if(!cl) return;
+
+    const equiposHTML = cl.equipos.filter(e=>e.cantidad>0).map((eq,i)=>`
+        <tr>
+            <td><strong>${eq.nombre}</strong>${eq.snes.length?`<br><small>${eq.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' ')}</small>`:''}</td>
+            <td>${eq.cantidad} ${eq.unidad}</td>
+            <td style="text-align:center;">
+                <label style="margin-right:8px;"><input type="radio" name="eq_${i}" value="traslada" checked> 🚚 Traslada</label>
+                <label><input type="radio" name="eq_${i}" value="retira"> 📦 Se retira</label>
+            </td>
+        </tr>`).join('');
+
+    const bodegaOpts = (USER.role==='admin' ? DB.bodegas : DB.bodegas.filter(b=>b.id===USER.id))
+        .map(b=>`<option value="${b.id}">${b.nombre}</option>`).join('');
+
+    openModal(`🚚 Traslado — ${cl.nombre}`,
+        `<div style="background:#e3f2fd;padding:10px;border-radius:6px;margin-bottom:15px;font-size:0.85rem;">
+            📍 <strong>Dirección actual:</strong> ${cl.direccion||'Sin dirección'}
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>Nueva Dirección *</label>
+                <input id="tDir" class="form-control" placeholder="Nueva dirección del cliente">
+            </div>
+            <div class="form-group"><label>Motivo del traslado *</label>
+                <input id="tMotivo" class="form-control" placeholder="Ej: Cambio de residencia, solicitud cliente...">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>Cuadrilla que realiza el traslado</label>
+                <input id="tCuad" class="form-control" value="${cl.cuadrillaInstaladora||''}">
+            </div>
+            <div class="form-group"><label>Fecha</label>
+                <input id="tFecha" type="date" class="form-control" value="${new Date().toISOString().split('T')[0]}">
+            </div>
+        </div>
+        ${cl.equipos.filter(e=>e.cantidad>0).length ? `
+        <h4 style="margin:12px 0 8px;">📦 Equipos — ¿Qué pasa con cada uno?</h4>
+        <p class="text-muted" style="font-size:0.82rem;margin-bottom:8px;">Los equipos que se retiran regresan al inventario de bodega.</p>
+        <div class="form-group"><label>Bodega destino (equipos retirados)</label>
+            <select id="tBodega" class="form-control"><option value="">-- Seleccione --</option>${bodegaOpts}</select>
+        </div>
+        <div class="table-wrap"><table>
+            <thead><tr><th>Equipo</th><th>Cant</th><th>Acción</th></tr></thead>
+            <tbody>${equiposHTML}</tbody>
+        </table></div>` : '<p class="text-muted">Este cliente no tiene equipos activos.</p>'}`,
+        () => {
+            const nuevaDir = id('tDir').value.trim();
+            const motivo = id('tMotivo').value.trim();
+            const cuad = id('tCuad').value.trim();
+            const fecha = id('tFecha').value;
+            const bodegaId = id('tBodega')?.value;
+
+            if(!nuevaDir) return alert('La nueva dirección es obligatoria.');
+            if(!motivo) return alert('El motivo del traslado es obligatorio.');
+
+            const equiposActivos = cl.equipos.filter(e=>e.cantidad>0);
+            const retirados = [];
+
+            // Process each equipment
+            equiposActivos.forEach((eq, i) => {
+                const accion = document.querySelector(`input[name="eq_${i}"]:checked`)?.value || 'traslada';
+                if(accion === 'retira') {
+                    retirados.push(eq);
+                }
+            });
+
+            // Return retired equipment to bodega
+            if(retirados.length > 0) {
+                if(!bodegaId) return alert('Seleccione la bodega destino para los equipos retirados.');
+                const bodega = DB.bodegas.find(x=>x.id===bodegaId);
+                retirados.forEach(eq => {
+                    const ex = bodega.materiales.find(m=>m.nombre===eq.nombre&&m.tipo===eq.tipo);
+                    if(ex) { ex.cantidad+=eq.cantidad; ex.snes.push(...eq.snes.filter(s=>!ex.snes.includes(s))); }
+                    else { bodega.materiales.push({id:Date.now().toString()+Math.random().toString(36).substr(2,4), nombre:eq.nombre, cantidad:eq.cantidad, tipo:eq.tipo, unidad:eq.unidad, snes:[...eq.snes], stockMin:0, categoria:'equipo', observaciones:`Devuelto de traslado — ${cl.nombre}`, fotos:[], fecha:new Date().toLocaleDateString()}); }
+                    // Remove from client
+                    cl.equipos = cl.equipos.filter(e=>e!==eq);
+                });
+                // Register in recuperados
+                DB.recuperados.push({id:Date.now().toString(), bodegaId, bodegaNombre:bodega.nombre, nom:retirados.map(e=>e.nombre).join(', '), cant:retirados.reduce((s,e)=>s+e.cantidad,0), origen:`Traslado cliente: ${cl.nombre}`, fecha:new Date().toLocaleDateString(), estado:'integrado', obs:`Traslado — ${motivo}`});
+            }
+
+            // Save traslado history
+            if(!cl.historialTraslados) cl.historialTraslados = [];
+            cl.historialTraslados.push({
+                fecha, direccionAnterior: cl.direccion||'', direccionNueva: nuevaDir,
+                cuadrilla: cuad, motivo,
+                equiposTraslados: equiposActivos.filter((_,i)=>document.querySelector(`input[name="eq_${i}"]:checked`)?.value==='traslada').map(e=>e.nombre),
+                equiposRetirados: retirados.map(e=>e.nombre),
+                reg: new Date().toISOString()
+            });
+
+            // Update client
+            cl.direccion = nuevaDir;
+            cl.cuadrillaInstaladora = cuad || cl.cuadrillaInstaladora;
+
+            logMsg(`Traslado de "${cl.nombre}" → ${nuevaDir} — ${motivo}`);
+            save(); closeModal();
+            alert(`✅ Traslado registrado. ${retirados.length} equipo(s) devuelto(s) a bodega.`);
+            renderClientes(document.getElementById('main-content'));
+        });
+}
+window.modalTraslado = modalTraslado;
+
 function deleteCliente(cliId) {
     const cl = DB.clientes.find(x=>x.id===cliId);
     if(!cl) return;
@@ -1190,16 +1307,17 @@ function renderEquiposDanados(c) {
 function actualizarClientesDesdeInstalacion(inst) {
     let cli = DB.clientes.find(c => c.nombre.toLowerCase() === inst.cliente.toLowerCase());
     if(!cli) {
-        cli = { id: Date.now().toString(), nombre: inst.cliente, direccion: '', telefono: '', email: '', fechaInstalacion: inst.fecha, cuadrillaInstaladora: inst.cuadrilla, observaciones: inst.tipo || 'Instalación automática', equipos: [] };
+        const bodId = USER.role==='bodega' ? USER.id : '';
+        cli = { id: Date.now().toString(), nombre: inst.cliente, bodegaId: bodId, direccion: '', telefono: '', email: '', fechaInstalacion: inst.fecha, cuadrillaInstaladora: inst.cuadrilla, observaciones: inst.tipo || 'Instalación automática', equipos: [] };
         DB.clientes.push(cli);
     }
     cli.fechaInstalacion = inst.fecha; cli.cuadrillaInstaladora = inst.cuadrilla; if(inst.tipo) cli.observaciones = inst.tipo;
     inst.mats.forEach(m => {
         let eq = cli.equipos.find(e => e.nombre.toLowerCase() === m.nom.toLowerCase() && e.tipo === m.tipo);
-        if(eq) { eq.cantidad += m.cant; eq.snes.push(...m.snes.filter(s => !eq.snes.includes(s))); }
-        else { cli.equipos.push({ nombre: m.nom, cantidad: m.cant, unidad: m.unidad, tipo: m.tipo, snes: [...m.snes], estado: 'Activo' }); }
+        if(eq) { eq.cantidad += m.cant; eq.snes.push(...(m.snes||[]).filter(s => !eq.snes.includes(s))); }
+        else { cli.equipos.push({ nombre: m.nom, cantidad: m.cant, unidad: m.unidad, tipo: m.tipo, snes: [...(m.snes||[])], estado: 'Activo' }); }
     });
-    save();
+    // Note: save() called by saveInstLogic, not here
 }
 
 // ==========================================
@@ -2322,7 +2440,7 @@ function addIItem() {
         renderIList();
     }
 }
-function renderIList() { const el=id('iList'); if(!el) return; el.innerHTML=TempLists.iItems.map((it,i)=>`<div class="item-list-item"><span>${it.nom} x${it.cant} ${it.unidad}</span><button class="btn btn-danger btn-sm" onclick="TempLists.iItems.splice(${i},1);renderIList();">✕</button></div>`).join('')||'Vacío'; }
+function renderIList() { const el=id('iList'); if(!el) return; el.innerHTML=TempLists.iItems.map((it,i)=>`<div class="item-list-item" style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:#f8f9fa;border-radius:6px;margin-bottom:4px;"><div><strong>${it.nom}</strong> x${it.cant} ${it.unidad}${it.snes&&it.snes.length?` <span style="font-size:0.75rem;color:#4f46e5;">[SN: ${it.snes.join(', ')}]</span>`:''}</div><button class="btn btn-danger btn-sm" onclick="TempLists.iItems.splice(${i},1);renderIList();">✕</button></div>`).join('')||'<p class="text-muted">Sin materiales agregados</p>'; }
 function saveInstLogic() { const c=DB.cuadrillas.find(x=>x.id===id('iCuad').value), cli=id('iCli').value.trim(), tipo=id('iTipo').value.trim(), fecha=id('iFecha').value; TempLists.iItems.forEach(it => { const m=c.materiales.find(x=>x.id===it.id); m.cantidad-=it.cant; it.snes.forEach(s=>{const idx=m.snes.indexOf(s);if(idx>-1)m.snes.splice(idx,1);}); }); const instData = {id:Date.now().toString(),cuadrillaId:c.id,cuadrilla:c.nombre,fecha:fecha,cliente:cli,tipo:tipo,mats:[...TempLists.iItems],reg:new Date().toISOString()}; DB.instalaciones.push(instData); actualizarClientesDesdeInstalacion(instData); logMsg(`Instalación en ${cli}`); save(); closeModal(); renderTab('inst'); }
 function delInst(eid) { if(!confirm('¿Eliminar?')) return; DB.instalaciones=DB.instalaciones.filter(x=>x.id!==eid); save(); renderTab('inst'); }
 
