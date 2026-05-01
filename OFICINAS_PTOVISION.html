@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OFICINAS · PROYECTOVISION</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
     <style>
@@ -246,6 +247,21 @@
         .search-bar input { flex:1; min-width:180px; }
 
         @media(max-width:600px){ .header { flex-direction:column; gap:8px; } }
+        /* ── RECORDATORIOS ─────────────────────────────────────────── */
+        #recordatorio-popup { position:fixed; top:0; left:0; right:0; bottom:0; z-index:2000; display:none; justify-content:center; align-items:center; background:rgba(0,0,0,0.7); backdrop-filter:blur(4px); }
+        #recordatorio-popup.show { display:flex; }
+        .rec-popup-card { background:var(--surface); border:2px solid var(--warning); border-radius:16px; padding:30px; max-width:400px; width:90%; text-align:center; animation:popIn 0.25s ease; box-shadow:0 0 40px rgba(245,158,11,0.3); }
+        .rec-popup-icon { font-size:3rem; margin-bottom:12px; }
+        .rec-popup-title { font-size:1.1rem; font-weight:800; margin-bottom:8px; color:var(--warning); }
+        .rec-popup-msg { font-size:0.9rem; color:var(--muted); line-height:1.6; margin-bottom:20px; }
+        .rec-item { background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:12px 16px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+        .rec-item-info h4 { font-size:0.88rem; font-weight:700; margin-bottom:3px; }
+        .rec-item-info p { font-size:0.72rem; color:var(--muted); }
+        .rec-badge { padding:2px 8px; border-radius:10px; font-size:0.68rem; font-weight:700; }
+        .rec-diario { background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); }
+        .rec-semanal { background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); }
+        .rec-mensual { background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); }
+        .rec-unico { background:rgba(139,92,246,0.15); color:#a78bfa; border:1px solid rgba(139,92,246,0.3); }
         /* ── RRHH MODULE ─────────────────────────────────────────────── */
         .rrhh-view { display:none; }
         .rrhh-view.active { display:block; }
@@ -347,6 +363,19 @@
 </div>
 
 <!-- APP -->
+<!-- RECORDATORIO POPUP -->
+<div id="recordatorio-popup">
+    <div class="rec-popup-card">
+        <div class="rec-popup-icon">🔔</div>
+        <div class="rec-popup-title" id="rec-pop-title">Recordatorio</div>
+        <div class="rec-popup-msg" id="rec-pop-msg"></div>
+        <div style="display:flex;gap:10px;justify-content:center;">
+            <button class="btn btn-outline" onclick="posponerRecordatorio()">⏰ Posponer 1h</button>
+            <button class="btn btn-primary" onclick="cerrarRecordatorioPopup()">✅ Entendido</button>
+        </div>
+    </div>
+</div>
+
 <div id="app" class="hidden">
     <header class="header">
         <div class="header-left">
@@ -370,8 +399,7 @@
         <button class="nav-btn" data-tab="vendedores">🧑‍💼 Vendedores</button>
         <button class="nav-btn" data-tab="ventas">📋 Ventas</button>
         <button class="nav-btn admin-only" data-tab="pagos_admin">💳 Pagos Admin</button>
-        <button class="nav-btn" data-tab="rrhh">👥 RRHH</button>
-        <button class="nav-btn admin-only" data-tab="pagos_admin">💳 Pagos Admin</button>
+        <button class="nav-btn" data-tab="prestamos">💵 Préstamos</button>
         <button class="nav-btn" data-tab="rrhh">👥 RRHH</button>
         <button class="nav-btn admin-only" data-tab="administracion">🛠️ Administración</button>
     </nav>
@@ -508,6 +536,7 @@ function enterApp(){
     document.getElementById('app').classList.remove('hidden');
     applyRoles(); setupNav(); navigate('dash');
     setTimeout(applyStoredTheme,50);
+    setTimeout(iniciarMonitorRecordatorios,1000);
     setInterval(()=>{
         const c=document.getElementById('clock');
         if(c) c.textContent=new Date().toLocaleTimeString('es-CO');
@@ -531,7 +560,7 @@ function setupNav(){
 
 function navigate(tab){
     document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
-    const renders = { dash:renderDash, registro:renderRegistro, clientes:renderClientes, reportes:renderReportes, vendedores:renderVendedores, incentivos:renderIncentivos, ventas:renderVentas2, pagos_admin:renderPagosAdmin, rrhh:renderRRHH, administracion:renderAdmin };
+    const renders = { dash:renderDash, registro:renderRegistro, clientes:renderClientes, reportes:renderReportes, vendedores:renderVendedores, incentivos:renderIncentivos, ventas:renderVentas2, pagos_admin:renderPagosAdmin, prestamos:renderPrestamos, rrhh:renderRRHH, administracion:renderAdmin };
     if(renders[tab]) renders[tab]();
 }
 
@@ -609,6 +638,13 @@ function renderDash(){
     });
     const maxFP = Math.max(...Object.values(formasPago),1);
 
+    // Desglose por categoría (Efectivo / Efecty / Bancario) para ingresos y egresos
+    const _ef=['Efectivo'], _efty=['Efecty'], _bco=['Cta Bancolombia','Transferencia','Cruce de Cuentas'];
+    const calcMes=(tipo,formas)=>oficinas.reduce((s,o)=>s+getMesMovs(o.id).filter(m=>m.tipo===tipo&&formas.includes(m.forma)).reduce((a,m)=>a+parseFloat(m.valor||0),0),0);
+    const dasIngEf=calcMes('ingreso',_ef), dasEgrEf=calcMes('egreso',_ef);
+    const dasIngEfty=calcMes('ingreso',_efty), dasEgrEfty=calcMes('egreso',_efty);
+    const dasIngBco=calcMes('ingreso',_bco), dasEgrBco=calcMes('egreso',_bco);
+
     // Desglose egresos por concepto
     let conceptosEgr = {};
     CONCEPTOS_EGR.forEach(c=>conceptosEgr[c]=0);
@@ -654,6 +690,73 @@ function renderDash(){
         <div class="stat-card red"><div class="label">📤 Egresos del mes</div><div class="value">${fmtShort(mesEgr)}</div></div>
         <div class="stat-card ${mesIng-mesEgr>=0?'blue':'red'}"><div class="label">💰 Balance del mes</div><div class="value">${fmtShort(mesIng-mesEgr)}</div></div>
         <div class="stat-card blue"><div class="label">👥 Total clientes</div><div class="value">${totalClientes}</div><div class="sub">${clientesActivos} activos</div></div>
+    </div>
+
+    <!-- GRÁFICAS DASHBOARD -->
+    <div id="dash_charts_section" style="margin-bottom:20px;"></div>
+
+    <!-- Desglose Efectivo / Efecty / Banco -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:20px;">
+        <div style="background:rgba(16,185,129,0.07);border:1px solid rgba(16,185,129,0.2);border-radius:12px;padding:16px;">
+            <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;font-weight:700;color:#10b981;margin-bottom:10px;">💵 Efectivo</div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:0.82rem;">
+                <span style="color:var(--muted);">📥 Ingresos</span>
+                <span style="color:#10b981;font-weight:700;">${fmtShort(dasIngEf)}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:0.82rem;">
+                <span style="color:var(--muted);">📤 Egresos</span>
+                <span style="color:#ef4444;font-weight:700;">${fmtShort(dasEgrEf)}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;border-top:1px solid rgba(16,185,129,0.2);padding-top:8px;">
+                <span style="font-size:0.8rem;font-weight:700;color:var(--text);">Saldo</span>
+                <span style="font-size:1.1rem;font-weight:900;color:${dasIngEf-dasEgrEf>=0?'#10b981':'#ef4444'};">${fmtShort(dasIngEf-dasEgrEf)}</span>
+            </div>
+        </div>
+        <div style="background:rgba(139,92,246,0.07);border:1px solid rgba(139,92,246,0.2);border-radius:12px;padding:16px;">
+            <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;font-weight:700;color:#a78bfa;margin-bottom:10px;">📮 Efecty</div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:0.82rem;">
+                <span style="color:var(--muted);">📥 Ingresos</span>
+                <span style="color:#10b981;font-weight:700;">${fmtShort(dasIngEfty)}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:0.82rem;">
+                <span style="color:var(--muted);">📤 Egresos</span>
+                <span style="color:#ef4444;font-weight:700;">${fmtShort(dasEgrEfty)}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;border-top:1px solid rgba(139,92,246,0.2);padding-top:8px;">
+                <span style="font-size:0.8rem;font-weight:700;color:var(--text);">Saldo</span>
+                <span style="font-size:1.1rem;font-weight:900;color:${dasIngEfty-dasEgrEfty>=0?'#10b981':'#ef4444'};">${fmtShort(dasIngEfty-dasEgrEfty)}</span>
+            </div>
+        </div>
+        <div style="background:rgba(59,130,246,0.07);border:1px solid rgba(59,130,246,0.2);border-radius:12px;padding:16px;">
+            <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;font-weight:700;color:#3b82f6;margin-bottom:10px;">🏦 Cuenta Bancaria</div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:0.82rem;">
+                <span style="color:var(--muted);">📥 Ingresos</span>
+                <span style="color:#10b981;font-weight:700;">${fmtShort(dasIngBco)}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:0.82rem;">
+                <span style="color:var(--muted);">📤 Egresos</span>
+                <span style="color:#ef4444;font-weight:700;">${fmtShort(dasEgrBco)}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;border-top:1px solid rgba(59,130,246,0.2);padding-top:8px;">
+                <span style="font-size:0.8rem;font-weight:700;color:var(--text);">Saldo</span>
+                <span style="font-size:1.1rem;font-weight:900;color:${dasIngBco-dasEgrBco>=0?'#10b981':'#ef4444'};">${fmtShort(dasIngBco-dasEgrBco)}</span>
+            </div>
+        </div>
+        <div style="background:linear-gradient(135deg,rgba(16,185,129,0.1),rgba(59,130,246,0.08));border:1px solid rgba(16,185,129,0.25);border-radius:12px;padding:16px;">
+            <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;font-weight:700;color:var(--accent);margin-bottom:10px;">📊 Total General</div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:0.82rem;">
+                <span style="color:var(--muted);">📥 Ingresos</span>
+                <span style="color:#10b981;font-weight:700;">${fmtShort(mesIng)}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:0.82rem;">
+                <span style="color:var(--muted);">📤 Egresos</span>
+                <span style="color:#ef4444;font-weight:700;">${fmtShort(mesEgr)}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;border-top:1px solid rgba(16,185,129,0.2);padding-top:8px;">
+                <span style="font-size:0.8rem;font-weight:700;color:var(--text);">Balance</span>
+                <span style="font-size:1.1rem;font-weight:900;color:${mesIng-mesEgr>=0?'#10b981':'#ef4444'};">${fmtShort(mesIng-mesEgr)}</span>
+            </div>
+        </div>
     </div>
 
     <div class="two-cols">
@@ -703,7 +806,100 @@ function renderDash(){
     </div>`:''}
 
     ${oficinas.length===0?`<div class="card" style="text-align:center;padding:40px;"><p style="color:var(--muted);margin-bottom:14px;">No hay oficinas registradas todavía.</p><button class="btn btn-primary" onclick="navigate('administracion')">➕ Crear primera oficina</button></div>`:''}
+
+    <div class="card">
+        <div class="card-header">
+            <h2>🔔 Recordatorios</h2>
+            <button class="btn btn-primary btn-sm" onclick="modalNuevoRecordatorio()">➕ Nuevo</button>
+        </div>
+        ${(DB.recordatorios||[]).length===0
+            ?'<p style="color:var(--muted);text-align:center;padding:20px;font-size:0.85rem;">Sin recordatorios configurados.</p>'
+            :(DB.recordatorios||[]).map(r=>{
+                const proxima=calcProximaAlarma(r);
+                const diffMs=proxima-Date.now();
+                const diffMin=Math.round(diffMs/60000);
+                const diffH=Math.round(diffMs/3600000);
+                const diffD=Math.round(diffMs/86400000);
+                const tiempoLabel=diffMs<0?'<span style="color:#ef4444;font-size:0.72rem;">Vencido</span>':diffMin<60?`<span style="color:#f59e0b;font-size:0.72rem;">En ${diffMin} min</span>`:diffH<24?`<span style="color:#3b82f6;font-size:0.72rem;">En ${diffH}h</span>`:`<span style="color:var(--muted);font-size:0.72rem;">En ${diffD} día(s)</span>`;
+                return `<div class="rec-item">
+                    <div class="rec-item-info">
+                        <h4>${r.titulo}</h4>
+                        <p>${r.mensaje}</p>
+                        <p style="margin-top:3px;">📅 ${new Date(r.fechaHora).toLocaleString('es-CO',{dateStyle:'short',timeStyle:'short'})} · ${tiempoLabel}</p>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <span class="rec-badge rec-${r.recurrencia}">${r.recurrencia==='diario'?'Diario':r.recurrencia==='semanal'?'Semanal':r.recurrencia==='mensual'?'Mensual':'Único'}</span>
+                        <button class="btn btn-danger btn-sm" onclick="eliminarRecordatorio('${r.id}')">🗑️</button>
+                    </div>
+                </div>`;
+            }).join('')}
+    </div>
+
+    <!-- GRÁFICAS -->
+    <div class="two-cols" style="margin-bottom:16px;">
+        <div class="card" style="margin-bottom:0"><div class="card-header"><h2>📈 Tendencia últimos 6 meses</h2></div><canvas id="chart_tendencia" height="180"></canvas></div>
+        <div class="card" style="margin-bottom:0"><div class="card-header"><h2>🍩 Ingresos por Concepto</h2></div><canvas id="chart_donuts" height="180"></canvas></div>
+    </div>
+    ${USER.role==='admin'&&oficinas.length>1?'<div class="card" style="margin-bottom:16px;"><div class="card-header"><h2>🏢 Comparativa entre Oficinas</h2></div><canvas id="chart_oficinas" height="160"></canvas></div>':''}
     `;
+    setTimeout(()=>renderDashCharts(oficinas),150);
+}
+
+function renderDashCharts(oficinas){
+    const isLight=document.body.classList.contains('light-mode');
+    const textColor=isLight?'#1e293b':'#94a3b8';
+    const gridColor=isLight?'rgba(0,0,0,0.08)':'rgba(255,255,255,0.06)';
+    Chart.defaults.color=textColor;
+    const ahora=new Date();
+
+    // ── Tendencia 6 meses ─────────────────────────────────────────
+    const c1=document.getElementById('chart_tendencia'); if(!c1) return;
+    if(c1._chartInst) c1._chartInst.destroy();
+    const labels6=[]; const ing6=[]; const egr6=[];
+    for(let i=5;i>=0;i--){
+        const d=new Date(); d.setMonth(d.getMonth()-i);
+        labels6.push(d.toLocaleDateString('es-CO',{month:'short',year:'2-digit'}));
+        let tIng=0,tEgr=0;
+        oficinas.forEach(o=>{
+            (o.movimientos||[]).filter(m=>{const md=new Date(m.fecha);return md.getMonth()===d.getMonth()&&md.getFullYear()===d.getFullYear();})
+            .forEach(m=>{ if(m.tipo==='ingreso') tIng+=parseFloat(m.valor||0); else tEgr+=parseFloat(m.valor||0); });
+        });
+        ing6.push(tIng); egr6.push(tEgr);
+    }
+    c1._chartInst=new Chart(c1,{type:'line',data:{labels:labels6,datasets:[
+        {label:'Ingresos',data:ing6,borderColor:'#10b981',backgroundColor:'rgba(16,185,129,0.1)',tension:0.4,fill:true,pointBackgroundColor:'#10b981'},
+        {label:'Egresos',data:egr6,borderColor:'#ef4444',backgroundColor:'rgba(239,68,68,0.07)',tension:0.4,fill:true,pointBackgroundColor:'#ef4444'}
+    ]},options:{responsive:true,plugins:{legend:{labels:{color:textColor}}},scales:{x:{grid:{color:gridColor},ticks:{color:textColor}},y:{grid:{color:gridColor},ticks:{color:textColor,callback:v=>'$'+Number(v).toLocaleString('es-CO')}}}}});
+
+    // ── Donut ingresos por concepto ───────────────────────────────
+    const c2=document.getElementById('chart_donuts'); if(!c2) return;
+    if(c2._chartInst) c2._chartInst.destroy();
+    const concMap={};
+    oficinas.forEach(o=>{
+        (o.movimientos||[]).filter(m=>{const d=new Date(m.fecha);return m.tipo==='ingreso'&&d.getMonth()===ahora.getMonth()&&d.getFullYear()===ahora.getFullYear();})
+        .forEach(m=>{concMap[m.concepto]=(concMap[m.concepto]||0)+parseFloat(m.valor||0);});
+    });
+    const dLabels=Object.keys(concMap); const dData=Object.values(concMap);
+    const dColors=['#10b981','#3b82f6','#f59e0b','#a78bfa','#ef4444','#06d6a0','#f97316','#84cc16','#ec4899','#14b8a6'];
+    if(dLabels.length>0){
+        c2._chartInst=new Chart(c2,{type:'doughnut',data:{labels:dLabels,datasets:[{data:dData,backgroundColor:dColors,borderWidth:2,borderColor:isLight?'#fff':'#111827'}]},
+        options:{responsive:true,plugins:{legend:{position:'right',labels:{color:textColor,boxWidth:12,font:{size:11}}},tooltip:{callbacks:{label:ctx=>' '+ctx.label+': $'+Number(ctx.raw).toLocaleString('es-CO')}}}}});
+    }
+
+    // ── Barras comparativa oficinas ───────────────────────────────
+    const c3=document.getElementById('chart_oficinas'); if(!c3||oficinas.length<2) return;
+    if(c3._chartInst) c3._chartInst.destroy();
+    const bLabels=[],bIng=[],bEgr=[];
+    oficinas.forEach(o=>{
+        bLabels.push(o.nombre); let tI=0,tE=0;
+        (o.movimientos||[]).filter(m=>{const d=new Date(m.fecha);return d.getMonth()===ahora.getMonth()&&d.getFullYear()===ahora.getFullYear();})
+        .forEach(m=>{ if(m.tipo==='ingreso') tI+=parseFloat(m.valor||0); else tE+=parseFloat(m.valor||0); });
+        bIng.push(tI); bEgr.push(tE);
+    });
+    c3._chartInst=new Chart(c3,{type:'bar',data:{labels:bLabels,datasets:[
+        {label:'Ingresos',data:bIng,backgroundColor:'rgba(16,185,129,0.75)',borderRadius:6},
+        {label:'Egresos',data:bEgr,backgroundColor:'rgba(239,68,68,0.65)',borderRadius:6}
+    ]},options:{responsive:true,plugins:{legend:{labels:{color:textColor}}},scales:{x:{grid:{color:gridColor},ticks:{color:textColor}},y:{grid:{color:gridColor},ticks:{color:textColor,callback:v=>'$'+Number(v).toLocaleString('es-CO')}}}}});
 }
 
 // ─── REGISTRO DIARIO ─────────────────────────────────────────────────────────
@@ -903,31 +1099,75 @@ function verMovimientosMes(oid){
     }).slice().reverse();
     const ing=movs.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
     const egr=movs.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
-    openModal('📅 Movimientos del mes — '+o.nombre,`
-        <div style="display:flex;gap:14px;margin-bottom:16px;flex-wrap:wrap;">
-            <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:10px 16px;">
-                <div style="font-size:0.7rem;color:var(--muted);">INGRESOS</div>
-                <div style="font-size:1.2rem;font-weight:800;color:#10b981;">${fmtShort(ing)}</div>
+
+    // Desglose por forma de pago
+    const _ef=['Efectivo'], _efty=['Efecty'], _bco=['Cta Bancolombia','Transferencia','Cruce de Cuentas'];
+    const calc=(tipo,formas)=>movs.filter(m=>m.tipo===tipo&&formas.includes(m.forma)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+    const iEf=calc('ingreso',_ef), eEf=calc('egreso',_ef);
+    const iEfty=calc('ingreso',_efty), eEfty=calc('egreso',_efty);
+    const iBco=calc('ingreso',_bco), eBco=calc('egreso',_bco);
+
+    openModal('📅 Resumen del mes — '+o.nombre,`
+        <!-- Totales generales -->
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;">
+            <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:10px 14px;text-align:center;">
+                <div style="font-size:0.68rem;color:var(--muted);text-transform:uppercase;margin-bottom:4px;">📥 Ingresos</div>
+                <div style="font-size:1.1rem;font-weight:800;color:#10b981;">${fmtShort(ing)}</div>
             </div>
-            <div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:10px 16px;">
-                <div style="font-size:0.7rem;color:var(--muted);">EGRESOS</div>
-                <div style="font-size:1.2rem;font-weight:800;color:#ef4444;">${fmtShort(egr)}</div>
+            <div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:10px 14px;text-align:center;">
+                <div style="font-size:0.68rem;color:var(--muted);text-transform:uppercase;margin-bottom:4px;">📤 Egresos</div>
+                <div style="font-size:1.1rem;font-weight:800;color:#ef4444;">${fmtShort(egr)}</div>
             </div>
-            <div style="background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.2);border-radius:8px;padding:10px 16px;">
-                <div style="font-size:0.7rem;color:var(--muted);">BALANCE</div>
-                <div style="font-size:1.2rem;font-weight:800;color:#3b82f6;">${fmtShort(ing-egr)}</div>
+            <div style="background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.2);border-radius:8px;padding:10px 14px;text-align:center;">
+                <div style="font-size:0.68rem;color:var(--muted);text-transform:uppercase;margin-bottom:4px;">💰 Balance</div>
+                <div style="font-size:1.1rem;font-weight:800;color:${ing-egr>=0?'#3b82f6':'#ef4444'};">${fmtShort(ing-egr)}</div>
             </div>
         </div>
+
+        <!-- Desglose por forma de pago -->
+        <p style="font-size:0.78rem;font-weight:700;color:var(--accent);margin-bottom:8px;">💳 Desglose por forma de pago</p>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px;">
+            <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.15);border-radius:8px;padding:10px;">
+                <div style="font-size:0.7rem;font-weight:700;color:#10b981;margin-bottom:6px;">💵 EFECTIVO</div>
+                <div style="font-size:0.78rem;display:flex;flex-direction:column;gap:3px;">
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted)">Ingresos</span><span style="color:#10b981;font-weight:700;">${fmtShort(iEf)}</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted)">Egresos</span><span style="color:#ef4444;font-weight:700;">${fmtShort(eEf)}</span></div>
+                    <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);padding-top:3px;margin-top:2px;"><span style="color:var(--muted)">Saldo</span><span style="font-weight:800;color:${iEf-eEf>=0?'#10b981':'#ef4444'};">${fmtShort(iEf-eEf)}</span></div>
+                </div>
+            </div>
+            <div style="background:rgba(139,92,246,0.06);border:1px solid rgba(139,92,246,0.15);border-radius:8px;padding:10px;">
+                <div style="font-size:0.7rem;font-weight:700;color:#a78bfa;margin-bottom:6px;">📮 EFECTY</div>
+                <div style="font-size:0.78rem;display:flex;flex-direction:column;gap:3px;">
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted)">Ingresos</span><span style="color:#10b981;font-weight:700;">${fmtShort(iEfty)}</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted)">Egresos</span><span style="color:#ef4444;font-weight:700;">${fmtShort(eEfty)}</span></div>
+                    <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);padding-top:3px;margin-top:2px;"><span style="color:var(--muted)">Saldo</span><span style="font-weight:800;color:${iEfty-eEfty>=0?'#10b981':'#ef4444'};">${fmtShort(iEfty-eEfty)}</span></div>
+                </div>
+            </div>
+            <div style="background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.15);border-radius:8px;padding:10px;">
+                <div style="font-size:0.7rem;font-weight:700;color:#3b82f6;margin-bottom:6px;">🏦 BANCARIO</div>
+                <div style="font-size:0.78rem;display:flex;flex-direction:column;gap:3px;">
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted)">Ingresos</span><span style="color:#10b981;font-weight:700;">${fmtShort(iBco)}</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted)">Egresos</span><span style="color:#ef4444;font-weight:700;">${fmtShort(eBco)}</span></div>
+                    <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);padding-top:3px;margin-top:2px;"><span style="color:var(--muted)">Saldo</span><span style="font-weight:800;color:${iBco-eBco>=0?'#10b981':'#ef4444'};">${fmtShort(iBco-eBco)}</span></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabla detallada -->
+        <p style="font-size:0.78rem;font-weight:700;color:var(--text);margin-bottom:8px;">📋 Movimientos detallados</p>
         <div class="table-wrap"><table>
             <thead><tr><th>Fecha</th><th>Tipo</th><th>Concepto</th><th>Descripción</th><th>Forma</th><th>Valor</th></tr></thead>
             <tbody>
                 ${movs.length===0?'<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px;">Sin movimientos este mes</td></tr>':
-                movs.map(m=>`<tr>
-                    <td style="font-size:0.78rem;color:var(--muted);">${new Date(m.fecha).toLocaleDateString('es-CO')}<br>${new Date(m.fecha).toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})}</td>
-                    <td><span class="tag ${m.tipo==='ingreso'?'tag-ing':'tag-egr'}">${m.tipo==='ingreso'?'Ingreso':'Egreso'}</span></td>
+                movs.map(m=>`<tr style="${m.esPagoAdmin?'background:rgba(245,158,11,0.04);':''}">
+                    <td style="font-size:0.75rem;color:var(--muted);">${new Date(m.fecha).toLocaleDateString('es-CO')}<br>${new Date(m.fecha).toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})}</td>
+                    <td>
+                        <span class="tag ${m.tipo==='ingreso'?'tag-ing':'tag-egr'}">${m.tipo==='ingreso'?'Ingreso':'Egreso'}</span>
+                        ${m.esPagoAdmin?'<span class="tag tag-admin" style="margin-left:3px;">👑</span>':''}
+                    </td>
                     <td>${m.concepto}</td>
-                    <td style="color:var(--muted)">${m.descripcion||'-'}</td>
-                    <td>${m.forma}</td>
+                    <td style="color:var(--muted);font-size:0.75rem;">${m.descripcion||'-'}</td>
+                    <td><span class="tag ${m.forma==='Efectivo'?'tag-ef':m.forma==='Efecty'?'tag-efty':'tag-banc'}">${m.forma}</span></td>
                     <td class="money ${m.tipo==='ingreso'?'pos':'neg'}">${m.tipo==='ingreso'?'+':'-'}${fmtShort(m.valor)}</td>
                 </tr>`).join('')}
             </tbody>
@@ -1379,40 +1619,71 @@ function renderReportes(){
     const oid=USER.role==='admin'?(window._selOfiRep||oficinas[0]?.id):USER.id;
     const o=getOficina(oid);
     const periodo=window._periodo||'mes';
-
-    // Calcular movimientos según periodo
     const ahora=new Date();
-    const movs=(o?.movimientos||[]).filter(m=>{
-        const d=new Date(m.fecha);
-        if(periodo==='hoy'){
-            return d.getDate()===ahora.getDate()&&d.getMonth()===ahora.getMonth()&&d.getFullYear()===ahora.getFullYear();
-        }
-        return d.getMonth()===ahora.getMonth()&&d.getFullYear()===ahora.getFullYear();
-    });
+
+    // Mes anterior para comparar
+    const mesPrev=new Date(ahora.getFullYear(), ahora.getMonth()-1, 1);
+
+    function filtrarMovs(meses_atras=0){
+        return (o?.movimientos||[]).filter(m=>{
+            const d=new Date(m.fecha);
+            if(periodo==='hoy') return d.toDateString()===ahora.toDateString();
+            if(meses_atras===0) return d.getMonth()===ahora.getMonth()&&d.getFullYear()===ahora.getFullYear();
+            const ref=new Date(ahora.getFullYear(), ahora.getMonth()-meses_atras, 1);
+            return d.getMonth()===ref.getMonth()&&d.getFullYear()===ref.getFullYear();
+        });
+    }
+    const movs=filtrarMovs(0);
+    const movsPrev=filtrarMovs(1);
 
     const ing=movs.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
     const egr=movs.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
     const bal=ing-egr;
+    const ingPrev=movsPrev.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
+    const egrPrev=movsPrev.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
 
-    // Agrupar ingresos por concepto
-    const porConcepto={};
-    movs.filter(m=>m.tipo==='ingreso').forEach(m=>{
-        porConcepto[m.concepto]=(porConcepto[m.concepto]||0)+parseFloat(m.valor||0);
-    });
-    const porEgr={};
-    movs.filter(m=>m.tipo==='egreso').forEach(m=>{
-        porEgr[m.concepto]=(porEgr[m.concepto]||0)+parseFloat(m.valor||0);
-    });
-    // Por forma pago
-    const porForma={};
-    movs.filter(m=>m.tipo==='ingreso').forEach(m=>{
-        porForma[m.forma]=(porForma[m.forma]||0)+parseFloat(m.valor||0);
-    });
-    // Clientes por estado
+    // Variación vs mes anterior
+    const varIng=ingPrev>0?((ing-ingPrev)/ingPrev*100).toFixed(1):null;
+    const varEgr=egrPrev>0?((egr-egrPrev)/egrPrev*100).toFixed(1):null;
+    const varBal=ingPrev-egrPrev!==0?(((bal-(ingPrev-egrPrev))/(Math.abs(ingPrev-egrPrev)))*100).toFixed(1):null;
+
+    function varTag(v){ if(v===null) return ''; const n=parseFloat(v); return `<span style="font-size:0.72rem;margin-left:6px;color:${n>=0?'#10b981':'#ef4444'};font-weight:700;">${n>=0?'▲':'▼'}${Math.abs(n)}% vs mes ant.</span>`; }
+
+    // Desglose por forma de pago (ingresos Y egresos)
+    const formas=['Efectivo','Efecty','Cta Bancolombia','Cruce de Cuentas','Transferencia'];
+    const porFormaIng={}, porFormaEgr={};
+    formas.forEach(f=>{ porFormaIng[f]=0; porFormaEgr[f]=0; });
+    movs.filter(m=>m.tipo==='ingreso').forEach(m=>{ porFormaIng[m.forma]=(porFormaIng[m.forma]||0)+parseFloat(m.valor||0); });
+    movs.filter(m=>m.tipo==='egreso').forEach(m=>{ porFormaEgr[m.forma]=(porFormaEgr[m.forma]||0)+parseFloat(m.valor||0); });
+
+    // Desglose por concepto
+    const porConcepto={}, porEgr={};
+    movs.filter(m=>m.tipo==='ingreso').forEach(m=>{ porConcepto[m.concepto]=(porConcepto[m.concepto]||0)+parseFloat(m.valor||0); });
+    movs.filter(m=>m.tipo==='egreso').forEach(m=>{ porEgr[m.concepto]=(porEgr[m.concepto]||0)+parseFloat(m.valor||0); });
+
+    // Día a día del mes
+    const diasDelMes={};
+    if(periodo==='mes'){
+        const daysInMonth=new Date(ahora.getFullYear(),ahora.getMonth()+1,0).getDate();
+        for(let d=1;d<=daysInMonth;d++) diasDelMes[d]={ing:0,egr:0};
+        movs.forEach(m=>{
+            const d=new Date(m.fecha).getDate();
+            if(diasDelMes[d]!==undefined){
+                if(m.tipo==='ingreso') diasDelMes[d].ing+=parseFloat(m.valor||0);
+                else diasDelMes[d].egr+=parseFloat(m.valor||0);
+            }
+        });
+    }
+
+    // Clientes
     const clientes=o?.clientes||[];
     const cxEstado={};
     ESTADO_CLIENTE.forEach(e=>cxEstado[e]=0);
     clientes.forEach(c=>cxEstado[c.estado||'Activo']=(cxEstado[c.estado||'Activo']||0)+1);
+
+    const maxDia=Math.max(...Object.values(diasDelMes).map(d=>Math.max(d.ing,d.egr)),1);
+    const maxConc=Math.max(...Object.values(porConcepto),1);
+    const maxEgrC=Math.max(...Object.values(porEgr),1);
 
     content.innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
@@ -1425,104 +1696,272 @@ function renderReportes(){
                 <option value="hoy" ${periodo==='hoy'?'selected':''}>Hoy</option>
                 <option value="mes" ${periodo==='mes'?'selected':''}>Mes actual</option>
             </select>
-            <button class="btn btn-outline btn-sm" onclick="exportarReporte('${oid}','${periodo}')">📥 Exportar</button>
+            <button class="btn btn-outline btn-sm" onclick="exportarReporteExcel('${oid}','${periodo}')">📥 Exportar Excel</button>
         </div>
     </div>
 
-    <div class="reporte-resumen">
-        <div class="reporte-item"><div class="r-label">📥 Total Ingresos</div><div class="r-val" style="color:#10b981;">${fmtShort(ing)}</div></div>
-        <div class="reporte-item"><div class="r-label">📤 Total Egresos</div><div class="r-val" style="color:#ef4444;">${fmtShort(egr)}</div></div>
-        <div class="reporte-item"><div class="r-label">💰 Balance</div><div class="r-val" style="color:${bal>=0?'#10b981':'#ef4444'}">${fmtShort(bal)}</div></div>
-        <div class="reporte-item"><div class="r-label">👥 Total clientes</div><div class="r-val" style="color:#3b82f6;">${clientes.length}</div></div>
+    <!-- Resumen principal con comparación -->
+    <div class="reporte-resumen" style="margin-bottom:16px;">
+        <div class="reporte-item">
+            <div class="r-label">📥 Ingresos</div>
+            <div class="r-val" style="color:#10b981;">${fmtShort(ing)}</div>
+            <div>${varTag(varIng)}</div>
+            ${periodo==='mes'?`<div style="font-size:0.72rem;color:var(--muted);margin-top:4px;">Mes ant: ${fmtShort(ingPrev)}</div>`:''}
+        </div>
+        <div class="reporte-item">
+            <div class="r-label">📤 Egresos</div>
+            <div class="r-val" style="color:#ef4444;">${fmtShort(egr)}</div>
+            <div>${varTag(varEgr)}</div>
+            ${periodo==='mes'?`<div style="font-size:0.72rem;color:var(--muted);margin-top:4px;">Mes ant: ${fmtShort(egrPrev)}</div>`:''}
+        </div>
+        <div class="reporte-item">
+            <div class="r-label">💰 Balance</div>
+            <div class="r-val" style="color:${bal>=0?'#10b981':'#ef4444'}">${fmtShort(bal)}</div>
+            <div>${varTag(varBal)}</div>
+        </div>
+        <div class="reporte-item"><div class="r-label">👥 Clientes</div><div class="r-val" style="color:#3b82f6;">${clientes.length}</div><div style="font-size:0.72rem;color:#10b981;margin-top:4px;">${cxEstado['Activo']||0} activos</div></div>
+        <div class="reporte-item"><div class="r-label">💵 Saldo Efectivo</div><div class="r-val" style="color:#10b981;">${fmtShort((porFormaIng['Efectivo']||0)-(porFormaEgr['Efectivo']||0))}</div></div>
+        <div class="reporte-item"><div class="r-label">🏦 Saldo Bancario</div><div class="r-val" style="color:#3b82f6;">${fmtShort((['Cta Bancolombia','Transferencia','Cruce de Cuentas'].reduce((s,f)=>s+(porFormaIng[f]||0),0))-(['Cta Bancolombia','Transferencia','Cruce de Cuentas'].reduce((s,f)=>s+(porFormaEgr[f]||0),0)))}</div></div>
     </div>
 
-    <div class="two-cols">
+    <!-- Desglose por forma de pago: Ing vs Egr -->
+    <div class="card" style="margin-bottom:16px;">
+        <div class="card-header"><h2>💳 Ingresos vs Egresos por Forma de Pago</h2></div>
+        <div class="table-wrap"><table>
+            <thead><tr><th>Forma de Pago</th><th>📥 Ingresos</th><th>📤 Egresos</th><th>Saldo</th><th>% del total ing.</th></tr></thead>
+            <tbody>${formas.filter(f=>(porFormaIng[f]||0)+(porFormaEgr[f]||0)>0).map(f=>{
+                const i=porFormaIng[f]||0, e=porFormaEgr[f]||0, s=i-e;
+                return `<tr>
+                    <td><span class="tag ${f==='Efectivo'?'tag-ef':f==='Efecty'?'tag-efty':'tag-banc'}">${f}</span></td>
+                    <td class="money pos">${fmtShort(i)}</td>
+                    <td class="money neg">${fmtShort(e)}</td>
+                    <td class="money ${s>=0?'pos':'neg'}">${fmtShort(s)}</td>
+                    <td>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <div style="flex:1;background:rgba(255,255,255,0.06);border-radius:4px;height:10px;overflow:hidden;">
+                                <div style="height:100%;background:#10b981;width:${ing>0?(i/ing*100).toFixed(0):'0'}%;"></div>
+                            </div>
+                            <span style="font-size:0.75rem;color:var(--muted);width:35px;text-align:right;">${ing>0?(i/ing*100).toFixed(1):'0'}%</span>
+                        </div>
+                    </td>
+                </tr>`;
+            }).join('')}
+            </tbody>
+        </table></div>
+    </div>
+
+    <!-- Día a día -->
+    ${periodo==='mes'?`
+    <div class="card" style="margin-bottom:16px;">
+        <div class="card-header"><h2>📅 Evolución día a día — ${mesActual()}</h2></div>
+        <div style="overflow-x:auto;">
+            <div style="display:flex;align-items:flex-end;gap:4px;min-width:600px;height:140px;padding:0 4px;">
+                ${Object.entries(diasDelMes).map(([d,v])=>{
+                    const hIng=v.ing>0?Math.round((v.ing/maxDia)*120):0;
+                    const hEgr=v.egr>0?Math.round((v.egr/maxDia)*120):0;
+                    const esHoy=parseInt(d)===ahora.getDate();
+                    return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:18px;">
+                        <div style="width:100%;display:flex;flex-direction:column;justify-content:flex-end;height:120px;gap:1px;">
+                            ${v.ing>0?`<div title="Ing: ${fmtShort(v.ing)}" style="background:#10b981;border-radius:3px 3px 0 0;height:${hIng}px;min-height:2px;opacity:0.85;"></div>`:'<div style="flex:1;"></div>'}
+                            ${v.egr>0?`<div title="Egr: ${fmtShort(v.egr)}" style="background:#ef4444;border-radius:0 0 3px 3px;height:${hEgr}px;min-height:2px;opacity:0.75;"></div>`:''}
+                        </div>
+                        <div style="font-size:0.6rem;color:${esHoy?'var(--accent)':'var(--muted)'};font-weight:${esHoy?'800':'400'};margin-top:2px;">${d}</div>
+                    </div>`;
+                }).join('')}
+            </div>
+            <div style="display:flex;gap:16px;margin-top:8px;padding-left:4px;">
+                <div style="display:flex;align-items:center;gap:5px;font-size:0.75rem;"><div style="width:10px;height:10px;background:#10b981;border-radius:2px;"></div> Ingresos</div>
+                <div style="display:flex;align-items:center;gap:5px;font-size:0.75rem;"><div style="width:10px;height:10px;background:#ef4444;border-radius:2px;"></div> Egresos</div>
+            </div>
+        </div>
+    </div>`:''}
+
+    <!-- Conceptos lado a lado -->
+    <div class="two-cols" style="margin-bottom:16px;">
         <div class="card" style="margin-bottom:0">
             <div class="card-header"><h2>📥 Ingresos por Concepto</h2></div>
-            ${Object.keys(porConcepto).length===0
-                ? '<p style="color:var(--muted);text-align:center;padding:20px;">Sin datos</p>'
-                : `<div class="table-wrap"><table>
-                <thead><tr><th>Concepto</th><th>Total</th><th>%</th></tr></thead>
-                <tbody>${Object.entries(porConcepto).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr>
-                    <td>${k}</td>
-                    <td class="money pos">${fmtShort(v)}</td>
-                    <td style="color:var(--muted)">${ing>0?((v/ing)*100).toFixed(1)+'%':'0%'}</td>
-                </tr>`).join('')}</tbody>
-            </table></div>`}
+            ${Object.keys(porConcepto).length===0?'<p style="color:var(--muted);text-align:center;padding:20px;">Sin datos</p>':
+            `<div style="display:flex;flex-direction:column;gap:6px;">
+                ${Object.entries(porConcepto).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`
+                <div>
+                    <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:3px;">
+                        <span>${k}</span><span class="money pos">${fmtShort(v)} <span style="color:var(--muted);font-weight:400;">(${ing>0?(v/ing*100).toFixed(1):0}%)</span></span>
+                    </div>
+                    <div style="background:rgba(255,255,255,0.05);border-radius:4px;height:8px;overflow:hidden;">
+                        <div style="height:100%;background:linear-gradient(90deg,#10b981,#06d6a0);width:${(v/maxConc*100).toFixed(0)}%;border-radius:4px;"></div>
+                    </div>
+                </div>`).join('')}
+            </div>`}
         </div>
         <div class="card" style="margin-bottom:0">
             <div class="card-header"><h2>📤 Egresos por Concepto</h2></div>
-            ${Object.keys(porEgr).length===0
-                ? '<p style="color:var(--muted);text-align:center;padding:20px;">Sin datos</p>'
-                : `<div class="table-wrap"><table>
-                <thead><tr><th>Concepto</th><th>Total</th><th>%</th></tr></thead>
-                <tbody>${Object.entries(porEgr).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr>
-                    <td>${k}</td>
-                    <td class="money neg">${fmtShort(v)}</td>
-                    <td style="color:var(--muted)">${egr>0?((v/egr)*100).toFixed(1)+'%':'0%'}</td>
-                </tr>`).join('')}</tbody>
-            </table></div>`}
+            ${Object.keys(porEgr).length===0?'<p style="color:var(--muted);text-align:center;padding:20px;">Sin datos</p>':
+            `<div style="display:flex;flex-direction:column;gap:6px;">
+                ${Object.entries(porEgr).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`
+                <div>
+                    <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:3px;">
+                        <span>${k}</span><span class="money neg">${fmtShort(v)} <span style="color:var(--muted);font-weight:400;">(${egr>0?(v/egr*100).toFixed(1):0}%)</span></span>
+                    </div>
+                    <div style="background:rgba(255,255,255,0.05);border-radius:4px;height:8px;overflow:hidden;">
+                        <div style="height:100%;background:linear-gradient(90deg,#ef4444,#f87171);width:${(v/maxEgrC*100).toFixed(0)}%;border-radius:4px;"></div>
+                    </div>
+                </div>`).join('')}
+            </div>`}
         </div>
     </div>
 
-    <div class="two-cols" style="margin-top:16px;">
-        <div class="card" style="margin-bottom:0">
-            <div class="card-header"><h2>💳 Ingresos por Forma de Pago</h2></div>
-            ${Object.keys(porForma).filter(k=>porForma[k]>0).length===0
-                ? '<p style="color:var(--muted);text-align:center;padding:20px;">Sin datos</p>'
-                : `<div class="table-wrap"><table>
-                <thead><tr><th>Forma</th><th>Total</th></tr></thead>
-                <tbody>${Object.entries(porForma).filter(([,v])=>v>0).map(([k,v])=>`<tr>
-                    <td><span class="tag ${k==='Efectivo'?'tag-ef':k==='Efecty'?'tag-efty':'tag-banc'}">${k}</span></td>
-                    <td class="money pos">${fmtShort(v)}</td>
-                </tr>`).join('')}</tbody>
-            </table></div>`}
-        </div>
+    <!-- Clientes por estado + Comparativa mes anterior -->
+    <div class="two-cols">
         <div class="card" style="margin-bottom:0">
             <div class="card-header"><h2>👥 Clientes por Estado</h2></div>
             <div class="table-wrap"><table>
-                <thead><tr><th>Estado</th><th>Cantidad</th></tr></thead>
+                <thead><tr><th>Estado</th><th>Cantidad</th><th>%</th></tr></thead>
                 <tbody>${Object.entries(cxEstado).map(([k,v])=>`<tr>
                     <td><span class="motivo-tag motivo-${k.toLowerCase()}">${k}</span></td>
                     <td><strong>${v}</strong></td>
+                    <td style="color:var(--muted)">${clientes.length>0?(v/clientes.length*100).toFixed(1)+'%':'0%'}</td>
                 </tr>`).join('')}</tbody>
             </table></div>
         </div>
+        ${periodo==='mes'?`
+        <div class="card" style="margin-bottom:0">
+            <div class="card-header"><h2>📊 Comparativa vs Mes Anterior</h2></div>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+                ${[['Ingresos',ing,ingPrev,'#10b981'],['Egresos',egr,egrPrev,'#ef4444'],['Balance',bal,ingPrev-egrPrev,bal>=0?'#10b981':'#ef4444']].map(([lbl,act,prev,color])=>{
+                    const maxV=Math.max(act,prev,1);
+                    return `<div>
+                        <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:4px;">
+                            <span style="font-weight:600;">${lbl}</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;">
+                            <span style="font-size:0.72rem;color:var(--muted);width:60px;">Actual</span>
+                            <div style="flex:1;background:rgba(255,255,255,0.05);border-radius:4px;height:10px;overflow:hidden;">
+                                <div style="height:100%;background:${color};width:${(act/maxV*100).toFixed(0)}%;border-radius:4px;"></div>
+                            </div>
+                            <span style="font-size:0.78rem;font-weight:700;color:${color};width:80px;text-align:right;">${fmtShort(act)}</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <span style="font-size:0.72rem;color:var(--muted);width:60px;">Ant.</span>
+                            <div style="flex:1;background:rgba(255,255,255,0.05);border-radius:4px;height:10px;overflow:hidden;">
+                                <div style="height:100%;background:${color};opacity:0.35;width:${(prev/maxV*100).toFixed(0)}%;border-radius:4px;"></div>
+                            </div>
+                            <span style="font-size:0.78rem;color:var(--muted);width:80px;text-align:right;">${fmtShort(prev)}</span>
+                        </div>
+                    </div>`;
+                }).join('')}
+            </div>
+        </div>`:'<div class="card" style="margin-bottom:0"><p style="color:var(--muted);text-align:center;padding:30px;font-size:0.85rem;">Comparativa disponible en vista mensual.</p></div>'}
     </div>
     `;
 }
 
-function exportarReporte(oid,periodo){
-    const o=getOficina(oid);
+function exportarReporteExcel(oid, periodo){
+    const o=getOficina(oid); if(!o) return;
+    if(typeof XLSX==='undefined'){
+        const s=document.createElement('script');
+        s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+        s.onload=()=>_exportarReporteExcel(o,periodo);
+        document.head.appendChild(s);
+    } else { _exportarReporteExcel(o,periodo); }
+}
+
+function _exportarReporteExcel(o, periodo){
     const ahora=new Date();
-    const movs=(o?.movimientos||[]).filter(m=>{
+    const movs=(o.movimientos||[]).filter(m=>{
         const d=new Date(m.fecha);
         if(periodo==='hoy') return d.toDateString()===ahora.toDateString();
         return d.getMonth()===ahora.getMonth()&&d.getFullYear()===ahora.getFullYear();
     });
     const ing=movs.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
     const egr=movs.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
-    const lines=[
-        `REPORTE — ${o.nombre}`,
-        `Periodo: ${periodo==='hoy'?'Hoy '+ahora.toLocaleDateString('es-CO'):mesActual()}`,
-        `Generado: ${ahora.toLocaleString('es-CO')}`,
-        '',
-        `INGRESOS: ${fmt(ing)}`,
-        `EGRESOS: ${fmt(egr)}`,
-        `BALANCE: ${fmt(ing-egr)}`,
-        '',
-        '=== MOVIMIENTOS ===',
-        'Fecha,Tipo,Concepto,Descripcion,Forma,Valor',
-        ...movs.map(m=>`${new Date(m.fecha).toLocaleString('es-CO')},${m.tipo},${m.concepto},"${m.descripcion||''}",${m.forma},${m.valor}`)
+    const wb=XLSX.utils.book_new();
+
+    // Hoja 1: Resumen
+    const formas=['Efectivo','Efecty','Cta Bancolombia','Cruce de Cuentas','Transferencia'];
+    const porFormaIng={}, porFormaEgr={};
+    formas.forEach(f=>{ porFormaIng[f]=0; porFormaEgr[f]=0; });
+    movs.filter(m=>m.tipo==='ingreso').forEach(m=>{ porFormaIng[m.forma]=(porFormaIng[m.forma]||0)+parseFloat(m.valor||0); });
+    movs.filter(m=>m.tipo==='egreso').forEach(m=>{ porFormaEgr[m.forma]=(porFormaEgr[m.forma]||0)+parseFloat(m.valor||0); });
+
+    const resumen=[
+        ['REPORTE DE OFICINA — '+o.nombre,'','',''],
+        ['Período', periodo==='hoy'?'Hoy '+ahora.toLocaleDateString('es-CO'):ahora.toLocaleDateString('es-CO',{month:'long',year:'numeric'}),'',''],
+        ['Generado', ahora.toLocaleString('es-CO'),'',''],
+        ['','','',''],
+        ['RESUMEN GENERAL','','',''],
+        ['Concepto','Valor','',''],
+        ['Total Ingresos', ing,'',''],
+        ['Total Egresos', egr,'',''],
+        ['Balance', ing-egr,'',''],
+        ['','','',''],
+        ['DESGLOSE POR FORMA DE PAGO','','',''],
+        ['Forma de Pago','Ingresos','Egresos','Saldo'],
+        ...formas.filter(f=>porFormaIng[f]+porFormaEgr[f]>0).map(f=>[f, porFormaIng[f]||0, porFormaEgr[f]||0, (porFormaIng[f]||0)-(porFormaEgr[f]||0)]),
+        ['','','',''],
+        ['INGRESOS POR CONCEPTO','','',''],
+        ['Concepto','Valor','% del total',''],
     ];
-    const blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8'});
-    const a=document.createElement('a');
-    a.href=URL.createObjectURL(blob);
-    a.download=`reporte_${o.nombre.replace(/\s/g,'_')}_${periodo}.csv`;
-    a.click();
+    const porConc={};
+    movs.filter(m=>m.tipo==='ingreso').forEach(m=>{ porConc[m.concepto]=(porConc[m.concepto]||0)+parseFloat(m.valor||0); });
+    Object.entries(porConc).sort((a,b)=>b[1]-a[1]).forEach(([k,v])=>resumen.push([k,v,ing>0?parseFloat((v/ing*100).toFixed(1)):0,'']));
+    resumen.push(['','','','']);
+    resumen.push(['EGRESOS POR CONCEPTO','','','']);
+    resumen.push(['Concepto','Valor','% del total','']);
+    const porEgrC={};
+    movs.filter(m=>m.tipo==='egreso').forEach(m=>{ porEgrC[m.concepto]=(porEgrC[m.concepto]||0)+parseFloat(m.valor||0); });
+    Object.entries(porEgrC).sort((a,b)=>b[1]-a[1]).forEach(([k,v])=>resumen.push([k,v,egr>0?parseFloat((v/egr*100).toFixed(1)):0,'']));
+
+    const ws1=XLSX.utils.aoa_to_sheet(resumen);
+    ws1['!cols']=[{wch:30},{wch:18},{wch:18},{wch:18}];
+    XLSX.utils.book_append_sheet(wb,ws1,'Resumen');
+
+    // Hoja 2: Movimientos detallados
+    const detalle=[['Fecha','Hora','Tipo','Concepto','Descripción','Forma de Pago','Valor','Es Pago Admin']];
+    movs.slice().reverse().forEach(m=>{
+        const d=new Date(m.fecha);
+        detalle.push([
+            d.toLocaleDateString('es-CO'), d.toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'}),
+            m.tipo==='ingreso'?'Ingreso':'Egreso', m.concepto||'',
+            m.descripcion||'', m.forma||'',
+            parseFloat(m.valor||0), m.esPagoAdmin?'Sí':'No'
+        ]);
+    });
+    const ws2=XLSX.utils.aoa_to_sheet(detalle);
+    ws2['!cols']=[{wch:14},{wch:8},{wch:10},{wch:25},{wch:35},{wch:20},{wch:14},{wch:12}];
+    XLSX.utils.book_append_sheet(wb,ws2,'Movimientos');
+
+    // Hoja 3: Día a día (solo mes)
+    if(periodo==='mes'){
+        const daysInMonth=new Date(ahora.getFullYear(),ahora.getMonth()+1,0).getDate();
+        const diaDia=[['Día','Ingresos','Egresos','Balance']];
+        for(let d=1;d<=daysInMonth;d++){
+            const dMovs=movs.filter(m=>new Date(m.fecha).getDate()===d);
+            const i=dMovs.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
+            const e=dMovs.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
+            diaDia.push([d,i,e,i-e]);
+        }
+        const ws3=XLSX.utils.aoa_to_sheet(diaDia);
+        ws3['!cols']=[{wch:8},{wch:16},{wch:16},{wch:16}];
+        XLSX.utils.book_append_sheet(wb,ws3,'Día a Día');
+    }
+
+    // Hoja 4: Clientes
+    const clientes=o.clientes||[];
+    if(clientes.length>0){
+        const cliData=[['Nombre','Teléfono','Dirección','Plan','Tarifa Mensual','Estado','Fecha Instalación','Motivo No Pago','Motivo Retiro']];
+        clientes.forEach(c=>cliData.push([c.nombre||'',c.telefono||'',c.direccion||'',c.plan||'',parseFloat(c.tarifaMensual||0),c.estado||'',c.fechaInstalacion||'',c.motivoNoPago||'',c.motivoRetiro||'']));
+        const ws4=XLSX.utils.aoa_to_sheet(cliData);
+        ws4['!cols']=[{wch:25},{wch:14},{wch:30},{wch:22},{wch:14},{wch:12},{wch:16},{wch:25},{wch:25}];
+        XLSX.utils.book_append_sheet(wb,ws4,'Clientes');
+    }
+
+    XLSX.writeFile(wb, 'Reporte_'+o.nombre.replace(/\s/g,'_')+'_'+periodo+'_'+ahora.toISOString().slice(0,10)+'.xlsx');
 }
 
-// ─── ADMINISTRACIÓN ──────────────────────────────────────────────────────────
+// Keep old function name as alias
+function exportarReporte(oid,periodo){ exportarReporteExcel(oid,periodo); }
+
+// ─── ADMINISTRACIÓN ──────────────────────────────────────────────────────────// ─── ADMINISTRACIÓN ──────────────────────────────────────────────────────────
 function renderAdmin(){
     if(USER.role!=='admin') return;
     const content=document.getElementById('appContent');
@@ -4557,6 +4996,486 @@ function eliminarPagoAdmin(pid){
     });
     DB.pagosAdmin=DB.pagosAdmin.filter(p=>p.id!==pid);
     save(); renderPagosAdmin();
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// MÓDULO RECORDATORIOS
+// ═══════════════════════════════════════════════════════════════
+let _recInterval = null;
+let _recPopupActualId = null;
+
+function iniciarMonitorRecordatorios(){
+    // Verificar cada minuto
+    if(_recInterval) clearInterval(_recInterval);
+    _recInterval = setInterval(verificarRecordatorios, 60000);
+    verificarRecordatorios(); // Verificar al entrar
+}
+
+function verificarRecordatorios(){
+    const ahora=Date.now();
+    (DB.recordatorios||[]).forEach(r=>{
+        if(!r.activo) return;
+        const proxima=calcProximaAlarma(r);
+        const diff=proxima-ahora;
+        // Disparar si faltan menos de 1 minuto o ya pasó (y no fue disparado aún hoy)
+        if(diff<=60000&&diff>-300000){
+            const yaDisparado=r.ultimoDisparo&&(ahora-new Date(r.ultimoDisparo).getTime())<300000;
+            if(!yaDisparado){
+                r.ultimoDisparo=new Date().toISOString();
+                save();
+                mostrarPopupRecordatorio(r);
+            }
+        }
+    });
+}
+
+function calcProximaAlarma(r){
+    const base=new Date(r.fechaHora);
+    const ahora=new Date();
+    if(r.recurrencia==='unico') return base;
+    if(r.recurrencia==='diario'){
+        const prox=new Date(ahora);
+        prox.setHours(base.getHours(), base.getMinutes(), 0, 0);
+        if(prox<=ahora) prox.setDate(prox.getDate()+1);
+        return prox;
+    }
+    if(r.recurrencia==='semanal'){
+        const prox=new Date(ahora);
+        prox.setHours(base.getHours(), base.getMinutes(), 0, 0);
+        const diasFalta=(base.getDay()-prox.getDay()+7)%7||7;
+        prox.setDate(prox.getDate()+diasFalta);
+        if(prox<=ahora) prox.setDate(prox.getDate()+7);
+        return prox;
+    }
+    if(r.recurrencia==='mensual'){
+        const prox=new Date(ahora);
+        prox.setDate(base.getDate());
+        prox.setHours(base.getHours(), base.getMinutes(), 0, 0);
+        if(prox<=ahora) prox.setMonth(prox.getMonth()+1);
+        return prox;
+    }
+    return base;
+}
+
+function mostrarPopupRecordatorio(r){
+    _recPopupActualId=r.id;
+    document.getElementById('rec-pop-title').textContent=r.titulo||'Recordatorio';
+    document.getElementById('rec-pop-msg').textContent=r.mensaje||'';
+    document.getElementById('recordatorio-popup').classList.add('show');
+    // Sonido beep suave si está disponible
+    try{
+        const ctx=new(window.AudioContext||window.webkitAudioContext)();
+        const osc=ctx.createOscillator(); const gain=ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.frequency.value=520; gain.gain.value=0.15;
+        osc.start(); gain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.8);
+        osc.stop(ctx.currentTime+0.8);
+    }catch(e){}
+}
+
+function cerrarRecordatorioPopup(){
+    document.getElementById('recordatorio-popup').classList.remove('show');
+    _recPopupActualId=null;
+}
+
+function posponerRecordatorio(){
+    if(!_recPopupActualId) return;
+    const r=(DB.recordatorios||[]).find(x=>x.id===_recPopupActualId);
+    if(r){
+        // Posponer 1 hora ajustando ultimoDisparo
+        r.ultimoDisparo=new Date(Date.now()+3540000).toISOString(); // -1min para que dispare en ~1h
+        save();
+    }
+    cerrarRecordatorioPopup();
+    showSync('ok','Recordatorio pospuesto 1 hora');
+}
+
+function modalNuevoRecordatorio(){
+    const ahora=new Date();
+    const defFecha=ahora.toISOString().slice(0,10);
+    openModal('🔔 Nuevo Recordatorio',`
+    <div class="form-group-dark">
+        <label>Título *</label>
+        <input id="rec_titulo" class="form-control" placeholder="Ej: Pagar arriendo oficina">
+    </div>
+    <div class="form-group-dark">
+        <label>Mensaje personalizado</label>
+        <textarea id="rec_msg" class="form-control" placeholder="Detalle del recordatorio..." rows="2"></textarea>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark">
+            <label>📅 Fecha *</label>
+            <input type="date" id="rec_fecha" class="form-control" value="${defFecha}">
+        </div>
+        <div class="form-group-dark">
+            <label>🔁 Recurrencia</label>
+            <select id="rec_rec" class="form-control">
+                <option value="unico">📌 Una sola vez</option>
+                <option value="diario">📆 Diario</option>
+                <option value="semanal">📅 Semanal</option>
+                <option value="mensual">🗓️ Mensual</option>
+            </select>
+        </div>
+    </div>
+    <div class="form-group-dark">
+        <label>⏰ Hora(s) del día <span style="color:var(--muted);font-weight:400;">(puedes agregar varias)</span></label>
+        <div id="rec_horas_list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">
+            <div style="display:flex;gap:8px;align-items:center;">
+                <input type="time" class="form-control rec-hora-input" value="08:00" style="width:120px;">
+                <span style="font-size:0.78rem;color:var(--muted);">Primera alarma</span>
+            </div>
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" onclick="agregarHoraRecordatorio()">➕ Agregar otra hora</button>
+    </div>
+    <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:10px 14px;font-size:0.78rem;color:#f59e0b;margin-top:6px;">
+        🔔 Se creará un recordatorio por cada hora que agregues. Todos con el mismo título y mensaje.
+    </div>
+    `,`<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+       <button class="btn btn-primary" onclick="guardarRecordatorio()">✅ Guardar</button>`);
+}
+
+function agregarHoraRecordatorio(){
+    const list=document.getElementById('rec_horas_list');
+    if(!list) return;
+    const count=list.querySelectorAll('.rec-hora-input').length+1;
+    const div=document.createElement('div');
+    div.style.cssText='display:flex;gap:8px;align-items:center;';
+    div.innerHTML=`<input type="time" class="form-control rec-hora-input" value="12:00" style="width:120px;">
+        <span style="font-size:0.78rem;color:var(--muted);">Alarma ${count}</span>
+        <button type="button" class="btn btn-danger btn-sm" onclick="this.parentElement.remove()">✕</button>`;
+    list.appendChild(div);
+}
+
+function guardarRecordatorio(){
+    const titulo=document.getElementById('rec_titulo').value.trim();
+    const fecha=document.getElementById('rec_fecha').value;
+    if(!titulo) return alert('El título es obligatorio');
+    if(!fecha) return alert('Selecciona una fecha');
+    const horas=[...document.querySelectorAll('.rec-hora-input')].map(i=>i.value).filter(Boolean);
+    if(!horas.length) return alert('Agrega al menos una hora');
+    if(!DB.recordatorios) DB.recordatorios=[];
+    const recurrencia=document.getElementById('rec_rec').value;
+    const msg=document.getElementById('rec_msg').value.trim();
+    horas.forEach(hora=>{
+        const [h,m]=hora.split(':');
+        const fechaHora=new Date(fecha);
+        fechaHora.setHours(parseInt(h),parseInt(m),0,0);
+        DB.recordatorios.push({
+            id:uid(), titulo,
+            mensaje:msg,
+            fechaHora:fechaHora.toISOString(),
+            recurrencia, activo:true, creadoEn:now(), ultimoDisparo:null
+        });
+    });
+    save(); closeModal();
+    alert(horas.length>1?`✅ Se crearon ${horas.length} recordatorios para las: ${horas.join(', ')}`:'✅ Recordatorio guardado.');
+    renderDash();
+}
+
+function eliminarRecordatorio(rid){
+    if(!confirm('¿Eliminar este recordatorio?')) return;
+    DB.recordatorios=(DB.recordatorios||[]).filter(r=>r.id!==rid);
+    save(); renderDash();
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// MÓDULO PRÉSTAMOS
+// ═══════════════════════════════════════════════════════════════
+
+function renderPrestamos(){
+    const content=document.getElementById('appContent');
+    const tab=window._prestTab||'activos';
+    const prestamos=DB.prestamos||[];
+    const activos=prestamos.filter(p=>p.estado==='activo');
+    const pagados=prestamos.filter(p=>p.estado==='pagado');
+    const empleados=DB.rrhh_empleados||[];
+
+    // Totales
+    const totalPrestad=activos.reduce((s,p)=>s+parseFloat(p.monto||0),0);
+    const totalPendiente=activos.reduce((s,p)=>s+parseFloat(p.saldoPendiente||p.monto||0),0);
+    const totalEmpleados=activos.filter(p=>p.tipo==='empleado').reduce((s,p)=>s+parseFloat(p.saldoPendiente||p.monto||0),0);
+    const totalTerceros=activos.filter(p=>p.tipo==='tercero').reduce((s,p)=>s+parseFloat(p.saldoPendiente||p.monto||0),0);
+
+    content.innerHTML=`
+    <div class="stats-grid" style="margin-bottom:16px;">
+        <div class="stat-card yellow"><div class="label">💵 Total prestado activo</div><div class="value" style="font-size:1rem;">${fmtShort(totalPrestad)}</div></div>
+        <div class="stat-card red"><div class="label">⏳ Saldo pendiente</div><div class="value" style="font-size:1rem;">${fmtShort(totalPendiente)}</div></div>
+        <div class="stat-card blue"><div class="label">👔 A empleados</div><div class="value" style="font-size:1rem;">${fmtShort(totalEmpleados)}</div></div>
+        <div class="stat-card green"><div class="label">🧑 A terceros</div><div class="value" style="font-size:1rem;">${fmtShort(totalTerceros)}</div></div>
+    </div>
+
+    <div style="display:flex;gap:6px;margin-bottom:16px;background:rgba(255,255,255,0.04);padding:4px;border-radius:10px;width:fit-content;flex-wrap:wrap;">
+        ${[['activos','💵 Activos ('+activos.length+')'],['pagados','✅ Pagados ('+pagados.length+')']].map(([t,l])=>
+            `<button onclick="window._prestTab='${t}';renderPrestamos()" style="padding:8px 16px;border:none;border-radius:7px;cursor:pointer;font-weight:600;font-size:0.82rem;transition:0.2s;background:${tab===t?'var(--accent)':'transparent'};color:${tab===t?'#fff':'var(--muted)'};">${l}</button>`
+        ).join('')}
+        <button class="btn btn-primary btn-sm" onclick="modalNuevoPrestamo()" style="margin-left:8px;">➕ Nuevo Préstamo</button>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h2>${tab==='activos'?'💵 Préstamos Activos':'✅ Préstamos Pagados'}</h2>
+            ${tab==='activos'?`<div style="font-size:0.78rem;color:var(--muted);">Haz click en <strong>💳 Abono</strong> para registrar un pago parcial o total</div>`:''}
+        </div>
+        ${(tab==='activos'?activos:pagados).length===0
+            ?`<p style="color:var(--muted);text-align:center;padding:30px;">Sin préstamos ${tab==='activos'?'activos':'pagados'}.</p>`
+            :`<div class="table-wrap"><table>
+            <thead><tr><th>Tipo</th><th>Beneficiario</th><th>Oficina</th><th>Monto Original</th><th>Saldo</th><th>Fecha</th><th>Motivo</th><th>Cuotas</th>${tab==='activos'?'<th></th>':''}</tr></thead>
+            <tbody>
+                ${(tab==='activos'?activos:pagados).map(p=>{
+                    const oNombre=p.oid?(DB.oficinas||[]).find(o=>o.id===p.oid)?.nombre||'-':'-';
+                    const abonado=(p.abonos||[]).reduce((s,a)=>s+parseFloat(a.valor||0),0);
+                    const saldo=parseFloat(p.monto||0)-abonado;
+                    const pct=p.monto>0?Math.round(abonado/p.monto*100):0;
+                    return `<tr>
+                        <td><span class="tag ${p.tipo==='empleado'?'tag-banc':'tag-ing'}">${p.tipo==='empleado'?'👔 Empleado':'🧑 Tercero'}</span></td>
+                        <td><strong>${p.beneficiario}</strong>${p.tipo==='empleado'?'<br><small style="color:var(--muted)">Descuento nómina</small>':''}</td>
+                        <td style="font-size:0.78rem;color:var(--muted);">${oNombre}</td>
+                        <td class="money neg">${fmtShort(p.monto)}</td>
+                        <td>
+                            <strong class="money ${saldo>0?'neg':'pos'}">${fmtShort(Math.max(saldo,0))}</strong>
+                            ${p.monto>0?`<div style="background:rgba(255,255,255,0.05);border-radius:4px;height:6px;margin-top:4px;overflow:hidden;width:80px;">
+                                <div style="height:100%;background:${pct>=100?'#10b981':'#f59e0b'};width:${Math.min(pct,100)}%;"></div>
+                            </div><span style="font-size:0.68rem;color:var(--muted);">${pct}% abonado</span>`:''}
+                        </td>
+                        <td style="font-size:0.75rem;color:var(--muted);">${p.fecha||'-'}</td>
+                        <td style="font-size:0.78rem;max-width:140px;color:var(--muted);">${p.motivo||'-'}</td>
+                        <td style="font-size:0.75rem;">${(p.abonos||[]).length} abono(s)</td>
+                        ${tab==='activos'?`<td style="display:flex;gap:5px;flex-wrap:wrap;">
+                            <button class="btn btn-primary btn-sm" onclick="modalAbonarPrestamo('${p.id}')">💳 Abono</button>
+                            <button class="btn btn-outline btn-sm" onclick="modalVerPrestamo('${p.id}')">👁️</button>
+                            <button class="btn btn-danger btn-sm" onclick="eliminarPrestamo('${p.id}')">🗑️</button>
+                        </td>`:''}
+                    </tr>`;
+                }).join('')}
+            </tbody>
+        </table></div>`}
+    </div>`;
+}
+
+function modalNuevoPrestamo(){
+    const empleados=DB.rrhh_empleados||[];
+    const oficinas=currentOficinas();
+    openModal('➕ Nuevo Préstamo',`
+    <div class="form-row">
+        <div class="form-group-dark">
+            <label>Tipo de préstamo *</label>
+            <select id="pr_tipo" class="form-control" onchange="toggleBeneficiarioPrestamo()">
+                <option value="empleado">👔 Empleado (descuento nómina)</option>
+                <option value="tercero">🧑 Tercero (cobrar externamente)</option>
+            </select>
+        </div>
+        <div class="form-group-dark" id="pr_emp_wrap">
+            <label>Empleado *</label>
+            <select id="pr_empleado" class="form-control">
+                <option value="">Seleccionar...</option>
+                ${empleados.map(e=>`<option value="${e.nombre}">${e.nombre} — ${e.cargo}</option>`).join('')}
+            </select>
+        </div>
+        <div class="form-group-dark" id="pr_terc_wrap" style="display:none;">
+            <label>Nombre del tercero *</label>
+            <input id="pr_tercero" class="form-control" placeholder="Nombre completo">
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark">
+            <label>💰 Monto del préstamo *</label>
+            <input type="number" id="pr_monto" class="form-control" placeholder="0" min="0">
+        </div>
+        <div class="form-group-dark">
+            <label>📅 Fecha del préstamo</label>
+            <input type="date" id="pr_fecha" class="form-control" value="${new Date().toISOString().slice(0,10)}">
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark">
+            <label>🏢 Oficina (opcional)</label>
+            <select id="pr_oid" class="form-control">
+                <option value="">Sin oficina específica</option>
+                ${oficinas.map(o=>`<option value="${o.id}">${o.nombre}</option>`).join('')}
+            </select>
+        </div>
+        <div class="form-group-dark">
+            <label>📋 Cuotas (0 = pago único)</label>
+            <input type="number" id="pr_cuotas" class="form-control" value="0" min="0">
+        </div>
+    </div>
+    <div class="form-group-dark">
+        <label>📝 Motivo del préstamo</label>
+        <textarea id="pr_motivo" class="form-control" placeholder="Ej: Urgencia médica, anticipo vacaciones, compra equipo..." rows="2"></textarea>
+    </div>
+    <div class="form-group-dark">
+        <label>🔖 Condiciones / Notas</label>
+        <textarea id="pr_notas" class="form-control" placeholder="Ej: Se descuenta $100.000 por quincena desde enero..." rows="2"></textarea>
+    </div>
+    `,`<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+       <button class="btn btn-primary" onclick="guardarPrestamo()">✅ Registrar Préstamo</button>`);
+}
+
+function toggleBeneficiarioPrestamo(){
+    const tipo=document.getElementById('pr_tipo')?.value;
+    document.getElementById('pr_emp_wrap').style.display=tipo==='empleado'?'':'none';
+    document.getElementById('pr_terc_wrap').style.display=tipo==='tercero'?'':'none';
+}
+
+function guardarPrestamo(){
+    const tipo=document.getElementById('pr_tipo').value;
+    const beneficiario=tipo==='empleado'
+        ? document.getElementById('pr_empleado').value
+        : document.getElementById('pr_tercero').value.trim();
+    const monto=parseFloat(document.getElementById('pr_monto').value||0);
+    if(!beneficiario) return alert('El beneficiario es obligatorio');
+    if(!monto||monto<=0) return alert('Ingresa un monto válido');
+    if(!DB.prestamos) DB.prestamos=[];
+    DB.prestamos.push({
+        id:uid(), tipo, beneficiario, monto,
+        saldoPendiente:monto,
+        fecha:document.getElementById('pr_fecha').value,
+        oid:document.getElementById('pr_oid').value,
+        cuotas:parseInt(document.getElementById('pr_cuotas').value||0),
+        motivo:document.getElementById('pr_motivo').value.trim(),
+        notas:document.getElementById('pr_notas').value.trim(),
+        estado:'activo', abonos:[], creadoEn:now()
+    });
+    save(); closeModal(); renderPrestamos();
+}
+
+function modalAbonarPrestamo(pid){
+    const p=(DB.prestamos||[]).find(x=>x.id===pid); if(!p) return;
+    const abonado=(p.abonos||[]).reduce((s,a)=>s+parseFloat(a.valor||0),0);
+    const saldo=parseFloat(p.monto||0)-abonado;
+    openModal('💳 Registrar Abono — '+p.beneficiario,`
+    <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:12px 16px;margin-bottom:14px;">
+        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;font-size:0.85rem;">
+            <div><span style="color:var(--muted);">Monto original: </span><strong class="money neg">${fmtShort(p.monto)}</strong></div>
+            <div><span style="color:var(--muted);">Ya abonado: </span><strong class="money pos">${fmtShort(abonado)}</strong></div>
+            <div><span style="color:var(--muted);">Saldo pendiente: </span><strong class="money neg">${fmtShort(Math.max(saldo,0))}</strong></div>
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark">
+            <label>💰 Valor del abono *</label>
+            <input type="number" id="ab_valor" class="form-control" placeholder="0" max="${saldo}">
+            <small style="color:var(--muted);font-size:0.72rem;">Máximo: ${fmtShort(Math.max(saldo,0))}</small>
+        </div>
+        <div class="form-group-dark">
+            <label>📅 Fecha del abono</label>
+            <input type="date" id="ab_fecha" class="form-control" value="${new Date().toISOString().slice(0,10)}">
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark">
+            <label>💳 Forma de pago</label>
+            <select id="ab_forma" class="form-control">
+                ${FORMAS_PAGO.map(f=>`<option>${f}</option>`).join('')}
+                <option>Descuento Nómina</option>
+            </select>
+        </div>
+        <div class="form-group-dark">
+            <label>📝 Observación</label>
+            <input id="ab_obs" class="form-control" placeholder="Ej: Quincena de enero">
+        </div>
+    </div>
+    <div class="form-group-dark">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="ab_total"> <span>✅ Marcar como préstamo completamente pagado</span>
+        </label>
+    </div>
+    ${p.abonos?.length>0?`
+    <div style="margin-top:12px;">
+        <p style="font-size:0.8rem;font-weight:700;margin-bottom:8px;">📋 Historial de abonos:</p>
+        <div class="table-wrap"><table>
+            <thead><tr><th>Fecha</th><th>Valor</th><th>Forma</th><th>Nota</th><th></th></tr></thead>
+            <tbody>${(p.abonos||[]).slice().reverse().map(a=>`<tr>
+                <td style="font-size:0.75rem;">${a.fecha||'-'}</td>
+                <td class="money pos">${fmtShort(a.valor)}</td>
+                <td style="font-size:0.75rem;">${a.forma||'-'}</td>
+                <td style="font-size:0.75rem;color:var(--muted);">${a.obs||'-'}</td>
+                <td><button class="btn btn-danger btn-sm" onclick="eliminarAbono('${pid}','${a.id}')">🗑️</button></td>
+            </tr>`).join('')}</tbody>
+        </table></div>
+    </div>`:''}
+    `,`<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+       <button class="btn btn-primary" onclick="guardarAbono('${pid}')">💳 Registrar Abono</button>`);
+}
+
+function guardarAbono(pid){
+    const p=DB.prestamos.find(x=>x.id===pid); if(!p) return;
+    const valor=parseFloat(document.getElementById('ab_valor').value||0);
+    const marcarPagado=document.getElementById('ab_total').checked;
+    if(!valor&&!marcarPagado) return alert('Ingresa un valor de abono');
+    if(valor<0) return alert('El valor debe ser positivo');
+    if(!p.abonos) p.abonos=[];
+    if(valor>0){
+        p.abonos.push({
+            id:uid(), valor,
+            fecha:document.getElementById('ab_fecha').value,
+            forma:document.getElementById('ab_forma').value,
+            obs:document.getElementById('ab_obs').value.trim()
+        });
+    }
+    const totalAbonado=p.abonos.reduce((s,a)=>s+parseFloat(a.valor||0),0);
+    p.saldoPendiente=Math.max(parseFloat(p.monto||0)-totalAbonado,0);
+    if(marcarPagado||p.saldoPendiente<=0){
+        p.estado='pagado';
+        p.fechaPago=new Date().toISOString().slice(0,10);
+    }
+    save(); closeModal(); renderPrestamos();
+}
+
+function eliminarAbono(pid,aid){
+    if(!confirm('¿Eliminar este abono?')) return;
+    const p=DB.prestamos.find(x=>x.id===pid); if(!p) return;
+    p.abonos=(p.abonos||[]).filter(a=>a.id!==aid);
+    const totalAbonado=p.abonos.reduce((s,a)=>s+parseFloat(a.valor||0),0);
+    p.saldoPendiente=Math.max(parseFloat(p.monto||0)-totalAbonado,0);
+    if(p.estado==='pagado'&&p.saldoPendiente>0) p.estado='activo';
+    save(); closeModal(); setTimeout(()=>modalAbonarPrestamo(pid),150);
+}
+
+function modalVerPrestamo(pid){
+    const p=(DB.prestamos||[]).find(x=>x.id===pid); if(!p) return;
+    const abonado=(p.abonos||[]).reduce((s,a)=>s+parseFloat(a.valor||0),0);
+    const saldo=Math.max(parseFloat(p.monto||0)-abonado,0);
+    const pct=p.monto>0?Math.round(abonado/p.monto*100):0;
+    const oNombre=p.oid?(DB.oficinas||[]).find(o=>o.id===p.oid)?.nombre||'-':'-';
+    openModal('👁️ Detalle — '+p.beneficiario,`
+    <div class="reporte-resumen">
+        <div class="reporte-item"><div class="r-label">💰 Monto</div><div class="r-val" style="color:#ef4444;">${fmtShort(p.monto)}</div></div>
+        <div class="reporte-item"><div class="r-label">✅ Abonado</div><div class="r-val" style="color:#10b981;">${fmtShort(abonado)}</div></div>
+        <div class="reporte-item"><div class="r-label">⏳ Saldo</div><div class="r-val" style="color:#f59e0b;">${fmtShort(saldo)}</div></div>
+        <div class="reporte-item"><div class="r-label">📊 Progreso</div><div class="r-val" style="color:#3b82f6;">${pct}%</div></div>
+    </div>
+    <div style="background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px;font-size:0.82rem;">
+        <p style="margin-bottom:4px;"><strong>Tipo:</strong> ${p.tipo==='empleado'?'👔 Empleado':'🧑 Tercero'}</p>
+        <p style="margin-bottom:4px;"><strong>Oficina:</strong> ${oNombre}</p>
+        <p style="margin-bottom:4px;"><strong>Fecha:</strong> ${p.fecha||'-'}</p>
+        <p style="margin-bottom:4px;"><strong>Cuotas:</strong> ${p.cuotas||'Sin cuotas definidas'}</p>
+        ${p.motivo?`<p style="margin-bottom:4px;"><strong>Motivo:</strong> ${p.motivo}</p>`:''}
+        ${p.notas?`<p style="margin-bottom:0;"><strong>Condiciones:</strong> ${p.notas}</p>`:''}
+    </div>
+    <div style="background:rgba(255,255,255,0.04);border-radius:8px;height:10px;overflow:hidden;margin-bottom:14px;">
+        <div style="height:100%;background:${pct>=100?'#10b981':'#f59e0b'};width:${Math.min(pct,100)}%;transition:width 0.5s;"></div>
+    </div>
+    ${p.abonos?.length>0?`
+    <h4 style="font-size:0.85rem;margin-bottom:8px;">📋 Historial de abonos (${p.abonos.length}):</h4>
+    <div class="table-wrap"><table>
+        <thead><tr><th>Fecha</th><th>Valor</th><th>Forma</th><th>Observación</th></tr></thead>
+        <tbody>${p.abonos.slice().reverse().map(a=>`<tr>
+            <td style="font-size:0.75rem;">${a.fecha||'-'}</td>
+            <td class="money pos">${fmtShort(a.valor)}</td>
+            <td style="font-size:0.75rem;">${a.forma||'-'}</td>
+            <td style="font-size:0.75rem;color:var(--muted);">${a.obs||'-'}</td>
+        </tr>`).join('')}</tbody>
+    </table></div>`:'<p style="color:var(--muted);font-size:0.82rem;">Sin abonos registrados.</p>'}
+    `,'');
+}
+
+function eliminarPrestamo(pid){
+    if(!confirm('¿Eliminar este préstamo y todo su historial de abonos?')) return;
+    DB.prestamos=(DB.prestamos||[]).filter(p=>p.id!==pid);
+    save(); renderPrestamos();
 }
 
 function openAdminPanel(){ navigate('administracion'); }
