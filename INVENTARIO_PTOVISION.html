@@ -664,8 +664,9 @@ function renderClientes(c) {
         <span class="badge badge-pend">📦 ${eqCount} Equipos registrados</span>
         ${DB.equiposDanados?.length ? `<span class="badge badge-rej" style="cursor:pointer;" onclick="navigate('danados')">🔴 ${DB.equiposDanados.length} Equipos Dañados</span>` : ''}
     </div>
-    <input type="text" id="searchCliente" class="form-control" placeholder="🔍 Buscar por nombre, dirección o equipo..." oninput="renderClientes(document.getElementById('main-content'))" style="margin-bottom:15px;">`;
+    <input type="text" id="searchCliente" class="form-control" placeholder="🔍 Buscar por nombre, dirección o equipo..." oninput="filtrarClientes(this.value)" style="margin-bottom:15px;">`;
     
+    html += `<div id="clienteListContainer">`;
     if(filtered.length === 0) { html += '<p class="text-center text-muted" style="padding:20px;">No hay clientes registrados.</p>'; }
     else {
         html += filtered.map(cl => {
@@ -729,9 +730,28 @@ function renderClientes(c) {
             </details>`;
         }).join('');
     }
-    html += '</div>';
+    html += '</div>'; // end clienteListContainer
+    html += '</div>'; // end card
     c.innerHTML = html;
 }
+
+function filtrarClientes(q) {
+    const term = (q||'').toLowerCase();
+    const misClientes = USER.role==='bodega' ? DB.clientes.filter(cl=>cl.bodegaId===USER.id) : DB.clientes;
+    const container = document.getElementById('clienteListContainer');
+    if(!container) return;
+    if(!term) {
+        // Show all
+        container.querySelectorAll('details').forEach(d => d.style.display='');
+        return;
+    }
+    container.querySelectorAll('details').forEach(d => {
+        const text = d.querySelector('summary')?.textContent?.toLowerCase()||'';
+        const eqText = d.querySelector('.table-wrap')?.textContent?.toLowerCase()||'';
+        d.style.display = (text.includes(term)||eqText.includes(term)) ? '' : 'none';
+    });
+}
+window.filtrarClientes = filtrarClientes;
 
 function modalAddCliente() { TempLists.cliEquipos = []; openModal('➕ Agregar Cliente', formClienteHTML(), ()=>saveCliente(null)); }
 function modalEditCliente(cliId) { 
@@ -3199,7 +3219,7 @@ import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstat
 
 const FB_KEY = 'invPro_firebaseConfig';
 const DB_DOC = 'inventario/datos';
-const CHUNK_SIZE = 400; // clients per document
+const CHUNK_SIZE = 800; // clients per document - allows ~10000 clients
 
 // Helper: split array into chunks
 function chunkArray(arr, size) {
