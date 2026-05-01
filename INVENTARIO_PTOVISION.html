@@ -2405,7 +2405,7 @@ function delEntrega(eid) { if(!confirm('¿Eliminar? Stock NO se devuelve.')) ret
 
 // INSTALACIONES
 function renderInst(c) { let is=DB.instalaciones; if(USER.role==='bodega'){const cIds=getUserCuads().map(x=>x.id);is=is.filter(x=>cIds.includes(x.cuadrillaId));} is.sort((a,b)=>new Date(b.reg)-new Date(a.reg)); c.innerHTML=`<div class="card"><div class="card-header"><h2>🔧 Instalaciones</h2>${canDo('inst','crear')?`<button class="btn btn-success btn-sm" onclick="modalNewInst()">➕ Nueva</button>`:''}</div>${is.length?is.map(i=>`<div style="border:1px solid #eee; padding:15px; border-radius:8px; margin-bottom:10px; background:white;"><div class="flex"><strong>🔧 ${i.cliente}</strong> <span class="badge badge-new">${i.fecha}</span></div><p class="text-muted">Cuadrilla: ${i.cuadrilla} | Tipo: ${i.tipo||'-'}</p><div style="margin-top:5px;">${i.mats.map(m=>`<span class="sn-tag">${m.nom}: ${m.cant} ${m.unidad}${m.snes.length?' [SN:'+m.snes.join(',')+']':''}</span>`).join(' ')}</div>${canDo('inst','eliminar')?`<button class="btn btn-danger btn-sm" style="margin-top:10px;" onclick="delInst('${i.id}')">✕</button>`:''}</div>`).join(''):'<p class="text-muted">Sin instalaciones</p>'}</div>`; }
-function modalNewInst() { const cs=getUserCuads().map(c=>`<option value="${c.id}">${c.nombre}</option>`).join(''); TempLists.iItems=[]; openModal('Nueva Instalación', `<div class="form-row"><div class="form-group"><label>Cuadrilla</label><select id="iCuad" class="form-control" onchange="loadIOptions()">${cs}</select></div><div class="form-group"><label>Fecha</label><input id="iFecha" type="date" value="${new Date().toISOString().split('T')[0]}" class="form-control"></div></div><div class="form-group"><label>Cliente</label><input id="iCli" class="form-control"></div><div class="form-group"><label>Tipo</label><input id="iTipo" class="form-control"></div><hr style="margin:10px 0;"><div class="form-row"><div class="form-group"><label>Material</label><select id="iMat" class="form-control"></select></div><div class="form-group"><label>Cantidad</label><input id="iCant" type="number" value="1" min="1" class="form-control"></div></div><button class="btn btn-outline btn-sm" onclick="addIItem()">➕ Agregar</button><div id="iList" style="margin-top:10px;"></div>`, ()=>{ if(!TempLists.iItems.length||!id('iCli').value) return alert('Faltan datos'); saveInstLogic(); }); loadIOptions(); }
+function modalNewInst() { const cs=getUserCuads().map(c=>`<option value="${c.id}">${c.nombre}</option>`).join(''); TempLists.iItems=[]; openModal('Nueva Instalación', `<div class="form-row"><div class="form-group"><label>Cuadrilla</label><select id="iCuad" class="form-control" onchange="loadIOptions()">${cs}</select></div><div class="form-group"><label>Fecha</label><input id="iFecha" type="date" value="${new Date().toISOString().split('T')[0]}" class="form-control"></div></div><div class="form-group"><label>Cliente</label><input id="iCli" class="form-control"></div><div class="form-group"><label>Tipo</label><input id="iTipo" class="form-control"></div><hr style="margin:10px 0;"><div class="form-row"><div class="form-group"><label>Material</label><select id="iMat" class="form-control"></select></div><div class="form-group"><label>Cantidad</label><input id="iCant" type="number" value="1" min="1" class="form-control"></div></div><button class="btn btn-outline btn-sm" onclick="addIItem()">➕ Agregar</button><div id="iSnArea"></div><div id="iList" style="margin-top:10px;"></div>`, ()=>{ if(!TempLists.iItems.length||!id('iCli').value) return alert('Faltan datos'); saveInstLogic(); }); loadIOptions(); }
 function loadIOptions() { const c=DB.cuadrillas.find(x=>x.id===id('iCuad').value); id('iMat').innerHTML=c?c.materiales.filter(m=>m.cantidad>0).map(m=>`<option value="${m.id}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`).join(''):''; }
 function addIItem() {
     const cuad = DB.cuadrillas.find(x=>x.id===id('iCuad').value);
@@ -2417,22 +2417,24 @@ function addIItem() {
     const inList = TempLists.iItems.find(x=>x.id===mId)?.cant||0;
     if(q+inList > m.cantidad) return alert('Stock insuficiente');
 
-    // If material has SNs, show selector
     const snesDisponibles = m.snes.filter(sn => !TempLists.iItems.find(it=>it.id===mId&&it.snes.includes(sn)));
+
     if(snesDisponibles.length > 0) {
-        openModal(`🔢 Seriales — ${m.nombre}`,
-            `<p class="text-muted" style="margin-bottom:10px;">Selecciona exactamente <strong>${q}</strong> serial(es) a instalar:</p>
-            <div class="sn-select-area" style="max-height:200px;overflow-y:auto;">
-                ${snesDisponibles.map(sn=>`<label class="sn-check"><input type="checkbox" class="snInstCheck" value="${sn}"> <span class="sn-label">${sn}</span></label>`).join('')}
-            </div>`,
-            () => {
-                const checked = [...document.querySelectorAll('.snInstCheck:checked')].map(cb=>cb.value);
-                if(checked.length !== q) { alert(`Selecciona exactamente ${q} serial(es). Seleccionaste ${checked.length}.`); return; }
-                const exist = TempLists.iItems.find(x=>x.id===mId);
-                if(exist) { exist.cant+=q; exist.snes.push(...checked); }
-                else TempLists.iItems.push({id:m.id, nom:m.nombre, cant:q, tipo:m.tipo, unidad:m.unidad, snes:checked});
-                renderIList();
-            });
+        // Show inline SN selector instead of nested modal
+        const snArea = id('iSnArea');
+        if(snArea) {
+            snArea.innerHTML = `
+                <div style="background:#f0f4ff;padding:12px;border-radius:8px;margin-top:8px;border:1px solid #c7d2fe;">
+                    <p class="text-muted" style="margin-bottom:8px;font-size:0.85rem;">📋 Selecciona exactamente <strong>${q}</strong> serial(es) para <strong>${m.nombre}</strong>:</p>
+                    <div class="sn-select-area" style="max-height:150px;overflow-y:auto;">
+                        ${snesDisponibles.map(sn=>`<label class="sn-check"><input type="checkbox" class="snInstCheck" value="${sn}"> <span class="sn-label">${sn}</span></label>`).join('')}
+                    </div>
+                    <div style="margin-top:8px;display:flex;gap:8px;">
+                        <button class="btn btn-primary btn-sm" onclick="confirmSnInst('${mId}',${q})">✅ Confirmar Seriales</button>
+                        <button class="btn btn-outline btn-sm" onclick="id('iSnArea').innerHTML=''">✕ Cancelar</button>
+                    </div>
+                </div>`;
+        }
     } else {
         const exist = TempLists.iItems.find(x=>x.id===mId);
         if(exist) exist.cant+=q;
@@ -2440,6 +2442,20 @@ function addIItem() {
         renderIList();
     }
 }
+
+function confirmSnInst(mId, q) {
+    const cuad = DB.cuadrillas.find(x=>x.id===id('iCuad').value);
+    const m = cuad?.materiales.find(x=>x.id===mId);
+    if(!m) return;
+    const checked = [...document.querySelectorAll('.snInstCheck:checked')].map(cb=>cb.value);
+    if(checked.length !== q) return alert(`Selecciona exactamente ${q} serial(es). Seleccionaste ${checked.length}.`);
+    const exist = TempLists.iItems.find(x=>x.id===mId);
+    if(exist) { exist.cant+=q; exist.snes.push(...checked); }
+    else TempLists.iItems.push({id:m.id, nom:m.nombre, cant:q, tipo:m.tipo, unidad:m.unidad, snes:checked});
+    id('iSnArea').innerHTML = '';
+    renderIList();
+}
+window.confirmSnInst = confirmSnInst;
 function renderIList() { const el=id('iList'); if(!el) return; el.innerHTML=TempLists.iItems.map((it,i)=>`<div class="item-list-item" style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:#f8f9fa;border-radius:6px;margin-bottom:4px;"><div><strong>${it.nom}</strong> x${it.cant} ${it.unidad}${it.snes&&it.snes.length?` <span style="font-size:0.75rem;color:#4f46e5;">[SN: ${it.snes.join(', ')}]</span>`:''}</div><button class="btn btn-danger btn-sm" onclick="TempLists.iItems.splice(${i},1);renderIList();">✕</button></div>`).join('')||'<p class="text-muted">Sin materiales agregados</p>'; }
 function saveInstLogic() { const c=DB.cuadrillas.find(x=>x.id===id('iCuad').value), cli=id('iCli').value.trim(), tipo=id('iTipo').value.trim(), fecha=id('iFecha').value; TempLists.iItems.forEach(it => { const m=c.materiales.find(x=>x.id===it.id); m.cantidad-=it.cant; it.snes.forEach(s=>{const idx=m.snes.indexOf(s);if(idx>-1)m.snes.splice(idx,1);}); }); const instData = {id:Date.now().toString(),cuadrillaId:c.id,cuadrilla:c.nombre,fecha:fecha,cliente:cli,tipo:tipo,mats:[...TempLists.iItems],reg:new Date().toISOString()}; DB.instalaciones.push(instData); actualizarClientesDesdeInstalacion(instData); logMsg(`Instalación en ${cli}`); save(); closeModal(); renderTab('inst'); }
 function delInst(eid) { if(!confirm('¿Eliminar?')) return; DB.instalaciones=DB.instalaciones.filter(x=>x.id!==eid); save(); renderTab('inst'); }
@@ -3183,6 +3199,28 @@ import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstat
 
 const FB_KEY = 'invPro_firebaseConfig';
 const DB_DOC = 'inventario/datos';
+const CLI_DOC = 'inventario/clientes';
+
+// Helper to prepare DB copy without clientes
+async function prepareDbCopy() {
+    const dbCopy = JSON.parse(JSON.stringify(DB));
+    // Compress fotos
+    for(const b of dbCopy.bodegas) {
+        for(const m of b.materiales) {
+            if(m.fotos && m.fotos.length) {
+                const compressed = [];
+                for(const foto of m.fotos) {
+                    if(foto && foto.startsWith('data:')) compressed.push(await compressImage(foto));
+                }
+                m.fotos = compressed;
+            }
+        }
+    }
+    // Separate clientes
+    const clientes = dbCopy.clientes || [];
+    dbCopy.clientes = []; // keep empty in main doc
+    return { dbCopy, clientes };
+}
 let fsDB = null, saveTO = null;
 
 function showSync(state, text) {
@@ -3226,21 +3264,9 @@ window._fbSave = function() {
     clearTimeout(saveTO);
     saveTO = setTimeout(async ()=>{
         try {
-            const dbCopy = JSON.parse(JSON.stringify(DB));
-            for(const b of dbCopy.bodegas) {
-                for(const m of b.materiales) {
-                    if(m.fotos && m.fotos.length) {
-                        const compressed = [];
-                        for(const foto of m.fotos) {
-                            if(foto && foto.startsWith('data:')) {
-                                compressed.push(await compressImage(foto));
-                            }
-                        }
-                        m.fotos = compressed;
-                    }
-                }
-            }
+            const { dbCopy, clientes } = await prepareDbCopy();
             await setDoc(doc(fsDB, DB_DOC), dbCopy);
+            await setDoc(doc(fsDB, CLI_DOC), { clientes });
             showSync('ok','Guardado ✓');
         } catch(e) {
             showSync('err','Error al guardar');
@@ -3253,22 +3279,9 @@ window._fbSave = function() {
 window._fbSaveImmediate = async function() {
     clearTimeout(saveTO);
     showSync('saving','Guardando...');
-    const dbCopy = JSON.parse(JSON.stringify(DB));
-    // Compress fotos
-    for(const b of dbCopy.bodegas) {
-        for(const m of b.materiales) {
-            if(m.fotos && m.fotos.length) {
-                const compressed = [];
-                for(const foto of m.fotos) {
-                    if(foto && foto.startsWith('data:')) {
-                        compressed.push(await compressImage(foto));
-                    }
-                }
-                m.fotos = compressed;
-            }
-        }
-    }
+    const { dbCopy, clientes } = await prepareDbCopy();
     await setDoc(doc(fsDB, DB_DOC), dbCopy);
+    await setDoc(doc(fsDB, CLI_DOC), { clientes });
     showSync('ok','Guardado ✓');
 };
 
@@ -3304,19 +3317,43 @@ async function startFirebase(config) {
     document.getElementById('firebase-setup').style.display='none';
     document.getElementById('loading-screen').style.display='flex';
 
+    // Load both documents
     const snap = await getDoc(ref);
     if(snap.exists()) { Object.assign(DB, snap.data()); fixDB(); }
+    
+    // Load clientes from separate document
+    const cliRef = doc(fsDB, CLI_DOC);
+    const cliSnap = await getDoc(cliRef);
+    if(cliSnap.exists() && cliSnap.data().clientes) {
+        DB.clientes = cliSnap.data().clientes;
+        fixDB();
+    }
 
     document.getElementById('loading-screen').style.display='none';
     document.getElementById('login-screen').style.display='flex';
     showSync('ok','Sincronizado');
     renderLoginBodegas();
 
+    // Listen to main document
     onSnapshot(ref, s=>{
-        if(s.exists()){Object.assign(DB,s.data());fixDB();showSync('ok','Sincronizado');
-        renderLoginBodegas();
-        if(window.USER) renderTab(document.querySelector('.nav-btn.active')?.dataset?.tab||'dash');}
+        if(s.exists()){
+            const prev = DB.clientes; // preserve clientes
+            Object.assign(DB, s.data());
+            DB.clientes = prev; // restore clientes
+            fixDB(); showSync('ok','Sincronizado');
+            renderLoginBodegas();
+            if(window.USER) renderTab(document.querySelector('.nav-btn.active')?.dataset?.tab||'dash');
+        }
     }, (err)=>{showSync('err','Sin conexión'); console.error(err);});
+
+    // Listen to clientes document
+    onSnapshot(cliRef, s=>{
+        if(s.exists() && s.data().clientes) {
+            DB.clientes = s.data().clientes;
+            fixDB(); showSync('ok','Sincronizado');
+            if(window.USER) renderTab(document.querySelector('.nav-btn.active')?.dataset?.tab||'dash');
+        }
+    }, (err)=>{ console.error('Clientes sync error:', err); });
 }
 
 // Auto-connect if config saved
