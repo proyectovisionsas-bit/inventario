@@ -3199,7 +3199,14 @@ import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstat
 
 const FB_KEY = 'invPro_firebaseConfig';
 const DB_DOC = 'inventario/datos';
-const CLI_DOC = 'inventario/clientes';
+const CHUNK_SIZE = 400; // clients per document
+
+// Helper: split array into chunks
+function chunkArray(arr, size) {
+    const chunks = [];
+    for(let i=0; i<arr.length; i+=size) chunks.push(arr.slice(i, i+size));
+    return chunks;
+}
 
 // Helper to prepare DB copy without clientes
 async function prepareDbCopy() {
@@ -3216,10 +3223,45 @@ async function prepareDbCopy() {
             }
         }
     }
-    // Separate clientes
+    // Remove clientes from main doc
     const clientes = dbCopy.clientes || [];
-    dbCopy.clientes = []; // keep empty in main doc
+    dbCopy.clientes = [];
     return { dbCopy, clientes };
+}
+
+// Save clientes in chunks across multiple documents
+async function saveClienteChunks(clientes) {
+    const chunks = chunkArray(clientes, CHUNK_SIZE);
+    const numChunks = chunks.length;
+    // Save each chunk
+    for(let i=0; i<chunks.length; i++) {
+        await setDoc(doc(fsDB, `inventario/clientes_${i}`), { clientes: chunks[i], chunk: i, total: numChunks });
+    }
+    // Save index
+    await setDoc(doc(fsDB, 'inventario/clientes_index'), { numChunks, total: clientes.length });
+}
+
+// Load clientes from all chunks
+async function loadClienteChunks() {
+    try {
+        const indexSnap = await getDoc(doc(fsDB, 'inventario/clientes_index'));
+        if(!indexSnap.exists()) {
+            // Try legacy single document
+            const legacySnap = await getDoc(doc(fsDB, 'inventario/clientes'));
+            if(legacySnap.exists() && legacySnap.data().clientes) return legacySnap.data().clientes;
+            return [];
+        }
+        const { numChunks } = indexSnap.data();
+        let all = [];
+        for(let i=0; i<numChunks; i++) {
+            const snap = await getDoc(doc(fsDB, `inventario/clientes_${i}`));
+            if(snap.exists()) all = all.concat(snap.data().clientes || []);
+        }
+        return all;
+    } catch(e) {
+        console.error('Error loading clientes:', e);
+        return [];
+    }
 }
 let fsDB = null, saveTO = null;
 
@@ -3266,7 +3308,7 @@ window._fbSave = function() {
         try {
             const { dbCopy, clientes } = await prepareDbCopy();
             await setDoc(doc(fsDB, DB_DOC), dbCopy);
-            await setDoc(doc(fsDB, CLI_DOC), { clientes });
+            await saveClienteChunks(clientes);
             showSync('ok','Guardado ✓');
         } catch(e) {
             showSync('err','Error al guardar');
@@ -3275,13 +3317,12 @@ window._fbSave = function() {
     }, 600);
 };
 
-// Immediate save - no debounce, for bulk operations
 window._fbSaveImmediate = async function() {
     clearTimeout(saveTO);
     showSync('saving','Guardando...');
     const { dbCopy, clientes } = await prepareDbCopy();
     await setDoc(doc(fsDB, DB_DOC), dbCopy);
-    await setDoc(doc(fsDB, CLI_DOC), { clientes });
+    await saveClienteChunks(clientes);
     showSync('ok','Guardado ✓');
 };
 
@@ -3317,43 +3358,30 @@ async function startFirebase(config) {
     document.getElementById('firebase-setup').style.display='none';
     document.getElementById('loading-screen').style.display='flex';
 
-    // Load both documents
+    // Load main document
     const snap = await getDoc(ref);
     if(snap.exists()) { Object.assign(DB, snap.data()); fixDB(); }
-    
-    // Load clientes from separate document
-    const cliRef = doc(fsDB, CLI_DOC);
-    const cliSnap = await getDoc(cliRef);
-    if(cliSnap.exists() && cliSnap.data().clientes) {
-        DB.clientes = cliSnap.data().clientes;
-        fixDB();
-    }
+
+    // Load clientes from chunks
+    DB.clientes = await loadClienteChunks();
+    fixDB();
 
     document.getElementById('loading-screen').style.display='none';
     document.getElementById('login-screen').style.display='flex';
     showSync('ok','Sincronizado');
     renderLoginBodegas();
 
-    // Listen to main document
+    // Listen to main document only (clientes loaded separately)
     onSnapshot(ref, s=>{
         if(s.exists()){
-            const prev = DB.clientes; // preserve clientes
+            const prevClientes = DB.clientes;
             Object.assign(DB, s.data());
-            DB.clientes = prev; // restore clientes
+            DB.clientes = prevClientes;
             fixDB(); showSync('ok','Sincronizado');
             renderLoginBodegas();
             if(window.USER) renderTab(document.querySelector('.nav-btn.active')?.dataset?.tab||'dash');
         }
     }, (err)=>{showSync('err','Sin conexión'); console.error(err);});
-
-    // Listen to clientes document
-    onSnapshot(cliRef, s=>{
-        if(s.exists() && s.data().clientes) {
-            DB.clientes = s.data().clientes;
-            fixDB(); showSync('ok','Sincronizado');
-            if(window.USER) renderTab(document.querySelector('.nav-btn.active')?.dataset?.tab||'dash');
-        }
-    }, (err)=>{ console.error('Clientes sync error:', err); });
 }
 
 // Auto-connect if config saved
