@@ -827,8 +827,9 @@ function renderDash(){
                         <p>${r.mensaje}</p>
                         <p style="margin-top:3px;">📅 ${new Date(r.fechaHora).toLocaleString('es-CO',{dateStyle:'short',timeStyle:'short'})} · ${tiempoLabel}</p>
                     </div>
-                    <div style="display:flex;align-items:center;gap:6px;">
+                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                         <span class="rec-badge rec-${r.recurrencia}">${r.recurrencia==='diario'?'Diario':r.recurrencia==='semanal'?'Semanal':r.recurrencia==='mensual'?'Mensual':'Único'}</span>
+                        <button class="btn btn-outline btn-sm" onclick="modalEditarRecordatorio('${r.id}')">✏️</button>
                         <button class="btn btn-danger btn-sm" onclick="eliminarRecordatorio('${r.id}')">🗑️</button>
                     </div>
                 </div>`;
@@ -1048,6 +1049,7 @@ function renderRegistro(){
             <h2>📋 Movimientos de hoy <span>— ${hoy()}</span></h2>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button class="btn btn-outline btn-sm" onclick="verMovimientosMes('${oid}')">📅 Ver mes</button>
+                ${USER.role==='admin'?`<button class="btn btn-warning btn-sm" onclick="modalGestionarMovimientos('${oid}')">🗑️ Gestionar todos</button>`:''}
             </div>
         </div>
         ${hoyMovs.length===0
@@ -1088,6 +1090,88 @@ function registrarMovimiento(oid,tipo){
     if(!o.movimientos) o.movimientos=[];
     o.movimientos.push({id:uid(),tipo,concepto,forma,descripcion:desc,valor,fecha:now()});
     save(); renderRegistro();
+}
+
+function modalGestionarMovimientos(oid){
+    const o=DB.oficinas.find(x=>x.id===oid)||getOficina(oid);
+    if(!o) return;
+    const todos=(o.movimientos||[]).slice().sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+    const q=(window._gMovQ||'').toLowerCase();
+    const filtFecha=window._gMovFecha||'';
+    const filtTipo=window._gMovTipo||'todos';
+    const filtrados=todos.filter(m=>{
+        const matchQ=!q||(m.concepto||'').toLowerCase().includes(q)||(m.descripcion||'').toLowerCase().includes(q);
+        const matchFecha=!filtFecha||new Date(m.fecha).toISOString().slice(0,10)===filtFecha;
+        const matchTipo=filtTipo==='todos'||m.tipo===filtTipo;
+        return matchQ&&matchFecha&&matchTipo;
+    });
+    const ing=filtrados.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
+    const egr=filtrados.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
+
+    openModal('🗑️ Gestionar Movimientos — '+o.nombre,`
+    <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:0.8rem;color:#ef4444;">
+        ⚠️ <strong>Solo administrador.</strong> Puedes eliminar cualquier movimiento sin importar la fecha. Esta acción es irreversible.
+    </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+        <input type="text" class="form-control" placeholder="🔍 Buscar concepto o descripción..." value="${window._gMovQ||''}"
+            oninput="window._gMovQ=this.value;modalGestionarMovimientos('${oid}')" style="flex:1;min-width:150px;">
+        <input type="date" class="form-control" style="width:auto;" value="${window._gMovFecha||''}"
+            onchange="window._gMovFecha=this.value;modalGestionarMovimientos('${oid}')">
+        <select class="form-control" style="width:auto;" onchange="window._gMovTipo=this.value;modalGestionarMovimientos('${oid}')">
+            <option value="todos" ${filtTipo==='todos'?'selected':''}>Todos</option>
+            <option value="ingreso" ${filtTipo==='ingreso'?'selected':''}>Solo ingresos</option>
+            <option value="egreso" ${filtTipo==='egreso'?'selected':''}>Solo egresos</option>
+        </select>
+        <button class="btn btn-outline btn-sm" onclick="window._gMovQ='';window._gMovFecha='';window._gMovTipo='todos';modalGestionarMovimientos('${oid}')">↺ Limpiar</button>
+    </div>
+
+    <div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+        <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:6px;padding:8px 14px;font-size:0.8rem;">
+            📋 ${filtrados.length} registros &nbsp;|&nbsp;
+            <span style="color:#10b981;">📥 ${fmtShort(ing)}</span> &nbsp;|&nbsp;
+            <span style="color:#ef4444;">📤 ${fmtShort(egr)}</span> &nbsp;|&nbsp;
+            <span style="color:${ing-egr>=0?'#3b82f6':'#ef4444'};">Balance: ${fmtShort(ing-egr)}</span>
+        </div>
+    </div>
+
+    ${filtrados.length===0
+        ? '<p style="color:var(--muted);text-align:center;padding:20px;">Sin movimientos que coincidan.</p>'
+        : `<div class="table-wrap" style="max-height:55vh;overflow-y:auto;"><table>
+        <thead style="position:sticky;top:0;background:var(--surface2);z-index:1;">
+            <tr><th>Fecha</th><th>Tipo</th><th>Concepto</th><th>Descripción</th><th>Forma</th><th>Valor</th><th>Eliminar</th></tr>
+        </thead>
+        <tbody>
+            ${filtrados.map(m=>`<tr style="${m.esPagoAdmin?'background:rgba(245,158,11,0.04);':''}">
+                <td style="font-size:0.75rem;white-space:nowrap;">
+                    ${new Date(m.fecha).toLocaleDateString('es-CO')}<br>
+                    <span style="color:var(--muted);">${new Date(m.fecha).toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})}</span>
+                </td>
+                <td>
+                    <span class="tag ${m.tipo==='ingreso'?'tag-ing':'tag-egr'}">${m.tipo==='ingreso'?'Ing':'Egr'}</span>
+                    ${m.esPagoAdmin?'<span class="tag tag-admin" style="margin-left:3px;font-size:0.6rem;">👑</span>':''}
+                </td>
+                <td style="font-size:0.82rem;">${m.concepto}</td>
+                <td style="font-size:0.75rem;color:var(--muted);max-width:140px;overflow:hidden;text-overflow:ellipsis;">${m.descripcion||'-'}</td>
+                <td><span class="tag ${m.forma==='Efectivo'?'tag-ef':m.forma==='Efecty'?'tag-efty':'tag-banc'}" style="font-size:0.65rem;">${m.forma}</span></td>
+                <td class="money ${m.tipo==='ingreso'?'pos':'neg'}" style="white-space:nowrap;">${m.tipo==='ingreso'?'+':'-'}${fmtShort(m.valor)}</td>
+                <td>
+                    <button class="btn btn-danger btn-sm" onclick="eliminarMovDesdeGestion('${oid}','${m.id}')">🗑️</button>
+                </td>
+            </tr>`).join('')}
+        </tbody>
+    </table></div>`}
+    `,`<button class="btn btn-outline" onclick="closeModal();window._gMovQ='';window._gMovFecha='';window._gMovTipo='todos';">Cerrar</button>`);
+}
+
+function eliminarMovDesdeGestion(oid, mid){
+    if(!confirm('¿Eliminar este movimiento permanentemente?')) return;
+    const o=DB.oficinas.find(x=>x.id===oid);
+    if(!o) return;
+    o.movimientos=(o.movimientos||[]).filter(m=>m.id!==mid);
+    save();
+    // Reload the modal with updated data
+    modalGestionarMovimientos(oid);
 }
 
 function verMovimientosMes(oid){
@@ -5171,6 +5255,61 @@ function guardarRecordatorio(){
     save(); closeModal();
     alert(horas.length>1?`✅ Se crearon ${horas.length} recordatorios para las: ${horas.join(', ')}`:'✅ Recordatorio guardado.');
     renderDash();
+}
+
+function modalEditarRecordatorio(rid){
+    const r=(DB.recordatorios||[]).find(x=>x.id===rid); if(!r) return;
+    const fechaLocal=new Date(r.fechaHora);
+    const fechaStr=fechaLocal.toISOString().slice(0,10);
+    const horaStr=fechaLocal.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',hour12:false});
+    openModal('✏️ Editar Recordatorio',`
+    <div class="form-group-dark">
+        <label>Título *</label>
+        <input id="erec_titulo" class="form-control" value="${r.titulo||''}">
+    </div>
+    <div class="form-group-dark">
+        <label>Mensaje</label>
+        <textarea id="erec_msg" class="form-control" rows="2">${r.mensaje||''}</textarea>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark">
+            <label>📅 Fecha</label>
+            <input type="date" id="erec_fecha" class="form-control" value="${fechaStr}">
+        </div>
+        <div class="form-group-dark">
+            <label>⏰ Hora</label>
+            <input type="time" id="erec_hora" class="form-control" value="${horaStr}">
+        </div>
+    </div>
+    <div class="form-group-dark">
+        <label>🔁 Recurrencia</label>
+        <select id="erec_rec" class="form-control">
+            <option value="unico" ${r.recurrencia==='unico'?'selected':''}>📌 Una sola vez</option>
+            <option value="diario" ${r.recurrencia==='diario'?'selected':''}>📆 Diario</option>
+            <option value="semanal" ${r.recurrencia==='semanal'?'selected':''}>📅 Semanal</option>
+            <option value="mensual" ${r.recurrencia==='mensual'?'selected':''}>🗓️ Mensual</option>
+        </select>
+    </div>
+    `,`<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+       <button class="btn btn-primary" onclick="guardarEdicionRecordatorio('${rid}')">💾 Guardar</button>`);
+}
+
+function guardarEdicionRecordatorio(rid){
+    const r=DB.recordatorios.find(x=>x.id===rid); if(!r) return;
+    const titulo=document.getElementById('erec_titulo').value.trim();
+    const fecha=document.getElementById('erec_fecha').value;
+    const hora=document.getElementById('erec_hora').value;
+    if(!titulo) return alert('El título es obligatorio');
+    if(!fecha||!hora) return alert('Completa fecha y hora');
+    const [h,m]=hora.split(':');
+    const nuevaFecha=new Date(fecha);
+    nuevaFecha.setHours(parseInt(h),parseInt(m),0,0);
+    r.titulo=titulo;
+    r.mensaje=document.getElementById('erec_msg').value.trim();
+    r.fechaHora=nuevaFecha.toISOString();
+    r.recurrencia=document.getElementById('erec_rec').value;
+    r.ultimoDisparo=null; // reset para que pueda dispararse con los nuevos datos
+    save(); closeModal(); renderDash();
 }
 
 function eliminarRecordatorio(rid){
