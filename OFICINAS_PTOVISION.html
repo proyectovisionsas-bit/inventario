@@ -1414,20 +1414,28 @@ function modalCargaMasiva(oid){
 
 function descargarPlantillaCargaMasiva(){
     const _cargaXLSX=()=>{
-        const hoy=new Date().toISOString().slice(0,10);
+        const ahora=new Date();
+        const dd=String(ahora.getDate()).padStart(2,'0');
+        const mm=String(ahora.getMonth()+1).padStart(2,'0');
+        const yyyy=ahora.getFullYear();
+        const hoyStr=dd+'/'+mm+'/'+yyyy;
         const wb=XLSX.utils.book_new();
         // Hoja de datos
         const datos=[
-            ['Tipo','Concepto','Forma de Pago','Valor (COP)','Descripción / Cliente','Fecha (YYYY-MM-DD)'],
-            ['ingreso','Suscripción','Efectivo',65000,'Cliente Juan Pérez',hoy],
-            ['ingreso','Instalación','Cta Bancolombia',80000,'Cliente María López',hoy],
-            ['ingreso','Reconexión','Efecty',30000,'Carlos Ruiz',hoy],
-            ['egreso','Nómina','Efectivo',1500000,'Pago empleado',hoy],
-            ['egreso','Arriendo','Transferencia',800000,'Arriendo oficina',hoy],
-            ['egreso','Gasolina','Efectivo',50000,'Combustible moto',hoy],
+            ['Tipo','Concepto','Forma de Pago','Valor (COP)','Descripción / Cliente','Fecha (DD/MM/YYYY)'],
+            ['ingreso','Suscripción','Efectivo',65000,'Cliente Juan Pérez',hoyStr],
+            ['ingreso','Instalación','Cta Bancolombia',80000,'Cliente María López',hoyStr],
+            ['ingreso','Reconexión','Efecty',30000,'Carlos Ruiz',hoyStr],
+            ['egreso','Nómina','Efectivo',1500000,'Pago empleado',hoyStr],
+            ['egreso','Arriendo','Transferencia',800000,'Arriendo oficina',hoyStr],
+            ['egreso','Gasolina','Efectivo',50000,'Combustible moto',hoyStr],
         ];
         const ws=XLSX.utils.aoa_to_sheet(datos);
-        ws['!cols']=[{wch:12},{wch:22},{wch:20},{wch:14},{wch:30},{wch:20}];
+        // Forzar columna fecha como texto para evitar que Excel la convierta
+        ['F2','F3','F4','F5','F6','F7'].forEach(cell=>{
+            if(ws[cell]) ws[cell].t='s';
+        });
+        ws['!cols']=[{wch:12},{wch:22},{wch:20},{wch:14},{wch:30},{wch:18}];
         XLSX.utils.book_append_sheet(wb,ws,'Movimientos');
         // Hoja referencia tipos
         const wsRef=XLSX.utils.aoa_to_sheet([
@@ -1456,46 +1464,81 @@ function descargarPlantillaCargaMasiva(){
 }
 
 let _cmData=[];
+
+// Convierte cualquier valor de fecha de Excel a ISO YYYY-MM-DD
+function _parseFechaExcel(v){
+    if(!v) return '';
+    // Si es objeto Date
+    if(v instanceof Date){ return v.toISOString().slice(0,10); }
+    // Si es número serial de Excel
+    if(typeof v==='number'){
+        const d=new Date(Math.round((v-25569)*86400*1000));
+        return d.toISOString().slice(0,10);
+    }
+    const s=String(v).trim();
+    // DD/MM/YYYY o DD-MM-YYYY
+    const m1=s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if(m1) return `${m1[3]}-${m1[2].padStart(2,'0')}-${m1[1].padStart(2,'0')}`;
+    // YYYY-MM-DD ya correcto
+    if(s.match(/^\d{4}-\d{2}-\d{2}/)) return s.slice(0,10);
+    return s;
+}
+
 function previsualizarCargaMasiva(input,oid){
     const file=input.files[0]; if(!file) return;
     const isXlsx=file.name.endsWith('.xlsx')||file.name.endsWith('.xls');
+
     const _procesar=(rows)=>{
-        _cmData=rows.map(r=>({
-            tipo:(r['tipo']||r['Tipo']||'').toString().toLowerCase().trim(),
-            concepto:r['concepto']||r['Concepto']||'',
-            forma:r['forma de pago']||r['forma']||r['Forma de Pago']||r['Forma']||'Efectivo',
-            valor:parseFloat(r['valor (cop)']||r['valor']||r['Valor (COP)']||r['Valor']||0),
-            descripcion:r['descripción / cliente']||r['descripcion']||r['Descripción / Cliente']||r['Descripción']||'',
-            fecha:r['fecha (yyyy-mm-dd)']||r['fecha']||r['Fecha (YYYY-MM-DD)']||r['Fecha']||''
-        })).filter(r=>r.tipo==='ingreso'||r.tipo==='egreso');
-        const errores=_cmData.filter(r=>!r.concepto||isNaN(r.valor));
-        const ing=_cmData.filter(r=>r.tipo==='ingreso').reduce((s,r)=>s+(r.valor||0),0);
-        const egr=_cmData.filter(r=>r.tipo==='egreso').reduce((s,r)=>s+(r.valor||0),0);
-        document.getElementById('cm_preview').innerHTML=`
+        _cmData=rows.map(r=>{
+            // Normalizar claves a minúsculas sin espacios extra
+            const rn={};
+            Object.keys(r).forEach(k=>rn[k.toLowerCase().trim()]=r[k]);
+            const tipo=(rn['tipo']||'').toString().toLowerCase().trim();
+            const fechaRaw=rn['fecha (dd/mm/yyyy)']||rn['fecha']||rn['fecha (yyyy-mm-dd)']||'';
+            return {
+                tipo,
+                concepto:rn['concepto']||'',
+                forma:rn['forma de pago']||rn['forma']||'Efectivo',
+                valor:parseFloat(String(rn['valor (cop)']||rn['valor']||0).replace(/[^0-9.]/g,'')),
+                descripcion:rn['descripción / cliente']||rn['descripcion']||rn['descripción']||'',
+                fecha:_parseFechaExcel(fechaRaw)
+            };
+        }).filter(r=>r.tipo==='ingreso'||r.tipo==='egreso');
+
+        const errores=_cmData.filter(r=>!r.concepto||isNaN(r.valor)||r.valor<0);
+        const validos=_cmData.filter(r=>r.concepto&&!isNaN(r.valor)&&r.valor>=0);
+        const ing=validos.filter(r=>r.tipo==='ingreso').reduce((s,r)=>s+r.valor,0);
+        const egr=validos.filter(r=>r.tipo==='egreso').reduce((s,r)=>s+r.valor,0);
+
+        const preview=document.getElementById('cm_preview');
+        if(preview) preview.innerHTML=`
         <div style="margin-top:12px;">
             <div style="display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap;font-size:0.82rem;">
-                <span style="color:var(--accent);">✅ ${_cmData.length} registros</span>
-                ${errores.length>0?`<span style="color:#ef4444;">⚠️ ${errores.length} con errores</span>`:''}
-                <span style="color:#10b981;">📥 ${fmtShort(ing)}</span>
-                <span style="color:#ef4444;">📤 ${fmtShort(egr)}</span>
+                <span style="color:var(--accent);">✅ ${_cmData.length} registros encontrados</span>
+                ${errores.length>0?`<span style="color:#ef4444;">⚠️ ${errores.length} con errores (se omitirán)</span>`:''}
+                <span style="color:#10b981;">📥 Ingresos: ${fmtShort(ing)}</span>
+                <span style="color:#ef4444;">📤 Egresos: ${fmtShort(egr)}</span>
             </div>
             <div class="table-wrap" style="max-height:220px;overflow-y:auto;"><table>
                 <thead><tr><th>Tipo</th><th>Concepto</th><th>Forma de Pago</th><th>Valor</th><th>Descripción</th><th>Fecha</th></tr></thead>
-                <tbody>${_cmData.slice(0,12).map(r=>`<tr>
+                <tbody>${_cmData.slice(0,12).map(r=>`<tr style="${!r.concepto||isNaN(r.valor)?'opacity:0.5;':''}">
                     <td><span class="tag ${r.tipo==='ingreso'?'tag-ing':'tag-egr'}">${r.tipo}</span></td>
-                    <td style="font-size:0.8rem;">${r.concepto}</td>
+                    <td style="font-size:0.8rem;">${r.concepto||'<span style="color:#ef4444">vacío</span>'}</td>
                     <td style="font-size:0.78rem;">${r.forma}</td>
-                    <td class="money ${r.tipo==='ingreso'?'pos':'neg'}">${fmtShort(r.valor)}</td>
+                    <td class="money ${r.tipo==='ingreso'?'pos':'neg'}">${fmtShort(r.valor||0)}</td>
                     <td style="font-size:0.75rem;color:var(--muted);max-width:120px;overflow:hidden;text-overflow:ellipsis;">${r.descripcion||'-'}</td>
-                    <td style="font-size:0.75rem;color:var(--muted);">${r.fecha||'(hoy)'}</td>
+                    <td style="font-size:0.75rem;color:var(--muted);">${r.fecha?new Date(r.fecha+'T12:00:00').toLocaleDateString('es-CO'):'(hoy)'}</td>
                 </tr>`).join('')}
                 ${_cmData.length>12?`<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:8px;">...y ${_cmData.length-12} más</td></tr>`:''}
                 </tbody>
             </table></div>
         </div>`;
+
+        // Mostrar botón — buscarlo en el footer del modal
         const btn=document.getElementById('cm_btn_importar');
-        if(btn&&_cmData.length>0) btn.style.display='';
+        if(btn) btn.style.display=validos.length>0?'':'none';
     };
+
     if(isXlsx){
         if(typeof XLSX==='undefined'){
             const s=document.createElement('script');
@@ -1503,7 +1546,6 @@ function previsualizarCargaMasiva(input,oid){
             s.onload=()=>_leerXlsxCarga(file,_procesar); document.head.appendChild(s);
         } else { _leerXlsxCarga(file,_procesar); }
     } else {
-        // CSV fallback
         const reader=new FileReader();
         reader.onload=function(e){
             const lines=e.target.result.split('\n').filter(l=>l.trim());
@@ -1524,9 +1566,10 @@ function previsualizarCargaMasiva(input,oid){
 function _leerXlsxCarga(file,cb){
     const reader=new FileReader();
     reader.onload=function(e){
-        const wb=XLSX.read(e.target.result,{type:'binary',cellDates:true});
+        // cellDates:false para manejar fechas manualmente y evitar problemas de zona horaria
+        const wb=XLSX.read(e.target.result,{type:'binary',cellDates:false});
         const ws=wb.Sheets[wb.SheetNames[0]];
-        const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+        const rows=XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
         cb(rows);
     };
     reader.readAsBinaryString(file);
