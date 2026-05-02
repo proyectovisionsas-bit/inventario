@@ -1142,8 +1142,8 @@ function renderRegistro(){
                     <input type="number" id="ing_valor" class="form-control" placeholder="0">
                 </div>
                 <div class="form-group-dark">
-                    <label>Cliente / Descripción</label>
-                    <input type="text" id="ing_desc" class="form-control" placeholder="Nombre del cliente">
+                    <label>Cliente / Descripción <span style="color:#ef4444;font-size:0.75rem;">* obligatorio</span></label>
+                    <input type="text" id="ing_desc" class="form-control" placeholder="Ej: Juan Pérez - pago enero" required>
                 </div>
             </div>
             <button class="btn btn-primary" style="width:100%;margin-top:4px;" id="btn_ing_reg" onclick="registrarMovimiento('${oid}','ingreso')">✅ Registrar Ingreso</button>
@@ -1172,8 +1172,8 @@ function renderRegistro(){
                     <input type="number" id="egr_valor" class="form-control" placeholder="0">
                 </div>
                 <div class="form-group-dark">
-                    <label>Descripción</label>
-                    <input type="text" id="egr_desc" class="form-control" placeholder="Descripción del gasto">
+                    <label>Descripción <span style="color:#ef4444;font-size:0.75rem;">* obligatorio</span></label>
+                    <input type="text" id="egr_desc" class="form-control" placeholder="Ej: Arriendo local norte" required>
                 </div>
             </div>
             <button class="btn btn-danger" style="width:100%;margin-top:4px;" id="btn_egr_reg" onclick="registrarMovimiento('${oid}','egreso')">📤 Registrar Egreso</button>
@@ -1223,7 +1223,27 @@ function renderRegistro(){
         </div>
         ${hoyMovs.length===0
             ? '<p style="color:var(--muted);text-align:center;padding:20px;">Sin movimientos registrados hoy.</p>'
-            : `<div class="table-wrap"><table>
+            : `
+            <!-- Desglose por descripción hoy -->
+            <div style="margin-bottom:14px;">
+                <p style="font-size:0.78rem;font-weight:700;color:var(--accent);margin-bottom:8px;">📋 Detalle por registro — hoy</p>
+                <div style="display:flex;flex-direction:column;gap:5px;">
+                ${hoyMovs.slice().reverse().map(m=>`
+                    <div style="display:flex;justify-content:space-between;align-items:center;background:${m.tipo==='ingreso'?'rgba(16,185,129,0.06)':'rgba(239,68,68,0.05)'};border:1px solid ${m.tipo==='ingreso'?'rgba(16,185,129,0.15)':'rgba(239,68,68,0.12)'};border-radius:8px;padding:8px 12px;gap:8px;flex-wrap:wrap;">
+                        <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;">
+                            <span style="font-size:0.75rem;color:var(--muted);flex-shrink:0;">${new Date(m.fecha).toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})}</span>
+                            <span class="tag ${m.tipo==='ingreso'?'tag-ing':'tag-egr'}" style="flex-shrink:0;">${m.concepto}</span>
+                            ${m.esPagoAdmin?'<span class="tag tag-admin" style="flex-shrink:0;font-size:0.6rem;">👑</span>':''}
+                            <span style="font-size:0.82rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${m.descripcion||'<span style="color:var(--muted);font-style:italic;">Sin descripción</span>'}</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+                            <span class="tag ${m.forma==='Efectivo'?'tag-ef':m.forma==='Efecty'?'tag-efty':'tag-banc'}" style="font-size:0.65rem;">${m.forma}</span>
+                            <span class="money ${m.tipo==='ingreso'?'pos':'neg'}" style="font-weight:800;">${m.tipo==='ingreso'?'+':'-'}${fmtShort(m.valor)}</span>
+                        </div>
+                    </div>`).join('')}
+                </div>
+            </div>
+            <div class="table-wrap"><table>
             <thead><tr><th>Hora</th><th>Tipo</th><th>Concepto</th><th>Descripción</th><th>Forma Pago</th><th>Valor</th><th></th></tr></thead>
             <tbody>
                 ${hoyMovs.slice().reverse().map(m=>`<tr style="${m.esPagoAdmin?'background:rgba(245,158,11,0.04);':''}" >
@@ -1267,6 +1287,10 @@ function registrarMovimiento(oid,tipo){
     const valorStr=document.getElementById(pfx+'_valor').value; const valor=valorStr===''?null:parseFloat(valorStr);
     const desc=document.getElementById(pfx+'_desc').value.trim();
     if(valor===null||valor===undefined||isNaN(valor)||valor<0) return alert('⚠️ Ingresa un valor válido (puede ser 0)');
+    if(!desc) return alert('⚠️ La descripción es obligatoria. Especifica el cliente o motivo.');
+    // Highlight field if empty
+    const descField=document.getElementById(pfx+'_desc');
+    if(descField) descField.style.borderColor='';
 
     // Verificar fecha seleccionada
     const fechaInputVal=document.getElementById('reg_fecha')?.value||new Date().toISOString().slice(0,10);
@@ -1713,6 +1737,44 @@ function verMovimientosMes(oid){
                 </div>
             </div>
         </div>
+
+        <!-- Desglose por descripción: ingresos -->
+        ${movs.filter(m=>m.tipo==='ingreso').length>0?`
+        <p style="font-size:0.78rem;font-weight:700;color:#10b981;margin-bottom:6px;">📥 Detalle de Ingresos</p>
+        <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:14px;">
+            ${movs.filter(m=>m.tipo==='ingreso').slice().reverse().map(m=>`
+            <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(16,185,129,0.05);border:1px solid rgba(16,185,129,0.12);border-radius:7px;padding:7px 12px;gap:8px;flex-wrap:wrap;">
+                <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;">
+                    <span style="font-size:0.72rem;color:var(--muted);flex-shrink:0;">${new Date(m.fecha).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit'})}</span>
+                    <span class="tag tag-ing" style="flex-shrink:0;font-size:0.65rem;">${m.concepto}</span>
+                    ${m.esPagoAdmin?'<span class="tag tag-admin" style="flex-shrink:0;font-size:0.6rem;">👑</span>':''}
+                    <span style="font-size:0.82rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${m.descripcion||'<span style="color:var(--muted);font-style:italic;">Sin descripción</span>'}</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+                    <span class="tag ${m.forma==='Efectivo'?'tag-ef':m.forma==='Efecty'?'tag-efty':'tag-banc'}" style="font-size:0.63rem;">${m.forma}</span>
+                    <span class="money pos" style="font-weight:800;">+${fmtShort(m.valor)}</span>
+                </div>
+            </div>`).join('')}
+        </div>`:''}
+
+        <!-- Desglose por descripción: egresos -->
+        ${movs.filter(m=>m.tipo==='egreso').length>0?`
+        <p style="font-size:0.78rem;font-weight:700;color:#ef4444;margin-bottom:6px;">📤 Detalle de Egresos</p>
+        <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:14px;">
+            ${movs.filter(m=>m.tipo==='egreso').slice().reverse().map(m=>`
+            <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.12);border-radius:7px;padding:7px 12px;gap:8px;flex-wrap:wrap;">
+                <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;">
+                    <span style="font-size:0.72rem;color:var(--muted);flex-shrink:0;">${new Date(m.fecha).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit'})}</span>
+                    <span class="tag tag-egr" style="flex-shrink:0;font-size:0.65rem;">${m.concepto}</span>
+                    ${m.esPagoAdmin?'<span class="tag tag-admin" style="flex-shrink:0;font-size:0.6rem;">👑</span>':''}
+                    <span style="font-size:0.82rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${m.descripcion||'<span style="color:var(--muted);font-style:italic;">Sin descripción</span>'}</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+                    <span class="tag ${m.forma==='Efectivo'?'tag-ef':m.forma==='Efecty'?'tag-efty':'tag-banc'}" style="font-size:0.63rem;">${m.forma}</span>
+                    <span class="money neg" style="font-weight:800;">-${fmtShort(m.valor)}</span>
+                </div>
+            </div>`).join('')}
+        </div>`:''}
 
         <!-- Tabla detallada -->
         <p style="font-size:0.78rem;font-weight:700;color:var(--text);margin-bottom:8px;">📋 Movimientos detallados</p>
