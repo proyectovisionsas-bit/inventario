@@ -2595,36 +2595,40 @@ function modalNewInst() {
 function loadIOptions() {
     const c = DB.cuadrillas.find(x=>x.id===id('iCuad').value);
     if(!c) { id('iMat').innerHTML=''; return; }
-    // Ensure all materials have an id
-    c.materiales.forEach((m,i) => { if(!m.id) m.id = 'mat_'+c.id+'_'+i+'_'+Date.now(); });
+    // Use index as value to guarantee correct material selection
     id('iMat').innerHTML = c.materiales
-        .filter(m=>m.cantidad>0)
-        .map(m=>`<option value="${m.id}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`)
+        .map((m,idx)=>({m,idx}))
+        .filter(({m})=>m.cantidad>0)
+        .map(({m,idx})=>`<option value="${idx}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`)
         .join('');
 }
 function addIItem() {
     const cuad = DB.cuadrillas.find(x=>x.id===id('iCuad').value);
-    const mId = id('iMat').value;
+    const mIdx = parseInt(id('iMat').value); // index in materiales array
     const q = parseInt(id('iCant').value);
-    if(!mId||!q||!cuad) return alert('Seleccione cuadrilla y material');
-    
-    // Find material strictly by id
-    const m = cuad.materiales.find(x=>x.id===mId);
-    if(!m) {
-        alert('Material no encontrado. Por favor recarga las opciones.');
-        loadIOptions();
-        return;
-    }
+    if(isNaN(mIdx)||!q||!cuad) return alert('Seleccione cuadrilla y material');
+
+    // Get all materials with stock > 0, same as loadIOptions
+    const matsConStock = cuad.materiales.map((m,idx)=>({m,idx})).filter(({m})=>m.cantidad>0);
+    // iMat value is the position in matsConStock (not the full array index)
+    // Actually value is the original index from the full array
+    const m = cuad.materiales[mIdx];
+    if(!m) return alert('Material no encontrado. Recarga el modal.');
     if(m.cantidad < q) return alert(`Stock insuficiente. Disponible: ${m.cantidad} ${m.unidad}`);
-    const inList = TempLists.iItems.filter(x=>x.id===mId).reduce((s,x)=>s+x.cant,0);
+
+    // Use index as unique key for TempLists
+    const itemKey = String(mIdx);
+    const inList = TempLists.iItems.filter(x=>x.key===itemKey).reduce((s,x)=>s+x.cant,0);
     if(q+inList > m.cantidad) return alert('Stock insuficiente considerando lo ya agregado');
 
-    const snesDisponibles = (m.snes||[]).filter(sn => !TempLists.iItems.find(it=>it.id===mId&&it.snes.includes(sn)));
+    const snesDisponibles = (m.snes||[]).filter(sn =>
+        !TempLists.iItems.find(it=>it.key===itemKey&&it.snes.includes(sn))
+    );
 
     if(snesDisponibles.length > 0) {
         const snArea = id('iSnArea');
         if(snArea) {
-            snArea.dataset.mId = mId;
+            snArea.dataset.mIdx = mIdx;
             snArea.dataset.q = q;
             snArea.innerHTML = `
                 <div style="background:#f0f4ff;padding:12px;border-radius:8px;margin-top:8px;border:1px solid #c7d2fe;">
@@ -2639,25 +2643,26 @@ function addIItem() {
                 </div>`;
         }
     } else {
-        const exist = TempLists.iItems.find(x=>x.id===mId);
+        const exist = TempLists.iItems.find(x=>x.key===itemKey);
         if(exist) exist.cant += q;
-        else TempLists.iItems.push({id:m.id, nom:m.nombre, cant:q, tipo:m.tipo, unidad:m.unidad, snes:[]});
+        else TempLists.iItems.push({key:itemKey, id:m.id||'', nom:m.nombre, cant:q, tipo:m.tipo, unidad:m.unidad, snes:[]});
         renderIList();
     }
 }
 
 function confirmSnInst() {
     const snArea = id('iSnArea');
-    const mId = snArea?.dataset.mId;
-    const q   = parseInt(snArea?.dataset.q)||1;
+    const mIdx = parseInt(snArea?.dataset.mIdx);
+    const q    = parseInt(snArea?.dataset.q)||1;
     const cuad = DB.cuadrillas.find(x=>x.id===id('iCuad').value);
-    const m = cuad?.materiales.find(x=>x.id===mId);
+    const m    = cuad?.materiales[mIdx];
     if(!m) return alert('Material no encontrado');
     const checked = [...document.querySelectorAll('.snInstCheck:checked')].map(cb=>cb.value);
     if(checked.length !== q) return alert(`Selecciona exactamente ${q} serial(es). Seleccionaste ${checked.length}.`);
-    const exist = TempLists.iItems.find(x=>x.id===mId);
+    const itemKey = String(mIdx);
+    const exist = TempLists.iItems.find(x=>x.key===itemKey);
     if(exist) { exist.cant+=q; exist.snes.push(...checked); }
-    else TempLists.iItems.push({id:m.id, nom:m.nombre, cant:q, tipo:m.tipo, unidad:m.unidad, snes:checked});
+    else TempLists.iItems.push({key:itemKey, id:m.id||'', nom:m.nombre, cant:q, tipo:m.tipo, unidad:m.unidad, snes:checked});
     snArea.innerHTML = '';
     renderIList();
 }
@@ -2672,12 +2677,13 @@ function saveInstLogic() {
     const tipo = id('iTipo')?.value.trim()||'';
     const fecha = id('iFecha').value;
 
-    // Descontar materiales de cuadrilla
+    // Descontar materiales de cuadrilla using index key
     TempLists.iItems.forEach(it => {
-        const m = c.materiales.find(x=>x.id===it.id);
+        const mIdx = parseInt(it.key);
+        const m = !isNaN(mIdx) ? c.materiales[mIdx] : c.materiales.find(x=>x.nombre===it.nom);
         if(!m) return;
         m.cantidad -= it.cant;
-        it.snes.forEach(s=>{ const idx=m.snes.indexOf(s); if(idx>-1) m.snes.splice(idx,1); });
+        (it.snes||[]).forEach(s=>{ const idx=m.snes.indexOf(s); if(idx>-1) m.snes.splice(idx,1); });
     });
 
     const instData = {
