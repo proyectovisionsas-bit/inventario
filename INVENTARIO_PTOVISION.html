@@ -2592,24 +2592,38 @@ function modalNewInst() {
         });
     loadIOptions();
 }
-function loadIOptions() { const c=DB.cuadrillas.find(x=>x.id===id('iCuad').value); id('iMat').innerHTML=c?c.materiales.filter(m=>m.cantidad>0).map(m=>`<option value="${m.id}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`).join(''):''; }
+function loadIOptions() {
+    const c = DB.cuadrillas.find(x=>x.id===id('iCuad').value);
+    if(!c) { id('iMat').innerHTML=''; return; }
+    // Ensure all materials have an id
+    c.materiales.forEach((m,i) => { if(!m.id) m.id = 'mat_'+c.id+'_'+i+'_'+Date.now(); });
+    id('iMat').innerHTML = c.materiales
+        .filter(m=>m.cantidad>0)
+        .map(m=>`<option value="${m.id}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`)
+        .join('');
+}
 function addIItem() {
     const cuad = DB.cuadrillas.find(x=>x.id===id('iCuad').value);
     const mId = id('iMat').value;
     const q = parseInt(id('iCant').value);
-    if(!mId||!q||!cuad) return;
+    if(!mId||!q||!cuad) return alert('Seleccione cuadrilla y material');
+    
+    // Find material strictly by id
     const m = cuad.materiales.find(x=>x.id===mId);
-    if(!m) return;
-    const inList = TempLists.iItems.find(x=>x.id===mId)?.cant||0;
-    if(q+inList > m.cantidad) return alert('Stock insuficiente');
+    if(!m) {
+        alert('Material no encontrado. Por favor recarga las opciones.');
+        loadIOptions();
+        return;
+    }
+    if(m.cantidad < q) return alert(`Stock insuficiente. Disponible: ${m.cantidad} ${m.unidad}`);
+    const inList = TempLists.iItems.filter(x=>x.id===mId).reduce((s,x)=>s+x.cant,0);
+    if(q+inList > m.cantidad) return alert('Stock insuficiente considerando lo ya agregado');
 
-    const snesDisponibles = m.snes.filter(sn => !TempLists.iItems.find(it=>it.id===mId&&it.snes.includes(sn)));
+    const snesDisponibles = (m.snes||[]).filter(sn => !TempLists.iItems.find(it=>it.id===mId&&it.snes.includes(sn)));
 
     if(snesDisponibles.length > 0) {
-        // Show inline SN selector instead of nested modal
         const snArea = id('iSnArea');
         if(snArea) {
-            // Store current mId and q in data attributes to avoid stale closure
             snArea.dataset.mId = mId;
             snArea.dataset.q = q;
             snArea.innerHTML = `
@@ -2626,7 +2640,7 @@ function addIItem() {
         }
     } else {
         const exist = TempLists.iItems.find(x=>x.id===mId);
-        if(exist) exist.cant+=q;
+        if(exist) exist.cant += q;
         else TempLists.iItems.push({id:m.id, nom:m.nombre, cant:q, tipo:m.tipo, unidad:m.unidad, snes:[]});
         renderIList();
     }
