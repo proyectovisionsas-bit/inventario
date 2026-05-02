@@ -292,6 +292,13 @@
         .rec-semanal { background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); }
         .rec-mensual { background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); }
         .rec-unico { background:rgba(139,92,246,0.15); color:#a78bfa; border:1px solid rgba(139,92,246,0.3); }
+        /* ── COMPROBANTES ─────────────────────────────────────────────── */
+        .comp-thumb { width:50px; height:50px; object-fit:cover; border-radius:6px; border:1px solid var(--border); cursor:pointer; transition:0.2s; }
+        .comp-thumb:hover { transform:scale(1.12); box-shadow:0 4px 14px rgba(0,0,0,0.35); }
+        .comp-btn { background:rgba(59,130,246,0.12); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); border-radius:6px; padding:4px 8px; font-size:0.72rem; font-weight:700; cursor:pointer; transition:0.2s; display:inline-flex; align-items:center; gap:4px; }
+        .comp-btn:hover { background:rgba(59,130,246,0.22); }
+        .comp-upload-area { border:2px dashed var(--border); border-radius:10px; padding:22px; text-align:center; cursor:pointer; transition:0.2s; }
+        .comp-upload-area:hover { border-color:var(--accent); background:rgba(16,185,129,0.04); }
         /* ── RRHH MODULE ─────────────────────────────────────────────── */
         .rrhh-view { display:none; }
         .rrhh-view.active { display:block; }
@@ -510,6 +517,10 @@ const CONCEPTOS_EGR = [
 const ESTADO_CLIENTE = ['Activo','Moroso','Retirado','Suspendido'];
 const PLANES = ['Internet 10Mb','Internet 20Mb','Internet 30Mb','Internet 50Mb',
     'Internet + TV Básico','Internet + TV Premium','Solo TV','Otro'];
+const CLOUDINARY_CLOUD='daaiji5zb';
+const CLOUDINARY_PRESET='ckrfzl9q';
+const CLOUDINARY_FOLDER='comprobantes_ptovision';
+
 const PROMOS = {
     'SIN_PROMOCION':{label:'Sin promoción',color:'#64748b'},
     '1_MES_GRATIS':{label:'1 Mes Gratis',color:'#10b981'},
@@ -1236,7 +1247,10 @@ function renderRegistro(){
                             ${m.esPagoAdmin?'<span class="tag tag-admin" style="flex-shrink:0;font-size:0.6rem;">👑</span>':''}
                             <span style="font-size:0.82rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${m.descripcion||'<span style="color:var(--muted);font-style:italic;">Sin descripción</span>'}</span>
                         </div>
-                        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+                        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+                            <button class="btn btn-outline btn-sm" onclick="modalComprobantes('${oid}','${m.id}')" style="padding:3px 8px;font-size:0.72rem;" title="Ver/subir comprobantes">
+                                📎${(m.comprobantes||[]).length>0?` <span style="background:#10b981;color:#fff;border-radius:8px;padding:0 4px;font-size:0.62rem;">${(m.comprobantes||[]).length}</span>`:''}
+                            </button>
                             <span class="tag ${m.forma==='Efectivo'?'tag-ef':m.forma==='Efecty'?'tag-efty':'tag-banc'}" style="font-size:0.65rem;">${m.forma}</span>
                             <span class="money ${m.tipo==='ingreso'?'pos':'neg'}" style="font-weight:800;">${m.tipo==='ingreso'?'+':'-'}${fmtShort(m.valor)}</span>
                         </div>
@@ -6315,6 +6329,229 @@ function calcUsarValor(){
     // Visual flash
     const resEl=document.getElementById('calc_result');
     if(resEl){ resEl.style.color='#10b981'; setTimeout(()=>resEl.style.color='',600); }
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// MÓDULO COMPROBANTES — Cloudinary
+// ═══════════════════════════════════════════════════════════════
+
+function modalComprobantes(oid, mid){
+    const o=DB.oficinas.find(x=>x.id===oid)||getOficina(oid);
+    const m=(o?.movimientos||[]).find(x=>x.id===mid);
+    if(!m) return;
+    const comps=m.comprobantes||[];
+    openModal('📎 Comprobantes — '+m.concepto,`
+    <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:0.82rem;">
+        <strong>${m.concepto}</strong> · ${fmtShort(m.valor)} · ${new Date(m.fecha).toLocaleDateString('es-CO')}
+        ${m.descripcion?`<br><span style="color:var(--muted);">${m.descripcion}</span>`:''}
+    </div>
+    <div class="comp-upload-area" onclick="document.getElementById('comp_file_input').click()">
+        <div style="font-size:2rem;margin-bottom:8px;">📤</div>
+        <p style="font-size:0.85rem;font-weight:700;">Click aquí para subir comprobantes</p>
+        <p style="font-size:0.75rem;color:var(--muted);">JPG, PNG, PDF · Múltiples archivos · Máx 10MB c/u</p>
+        <input type="file" id="comp_file_input" accept="image/*,.pdf" multiple style="display:none"
+            onchange="subirComprobantes(this,'${oid}','${mid}')">
+    </div>
+    <div id="comp_progress" style="margin-top:10px;"></div>
+    <div id="comp_lista" style="margin-top:14px;">
+        ${renderCompsList(comps, oid, mid)}
+    </div>
+    `,'');
+}
+
+function renderCompsList(comps, oid, mid){
+    if(!comps||comps.length===0)
+        return '<p style="color:var(--muted);font-size:0.82rem;text-align:center;padding:12px;">Sin comprobantes adjuntos aún.</p>';
+    return `<p style="font-size:0.78rem;font-weight:700;margin-bottom:10px;">📎 ${comps.length} comprobante(s) adjunto(s):</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:12px;">
+        ${comps.map((c,i)=>`
+        <div style="display:flex;flex-direction:column;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px;">
+            ${c.tipo==='pdf'
+                ?`<div onclick="window.open('${c.url}','_blank')"
+                    style="width:50px;height:50px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.25);border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:1.6rem;">📄</div>`
+                :`<img src="${c.url}" class="comp-thumb" onclick="window.open('${c.url}','_blank')" title="Ver en pantalla completa">`
+            }
+            <span style="font-size:0.62rem;color:var(--muted);text-align:center;max-width:95px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.nombre||'Archivo '+(i+1)}</span>
+            <div style="display:flex;gap:5px;">
+                <button class="comp-btn" onclick="window.open('${c.url}','_blank')" title="Ver">👁️</button>
+                <button class="comp-btn" style="background:rgba(239,68,68,0.1);color:#ef4444;border-color:rgba(239,68,68,0.3);" onclick="eliminarComprobante('${oid}','${mid}',${i})" title="Desvincular">🗑️</button>
+            </div>
+        </div>`).join('')}
+    </div>`;
+}
+
+async function subirComprobantes(input, oid, mid){
+    const files=[...input.files]; if(!files.length) return;
+    const prog=document.getElementById('comp_progress');
+    if(prog) prog.innerHTML=`<div style="display:flex;align-items:center;gap:8px;font-size:0.8rem;color:var(--muted);padding:8px 0;">
+        <div class="spinner" style="width:18px;height:18px;border-width:2px;"></div>
+        Subiendo ${files.length} archivo(s) a Cloudinary...
+    </div>`;
+    const o=DB.oficinas.find(x=>x.id===oid)||getOficina(oid);
+    const m=(o?.movimientos||[]).find(x=>x.id===mid);
+    if(!m){ if(prog) prog.innerHTML=''; return; }
+    if(!m.comprobantes) m.comprobantes=[];
+    let ok=0, err=0;
+    for(const file of files){
+        try{
+            const url=await _uploadCloudinary(file, oid, mid);
+            const esPdf=file.type==='application/pdf'||file.name.toLowerCase().endsWith('.pdf');
+            m.comprobantes.push({url, tipo:esPdf?'pdf':'imagen', nombre:file.name, fecha:now()});
+            ok++;
+        }catch(e){ err++; console.error('Cloudinary upload error:',e); }
+    }
+    await save();
+    if(prog) prog.innerHTML=`<p style="font-size:0.8rem;color:${err>0?'#f59e0b':'#10b981'};margin-top:4px;">
+        ${ok>0?'✅ '+ok+' archivo(s) subido(s) correctamente.':''}
+        ${err>0?'⚠️ '+err+' no se pudo(eron) subir.':''}
+    </p>`;
+    const lista=document.getElementById('comp_lista');
+    if(lista) lista.innerHTML=renderCompsList(m.comprobantes, oid, mid);
+    renderRegistro();
+}
+
+async function _uploadCloudinary(file, oid, mid){
+    const fd=new FormData();
+    fd.append('file', file);
+    fd.append('upload_preset', CLOUDINARY_PRESET);
+    fd.append('folder', CLOUDINARY_FOLDER+'/'+oid+'/'+mid);
+    const res=await fetch('https://api.cloudinary.com/v1_1/'+CLOUDINARY_CLOUD+'/auto/upload',{method:'POST',body:fd});
+    if(!res.ok){ const e=await res.text(); throw new Error(e); }
+    const data=await res.json();
+    if(data.error) throw new Error(data.error.message);
+    return data.secure_url;
+}
+
+function eliminarComprobante(oid, mid, idx){
+    if(!confirm('¿Desvincular este comprobante del registro?\nNota: el archivo permanecerá en Cloudinary pero ya no estará adjunto aquí.')) return;
+    const o=DB.oficinas.find(x=>x.id===oid)||getOficina(oid);
+    const m=(o?.movimientos||[]).find(x=>x.id===mid);
+    if(!m||!m.comprobantes) return;
+    m.comprobantes.splice(idx,1);
+    save();
+    const lista=document.getElementById('comp_lista');
+    if(lista) lista.innerHTML=renderCompsList(m.comprobantes, oid, mid);
+    renderRegistro();
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// MÓDULO COMPROBANTES
+// ═══════════════════════════════════════════════════════════════
+
+function getMovimiento(oid, mid){
+    const o=DB.oficinas.find(x=>x.id===oid);
+    return (o?.movimientos||[]).find(m=>m.id===mid);
+}
+
+function modalComprobantes(oid, mid){
+    const m=getMovimiento(oid, mid);
+    if(!m) return;
+    const comprobantes=m.comprobantes||[];
+    openModal('📎 Comprobantes — '+m.concepto,`
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:0.82rem;">
+        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;">
+            <span><strong>${m.concepto}</strong> · ${m.descripcion||''}</span>
+            <span class="money ${m.tipo==='ingreso'?'pos':'neg'}">${m.tipo==='ingreso'?'+':'-'}${fmtShort(m.valor)}</span>
+        </div>
+        <div style="font-size:0.75rem;color:var(--muted);margin-top:3px;">
+            ${new Date(m.fecha).toLocaleDateString('es-CO')} · ${m.forma}
+        </div>
+    </div>
+
+    <!-- Subir nuevo comprobante -->
+    <div style="border:2px dashed var(--border);border-radius:10px;padding:18px;text-align:center;margin-bottom:16px;cursor:pointer;transition:0.2s;"
+        id="dropZone_${mid}"
+        ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
+        ondragleave="this.style.borderColor='var(--border)'"
+        ondrop="handleDropComprobante(event,'${oid}','${mid}')">
+        <div style="font-size:2rem;margin-bottom:6px;">📁</div>
+        <p style="font-size:0.82rem;color:var(--muted);margin-bottom:8px;">Arrastra archivos aquí o haz click para seleccionar</p>
+        <p style="font-size:0.72rem;color:var(--muted);margin-bottom:10px;">Acepta: imágenes (JPG, PNG), PDF · Máx 10MB por archivo</p>
+        <input type="file" id="comp_input_${mid}" accept="image/*,.pdf" multiple style="display:none"
+            onchange="handleFilesComprobante(this.files,'${oid}','${mid}')">
+        <button class="btn btn-primary btn-sm" onclick="document.getElementById('comp_input_${mid}').click()">
+            📤 Seleccionar archivos
+        </button>
+    </div>
+
+    <div id="comp_upload_status_${mid}"></div>
+
+    <!-- Lista de comprobantes existentes -->
+    <div id="comp_list_${mid}">
+        ${comprobantes.length===0
+            ? '<p style="color:var(--muted);text-align:center;padding:16px;font-size:0.85rem;">Sin comprobantes adjuntos aún.</p>'
+            : `<p style="font-size:0.8rem;font-weight:700;margin-bottom:10px;">📎 ${comprobantes.length} comprobante(s) adjunto(s):</p>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;">
+                ${comprobantes.map((c,i)=>`
+                <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;overflow:hidden;position:relative;">
+                    ${c.tipo==='pdf'
+                        ?`<div style="height:90px;display:flex;align-items:center;justify-content:center;background:rgba(239,68,68,0.08);font-size:2.5rem;">📄</div>`
+                        :`<img src="${c.url}" style="width:100%;height:90px;object-fit:cover;display:block;" loading="lazy">`
+                    }
+                    <div style="padding:6px 8px;">
+                        <div style="font-size:0.68rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.nombre||'Comprobante '+(i+1)}</div>
+                        <div style="font-size:0.65rem;color:var(--muted);">${new Date(c.fecha).toLocaleDateString('es-CO')}</div>
+                    </div>
+                    <div style="display:flex;gap:4px;padding:0 6px 6px;">
+                        <a href="${c.url}" target="_blank" class="btn btn-outline btn-sm" style="flex:1;text-align:center;font-size:0.68rem;padding:3px;">👁️ Ver</a>
+                        <button class="btn btn-danger btn-sm" style="font-size:0.68rem;padding:3px 6px;" onclick="eliminarComprobante('${oid}','${mid}',${i})">🗑️</button>
+                    </div>
+                </div>`).join('')}
+            </div>`}
+    </div>
+    `,`<button class="btn btn-outline" onclick="closeModal()">Cerrar</button>`);
+}
+
+async function handleFilesComprobante(files, oid, mid){
+    if(!files||!files.length) return;
+    const statusEl=document.getElementById('comp_upload_status_'+mid);
+    if(statusEl) statusEl.innerHTML=`<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px;font-size:0.82rem;color:#f59e0b;margin-bottom:10px;">⏳ Subiendo ${files.length} archivo(s)...</div>`;
+    const m=getMovimiento(oid, mid);
+    if(!m) return;
+    if(!m.comprobantes) m.comprobantes=[];
+    let subidos=0, errores=0;
+    for(const file of files){
+        if(file.size>10*1024*1024){ errores++; continue; }
+        try{
+            const url=await subirComprobante(file, mid);
+            const esPdf=file.type==='application/pdf'||file.name.toLowerCase().endsWith('.pdf');
+            m.comprobantes.push({
+                url, nombre:file.name,
+                tipo:esPdf?'pdf':'imagen',
+                fecha:new Date().toISOString()
+            });
+            subidos++;
+        }catch(e){ errores++; console.error(e); }
+    }
+    await save();
+    if(statusEl){
+        if(errores===0)
+            statusEl.innerHTML=`<div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:10px;font-size:0.82rem;color:#10b981;margin-bottom:10px;">✅ ${subidos} comprobante(s) subido(s) correctamente.</div>`;
+        else
+            statusEl.innerHTML=`<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px;font-size:0.82rem;color:#ef4444;margin-bottom:10px;">⚠️ ${subidos} subidos, ${errores} fallaron (verifica tamaño máx 10MB).</div>`;
+    }
+    // Refresh modal
+    setTimeout(()=>modalComprobantes(oid, mid), 400);
+    renderRegistro();
+}
+
+function handleDropComprobante(event, oid, mid){
+    event.preventDefault();
+    document.getElementById('dropZone_'+mid).style.borderColor='var(--border)';
+    const files=event.dataTransfer.files;
+    if(files.length) handleFilesComprobante(files, oid, mid);
+}
+
+function eliminarComprobante(oid, mid, idx){
+    if(!confirm('¿Eliminar este comprobante?')) return;
+    const m=getMovimiento(oid, mid);
+    if(!m) return;
+    m.comprobantes=(m.comprobantes||[]).filter((_,i)=>i!==idx);
+    save();
+    modalComprobantes(oid, mid);
+    renderRegistro();
 }
 
 function openAdminPanel(){ navigate('administracion'); }
