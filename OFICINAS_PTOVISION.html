@@ -1467,21 +1467,41 @@ let _cmData=[];
 
 // Convierte cualquier valor de fecha de Excel a ISO YYYY-MM-DD
 function _parseFechaExcel(v){
-    if(!v) return '';
-    // Si es objeto Date
-    if(v instanceof Date){ return v.toISOString().slice(0,10); }
-    // Si es número serial de Excel
-    if(typeof v==='number'){
-        const d=new Date(Math.round((v-25569)*86400*1000));
+    if(!v&&v!==0) return '';
+    // Si es número serial de Excel (SheetJS con raw:true)
+    if(typeof v==='number'&&v>1000){
+        // Serial de Excel: días desde 1/1/1900
+        const d=new Date(Date.UTC(1900,0,1)+(v-2)*86400000);
         return d.toISOString().slice(0,10);
     }
+    // Si es objeto Date
+    if(v instanceof Date){
+        const y=v.getFullYear();
+        const m=String(v.getMonth()+1).padStart(2,'0');
+        const d=String(v.getDate()).padStart(2,'0');
+        return y+'-'+m+'-'+d;
+    }
     const s=String(v).trim();
-    // DD/MM/YYYY o DD-MM-YYYY
+    if(!s||s==='Invalid Date') return '';
+    // DD/MM/YYYY o DD-MM-YYYY (formato colombiano)
     const m1=s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-    if(m1) return `${m1[3]}-${m1[2].padStart(2,'0')}-${m1[1].padStart(2,'0')}`;
+    if(m1) return m1[3]+'-'+m1[2].padStart(2,'0')+'-'+m1[1].padStart(2,'0');
+    // MM/DD/YYYY (formato que a veces genera Excel en inglés)
+    const m2=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if(m2){
+        // Si el primer número > 12, es día (DD/MM)
+        const n1=parseInt(m2[1]), n2=parseInt(m2[2]);
+        if(n1>12) return m2[3]+'-'+m2[2].padStart(2,'0')+'-'+m2[1].padStart(2,'0');
+        // Si el segundo > 12, es mes primero (MM/DD)
+        if(n2>12) return m2[3]+'-'+m2[1].padStart(2,'0')+'-'+m2[2].padStart(2,'0');
+        // Ambiguos: asumir DD/MM por ser Colombia
+        return m2[3]+'-'+m2[2].padStart(2,'0')+'-'+m2[1].padStart(2,'0');
+    }
     // YYYY-MM-DD ya correcto
     if(s.match(/^\d{4}-\d{2}-\d{2}/)) return s.slice(0,10);
-    return s;
+    // Formato "Apr 30, 2026" o similar
+    try{ const d=new Date(s); if(!isNaN(d)) return d.toISOString().slice(0,10); }catch(e){}
+    return '';
 }
 
 function previsualizarCargaMasiva(input,oid){
@@ -1566,9 +1586,10 @@ function previsualizarCargaMasiva(input,oid){
 function _leerXlsxCarga(file,cb){
     const reader=new FileReader();
     reader.onload=function(e){
-        // cellDates:false para manejar fechas manualmente y evitar problemas de zona horaria
-        const wb=XLSX.read(e.target.result,{type:'binary',cellDates:false});
+        // raw:true para recibir números seriales de fecha sin conversión automática
+        const wb=XLSX.read(e.target.result,{type:'binary',cellDates:false,raw:false});
         const ws=wb.Sheets[wb.SheetNames[0]];
+        // sheet_to_json con raw:false convierte todo a string, incluidas fechas como "30/04/2026"
         const rows=XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
         cb(rows);
     };
