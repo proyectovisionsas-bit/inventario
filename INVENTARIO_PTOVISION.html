@@ -723,6 +723,8 @@ function renderClientes(c) {
                         </div>
                     </details>` : ''}
                     <div style="margin-top:10px; display:flex; gap:5px; flex-wrap:wrap;">
+                        <button class="btn btn-outline btn-sm" onclick="modalEditCliente('${cl.id}')">✏️ Editar Cliente</button>
+                        <button class="btn btn-success btn-sm" onclick="modalAgregarEquipoCliente('${cl.id}')">➕ Agregar Equipo</button>
                         <button class="btn btn-primary btn-sm" onclick="modalTraslado('${cl.id}')">🚚 Traslado</button>
                         <button class="btn btn-warning btn-sm" onclick="deleteCliente('${cl.id}')">🔴 Retirar Cliente</button>
                     </div>
@@ -800,6 +802,110 @@ function saveCliente(editId) {
     }
     save(); closeModal(); renderClientes(document.getElementById('main-content'));
 }
+function modalAgregarEquipoCliente(cliId) {
+    const cl = DB.clientes.find(x=>x.id===cliId);
+    if(!cl) return;
+    const bodegas = USER.role==='admin' ? DB.bodegas : DB.bodegas.filter(b=>b.id===USER.id);
+    const bodOpts = bodegas.map(b=>`<option value="${b.id}">${b.nombre}</option>`).join('');
+    openModal(`➕ Agregar Equipo — ${cl.nombre}`,
+        `<div class="form-row">
+            <div class="form-group"><label>Fuente</label>
+                <select id="aeOrigen" class="form-control" onchange="loadAeOpts()">
+                    <option value="bodega">🏭 Bodega</option>
+                    <option value="cuadrilla">👷 Cuadrilla</option>
+                </select>
+            </div>
+            <div class="form-group"><label>Seleccionar</label>
+                <select id="aeFuente" class="form-control" onchange="loadAeMats()">${bodOpts}</select>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>Material</label>
+                <select id="aeMat" class="form-control" onchange="loadAeSns()"><option value="">-- Seleccione --</option></select>
+            </div>
+            <div class="form-group"><label>Cantidad</label>
+                <input id="aeCant" type="number" value="1" min="1" class="form-control">
+            </div>
+        </div>
+        <div id="aeSnArea"></div>`,
+        () => {
+            const origenTipo = id('aeOrigen').value;
+            const fuenteId   = id('aeFuente').value;
+            const matId      = id('aeMat').value;
+            const cant       = parseInt(id('aeCant').value)||1;
+            if(!matId) return alert('Seleccione un material');
+
+            const fuente = origenTipo==='bodega'
+                ? DB.bodegas.find(x=>x.id===fuenteId)
+                : DB.cuadrillas.find(x=>x.id===fuenteId);
+            const mat = fuente?.materiales.find(x=>x.id===matId);
+            if(!mat || mat.cantidad < cant) return alert('Stock insuficiente');
+
+            const snsChecked = [...document.querySelectorAll('.aeSnCheck:checked')].map(cb=>cb.value);
+            if(mat.snes.length>0 && snsChecked.length!==cant) return alert(`Selecciona exactamente ${cant} serial(es)`);
+
+            // Descontar de fuente
+            mat.cantidad -= cant;
+            snsChecked.forEach(sn => { mat.snes = mat.snes.filter(s=>s!==sn); });
+
+            // Agregar al cliente
+            const ex = cl.equipos.find(e=>e.nombre===mat.nombre&&e.tipo===mat.tipo);
+            if(ex) { ex.cantidad+=cant; ex.snes.push(...snsChecked); }
+            else cl.equipos.push({nombre:mat.nombre,cantidad:cant,unidad:mat.unidad,tipo:mat.tipo,snes:snsChecked,estado:'Activo'});
+
+            logMsg(`Equipo "${mat.nombre}" x${cant} agregado a "${cl.nombre}"`);
+            save(); closeModal();
+            renderClientes(document.getElementById('main-content'));
+        });
+    // Initialize
+    loadAeMats();
+}
+window.modalAgregarEquipoCliente = modalAgregarEquipoCliente;
+
+function loadAeOpts() {
+    const origenTipo = id('aeOrigen')?.value;
+    const fuenteEl = id('aeFuente');
+    if(!fuenteEl) return;
+    if(origenTipo==='bodega') {
+        const bodegas = USER.role==='admin' ? DB.bodegas : DB.bodegas.filter(b=>b.id===USER.id);
+        fuenteEl.innerHTML = bodegas.map(b=>`<option value="${b.id}">${b.nombre}</option>`).join('');
+    } else {
+        fuenteEl.innerHTML = getUserCuads().map(cu=>`<option value="${cu.id}">${cu.nombre}</option>`).join('');
+    }
+    loadAeMats();
+}
+window.loadAeOpts = loadAeOpts;
+
+function loadAeMats() {
+    const origenTipo = id('aeOrigen')?.value;
+    const fuenteId   = id('aeFuente')?.value;
+    const matEl      = id('aeMat');
+    if(!matEl) return;
+    const fuente = origenTipo==='bodega'
+        ? DB.bodegas.find(x=>x.id===fuenteId)
+        : DB.cuadrillas.find(x=>x.id===fuenteId);
+    matEl.innerHTML = '<option value="">-- Seleccione --</option>' +
+        (fuente?.materiales.filter(m=>m.cantidad>0).map(m=>`<option value="${m.id}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`).join('')||'');
+    if(id('aeSnArea')) id('aeSnArea').innerHTML='';
+}
+window.loadAeMats = loadAeMats;
+
+function loadAeSns() {
+    const origenTipo = id('aeOrigen')?.value;
+    const fuenteId   = id('aeFuente')?.value;
+    const matId      = id('aeMat')?.value;
+    const area       = id('aeSnArea');
+    if(!area||!matId) return;
+    const fuente = origenTipo==='bodega'
+        ? DB.bodegas.find(x=>x.id===fuenteId)
+        : DB.cuadrillas.find(x=>x.id===fuenteId);
+    const mat = fuente?.materiales.find(x=>x.id===matId);
+    if(!mat||!mat.snes.length) { area.innerHTML=''; return; }
+    area.innerHTML = `<div class="form-group" style="margin-top:8px;"><label>Seriales disponibles</label>
+        <div class="sn-select-area">${mat.snes.map(sn=>`<label class="sn-check"><input type="checkbox" class="aeSnCheck" value="${sn}"><span class="sn-label">${sn}</span></label>`).join('')}</div></div>`;
+}
+window.loadAeSns = loadAeSns;
+
 function modalTraslado(cliId) {
     const cl = DB.clientes.find(x=>x.id===cliId);
     if(!cl) return;
@@ -1328,16 +1434,25 @@ function actualizarClientesDesdeInstalacion(inst) {
     let cli = DB.clientes.find(c => c.nombre.toLowerCase() === inst.cliente.toLowerCase());
     if(!cli) {
         const bodId = USER.role==='bodega' ? USER.id : '';
-        cli = { id: Date.now().toString(), nombre: inst.cliente, bodegaId: bodId, direccion: '', telefono: '', email: '', fechaInstalacion: inst.fecha, cuadrillaInstaladora: inst.cuadrilla, observaciones: inst.tipo || 'Instalación automática', equipos: [] };
+        cli = { id: Date.now().toString(), nombre: inst.cliente, bodegaId: bodId,
+            direccion: inst.direccion||'', telefono: inst.telefono||'',
+            email: '', fechaInstalacion: inst.fecha,
+            cuadrillaInstaladora: inst.cuadrilla,
+            observaciones: inst.observaciones||inst.tipo||'',
+            equipos: [] };
         DB.clientes.push(cli);
+    } else {
+        if(inst.direccion) cli.direccion = inst.direccion;
+        if(inst.telefono) cli.telefono = inst.telefono;
+        cli.fechaInstalacion = inst.fecha;
+        cli.cuadrillaInstaladora = inst.cuadrilla;
+        if(inst.observaciones||inst.tipo) cli.observaciones = inst.observaciones||inst.tipo;
     }
-    cli.fechaInstalacion = inst.fecha; cli.cuadrillaInstaladora = inst.cuadrilla; if(inst.tipo) cli.observaciones = inst.tipo;
     inst.mats.forEach(m => {
         let eq = cli.equipos.find(e => e.nombre.toLowerCase() === m.nom.toLowerCase() && e.tipo === m.tipo);
         if(eq) { eq.cantidad += m.cant; eq.snes.push(...(m.snes||[]).filter(s => !eq.snes.includes(s))); }
         else { cli.equipos.push({ nombre: m.nom, cantidad: m.cant, unidad: m.unidad, tipo: m.tipo, snes: [...(m.snes||[])], estado: 'Activo' }); }
     });
-    // Note: save() called by saveInstLogic, not here
 }
 
 // ==========================================
@@ -2425,7 +2540,58 @@ function delEntrega(eid) { if(!confirm('¿Eliminar? Stock NO se devuelve.')) ret
 
 // INSTALACIONES
 function renderInst(c) { let is=DB.instalaciones; if(USER.role==='bodega'){const cIds=getUserCuads().map(x=>x.id);is=is.filter(x=>cIds.includes(x.cuadrillaId));} is.sort((a,b)=>new Date(b.reg)-new Date(a.reg)); c.innerHTML=`<div class="card"><div class="card-header"><h2>🔧 Instalaciones</h2>${canDo('inst','crear')?`<button class="btn btn-success btn-sm" onclick="modalNewInst()">➕ Nueva</button>`:''}</div>${is.length?is.map(i=>`<div style="border:1px solid #eee; padding:15px; border-radius:8px; margin-bottom:10px; background:white;"><div class="flex"><strong>🔧 ${i.cliente}</strong> <span class="badge badge-new">${i.fecha}</span></div><p class="text-muted">Cuadrilla: ${i.cuadrilla} | Tipo: ${i.tipo||'-'}</p><div style="margin-top:5px;">${i.mats.map(m=>`<span class="sn-tag">${m.nom}: ${m.cant} ${m.unidad}${m.snes.length?' [SN:'+m.snes.join(',')+']':''}</span>`).join(' ')}</div>${canDo('inst','eliminar')?`<button class="btn btn-danger btn-sm" style="margin-top:10px;" onclick="delInst('${i.id}')">✕</button>`:''}</div>`).join(''):'<p class="text-muted">Sin instalaciones</p>'}</div>`; }
-function modalNewInst() { const cs=getUserCuads().map(c=>`<option value="${c.id}">${c.nombre}</option>`).join(''); TempLists.iItems=[]; openModal('Nueva Instalación', `<div class="form-row"><div class="form-group"><label>Cuadrilla</label><select id="iCuad" class="form-control" onchange="loadIOptions()">${cs}</select></div><div class="form-group"><label>Fecha</label><input id="iFecha" type="date" value="${new Date().toISOString().split('T')[0]}" class="form-control"></div></div><div class="form-group"><label>Cliente</label><input id="iCli" class="form-control"></div><div class="form-group"><label>Tipo</label><input id="iTipo" class="form-control"></div><hr style="margin:10px 0;"><div class="form-row"><div class="form-group"><label>Material</label><select id="iMat" class="form-control"></select></div><div class="form-group"><label>Cantidad</label><input id="iCant" type="number" value="1" min="1" class="form-control"></div></div><button class="btn btn-outline btn-sm" onclick="addIItem()">➕ Agregar</button><div id="iSnArea"></div><div id="iList" style="margin-top:10px;"></div>`, ()=>{ if(!TempLists.iItems.length||!id('iCli').value) return alert('Faltan datos'); saveInstLogic(); }); loadIOptions(); }
+function modalNewInst() {
+    const cs = getUserCuads().map(c=>`<option value="${c.id}">${c.nombre}</option>`).join('');
+    TempLists.iItems = [];
+    openModal('🔧 Nueva Instalación',
+        `<div class="form-row">
+            <div class="form-group"><label>Cuadrilla *</label>
+                <select id="iCuad" class="form-control" onchange="loadIOptions()">${cs}</select>
+            </div>
+            <div class="form-group"><label>Fecha *</label>
+                <input id="iFecha" type="date" value="${new Date().toISOString().split('T')[0]}" class="form-control">
+            </div>
+        </div>
+        <hr style="margin:10px 0;"><h4 style="margin-bottom:8px;">👤 Datos del Cliente</h4>
+        <div class="form-row">
+            <div class="form-group"><label>Nombre Cliente *</label>
+                <input id="iCli" class="form-control" placeholder="Nombre completo">
+            </div>
+            <div class="form-group"><label>Dirección</label>
+                <input id="iDir" class="form-control" placeholder="Dirección de instalación">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>Teléfono</label>
+                <input id="iTel" class="form-control" placeholder="Teléfono">
+            </div>
+            <div class="form-group"><label>Tipo de Instalación</label>
+                <input id="iTipo" class="form-control" placeholder="Ej: Residencial, Empresarial...">
+            </div>
+        </div>
+        <div class="form-group"><label>Observaciones</label>
+            <input id="iObs" class="form-control" placeholder="Observaciones adicionales">
+        </div>
+        <hr style="margin:10px 0;"><h4 style="margin-bottom:8px;">📦 Materiales a Instalar</h4>
+        <div class="form-row">
+            <div class="form-group"><label>Material</label>
+                <select id="iMat" class="form-control"></select>
+            </div>
+            <div class="form-group"><label>Cantidad</label>
+                <input id="iCant" type="number" value="1" min="1" class="form-control">
+            </div>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="addIItem()">➕ Agregar Material</button>
+        <div id="iSnArea"></div>
+        <div id="iList" style="margin-top:10px;"></div>`,
+        () => {
+            const cli = id('iCli').value.trim();
+            if(!cli) return alert('El nombre del cliente es obligatorio');
+            if(!TempLists.iItems.length) return alert('Agrega al menos un material');
+            saveInstLogic();
+        });
+    loadIOptions();
+}
 function loadIOptions() { const c=DB.cuadrillas.find(x=>x.id===id('iCuad').value); id('iMat').innerHTML=c?c.materiales.filter(m=>m.cantidad>0).map(m=>`<option value="${m.id}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`).join(''):''; }
 function addIItem() {
     const cuad = DB.cuadrillas.find(x=>x.id===id('iCuad').value);
@@ -2443,6 +2609,9 @@ function addIItem() {
         // Show inline SN selector instead of nested modal
         const snArea = id('iSnArea');
         if(snArea) {
+            // Store current mId and q in data attributes to avoid stale closure
+            snArea.dataset.mId = mId;
+            snArea.dataset.q = q;
             snArea.innerHTML = `
                 <div style="background:#f0f4ff;padding:12px;border-radius:8px;margin-top:8px;border:1px solid #c7d2fe;">
                     <p class="text-muted" style="margin-bottom:8px;font-size:0.85rem;">📋 Selecciona exactamente <strong>${q}</strong> serial(es) para <strong>${m.nombre}</strong>:</p>
@@ -2450,7 +2619,7 @@ function addIItem() {
                         ${snesDisponibles.map(sn=>`<label class="sn-check"><input type="checkbox" class="snInstCheck" value="${sn}"> <span class="sn-label">${sn}</span></label>`).join('')}
                     </div>
                     <div style="margin-top:8px;display:flex;gap:8px;">
-                        <button class="btn btn-primary btn-sm" onclick="confirmSnInst('${mId}',${q})">✅ Confirmar Seriales</button>
+                        <button class="btn btn-primary btn-sm" onclick="confirmSnInst()">✅ Confirmar Seriales</button>
                         <button class="btn btn-outline btn-sm" onclick="id('iSnArea').innerHTML=''">✕ Cancelar</button>
                     </div>
                 </div>`;
@@ -2463,21 +2632,53 @@ function addIItem() {
     }
 }
 
-function confirmSnInst(mId, q) {
+function confirmSnInst() {
+    const snArea = id('iSnArea');
+    const mId = snArea?.dataset.mId;
+    const q   = parseInt(snArea?.dataset.q)||1;
     const cuad = DB.cuadrillas.find(x=>x.id===id('iCuad').value);
     const m = cuad?.materiales.find(x=>x.id===mId);
-    if(!m) return;
+    if(!m) return alert('Material no encontrado');
     const checked = [...document.querySelectorAll('.snInstCheck:checked')].map(cb=>cb.value);
     if(checked.length !== q) return alert(`Selecciona exactamente ${q} serial(es). Seleccionaste ${checked.length}.`);
     const exist = TempLists.iItems.find(x=>x.id===mId);
     if(exist) { exist.cant+=q; exist.snes.push(...checked); }
     else TempLists.iItems.push({id:m.id, nom:m.nombre, cant:q, tipo:m.tipo, unidad:m.unidad, snes:checked});
-    id('iSnArea').innerHTML = '';
+    snArea.innerHTML = '';
     renderIList();
 }
 window.confirmSnInst = confirmSnInst;
 function renderIList() { const el=id('iList'); if(!el) return; el.innerHTML=TempLists.iItems.map((it,i)=>`<div class="item-list-item" style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:#f8f9fa;border-radius:6px;margin-bottom:4px;"><div><strong>${it.nom}</strong> x${it.cant} ${it.unidad}${it.snes&&it.snes.length?` <span style="font-size:0.75rem;color:#4f46e5;">[SN: ${it.snes.join(', ')}]</span>`:''}</div><button class="btn btn-danger btn-sm" onclick="TempLists.iItems.splice(${i},1);renderIList();">✕</button></div>`).join('')||'<p class="text-muted">Sin materiales agregados</p>'; }
-function saveInstLogic() { const c=DB.cuadrillas.find(x=>x.id===id('iCuad').value), cli=id('iCli').value.trim(), tipo=id('iTipo').value.trim(), fecha=id('iFecha').value; TempLists.iItems.forEach(it => { const m=c.materiales.find(x=>x.id===it.id); m.cantidad-=it.cant; it.snes.forEach(s=>{const idx=m.snes.indexOf(s);if(idx>-1)m.snes.splice(idx,1);}); }); const instData = {id:Date.now().toString(),cuadrillaId:c.id,cuadrilla:c.nombre,fecha:fecha,cliente:cli,tipo:tipo,mats:[...TempLists.iItems],reg:new Date().toISOString()}; DB.instalaciones.push(instData); actualizarClientesDesdeInstalacion(instData); logMsg(`Instalación en ${cli}`); save(); closeModal(); renderTab('inst'); }
+function saveInstLogic() {
+    const c = DB.cuadrillas.find(x=>x.id===id('iCuad').value);
+    const cli = id('iCli').value.trim();
+    const dir = id('iDir')?.value.trim()||'';
+    const tel = id('iTel')?.value.trim()||'';
+    const obs = id('iObs')?.value.trim()||'';
+    const tipo = id('iTipo')?.value.trim()||'';
+    const fecha = id('iFecha').value;
+
+    // Descontar materiales de cuadrilla
+    TempLists.iItems.forEach(it => {
+        const m = c.materiales.find(x=>x.id===it.id);
+        if(!m) return;
+        m.cantidad -= it.cant;
+        it.snes.forEach(s=>{ const idx=m.snes.indexOf(s); if(idx>-1) m.snes.splice(idx,1); });
+    });
+
+    const instData = {
+        id: Date.now().toString(),
+        cuadrillaId: c.id, cuadrilla: c.nombre,
+        fecha, cliente: cli, direccion: dir,
+        telefono: tel, observaciones: obs, tipo,
+        mats: [...TempLists.iItems],
+        reg: new Date().toISOString()
+    };
+    DB.instalaciones.push(instData);
+    actualizarClientesDesdeInstalacion(instData);
+    logMsg(`Instalación en ${cli}`);
+    save(); closeModal(); renderTab('inst');
+}
 function delInst(eid) { if(!confirm('¿Eliminar?')) return; DB.instalaciones=DB.instalaciones.filter(x=>x.id!==eid); save(); renderTab('inst'); }
 
 // ADMIN
