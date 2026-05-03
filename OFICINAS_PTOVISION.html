@@ -813,24 +813,33 @@ function renderDash(){
     const dasIngEfty=calcMes('ingreso',_efty), dasEgrEfty=calcMes('egreso',_efty);
     const dasIngBco=calcMes('ingreso',_bco), dasEgrBco=calcMes('egreso',_bco);
 
-    // Desglose egresos por concepto
-    let conceptosEgr = {};
+    // Desglose egresos por concepto con detalle de descripciones
+    let conceptosEgrDetalle = {}; // { concepto: { total, items: [{desc,valor,forma}] } }
     oficinas.forEach(o=>{
         getMesMovs(o.id, _dashRef).filter(m=>m.tipo==='egreso').forEach(m=>{
-            const lbl=labelMov(m);
-            conceptosEgr[lbl]=(conceptosEgr[lbl]||0)+parseFloat(m.valor||0);
+            const conc=m.concepto||'Otro';
+            if(!conceptosEgrDetalle[conc]) conceptosEgrDetalle[conc]={total:0,items:[]};
+            conceptosEgrDetalle[conc].total+=parseFloat(m.valor||0);
+            conceptosEgrDetalle[conc].items.push({desc:m.descripcion||'',valor:parseFloat(m.valor||0),forma:m.forma||''});
         });
     });
+    // Legacy para maxCE
+    let conceptosEgr = {};
+    Object.entries(conceptosEgrDetalle).forEach(([k,v])=>conceptosEgr[k]=v.total);
     const maxCE = Math.max(...Object.values(conceptosEgr).filter(v=>v>0),1);
 
-    // Top conceptos ingreso
-    let conceptosIng = {};
+    // Top conceptos ingreso con detalle
+    let conceptosIngDetalle = {};
     oficinas.forEach(o=>{
         getMesMovs(o.id, _dashRef).filter(m=>m.tipo==='ingreso').forEach(m=>{
-            const lbl=labelMov(m);
-            conceptosIng[lbl]=(conceptosIng[lbl]||0)+parseFloat(m.valor||0);
+            const conc=m.concepto||'Otro';
+            if(!conceptosIngDetalle[conc]) conceptosIngDetalle[conc]={total:0,items:[]};
+            conceptosIngDetalle[conc].total+=parseFloat(m.valor||0);
+            conceptosIngDetalle[conc].items.push({desc:m.descripcion||'',valor:parseFloat(m.valor||0),forma:m.forma||''});
         });
     });
+    let conceptosIng = {};
+    Object.entries(conceptosIngDetalle).forEach(([k,v])=>conceptosIng[k]=v.total);
 
     // Resumen por oficina
     const resOficinas = oficinas.map(o=>{
@@ -953,15 +962,53 @@ function renderDash(){
             </div>
         </div>
         <div class="card">
+            <div class="card-header"><h2>📥 Ingresos por Concepto <span style="font-size:0.72rem;">(click para ver detalle)</span></h2></div>
+            <div class="bar-chart">
+                ${Object.entries(conceptosIngDetalle).filter(([,d])=>d.total>0).length===0
+                    ? '<p style="color:var(--muted);font-size:0.85rem;text-align:center;padding:20px;">Sin ingresos este mes</p>'
+                    : Object.entries(conceptosIngDetalle).filter(([,d])=>d.total>0).sort((a,b)=>b[1].total-a[1].total).map(([k,d],idx)=>{
+                        const maxIngC=Math.max(...Object.values(conceptosIngDetalle).map(x=>x.total),1);
+                        return `<div style="margin-bottom:4px;">
+                            <div class="bar-row" onclick="toggleDetalle('ing_${idx}')" style="cursor:pointer;" title="Click para ver detalle">
+                                <div class="bar-label" title="${k}" style="font-weight:600;">${k} <span style="color:var(--muted);font-size:0.65rem;">(${d.items.length})</span></div>
+                                <div class="bar-track"><div class="bar-fill" style="width:${(d.total/maxIngC*100).toFixed(1)}%;background:linear-gradient(90deg,#10b981,#06d6a0);">${fmtShort(d.total)}</div></div>
+                                <div class="bar-val">${fmtShort(d.total)}</div>
+                            </div>
+                            <div id="ing_${idx}" style="display:none;margin-left:184px;margin-top:2px;border-left:2px solid rgba(16,185,129,0.3);padding-left:8px;">
+                                ${d.items.map(it=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:0.75rem;gap:8px;">
+                                    <span style="color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${it.desc||'Sin descripción'}</span>
+                                    <span style="color:var(--muted);font-size:0.68rem;flex-shrink:0;">${it.forma}</span>
+                                    <span class="money pos" style="flex-shrink:0;font-size:0.75rem;">+${fmtShort(it.valor)}</span>
+                                </div>`).join('')}
+                            </div>
+                        </div>`;
+                    }).join('')}
+            </div>
+        </div>
+    </div>
+    <!-- placeholder to close old two-cols -->
+    <div style="display:none">
+            </div>
+        </div>
+        <div class="card">
             <div class="card-header"><h2>📤 Egresos por concepto <span>${_dashOfiSel?(oficinas[0]?.nombre||""):mesActual()}</span></h2></div>
             <div class="bar-chart">
-                ${Object.entries(conceptosEgr).filter(([,v])=>v>0).length===0
+                ${Object.entries(conceptosEgrDetalle).filter(([,d])=>d.total>0).length===0
                     ? '<p style="color:var(--muted);font-size:0.85rem;text-align:center;padding:20px;">Sin egresos registrados este mes</p>'
-                    : Object.entries(conceptosEgr).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`
-                    <div class="bar-row">
-                        <div class="bar-label" title="${k}">${k}</div>
-                        <div class="bar-track"><div class="bar-fill" style="width:${(v/maxCE*100).toFixed(1)}%;background:linear-gradient(90deg,#ef4444,#f87171);">${fmtShort(v)}</div></div>
-                        <div class="bar-val">${fmtShort(v)}</div>
+                    : Object.entries(conceptosEgrDetalle).filter(([,d])=>d.total>0).sort((a,b)=>b[1].total-a[1].total).map(([k,d],idx)=>`
+                    <div style="margin-bottom:4px;">
+                        <div class="bar-row" onclick="toggleDetalle('egr_${idx}')" style="cursor:pointer;" title="Click para ver detalle">
+                            <div class="bar-label" title="${k}" style="font-weight:600;">${k} <span style="color:var(--muted);font-size:0.65rem;">(${d.items.length})</span></div>
+                            <div class="bar-track"><div class="bar-fill" style="width:${(d.total/maxCE*100).toFixed(1)}%;background:linear-gradient(90deg,#ef4444,#f87171);">${fmtShort(d.total)}</div></div>
+                            <div class="bar-val">${fmtShort(d.total)}</div>
+                        </div>
+                        <div id="egr_${idx}" style="display:none;margin-left:184px;margin-top:2px;border-left:2px solid rgba(239,68,68,0.3);padding-left:8px;">
+                            ${d.items.map(it=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:0.75rem;gap:8px;">
+                                <span style="color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${it.desc||'Sin descripción'}</span>
+                                <span style="color:var(--muted);font-size:0.68rem;flex-shrink:0;">${it.forma}</span>
+                                <span class="money neg" style="flex-shrink:0;font-size:0.75rem;">-${fmtShort(it.valor)}</span>
+                            </div>`).join('')}
+                        </div>
                     </div>`).join('')}
             </div>
         </div>
@@ -1034,6 +1081,12 @@ function cambiarMesReporte(dir){
     if(nuevo>hoy) return;
     window._repMes=nuevo;
     renderReportes();
+}
+
+function toggleDetalle(id){
+    const el=document.getElementById(id);
+    if(!el) return;
+    el.style.display=el.style.display==='none'?'block':'none';
 }
 
 function cambiarMesDash(dir){
@@ -2384,9 +2437,22 @@ function renderReportes(){
     movs.filter(m=>m.tipo==='egreso').forEach(m=>{ porFormaEgr[m.forma]=(porFormaEgr[m.forma]||0)+parseFloat(m.valor||0); });
 
     // Desglose por concepto
+    const porConcDet={}, porEgrDet={};
+    movs.filter(m=>m.tipo==='ingreso').forEach(m=>{
+        const c=m.concepto||'Otro';
+        if(!porConcDet[c]) porConcDet[c]={total:0,items:[]};
+        porConcDet[c].total+=parseFloat(m.valor||0);
+        porConcDet[c].items.push({desc:m.descripcion||'',valor:parseFloat(m.valor||0),forma:m.forma||''});
+    });
+    movs.filter(m=>m.tipo==='egreso').forEach(m=>{
+        const c=m.concepto||'Otro';
+        if(!porEgrDet[c]) porEgrDet[c]={total:0,items:[]};
+        porEgrDet[c].total+=parseFloat(m.valor||0);
+        porEgrDet[c].items.push({desc:m.descripcion||'',valor:parseFloat(m.valor||0),forma:m.forma||''});
+    });
     const porConcepto={}, porEgr={};
-    movs.filter(m=>m.tipo==='ingreso').forEach(m=>{ const l=labelMov(m); porConcepto[l]=(porConcepto[l]||0)+parseFloat(m.valor||0); });
-    movs.filter(m=>m.tipo==='egreso').forEach(m=>{ const l=labelMov(m); porEgr[l]=(porEgr[l]||0)+parseFloat(m.valor||0); });
+    Object.entries(porConcDet).forEach(([k,v])=>porConcepto[k]=v.total);
+    Object.entries(porEgrDet).forEach(([k,v])=>porEgr[k]=v.total);
 
     // Día a día
     const diasDelMes={};
@@ -2554,30 +2620,46 @@ function renderReportes(){
     <div class="two-cols" style="margin-bottom:16px;">
         <div class="card" style="margin-bottom:0">
             <div class="card-header"><h2>📥 Ingresos por Concepto</h2></div>
-            ${Object.keys(porConcepto).length===0?'<p style="color:var(--muted);text-align:center;padding:20px;">Sin datos</p>':
+            ${Object.keys(porConcDet).length===0?'<p style="color:var(--muted);text-align:center;padding:20px;">Sin datos</p>':
             `<div style="display:flex;flex-direction:column;gap:6px;">
-                ${Object.entries(porConcepto).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`
+                ${Object.entries(porConcDet).sort((a,b)=>b[1].total-a[1].total).map(([k,d],i)=>`
                 <div>
-                    <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:3px;">
-                        <span>${k}</span><span class="money pos">${fmtShort(v)} <span style="color:var(--muted);font-weight:400;">(${ing>0?(v/ing*100).toFixed(1):0}%)</span></span>
+                    <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:3px;cursor:pointer;" onclick="toggleDetalle('ri_${i}')">
+                        <span style="font-weight:600;">${k} <span style="color:var(--muted);font-size:0.7rem;font-weight:400;">(${d.items.length} registro(s)) ▾</span></span>
+                        <span class="money pos">${fmtShort(d.total)} <span style="color:var(--muted);font-weight:400;">(${ing>0?(d.total/ing*100).toFixed(1):0}%)</span></span>
                     </div>
-                    <div style="background:rgba(255,255,255,0.05);border-radius:4px;height:8px;overflow:hidden;">
-                        <div style="height:100%;background:linear-gradient(90deg,#10b981,#06d6a0);width:${(v/maxConc*100).toFixed(0)}%;border-radius:4px;"></div>
+                    <div style="background:rgba(255,255,255,0.05);border-radius:4px;height:8px;overflow:hidden;margin-bottom:4px;">
+                        <div style="height:100%;background:linear-gradient(90deg,#10b981,#06d6a0);width:${(d.total/maxConc*100).toFixed(0)}%;border-radius:4px;"></div>
+                    </div>
+                    <div id="ri_${i}" style="display:none;border-left:2px solid rgba(16,185,129,0.3);padding-left:8px;margin-bottom:4px;">
+                        ${d.items.map(it=>`<div style="display:flex;justify-content:space-between;font-size:0.75rem;padding:2px 0;gap:8px;">
+                            <span style="color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${it.desc||'Sin descripción'}</span>
+                            <span style="color:var(--muted);font-size:0.68rem;flex-shrink:0;">${it.forma}</span>
+                            <span class="money pos" style="flex-shrink:0;">+${fmtShort(it.valor)}</span>
+                        </div>`).join('')}
                     </div>
                 </div>`).join('')}
             </div>`}
         </div>
         <div class="card" style="margin-bottom:0">
             <div class="card-header"><h2>📤 Egresos por Concepto</h2></div>
-            ${Object.keys(porEgr).length===0?'<p style="color:var(--muted);text-align:center;padding:20px;">Sin datos</p>':
+            ${Object.keys(porEgrDet).length===0?'<p style="color:var(--muted);text-align:center;padding:20px;">Sin datos</p>':
             `<div style="display:flex;flex-direction:column;gap:6px;">
-                ${Object.entries(porEgr).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`
+                ${Object.entries(porEgrDet).sort((a,b)=>b[1].total-a[1].total).map(([k,d],i)=>`
                 <div>
-                    <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:3px;">
-                        <span>${k}</span><span class="money neg">${fmtShort(v)} <span style="color:var(--muted);font-weight:400;">(${egr>0?(v/egr*100).toFixed(1):0}%)</span></span>
+                    <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:3px;cursor:pointer;" onclick="toggleDetalle('re_${i}')">
+                        <span style="font-weight:600;">${k} <span style="color:var(--muted);font-size:0.7rem;font-weight:400;">(${d.items.length} registro(s)) ▾</span></span>
+                        <span class="money neg">${fmtShort(d.total)} <span style="color:var(--muted);font-weight:400;">(${egr>0?(d.total/egr*100).toFixed(1):0}%)</span></span>
                     </div>
-                    <div style="background:rgba(255,255,255,0.05);border-radius:4px;height:8px;overflow:hidden;">
-                        <div style="height:100%;background:linear-gradient(90deg,#ef4444,#f87171);width:${(v/maxEgrC*100).toFixed(0)}%;border-radius:4px;"></div>
+                    <div style="background:rgba(255,255,255,0.05);border-radius:4px;height:8px;overflow:hidden;margin-bottom:4px;">
+                        <div style="height:100%;background:linear-gradient(90deg,#ef4444,#f87171);width:${(d.total/maxEgrC*100).toFixed(0)}%;border-radius:4px;"></div>
+                    </div>
+                    <div id="re_${i}" style="display:none;border-left:2px solid rgba(239,68,68,0.3);padding-left:8px;margin-bottom:4px;">
+                        ${d.items.map(it=>`<div style="display:flex;justify-content:space-between;font-size:0.75rem;padding:2px 0;gap:8px;">
+                            <span style="color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${it.desc||'Sin descripción'}</span>
+                            <span style="color:var(--muted);font-size:0.68rem;flex-shrink:0;">${it.forma}</span>
+                            <span class="money neg" style="flex-shrink:0;">-${fmtShort(it.valor)}</span>
+                        </div>`).join('')}
                     </div>
                 </div>`).join('')}
             </div>`}
