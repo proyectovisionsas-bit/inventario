@@ -831,18 +831,19 @@ function modalAgregarEquipoCliente(cliId) {
         () => {
             const origenTipo = id('aeOrigen').value;
             const fuenteId   = id('aeFuente').value;
-            const matId      = id('aeMat').value;
+            const matIdx     = parseInt(id('aeMat').value);
             const cant       = parseInt(id('aeCant').value)||1;
-            if(!matId) return alert('Seleccione un material');
+            if(isNaN(matIdx)) return alert('Seleccione un material');
 
             const fuente = origenTipo==='bodega'
                 ? DB.bodegas.find(x=>x.id===fuenteId)
                 : DB.cuadrillas.find(x=>x.id===fuenteId);
-            const mat = fuente?.materiales.find(x=>x.id===matId);
-            if(!mat || mat.cantidad < cant) return alert('Stock insuficiente');
+            const mat = fuente?.materiales[matIdx];
+            if(!mat) return alert('Material no encontrado');
+            if(mat.cantidad < cant) return alert(`Stock insuficiente. Disponible: ${mat.cantidad} ${mat.unidad}`);
 
             const snsChecked = [...document.querySelectorAll('.aeSnCheck:checked')].map(cb=>cb.value);
-            if(mat.snes.length>0 && snsChecked.length!==cant) return alert(`Selecciona exactamente ${cant} serial(es)`);
+            if((mat.snes||[]).length>0 && snsChecked.length!==cant) return alert(`Selecciona exactamente ${cant} serial(es)`);
 
             // Descontar de fuente
             mat.cantidad -= cant;
@@ -884,8 +885,13 @@ function loadAeMats() {
     const fuente = origenTipo==='bodega'
         ? DB.bodegas.find(x=>x.id===fuenteId)
         : DB.cuadrillas.find(x=>x.id===fuenteId);
+    // Use index as value to avoid missing-id bug
     matEl.innerHTML = '<option value="">-- Seleccione --</option>' +
-        (fuente?.materiales.filter(m=>m.cantidad>0).map(m=>`<option value="${m.id}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`).join('')||'');
+        (fuente?.materiales
+            .map((m,idx)=>({m,idx}))
+            .filter(({m})=>m.cantidad>0)
+            .map(({m,idx})=>`<option value="${idx}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`)
+            .join('')||'');
     if(id('aeSnArea')) id('aeSnArea').innerHTML='';
 }
 window.loadAeMats = loadAeMats;
@@ -893,14 +899,14 @@ window.loadAeMats = loadAeMats;
 function loadAeSns() {
     const origenTipo = id('aeOrigen')?.value;
     const fuenteId   = id('aeFuente')?.value;
-    const matId      = id('aeMat')?.value;
+    const matIdx     = parseInt(id('aeMat')?.value);
     const area       = id('aeSnArea');
-    if(!area||!matId) return;
+    if(!area || isNaN(matIdx)) return;
     const fuente = origenTipo==='bodega'
         ? DB.bodegas.find(x=>x.id===fuenteId)
         : DB.cuadrillas.find(x=>x.id===fuenteId);
-    const mat = fuente?.materiales.find(x=>x.id===matId);
-    if(!mat||!mat.snes.length) { area.innerHTML=''; return; }
+    const mat = fuente?.materiales[matIdx];
+    if(!mat || !mat.snes?.length) { area.innerHTML=''; return; }
     area.innerHTML = `<div class="form-group" style="margin-top:8px;"><label>Seriales disponibles</label>
         <div class="sn-select-area">${mat.snes.map(sn=>`<label class="sn-check"><input type="checkbox" class="aeSnCheck" value="${sn}"><span class="sn-label">${sn}</span></label>`).join('')}</div></div>`;
 }
@@ -2505,7 +2511,7 @@ function delTec(cId, tId) { if(!confirm('¿Borrar técnico y toda su dotación?'
 function modalDotar(cId, tId) {
     TempLists.currentCId=cId; TempLists.currentTId=tId; TempLists.dotItems=[]; TempLists.dSelectedSNs={};
     const cu=DB.cuadrillas.find(x=>x.id===cId); const t=cu.tecnicos.find(x=>x.id===tId);
-    const mats=cu.materiales.filter(m=>m.cantidad>0).map(m=>`<option value="${m.id}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`).join('');
+    const mats=cu.materiales.map((m,idx)=>({m,idx})).filter(({m})=>m.cantidad>0).map(({m,idx})=>`<option value="${idx}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`).join('');
     openModal(`🎒 Dotar a ${t.nombre}`,
         `<div class="form-row">
             <div class="form-group"><label>Categoría *</label><select id="dCategoria" class="form-control"><option value="herramienta">🎒 Herramienta</option><option value="seguridad">🦺 Elemento de Seguridad</option></select></div>
@@ -2518,12 +2524,46 @@ function modalDotar(cId, tId) {
         ()=>{ if(!TempLists.dotItems.length) return alert('Agregue material'); saveDotacionLogic(); });
     TempLists.dSelectedSNs={}; showDotSNBox(); renderDList();
 }
-function showDotSNBox() { const mId=id('dMat').value, box=id('dSNArea'), msg=id('dMsg'); if(!mId||!box) return; const c=DB.cuadrillas.find(x=>x.id===TempLists.currentCId), m=c.materiales.find(x=>x.id===mId); if(!m) return; TempLists.dSelectedSNs={}; const q=parseInt(id('dCant').value)||1; if(m.snes.length>0){ let html=`<div class="sn-select-area"><div class="flex" style="justify-content:space-between;margin-bottom:8px;"><strong>Seleccione ${q} SNs</strong><label style="font-size:0.85rem;cursor:pointer;"><input type="checkbox" onchange="toggleAllSN(this,'dSNChk')"> Todos</label></div>`; m.snes.forEach((sn,i)=>{html+=`<label class="sn-check"><input type="checkbox" id="dSNChk_${i}" value="${sn}" onchange="updateDSelection(${q})"> <span class="sn-label">${sn}</span></label>`;}); html+=`</div>`; box.innerHTML=html; msg.textContent=`Seleccione ${q} de ${m.snes.length} disponibles.`; }else{ box.innerHTML=`<div class="alert" style="background:#e8f5e9;color:#2e7d32;padding:8px;font-size:0.85rem;">Sin serial. Se asignarán ${q} ${m.unidad}.</div>`; msg.textContent=''; } }
+function showDotSNBox() {
+    const mIdx=parseInt(id('dMat').value), box=id('dSNArea'), msg=id('dMsg');
+    if(isNaN(mIdx)||!box) return;
+    const c=DB.cuadrillas.find(x=>x.id===TempLists.currentCId), m=c.materiales[mIdx];
+    if(!m) return; TempLists.dSelectedSNs={};
+    const q=parseInt(id('dCant').value)||1;
+    if(m.snes&&m.snes.length>0){
+        let html=`<div class="sn-select-area"><div class="flex" style="justify-content:space-between;margin-bottom:8px;"><strong>Seleccione ${q} SNs</strong><label style="font-size:0.85rem;cursor:pointer;"><input type="checkbox" onchange="toggleAllSN(this,'dSNChk')"> Todos</label></div>`;
+        m.snes.forEach((sn,i)=>{html+=`<label class="sn-check"><input type="checkbox" id="dSNChk_${i}" value="${sn}" onchange="updateDSelection(${q})"> <span class="sn-label">${sn}</span></label>`;});
+        html+=`</div>`; box.innerHTML=html; msg.textContent=`Seleccione ${q} de ${m.snes.length} disponibles.`;
+    } else {
+        box.innerHTML=`<div class="alert" style="background:#e8f5e9;color:#2e7d32;padding:8px;font-size:0.85rem;">Sin serial. Se asignarán ${q} ${m.unidad}.</div>`; msg.textContent='';
+    }
+}
 function toggleAllSN(master,prefix){ document.querySelectorAll(`input[id^="${prefix}"]`).forEach(cb=>{cb.checked=master.checked;}); updateDSelection(parseInt(id('dCant').value)||1); }
 function updateDSelection(q){ TempLists.dSelectedSNs={}; document.querySelectorAll('#dSNArea input[type="checkbox"]:checked').forEach(cb=>TempLists.dSelectedSNs[cb.value]=true); document.querySelectorAll('#dSNArea .sn-check').forEach(el=>{const cb=el.querySelector('input[type="checkbox"]');el.classList.toggle('selected',cb.checked);}); const checked=document.querySelectorAll('#dSNArea input[type="checkbox"]:checked').length; const msg=id('dMsg'); if(q>0){if(checked===q){msg.style.color='var(--secondary)';msg.textContent='✅ Correcto';}else if(checked>q){msg.style.color='var(--danger)';msg.textContent=`⚠️ ${checked}/${q}`;}else{msg.style.color='var(--warning)';msg.textContent=`⏳ ${checked}/${q}`;}} }
-function addDotItem() { const mId=id('dMat').value, q=parseInt(id('dCant').value), cat=id('dCategoria').value; if(!mId||!q) return alert('Datos inválidos'); const c=DB.cuadrillas.find(x=>x.id===TempLists.currentCId), m=c.materiales.find(x=>x.id===mId); let snes=[]; if(m.snes.length>0){snes=Object.keys(TempLists.dSelectedSNs);if(snes.length!==q) return alert(`Seleccione ${q} SNs`);} const inList=TempLists.dotItems.find(x=>x.id===mId)?.cant||0; if(q+inList>m.cantidad) return alert('Stock insuficiente'); const exist=TempLists.dotItems.find(x=>x.id===mId&&x.categoria===cat); if(exist){exist.cant+=q;exist.snes.push(...snes);}else TempLists.dotItems.push({id:m.id,nom:m.nombre,cant:q,tipo:m.tipo,unidad:m.unidad,snes:snes,categoria:cat}); TempLists.dSelectedSNs={}; showDotSNBox(); renderDList(); }
-function renderDList() { const el=id('dList'); if(!el) return; const catLabel = c => c==='herramienta'?'🎒':'🦺'; el.innerHTML=TempLists.dotItems.map((it,i)=>`<div class="item-list-item"><span>${catLabel(it.categoria)} ${it.nom} x${it.cant} ${it.unidad}${it.snes.length?' [SN:'+it.snes.join(', ')+']':''}</span><button class="btn btn-danger btn-sm" onclick="TempLists.dotItems.splice(${i},1);renderDList();">✕</button></div>`).join('')||'Vacío'; }
-function saveDotacionLogic() { const c=DB.cuadrillas.find(x=>x.id===TempLists.currentCId), t=c.tecnicos.find(x=>x.id===TempLists.currentTId); TempLists.dotItems.forEach(it => { const m=c.materiales.find(x=>x.id===it.id); m.cantidad-=it.cant; it.snes.forEach(s=>{const idx=m.snes.indexOf(s);if(idx>-1)m.snes.splice(idx,1);}); t.dotacion.push({...it,fecha:new Date().toLocaleDateString()}); }); logMsg(`Dotación a ${t.nombre}`); save(); closeModal(); renderTab('cuads'); }
+function addDotItem() {
+    const mIdx=parseInt(id('dMat').value), q=parseInt(id('dCant').value), cat=id('dCategoria').value;
+    if(isNaN(mIdx)||!q) return alert('Datos inválidos');
+    const c=DB.cuadrillas.find(x=>x.id===TempLists.currentCId), m=c.materiales[mIdx];
+    if(!m) return alert('Material no encontrado');
+    let snes=[]; if(m.snes&&m.snes.length>0){snes=Object.keys(TempLists.dSelectedSNs);if(snes.length!==q) return alert(`Seleccione ${q} SNs`);}
+    const itemKey='dot_'+mIdx+'_'+cat;
+    const inList=TempLists.dotItems.filter(x=>x.key===itemKey).reduce((s,x)=>s+x.cant,0);
+    if(q+inList>m.cantidad) return alert('Stock insuficiente');
+    const exist=TempLists.dotItems.find(x=>x.key===itemKey);
+    if(exist){exist.cant+=q;exist.snes.push(...snes);}
+    else TempLists.dotItems.push({key:itemKey,mIdx,id:m.id||'',nom:m.nombre,cant:q,tipo:m.tipo,unidad:m.unidad,snes:snes,categoria:cat});
+    TempLists.dSelectedSNs={}; showDotSNBox(); renderDList();
+}
+function renderDList() { const el=id('dList'); if(!el) return; const catLabel = c => c==='herramienta'?'🎒':'🦺'; el.innerHTML=TempLists.dotItems.map((it,i)=>`<div class="item-list-item"><span>${catLabel(it.categoria)} ${it.nom} x${it.cant} ${it.unidad}${it.snes&&it.snes.length?' [SN:'+it.snes.join(', ')+']':''}</span><button class="btn btn-danger btn-sm" onclick="TempLists.dotItems.splice(${i},1);renderDList();">✕</button></div>`).join('')||'Vacío'; }
+function saveDotacionLogic() {
+    const c=DB.cuadrillas.find(x=>x.id===TempLists.currentCId), t=c.tecnicos.find(x=>x.id===TempLists.currentTId);
+    TempLists.dotItems.forEach(it => {
+        const m = it.mIdx!==undefined ? c.materiales[it.mIdx] : c.materiales.find(x=>x.nombre===it.nom);
+        if(!m) return;
+        m.cantidad-=it.cant; it.snes.forEach(s=>{const idx=m.snes.indexOf(s);if(idx>-1)m.snes.splice(idx,1);});
+        t.dotacion.push({...it,fecha:new Date().toLocaleDateString()});
+    }); logMsg(`Dotación a ${t.nombre}`); save(); closeModal(); renderTab('cuads');
+}
 
 // ENTREGAS
 function renderEntregas(c) { let es=DB.entregas; if(USER.role==='bodega') es=es.filter(e=>e.bodegaId===USER.id); es.sort((a,b)=>new Date(b.reg)-new Date(a.reg)); c.innerHTML=`<div class="card"><div class="card-header"><h2>📤 Entregas</h2>${canDo('entregas','crear')?`<button class="btn btn-success btn-sm" onclick="modalNewEntrega()">➕ Nueva</button>`:''}</div>${es.length?`<table><thead><tr><th>Fecha</th><th>Origen</th><th>Destino</th><th>Receptor</th><th>Items</th><th></th></tr></thead><tbody>${es.map(e=>`<tr><td>${e.fecha}</td><td>${e.bodega}</td><td>${e.cuadrilla}</td><td>${e.receptor}</td><td>${e.mats.map(m=>`${m.nom}(${m.cant} ${m.unidad})${m.snes.length?' [SN:'+m.snes.join(',')+']':''}`).join(', ')}</td><td>${canDo('entregas','eliminar')?`<button class="btn btn-danger btn-sm" onclick="delEntrega('${e.id}')">✕</button>`:''}</td></tr>`).join('')}</tbody></table>`:'<p class="text-muted">Sin entregas</p>'}</div>`; }
