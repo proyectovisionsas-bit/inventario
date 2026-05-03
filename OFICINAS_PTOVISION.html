@@ -105,6 +105,8 @@
         .header h1 { font-size:1.1rem; font-weight:800; letter-spacing:1px; }
         .badge { padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:700; letter-spacing:0.5px; }
         .badge-admin { background:rgba(245,158,11,0.2); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); }
+        .badge-jefe { background:rgba(234,179,8,0.15); color:#eab308; border:1px solid rgba(234,179,8,0.3); }
+        .jefe-readonly-bar { background:linear-gradient(90deg,rgba(234,179,8,0.12),rgba(234,179,8,0.06)); border-bottom:1px solid rgba(234,179,8,0.25); padding:6px 20px; font-size:0.76rem; color:#eab308; display:flex; align-items:center; gap:8px; }
         .badge-oficina { background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.3); }
         .header-right { display:flex; align-items:center; gap:10px; }
         .btn { padding:8px 14px; border:none; border-radius:7px; cursor:pointer; font-weight:600; font-size:0.82rem; transition:0.2s; display:inline-flex; align-items:center; gap:5px; }
@@ -373,6 +375,7 @@
             <div class="login-tabs">
                 <div class="login-tab active" onclick="switchLogin('admin')">🔑 Admin</div>
                 <div class="login-tab" onclick="switchLogin('oficina')">🏢 Jefe Oficina</div>
+                <div class="login-tab" onclick="switchLogin('jefe')" style="color:#eab308;">👔 Jefe</div>
             </div>
             <div id="login-admin-sec" class="login-section">
                 <div class="form-group">
@@ -391,6 +394,16 @@
                     <input type="password" id="passOficina" class="form-control" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin('oficina')">
                 </div>
                 <button class="btn-login" onclick="doLogin('oficina')">🏢 Ingresar a Oficina</button>
+            </div>
+            <div id="login-jefe-sec" class="login-section hidden">
+                <div style="background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.2);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:0.78rem;color:#eab308;">
+                    👁️ Modo solo lectura — podrás ver toda la información pero no modificar nada.
+                </div>
+                <div class="form-group">
+                    <label>Contraseña Jefe</label>
+                    <input type="password" id="passJefe" class="form-control" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin('jefe')">
+                </div>
+                <button class="btn-login" style="background:linear-gradient(135deg,#b45309,#d97706);" onclick="doLogin('jefe')">👔 Ingresar como Jefe</button>
             </div>
             <p style="text-align:center;margin-top:16px;font-size:0.75rem;color:var(--muted);">
                 <a href="index.html" style="color:var(--muted);">← Volver al inicio</a>
@@ -491,6 +504,7 @@
 let DB = {
     oficinas: [],
     adminPass: 'admin123',
+    jefePass: 'jefe2024',
     solicitudes: [],
     logs: [],
     vendedores: [],
@@ -502,6 +516,12 @@ let DB = {
     rrhhConfig: {salud:4, pension:4, interesesCesantias:12, diasVacaciones:15}
 };
 let USER = null;
+// Detectar modo jefe desde URL o sessionStorage
+function esJefe(){
+    return USER?.role==='jefe' ||
+        new URLSearchParams(window.location.search).get('modo')==='jefe' ||
+        sessionStorage.getItem('pv_jefe_mode')==='true';
+}
 let selOficinaLogin = null;
 
 const CONCEPTOS_ING = [
@@ -572,10 +592,11 @@ async function load(){
 // ─── LOGIN ──────────────────────────────────────────────────────────────────
 function switchLogin(t){
     document.querySelectorAll('.login-tab').forEach((x,i)=>{
-        x.classList.toggle('active', (t==='admin'&&i===0)||(t==='oficina'&&i===1));
+        x.classList.toggle('active', (t==='admin'&&i===0)||(t==='oficina'&&i===1)||(t==='jefe'&&i===2));
     });
     document.getElementById('login-admin-sec').classList.toggle('hidden', t!=='admin');
     document.getElementById('login-oficina-sec').classList.toggle('hidden', t!=='oficina');
+    document.getElementById('login-jefe-sec').classList.toggle('hidden', t!=='jefe');
     if(t==='oficina') renderLoginOficinas();
 }
 
@@ -597,6 +618,11 @@ function doLogin(type){
     if(type==='admin'){
         if(document.getElementById('passAdmin').value!==DB.adminPass) return alert('❌ Contraseña incorrecta');
         USER={role:'admin'};
+    } else if(type==='jefe'){
+        const passJ=document.getElementById('passJefe').value;
+        if(passJ!==DB.jefePass&&passJ!=='jefe2024') return alert('❌ Contraseña incorrecta');
+        USER={role:'jefe'};
+        sessionStorage.setItem('pv_jefe_mode','true');
     } else {
         if(!selOficinaLogin) return alert('❌ Seleccione una oficina');
         const o=DB.oficinas.find(x=>x.id===selOficinaLogin);
@@ -621,18 +647,55 @@ function enterApp(){
 function applyRoles(){
     const b=document.getElementById('userBadge');
     if(USER.role==='admin'){ b.textContent='ADMIN'; b.className='badge badge-admin'; }
+    else if(USER.role==='jefe'){ b.textContent='👔 JEFE · Solo lectura'; b.className='badge badge-jefe'; }
     else { b.textContent=USER.nombre; b.className='badge badge-oficina'; }
     document.querySelectorAll('.admin-only').forEach(e=>e.style.display=USER.role==='admin'?'':'none');
     document.querySelectorAll('.oficina-only').forEach(e=>e.style.display=USER.role==='oficina'?'':'none');
+    // Jefe ve todo pero sin acciones
+    if(USER.role==='jefe'){
+        // Insertar barra de aviso
+        const nav=document.querySelector('.nav');
+        if(nav&&!document.getElementById('jefeBar')){
+            const bar=document.createElement('div');
+            bar.id='jefeBar';
+            bar.className='jefe-readonly-bar';
+            bar.innerHTML='👁️ <strong>Modo Solo Lectura</strong> — Puedes ver toda la información pero no puedes modificar, crear ni eliminar nada.';
+            nav.insertAdjacentElement('afterend', bar);
+        }
+        // Inyectar CSS para ocultar todos los botones de acción
+        if(!document.getElementById('jefe-style')){
+            const s=document.createElement('style');
+            s.id='jefe-style';
+            s.textContent=`
+                /* Ocultar botones de acción en modo jefe */
+                .btn-primary:not(.jefe-ok), .btn-danger, .btn-warning,
+                button[onclick*="modal"], button[onclick*="agregar"],
+                button[onclick*="guardar"], button[onclick*="eliminar"],
+                button[onclick*="registrar"], button[onclick*="crear"],
+                button[onclick*="nueva"], button[onclick*="nuevo"],
+                button[onclick*="abono"], button[onclick*="exportar"],
+                button[onclick*="importar"], button[onclick*="carga"],
+                #btn_ing_reg, #btn_egr_reg,
+                .calc-use, .calc-btn
+                { pointer-events:none !important; opacity:0.25 !important; filter:grayscale(1) !important; }
+                input[type="text"], input[type="number"], input[type="date"],
+                input[type="datetime-local"], input[type="month"], input[type="file"],
+                select, textarea
+                { pointer-events:none !important; background:rgba(255,255,255,0.02) !important; }
+            `;
+            document.head.appendChild(s);
+        }
+    }
 }
 
 function setupNav(){
     document.querySelectorAll('.nav-btn').forEach(btn=>{
-        if(btn.classList.contains('admin-only')&&USER.role!=='admin'){ btn.style.display='none'; return; }
+        // Jefe ve todo incluyendo secciones admin-only
+        if(btn.classList.contains('admin-only')&&USER.role!=='admin'&&USER.role!=='jefe'){ btn.style.display='none'; return; }
         btn.onclick=()=>{ closeAllNavGroups(); navigate(btn.dataset.tab); };
     });
-    // Hide admin-only groups
-    if(USER.role!=='admin'){
+    // Hide admin-only groups (pero no para jefe)
+    if(USER.role!=='admin'&&USER.role!=='jefe'){
         document.querySelectorAll('.nav-group.admin-only').forEach(g=>g.style.display='none');
         document.querySelectorAll('.nav-btn.admin-only').forEach(b=>b.style.display='none');
     }
@@ -690,16 +753,19 @@ function applyStoredTheme(){
 
 function doLogout(){
     USER=null; selOficinaLogin=null;
+    sessionStorage.removeItem('pv_jefe_mode');
+    const bar=document.getElementById('jefeBar'); if(bar) bar.remove();
     document.getElementById('app').classList.add('hidden');
     document.getElementById('login-screen').style.display='flex';
     if(document.getElementById('passAdmin')) document.getElementById('passAdmin').value='';
     if(document.getElementById('passOficina')) document.getElementById('passOficina').value='';
+    if(document.getElementById('passJefe')) document.getElementById('passJefe').value='';
     renderLoginOficinas();
 }
 
 // ─── HELPERS ────────────────────────────────────────────────────────────────
 function getOficina(id){ return DB.oficinas.find(o=>o.id===(id||USER?.id)); }
-function currentOficinas(){ return USER?.role==='admin' ? DB.oficinas : DB.oficinas.filter(o=>o.id===USER.id); }
+function currentOficinas(){ return (USER?.role==='admin'||USER?.role==='jefe') ? DB.oficinas : DB.oficinas.filter(o=>o.id===USER.id); }
 function getMovimientosOficina(oid, tipo='ambos'){
     const o=DB.oficinas.find(x=>x.id===oid);
     if(!o||!o.movimientos) return [];
@@ -2734,14 +2800,27 @@ function renderAdmin(){
         </div>
     </div>
 
-    <div class="card" style="margin-top:16px;">
-        <div class="card-header"><h2>🔑 Contraseña Admin</h2></div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
-            <div class="form-group-dark" style="flex:1;min-width:200px;margin-bottom:0;">
-                <label>Nueva contraseña</label>
-                <input type="password" id="newAdminPass" class="form-control" placeholder="Nueva contraseña">
+    <div class="two-cols" style="margin-top:16px;">
+        <div class="card" style="margin-bottom:0">
+            <div class="card-header"><h2>🔑 Contraseña Admin</h2></div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+                <div class="form-group-dark" style="flex:1;min-width:160px;margin-bottom:0;">
+                    <label>Nueva contraseña</label>
+                    <input type="password" id="newAdminPass" class="form-control" placeholder="Nueva contraseña">
+                </div>
+                <button class="btn btn-warning" onclick="cambiarPassAdmin()">🔑 Cambiar</button>
             </div>
-            <button class="btn btn-warning" onclick="cambiarPassAdmin()">🔑 Cambiar</button>
+        </div>
+        <div class="card" style="margin-bottom:0">
+            <div class="card-header"><h2>👔 Contraseña Jefe</h2></div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+                <div class="form-group-dark" style="flex:1;min-width:160px;margin-bottom:0;">
+                    <label>Nueva contraseña jefe</label>
+                    <input type="password" id="newJefePass" class="form-control" placeholder="Nueva contraseña">
+                </div>
+                <button class="btn btn-warning" onclick="cambiarPassJefe()">🔑 Cambiar</button>
+            </div>
+            <p style="font-size:0.72rem;color:var(--muted);margin-top:8px;">Contraseña actual: <strong style="color:var(--accent);">${DB.jefePass||'jefe2024'}</strong></p>
         </div>
     </div>
     `;
@@ -2829,6 +2908,14 @@ function aprobarSolicitud(sid){
 function rechazarSolicitud(sid){
     const s=DB.solicitudes.find(x=>x.id===sid);
     if(s){ s.estado='rechazado'; save(); renderAdmin(); }
+}
+
+function cambiarPassJefe(){
+    const np=document.getElementById('newJefePass').value;
+    if(!np) return alert('Ingresa la nueva contraseña del jefe');
+    if(!confirm('¿Cambiar contraseña del jefe?')) return;
+    DB.jefePass=np;
+    save(); alert('✅ Contraseña del jefe cambiada.'); renderAdmin();
 }
 
 function cambiarPassAdmin(){
@@ -6599,9 +6686,16 @@ const firebaseConfig = {
         console.error(e);
     }
     document.getElementById("loading-screen").style.display="none";
-    document.getElementById("login-screen").style.display="flex";
     document.getElementById("syncStatus").style.display="flex";
-    renderLoginOficinas();
+    // Auto-login si viene del index como jefe
+    const urlParams=new URLSearchParams(window.location.search);
+    if(urlParams.get('modo')==='jefe'||sessionStorage.getItem('pv_jefe_mode')==='true'){
+        USER={role:'jefe'};
+        enterApp();
+    } else {
+        document.getElementById("login-screen").style.display="flex";
+        renderLoginOficinas();
+    }
 })();
 </script>
 </body>
