@@ -5024,7 +5024,11 @@ function rrhhDirectorio(){
     <div class="card">
         <div class="card-header">
             <h2>👥 Directorio de Empleados <span>${filtrados.length} registrados</span></h2>
-            <button class="btn btn-primary" onclick="rrhhModalNuevoEmpleado()">➕ Nuevo Empleado</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-outline btn-sm" onclick="rrhhDescargarPlantilla()">📥 Plantilla Excel</button>
+                <button class="btn btn-outline btn-sm" onclick="rrhhModalCargaMasiva()">📤 Carga masiva</button>
+                <button class="btn btn-primary" onclick="rrhhModalNuevoEmpleado()">➕ Nuevo Empleado</button>
+            </div>
         </div>
         <div class="search-bar" style="margin-bottom:12px;">
             <input class="form-control" type="text" placeholder="🔍 Buscar por nombre, cargo, departamento..." value="${window._rrhhQ||''}"
@@ -5161,6 +5165,179 @@ function rrhhEliminarEmpleado(id){
     DB.rrhh_empleados=(DB.rrhh_empleados||[]).filter(e=>e.id!==id);
     DB.rrhh_transacciones=(DB.rrhh_transacciones||[]).filter(t=>t.empleadoId!==id);
     saveRRHH(); rrhhDirectorio();
+}
+
+function rrhhDescargarPlantilla(){
+    const _gen=()=>{
+        const wb=XLSX.utils.book_new();
+        const datos=[
+            ['nombre','tipoDoc','documento','cargo','departamento','tipoContrato','fechaIngreso','salario','auxTransporte','fechaNacimiento','telefono','email','estado','direccion','beneficios'],
+            ['Juan Pérez','CC','12345678','Técnico','Operaciones','Indefinido','2024-01-15',1500000,140000,'1990-05-20','3001234567','juan@email.com','Activo','Calle 5 #10-20','Bono puntualidad'],
+            ['María López','CC','87654321','Vendedora','Comercial','Término Fijo','2024-03-01',1300000,140000,'1995-08-12','3109876543','maria@email.com','Activo','Carrera 8 #3-15',''],
+        ];
+        const ws=XLSX.utils.aoa_to_sheet(datos);
+        ws['!cols']=[{wch:22},{wch:8},{wch:14},{wch:18},{wch:15},{wch:18},{wch:14},{wch:12},{wch:14},{wch:14},{wch:14},{wch:24},{wch:12},{wch:25},{wch:25}];
+        XLSX.utils.book_append_sheet(wb,ws,'Empleados');
+        // Hoja referencia
+        const ref=[
+            ['TIPO DOC','TIPO CONTRATO','ESTADO'],
+            ['CC','Indefinido','Activo'],
+            ['CE','Término Fijo','Inactivo'],
+            ['TI','Obra/Labor','Vacaciones'],
+            ['PAS','Prestación Servicios','Licencia'],
+            ['','Aprendizaje',''],
+        ];
+        const wsRef=XLSX.utils.aoa_to_sheet(ref);
+        wsRef['!cols']=[{wch:12},{wch:22},{wch:12}];
+        XLSX.utils.book_append_sheet(wb,wsRef,'Referencia');
+        XLSX.writeFile(wb,'plantilla_empleados_ptovision.xlsx');
+    };
+    if(typeof XLSX==='undefined'){
+        const s=document.createElement('script');
+        s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+        s.onload=_gen; document.head.appendChild(s);
+    } else { _gen(); }
+}
+
+function rrhhModalCargaMasiva(){
+    openModal('📤 Carga Masiva de Empleados',`
+    <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:8px;padding:12px;margin-bottom:14px;font-size:0.82rem;">
+        <strong style="color:#3b82f6;">ℹ️ Instrucciones:</strong><br>
+        1. Descarga la plantilla Excel con el botón de abajo<br>
+        2. Llena los datos — <strong>una fila por empleado, una columna por dato</strong><br>
+        3. La hoja <strong>Referencia</strong> tiene los valores válidos para cada campo<br>
+        4. Sube el archivo aquí (acepta .xlsx y .csv)
+    </div>
+    <div style="margin-bottom:14px;">
+        <button class="btn btn-primary btn-sm" onclick="rrhhDescargarPlantilla()">📥 Descargar plantilla Excel</button>
+    </div>
+    <div class="form-group-dark">
+        <label>Selecciona el archivo *</label>
+        <input type="file" id="rrhh_cm_file" accept=".xlsx,.xls,.csv" class="form-control"
+            onchange="rrhhPrevisualizarCarga(this)">
+    </div>
+    <div id="rrhh_cm_preview"></div>
+    `,`<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+       <button class="btn btn-primary" id="rrhh_cm_btn" style="display:none" onclick="rrhhImportarEmpleados()">✅ Importar empleados</button>`);
+}
+
+let _rrhhCmData=[];
+
+function rrhhPrevisualizarCarga(input){
+    const file=input.files[0]; if(!file) return;
+    const isXlsx=file.name.endsWith('.xlsx')||file.name.endsWith('.xls');
+    const _procesar=(rows)=>{
+        _rrhhCmData=rows.map(r=>{
+            const rn={};
+            Object.keys(r).forEach(k=>rn[k.toLowerCase().trim().replace(/\s+/g,'')]=r[k]);
+            return {
+                nombre:String(rn['nombre']||'').trim(),
+                tipoDoc:String(rn['tipodoc']||rn['tipo_doc']||'CC').trim(),
+                documento:String(rn['documento']||'').trim(),
+                cargo:String(rn['cargo']||'').trim(),
+                departamento:String(rn['departamento']||'').trim(),
+                tipoContrato:String(rn['tipocontrato']||rn['tipo_contrato']||'Indefinido').trim(),
+                fechaIngreso:String(rn['fechaingreso']||rn['fecha_ingreso']||'').trim(),
+                salario:parseFloat(String(rn['salario']||0).replace(/[^0-9.]/g,'')),
+                auxTrans:parseFloat(String(rn['auxtransporte']||rn['aux_transporte']||rn['auxtrans']||0).replace(/[^0-9.]/g,'')),
+                fechaNacimiento:String(rn['fechanacimiento']||rn['fecha_nacimiento']||'').trim(),
+                telefono:String(rn['telefono']||'').trim(),
+                email:String(rn['email']||'').trim(),
+                estado:String(rn['estado']||'Activo').trim(),
+                direccion:String(rn['direccion']||'').trim(),
+                beneficios:String(rn['beneficios']||'').trim(),
+            };
+        }).filter(r=>r.nombre);
+
+        const errores=_rrhhCmData.filter(r=>!r.documento||!r.cargo);
+        const preview=document.getElementById('rrhh_cm_preview');
+        if(preview) preview.innerHTML=`
+        <div style="margin-top:12px;">
+            <div style="display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap;font-size:0.82rem;">
+                <span style="color:var(--accent);">✅ ${_rrhhCmData.length} empleados encontrados</span>
+                ${errores.length>0?`<span style="color:#ef4444;">⚠️ ${errores.length} sin documento o cargo</span>`:''}
+            </div>
+            <div class="table-wrap" style="max-height:240px;overflow-y:auto;"><table>
+                <thead><tr><th>Nombre</th><th>Documento</th><th>Cargo</th><th>Departamento</th><th>Contrato</th><th>Salario</th><th>Estado</th></tr></thead>
+                <tbody>${_rrhhCmData.slice(0,10).map(r=>`<tr style="${!r.documento||!r.cargo?'opacity:0.5;':''}">
+                    <td>${r.nombre}</td>
+                    <td style="font-size:0.75rem;">${r.tipoDoc} ${r.documento||'<span style="color:#ef4444">vacío</span>'}</td>
+                    <td style="font-size:0.78rem;">${r.cargo||'<span style="color:#ef4444">vacío</span>'}</td>
+                    <td style="font-size:0.75rem;color:var(--muted);">${r.departamento||'-'}</td>
+                    <td style="font-size:0.75rem;color:var(--muted);">${r.tipoContrato}</td>
+                    <td class="money pos">${fmtShort(r.salario||0)}</td>
+                    <td><span class="rrhh-status-badge ${r.estado==='Activo'?'rrhh-active':'rrhh-inactive'}">${r.estado}</span></td>
+                </tr>`).join('')}
+                ${_rrhhCmData.length>10?`<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:8px;">...y ${_rrhhCmData.length-10} más</td></tr>`:''}
+                </tbody>
+            </table></div>
+        </div>`;
+        const btn=document.getElementById('rrhh_cm_btn');
+        if(btn) btn.style.display=_rrhhCmData.filter(r=>r.nombre&&r.documento).length>0?'':'none';
+    };
+    if(isXlsx){
+        if(typeof XLSX==='undefined'){
+            const s=document.createElement('script');
+            s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+            s.onload=()=>_rrhhLeerXlsx(file,_procesar); document.head.appendChild(s);
+        } else { _rrhhLeerXlsx(file,_procesar); }
+    } else {
+        const reader=new FileReader();
+        reader.onload=function(e){
+            const lines=e.target.result.split('\n').filter(l=>l.trim());
+            if(lines.length<2){ document.getElementById('rrhh_cm_preview').innerHTML='<p style="color:#ef4444">Archivo vacío.</p>'; return; }
+            const headers=lines[0].split(',').map(h=>h.replace(/"/g,'').trim().toLowerCase());
+            const rows=lines.slice(1).map(line=>{
+                const vals=line.split(',').map(v=>v.replace(/"/g,'').trim());
+                const obj={}; headers.forEach((h,i)=>obj[h]=vals[i]||''); return obj;
+            });
+            _procesar(rows);
+        };
+        reader.readAsText(file,'UTF-8');
+    }
+}
+
+function _rrhhLeerXlsx(file,cb){
+    const reader=new FileReader();
+    reader.onload=function(e){
+        const wb=XLSX.read(e.target.result,{type:'binary',cellDates:false,raw:false});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const rows=XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
+        cb(rows);
+    };
+    reader.readAsBinaryString(file);
+}
+
+function rrhhImportarEmpleados(){
+    if(!_rrhhCmData||!_rrhhCmData.length) return alert('No hay datos para importar');
+    if(!DB.rrhh_empleados) DB.rrhh_empleados=[];
+    let importados=0, duplicados=0, errores=0;
+    _rrhhCmData.forEach(r=>{
+        if(!r.nombre||!r.documento){ errores++; return; }
+        // Evitar duplicados por documento
+        const existe=DB.rrhh_empleados.find(e=>e.documento===r.documento&&e.tipoDoc===r.tipoDoc);
+        if(existe){ duplicados++; return; }
+        DB.rrhh_empleados.push({
+            id:Date.now()+Math.random(),
+            nombre:r.nombre, tipoDoc:r.tipoDoc,
+            documento:r.documento, cargo:r.cargo,
+            departamento:r.departamento,
+            tipoContrato:r.tipoContrato||'Indefinido',
+            fechaIngreso:r.fechaIngreso,
+            salario:r.salario||0,
+            auxTrans:r.auxTrans||0,
+            fechaNacimiento:r.fechaNacimiento,
+            telefono:r.telefono, email:r.email,
+            estado:r.estado||'Activo',
+            direccion:r.direccion,
+            beneficios:r.beneficios,
+            oficinas:[], asistencia:[]
+        });
+        importados++;
+    });
+    saveRRHH(); closeModal(); _rrhhCmData=[];
+    alert('✅ Importación:\n• '+importados+' empleados\n• '+duplicados+' duplicados omitidos'+(errores>0?'\n• '+errores+' con errores':''));
+    rrhhDirectorio();
 }
 
 function rrhhVerEmpleado(id){
