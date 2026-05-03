@@ -537,6 +537,15 @@ const MOTIVOS_NO_PAGO = ['Falta de dinero','Viaje','Problemas con el servicio',
 function fmt(n){ return 'COP $' + (n||0).toLocaleString('es-CO'); }
 function fmtShort(n){ return '$'+(n||0).toLocaleString('es-CO'); }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+
+// Resuelve la etiqueta real de un movimiento:
+// Si concepto es "Otro", usa la descripción como clave. Si no hay descripción, "Otro"
+function labelMov(m){
+    if(m.concepto==='Otro'||m.concepto==='otro'){
+        return m.descripcion?('Otro: '+m.descripcion.substring(0,30)):('Otro');
+    }
+    return m.concepto;
+}
 function now(){ return new Date().toISOString(); }
 function hoy(){ return new Date().toLocaleDateString('es-CO',{year:'numeric',month:'long',day:'numeric'}); }
 function mesActual(){ return new Date().toLocaleDateString('es-CO',{year:'numeric',month:'long'}); }
@@ -762,22 +771,20 @@ function renderDash(){
 
     // Desglose egresos por concepto
     let conceptosEgr = {};
-    CONCEPTOS_EGR.forEach(c=>conceptosEgr[c]=0);
     oficinas.forEach(o=>{
         getMesMovs(o.id, _dashRef).filter(m=>m.tipo==='egreso').forEach(m=>{
-            if(conceptosEgr[m.concepto]!==undefined) conceptosEgr[m.concepto]+=parseFloat(m.valor||0);
-            else conceptosEgr['Otro']=(conceptosEgr['Otro']||0)+parseFloat(m.valor||0);
+            const lbl=labelMov(m);
+            conceptosEgr[lbl]=(conceptosEgr[lbl]||0)+parseFloat(m.valor||0);
         });
     });
     const maxCE = Math.max(...Object.values(conceptosEgr),1);
 
     // Top conceptos ingreso
     let conceptosIng = {};
-    CONCEPTOS_ING.forEach(c=>conceptosIng[c]=0);
     oficinas.forEach(o=>{
         getMesMovs(o.id, _dashRef).filter(m=>m.tipo==='ingreso').forEach(m=>{
-            if(conceptosIng[m.concepto]!==undefined) conceptosIng[m.concepto]+=parseFloat(m.valor||0);
-            else conceptosIng['Otro']=(conceptosIng['Otro']||0)+parseFloat(m.valor||0);
+            const lbl=labelMov(m);
+            conceptosIng[lbl]=(conceptosIng[lbl]||0)+parseFloat(m.valor||0);
         });
     });
 
@@ -2329,8 +2336,8 @@ function renderReportes(){
 
     // Desglose por concepto
     const porConcepto={}, porEgr={};
-    movs.filter(m=>m.tipo==='ingreso').forEach(m=>{ porConcepto[m.concepto]=(porConcepto[m.concepto]||0)+parseFloat(m.valor||0); });
-    movs.filter(m=>m.tipo==='egreso').forEach(m=>{ porEgr[m.concepto]=(porEgr[m.concepto]||0)+parseFloat(m.valor||0); });
+    movs.filter(m=>m.tipo==='ingreso').forEach(m=>{ const l=labelMov(m); porConcepto[l]=(porConcepto[l]||0)+parseFloat(m.valor||0); });
+    movs.filter(m=>m.tipo==='egreso').forEach(m=>{ const l=labelMov(m); porEgr[l]=(porEgr[l]||0)+parseFloat(m.valor||0); });
 
     // Día a día
     const diasDelMes={};
@@ -2631,13 +2638,13 @@ function _exportarReporteExcel(o, periodo){
         ['Concepto','Valor','% del total',''],
     ];
     const porConc={};
-    movs.filter(m=>m.tipo==='ingreso').forEach(m=>{ porConc[m.concepto]=(porConc[m.concepto]||0)+parseFloat(m.valor||0); });
+    movs.filter(m=>m.tipo==='ingreso').forEach(m=>{ const l=labelMov(m); porConc[l]=(porConc[l]||0)+parseFloat(m.valor||0); });
     Object.entries(porConc).sort((a,b)=>b[1]-a[1]).forEach(([k,v])=>resumen.push([k,v,ing>0?parseFloat((v/ing*100).toFixed(1)):0,'']));
     resumen.push(['','','','']);
     resumen.push(['EGRESOS POR CONCEPTO','','','']);
     resumen.push(['Concepto','Valor','% del total','']);
     const porEgrC={};
-    movs.filter(m=>m.tipo==='egreso').forEach(m=>{ porEgrC[m.concepto]=(porEgrC[m.concepto]||0)+parseFloat(m.valor||0); });
+    movs.filter(m=>m.tipo==='egreso').forEach(m=>{ const l=labelMov(m); porEgrC[l]=(porEgrC[l]||0)+parseFloat(m.valor||0); });
     Object.entries(porEgrC).sort((a,b)=>b[1]-a[1]).forEach(([k,v])=>resumen.push([k,v,egr>0?parseFloat((v/egr*100).toFixed(1)):0,'']));
 
     const ws1=XLSX.utils.aoa_to_sheet(resumen);
