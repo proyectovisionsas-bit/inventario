@@ -522,6 +522,45 @@ const CLOUDINARY_CLOUD='daaiji5zb';
 const CLOUDINARY_PRESET='ckrfzl9q';
 const CLOUDINARY_FOLDER='comprobantes_ptovision';
 
+// ── HORARIOS ──────────────────────────────────────────────────────────────────
+const HORARIOS = {
+    oficina: {
+        lv: { e1:'08:00', s1:'11:50', e2:'14:00', s2:'18:00' },
+        sab:{ e1:'08:00', s2:'13:00', continua:true }
+    },
+    tecnico: {
+        lv: { e1:'08:10', s1:'12:00', e2:'14:00', s2:'18:00' },
+        sab:{ e1:'08:00', s2:'13:00', continua:true }
+    }
+};
+
+function getHorarioEmp(e){
+    const cargo=(e?.cargo||'').toLowerCase();
+    const esTecnico=cargo.includes('técnico')||cargo.includes('tecnico')||cargo.includes('tech');
+    return esTecnico?HORARIOS.tecnico:HORARIOS.oficina;
+}
+
+function analizarAsistencia(reg, horario, fecha){
+    if(!reg||!reg.e1) return null;
+    const d=new Date(fecha+'T12:00:00');
+    const diaSemana=d.getDay(); // 0=dom,1=lun...6=sab
+    if(diaSemana===0) return null; // domingo no labora
+    const esSabado=diaSemana===6;
+    const h=esSabado?horario.sab:horario.lv;
+    const toMin=t=>{ if(!t||t==='--:--') return null; const [hh,mm]=t.split(':').map(Number); return hh*60+mm; };
+    const diffMin=(real,esperado)=>{ const r=toMin(real),e=toMin(esperado); if(!r||!e) return 0; return r-e; };
+    const tardanzaE1=Math.max(0, diffMin(reg.e1, h.e1));
+    const salidaAntS2=Math.max(0, -(diffMin(reg.s2, h.s2)));
+    const tardanzaE2=esSabado?0:Math.max(0, diffMin(reg.e2, h.e2||'14:00'));
+    const salidaAntS1=esSabado?0:Math.max(0, -(diffMin(reg.s1, h.s1||'11:50')));
+    const totalTardanza=tardanzaE1+tardanzaE2;
+    const totalSalidaAnt=salidaAntS1+salidaAntS2;
+    const completo=reg.e1&&reg.s2&&(esSabado||h.continua?true:(reg.s1&&reg.e2));
+    return { tardanzaE1, tardanzaE2, salidaAntS1, salidaAntS2, totalTardanza, totalSalidaAnt, completo, esSabado };
+}
+
+function fmtMin(min){ if(!min||min<=0) return ''; const h=Math.floor(min/60),m=min%60; return h>0?(h+'h '+(m>0?m+'min':'')):(m+'min'); }
+
 const PROMOS = {
     'SIN_PROMOCION':{label:'Sin promoción',color:'#64748b'},
     '1_MES_GRATIS':{label:'1 Mes Gratis',color:'#10b981'},
@@ -4967,7 +5006,12 @@ function eliminarEmpleado_rrhh(id){
 let _rrhhFichajeId = null;
 let _rrhhEmpleadoActualId = null;
 
-function getRRHH(){ return DB.rrhh_empleados||[]; }
+function getRRHH(){
+    const todos=DB.rrhh_empleados||[];
+    if(USER?.role==='admin') return todos;
+    // Jefe de oficina: solo ve empleados de su oficina
+    return todos.filter(e=>(e.oficinas||[]).includes(USER?.id)||!e.oficinas||e.oficinas.length===0);
+}
 function getRRHHConfig(){ return DB.rrhh_config||{salud:4,pension:4,interesesCesantias:12,diasVacaciones:15}; }
 function saveRRHH(){ save(); }
 
@@ -5438,20 +5482,29 @@ function rrhhAsistencia(){
             <div class="stat-card blue"><div class="label">📋 Total registros</div><div class="value">${registros.length}</div></div>
             <div class="stat-card green"><div class="label">✅ Completos</div><div class="value">${completos}</div></div>
             <div class="stat-card yellow"><div class="label">⚠️ Incompletos</div><div class="value">${incompletos}</div></div>
+            <div class="stat-card red"><div class="label">⏰ Con tardanza</div><div class="value">${registros.filter(r=>{const e=(DB.rrhh_empleados||[]).find(x=>String(x.id)===String(r.empId));const a=analizarAsistencia(r,getHorarioEmp(e),r.fecha);return a&&a.totalTardanza>0;}).length}</div></div>
         </div>
         ${registros.length===0?'<p style="color:var(--muted);text-align:center;padding:20px;">Sin registros para este período.</p>':
         `<div class="table-wrap"><table>
-            <thead><tr><th>Fecha</th><th>Empleado</th><th>Departamento</th><th>Entrada 1</th><th>Sal. Alm.</th><th>Entrada 2</th><th>Sal. Final</th><th>Estado</th></tr></thead>
-            <tbody>${registros.map(r=>`<tr>
-                <td style="font-size:0.78rem;">${r.fecha}</td>
+            <thead><tr><th>Fecha</th><th>Empleado</th><th>Cargo</th><th>Entrada 1</th><th>Sal. Alm.</th><th>Entrada 2</th><th>Sal. Final</th><th>Estado</th><th>Tardanza</th><th>Sal. Ant.</th></tr></thead>
+            <tbody>${registros.map(r=>{
+                const emp=(DB.rrhh_empleados||[]).find(e=>String(e.id)===String(r.empId));
+                const horario=getHorarioEmp(emp);
+                const analisis=analizarAsistencia(r, horario, r.fecha);
+                const tieneTardanza=analisis&&analisis.totalTardanza>0;
+                const tieneSalAnt=analisis&&analisis.totalSalidaAnt>0;
+                return `<tr style="${tieneTardanza?'background:rgba(239,68,68,0.04);':''}">
+                <td style="font-size:0.75rem;">${r.fecha}</td>
                 <td><strong>${r.empNombre}</strong></td>
-                <td style="font-size:0.78rem;color:var(--muted)">${r.empDepto||'-'}</td>
-                <td>${r.e1?`<span class="rrhh-ts-ok">${r.e1}</span>`:'<span class="rrhh-ts-miss">--</span>'}</td>
-                <td>${r.s1?`<span class="rrhh-ts-ok">${r.s1}</span>`:'<span class="rrhh-ts-miss">--</span>'}</td>
-                <td>${r.e2?`<span class="rrhh-ts-ok">${r.e2}</span>`:'<span class="rrhh-ts-miss">--</span>'}</td>
-                <td>${r.s2?`<span class="rrhh-ts-ok">${r.s2}</span>`:'<span class="rrhh-ts-miss">--</span>'}</td>
-                <td><span style="font-size:0.72rem;font-weight:700;color:${r.e1&&r.s2?'#10b981':'#f59e0b'}">${r.e1&&r.s2?'✅ Completo':'⚠️ Incompleto'}</span></td>
-            </tr>`).join('')}</tbody>
+                <td style="font-size:0.72rem;color:var(--muted);">${r.empDepto||'-'}</td>
+                <td>${r.e1?`<span class="${analisis?.tardanzaE1>0?'rrhh-ts-miss':'rrhh-ts-ok'}">${r.e1}${analisis?.tardanzaE1>0?' +'+fmtMin(analisis.tardanzaE1):''}</span>`:'<span class="rrhh-ts-miss">--</span>'}</td>
+                <td>${r.s1?`<span class="${analisis?.salidaAntS1>0?'rrhh-ts-miss':'rrhh-ts-ok'}">${r.s1}${analisis?.salidaAntS1>0?' -'+fmtMin(analisis.salidaAntS1):''}</span>`:'<span class="rrhh-ts-miss">--</span>'}</td>
+                <td>${r.e2?`<span class="${analisis?.tardanzaE2>0?'rrhh-ts-miss':'rrhh-ts-ok'}">${r.e2}${analisis?.tardanzaE2>0?' +'+fmtMin(analisis.tardanzaE2):''}</span>`:'<span class="rrhh-ts-miss">--</span>'}</td>
+                <td>${r.s2?`<span class="${analisis?.salidaAntS2>0?'rrhh-ts-miss':'rrhh-ts-ok'}">${r.s2}${analisis?.salidaAntS2>0?' -'+fmtMin(analisis.salidaAntS2):''}</span>`:'<span class="rrhh-ts-miss">--</span>'}</td>
+                <td><span style="font-size:0.72rem;font-weight:700;color:${analisis?.completo?'#10b981':'#f59e0b'}">${analisis?.completo?'✅ Completo':'⚠️ Incompleto'}</span></td>
+                <td>${tieneTardanza?`<span style="color:#ef4444;font-size:0.75rem;font-weight:700;">⏰ ${fmtMin(analisis.totalTardanza)}</span>`:'<span style="color:var(--muted);font-size:0.72rem;">—</span>'}</td>
+                <td>${tieneSalAnt?`<span style="color:#f59e0b;font-size:0.75rem;font-weight:700;">🏃 ${fmtMin(analisis.totalSalidaAnt)}</span>`:'<span style="color:var(--muted);font-size:0.72rem;">—</span>'}</td>
+            </tr>`}).join('')}</tbody>
         </table></div>`}
     </div>`;
 
@@ -5693,6 +5746,40 @@ function rrhhPrestaciones(){
 function rrhhConfig(){
     const conf=getRRHHConfig();
     document.getElementById('rrhh_content').innerHTML=`
+    <div class="card" style="margin-bottom:16px;">
+        <div class="card-header"><h2>🕐 Horarios de la Empresa</h2></div>
+        <div class="two-cols" style="gap:12px;">
+            <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;">
+                <p style="font-weight:700;color:var(--accent);margin-bottom:10px;font-size:0.9rem;">🏢 Personal de Oficina</p>
+                <div style="font-size:0.82rem;display:flex;flex-direction:column;gap:6px;">
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">Lunes a Viernes</span></div>
+                    <div style="background:rgba(16,185,129,0.06);border-radius:6px;padding:6px 10px;font-size:0.78rem;">
+                        🌅 Entrada 1: <strong>8:00 am</strong> · Salida: <strong>11:50 am</strong><br>
+                        🌞 Entrada 2: <strong>2:00 pm</strong> · Salida: <strong>6:00 pm</strong>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;margin-top:4px;"><span style="color:var(--muted);">Sábados</span></div>
+                    <div style="background:rgba(59,130,246,0.06);border-radius:6px;padding:6px 10px;font-size:0.78rem;">
+                        🌅 Entrada: <strong>8:00 am</strong> · Salida: <strong>1:00 pm</strong> (jornada continua)
+                    </div>
+                </div>
+            </div>
+            <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;">
+                <p style="font-weight:700;color:#f59e0b;margin-bottom:10px;font-size:0.9rem;">🔧 Técnicos de Campo</p>
+                <div style="font-size:0.82rem;display:flex;flex-direction:column;gap:6px;">
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--muted);">Lunes a Viernes</span></div>
+                    <div style="background:rgba(245,158,11,0.06);border-radius:6px;padding:6px 10px;font-size:0.78rem;">
+                        🌅 Entrada 1: <strong>8:10 am</strong> · Salida: <strong>12:00 pm</strong><br>
+                        🌞 Entrada 2: <strong>2:00 pm</strong> · Salida: <strong>6:00 pm</strong>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;margin-top:4px;"><span style="color:var(--muted);">Sábados</span></div>
+                    <div style="background:rgba(245,158,11,0.06);border-radius:6px;padding:6px 10px;font-size:0.78rem;">
+                        🌅 Entrada: <strong>8:00 am</strong> · Salida: <strong>1:00 pm</strong> (jornada continua)
+                    </div>
+                </div>
+            </div>
+        </div>
+        <p style="font-size:0.72rem;color:var(--muted);margin-top:10px;">💡 El sistema detecta automáticamente si un empleado es técnico según su cargo. La asistencia muestra tardanzas y salidas anticipadas en rojo/amarillo.</p>
+    </div>
     <div class="card" style="max-width:500px;">
         <div class="card-header"><h2>⚙️ Configuración RRHH</h2></div>
         <div class="form-group-dark"><label>% Salud (empleado)</label>
