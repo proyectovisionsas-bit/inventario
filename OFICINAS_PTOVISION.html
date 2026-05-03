@@ -735,12 +735,15 @@ function getMesMovs(oid, refDate=null){
 // ─── DASHBOARD ──────────────────────────────────────────────────────────────
 function renderDash(){
     const content=document.getElementById('appContent');
-    const oficinas = currentOficinas();
 
     // Mes seleccionado (default: mes actual)
     const _dashMesStr = window._dashMes || new Date().toISOString().slice(0,7);
     const _dashRef = new Date(_dashMesStr+'-15');
     const _esHoy = _dashMesStr === new Date().toISOString().slice(0,7);
+    // Oficina seleccionada (admin puede filtrar por una)
+    const _todasOficinas = currentOficinas();
+    const _dashOfiSel = window._dashOfi||'';
+    const oficinas = _dashOfiSel ? _todasOficinas.filter(o=>o.id===_dashOfiSel) : _todasOficinas;
 
     // Totales generales del mes seleccionado
     const mesIng = oficinas.reduce((s,o)=>{
@@ -777,7 +780,7 @@ function renderDash(){
             conceptosEgr[lbl]=(conceptosEgr[lbl]||0)+parseFloat(m.valor||0);
         });
     });
-    const maxCE = Math.max(...Object.values(conceptosEgr),1);
+    const maxCE = Math.max(...Object.values(conceptosEgr).filter(v=>v>0),1);
 
     // Top conceptos ingreso
     let conceptosIng = {};
@@ -799,17 +802,22 @@ function renderDash(){
     const pendSol = DB.solicitudes.filter(s=>s.estado==='pendiente').length;
 
     content.innerHTML=`
-    <div style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+    <div style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <div>
                 <h2 style="font-size:1.1rem;font-weight:700;">📊 Dashboard</h2>
-                <p style="font-size:0.78rem;color:var(--muted);">${_dashRef.toLocaleDateString('es-CO',{month:'long',year:'numeric'})}${_esHoy?'':' <span style="background:rgba(245,158,11,0.2);color:#f59e0b;padding:1px 6px;border-radius:8px;font-size:0.7rem;">Mes anterior</span>'}</p>
+                <p style="font-size:0.78rem;color:var(--muted);">${_dashRef.toLocaleDateString('es-CO',{month:'long',year:'numeric'})}${!_esHoy?' <span style="background:rgba(245,158,11,0.2);color:#f59e0b;padding:1px 6px;border-radius:8px;font-size:0.7rem;">Mes anterior</span>':''}</p>
             </div>
-            <div style="display:flex;align-items:center;gap:6px;">
-                <button class="btn btn-outline btn-sm" onclick="cambiarMesDash(-1)" title="Mes anterior">◀</button>
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                <button class="btn btn-outline btn-sm" onclick="cambiarMesDash(-1)">◀</button>
                 <input type="month" class="form-control" style="width:auto;font-size:0.8rem;" value="${_dashMesStr}" max="${new Date().toISOString().slice(0,7)}" onchange="window._dashMes=this.value;renderDash()">
-                <button class="btn btn-outline btn-sm" onclick="cambiarMesDash(1)" ${_esHoy?'disabled style="opacity:0.4;cursor:not-allowed;"':''} title="Mes siguiente">▶</button>
+                <button class="btn btn-outline btn-sm" onclick="cambiarMesDash(1)" ${_esHoy?'disabled style="opacity:0.4;cursor:not-allowed;"':''}>▶</button>
                 ${!_esHoy?'<button class="btn btn-primary btn-sm" onclick="window._dashMes=null;renderDash()">Hoy</button>':''}
+                ${USER.role==='admin'&&oficinas.length>1?`
+                <select class="form-control" style="width:auto;font-size:0.8rem;" onchange="window._dashOfi=this.value;renderDash()">
+                    <option value="" ${!window._dashOfi?'selected':''}>🏢 Todas las oficinas</option>
+                    ${oficinas.map(o=>`<option value="${o.id}" ${window._dashOfi===o.id?'selected':''}>${o.nombre}</option>`).join('')}
+                </select>`:''}
             </div>
         </div>
         ${pendSol>0&&USER.role==='admin'?`<div style="background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:8px 14px;font-size:0.82rem;color:#f59e0b;">⚠️ ${pendSol} solicitud(es) pendiente(s) de aprobación</div>`:''}
@@ -891,7 +899,7 @@ function renderDash(){
 
     <div class="two-cols">
         <div class="card">
-            <div class="card-header"><h2>📥 Ingresos por forma de pago <span>(mes actual)</span></h2></div>
+            <div class="card-header"><h2>📥 Ingresos por forma de pago <span>${_dashOfiSel?(oficinas[0]?.nombre||""):mesActual()}</span></h2></div>
             <div class="bar-chart">
                 ${Object.entries(formasPago).filter(([,v])=>v>0).length===0
                     ? '<p style="color:var(--muted);font-size:0.85rem;text-align:center;padding:20px;">Sin ingresos registrados este mes</p>'
@@ -904,7 +912,7 @@ function renderDash(){
             </div>
         </div>
         <div class="card">
-            <div class="card-header"><h2>📤 Egresos por concepto <span>(mes actual)</span></h2></div>
+            <div class="card-header"><h2>📤 Egresos por concepto <span>${_dashOfiSel?(oficinas[0]?.nombre||""):mesActual()}</span></h2></div>
             <div class="bar-chart">
                 ${Object.entries(conceptosEgr).filter(([,v])=>v>0).length===0
                     ? '<p style="color:var(--muted);font-size:0.85rem;text-align:center;padding:20px;">Sin egresos registrados este mes</p>'
@@ -918,7 +926,7 @@ function renderDash(){
         </div>
     </div>
 
-    ${USER.role==='admin'&&oficinas.length>1?`
+    ${USER.role==='admin'&&_todasOficinas.length>1&&!_dashOfiSel?`
     <div class="card">
         <div class="card-header"><h2>🏢 Resumen por oficina</h2></div>
         <div class="table-wrap"><table>
