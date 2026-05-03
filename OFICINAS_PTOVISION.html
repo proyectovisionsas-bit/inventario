@@ -541,8 +541,10 @@ function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(
 // Resuelve la etiqueta real de un movimiento:
 // Si concepto es "Otro", usa la descripción como clave. Si no hay descripción, "Otro"
 function labelMov(m){
-    if(m.concepto==='Otro'||m.concepto==='otro'){
-        return m.descripcion?('Otro: '+m.descripcion.substring(0,30)):('Otro');
+    // Si el concepto es "Otro", usar la descripción como etiqueta (o "Otro" si no hay)
+    if(!m.concepto||m.concepto==='Otro'||m.concepto==='otro'||m.concepto.toLowerCase()==='otro'){
+        const desc=(m.descripcion||'').trim();
+        return desc?('Otro: '+desc.substring(0,35)):'Otro';
     }
     return m.concepto;
 }
@@ -812,12 +814,12 @@ function renderDash(){
                 <button class="btn btn-outline btn-sm" onclick="cambiarMesDash(-1)">◀</button>
                 <input type="month" class="form-control" style="width:auto;font-size:0.8rem;" value="${_dashMesStr}" max="${new Date().toISOString().slice(0,7)}" onchange="window._dashMes=this.value;renderDash()">
                 <button class="btn btn-outline btn-sm" onclick="cambiarMesDash(1)" ${_esHoy?'disabled style="opacity:0.4;cursor:not-allowed;"':''}>▶</button>
-                ${!_esHoy?'<button class="btn btn-primary btn-sm" onclick="window._dashMes=null;renderDash()">Hoy</button>':''}
-                ${USER.role==='admin'&&oficinas.length>1?`
+                ${USER.role==='admin'&&_todasOficinas.length>1?`
                 <select class="form-control" style="width:auto;font-size:0.8rem;" onchange="window._dashOfi=this.value;renderDash()">
                     <option value="" ${!window._dashOfi?'selected':''}>🏢 Todas las oficinas</option>
-                    ${oficinas.map(o=>`<option value="${o.id}" ${window._dashOfi===o.id?'selected':''}>${o.nombre}</option>`).join('')}
+                    ${_todasOficinas.map(o=>`<option value="${o.id}" ${window._dashOfi===o.id?'selected':''}>${o.nombre}</option>`).join('')}
                 </select>`:''}
+                ${(!_esHoy||window._dashOfi)?`<button class="btn btn-warning btn-sm" onclick="window._dashMes=null;window._dashOfi='';renderDash()" title="Limpiar filtros">↺ Limpiar</button>`:''}
             </div>
         </div>
         ${pendSol>0&&USER.role==='admin'?`<div style="background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:8px 14px;font-size:0.82rem;color:#f59e0b;">⚠️ ${pendSol} solicitud(es) pendiente(s) de aprobación</div>`:''}
@@ -5043,7 +5045,7 @@ function rrhhDirectorio(){
                     <td><strong>${e.nombre}</strong><br><small style="color:var(--muted)">${e.email||''}</small></td>
                     <td style="font-size:0.78rem;">${e.tipoDoc} ${e.documento}</td>
                     <td>${e.cargo}</td>
-                    <td>${e.departamento}</td>
+                    <td>${e.departamento}<br>${(e.oficinas||[]).length>0?`<small style="color:var(--accent)">${(e.oficinas||[]).map(oid=>(DB.oficinas||[]).find(o=>o.id===oid)?.nombre||oid).join(', ')}</small>`:''}</td>
                     <td style="font-size:0.78rem;">${e.tipoContrato}</td>
                     <td class="money pos">${fmtShort(parseInt(e.salario)||0)}</td>
                     <td><span class="rrhh-status-badge ${estadoClass}">${e.estado}</span></td>
@@ -5104,6 +5106,18 @@ function rrhhModalNuevoEmpleado(editId=null){
     </div>
     <div class="form-group-dark"><label>Dirección</label><input id="rh_dir" class="form-control" value="${e?.direccion||''}"></div>
     <div class="form-group-dark"><label>Beneficios / Bonos (separar por comas)</label><input id="rh_ben" class="form-control" value="${e?.beneficios||''}" placeholder="Bono puntualidad, Aux. alimentación"></div>
+    <div class="form-group-dark">
+        <label>🏢 Oficina(s) a la que pertenece</label>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px;">
+            ${(DB.oficinas||[]).map(o=>`
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:rgba(255,255,255,0.03);padding:7px 12px;border-radius:8px;border:1px solid var(--border);">
+                <input type="checkbox" value="${o.id}" class="rh_ofi_check" ${(e?.oficinas||[]).includes(o.id)?'checked':''}>
+                <span style="font-size:0.85rem;">🏢 ${o.nombre}</span>
+                <span style="font-size:0.72rem;color:var(--muted);">${o.ciudad||''}</span>
+            </label>`).join('')}
+            ${(DB.oficinas||[]).length===0?'<p style="font-size:0.8rem;color:var(--muted);">Sin oficinas registradas aún.</p>':''}
+        </div>
+    </div>
     `,`<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
        <button class="btn btn-primary" onclick="rrhhGuardarEmpleado(${editId||'null'})">💾 Guardar</button>`);
 }
@@ -5113,6 +5127,7 @@ function rrhhGuardarEmpleado(editId){
     const doc=document.getElementById('rh_doc').value.trim();
     if(!nombre||!doc) return alert('Nombre y documento son obligatorios');
     if(!DB.rrhh_empleados) DB.rrhh_empleados=[];
+    const oficinasEmp=[...document.querySelectorAll('.rh_ofi_check:checked')].map(c=>c.value);
     const data={
         nombre, tipoDoc:document.getElementById('rh_tdoc').value,
         documento:doc, cargo:document.getElementById('rh_cargo').value.trim(),
@@ -5127,6 +5142,7 @@ function rrhhGuardarEmpleado(editId){
         estado:document.getElementById('rh_estado').value,
         direccion:document.getElementById('rh_dir').value,
         beneficios:document.getElementById('rh_ben').value,
+        oficinas:oficinasEmp,
     };
     if(editId){
         const idx=DB.rrhh_empleados.findIndex(x=>x.id===editId);
