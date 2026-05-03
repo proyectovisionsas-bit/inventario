@@ -967,6 +967,17 @@ function renderDash(){
     setTimeout(()=>renderDashCharts(oficinas),150);
 }
 
+function cambiarMesReporte(dir){
+    const cur=window._repMes||new Date().toISOString().slice(0,7);
+    const d=new Date(cur+'-15');
+    d.setMonth(d.getMonth()+dir);
+    const nuevo=d.toISOString().slice(0,7);
+    const hoy=new Date().toISOString().slice(0,7);
+    if(nuevo>hoy) return;
+    window._repMes=nuevo;
+    renderReportes();
+}
+
 function cambiarMesDash(dir){
     const cur=window._dashMes||new Date().toISOString().slice(0,7);
     const d=new Date(cur+'-15');
@@ -2255,23 +2266,40 @@ function renderReportes(){
     const oficinas=currentOficinas();
     const oid=USER.role==='admin'?(window._selOfiRep||oficinas[0]?.id):USER.id;
     const o=getOficina(oid);
-    const periodo=window._periodo||'mes';
     const ahora=new Date();
+    const periodo=window._periodo||'mes';
 
-    // Mes anterior para comparar
-    const mesPrev=new Date(ahora.getFullYear(), ahora.getMonth()-1, 1);
+    // Fechas de rango personalizado
+    const fechaDesde=window._repDesde||'';
+    const fechaHasta=window._repHasta||'';
+    const esRango=periodo==='rango'&&fechaDesde&&fechaHasta;
+    const esMes=window._repMes||(ahora.toISOString().slice(0,7));
 
-    function filtrarMovs(meses_atras=0){
+    // Función central de filtrado
+    function filtrarMovs(refExtra=null){
         return (o?.movimientos||[]).filter(m=>{
             const d=new Date(m.fecha);
             if(periodo==='hoy') return d.toDateString()===ahora.toDateString();
-            if(meses_atras===0) return d.getMonth()===ahora.getMonth()&&d.getFullYear()===ahora.getFullYear();
-            const ref=new Date(ahora.getFullYear(), ahora.getMonth()-meses_atras, 1);
+            if(periodo==='rango'&&esRango){
+                const desde=new Date(fechaDesde+'T00:00:00');
+                const hasta=new Date(fechaHasta+'T23:59:59');
+                return d>=desde&&d<=hasta;
+            }
+            // mes específico (selector de mes)
+            const ref=refExtra||(new Date(esMes+'-15'));
             return d.getMonth()===ref.getMonth()&&d.getFullYear()===ref.getFullYear();
         });
     }
-    const movs=filtrarMovs(0);
-    const movsPrev=filtrarMovs(1);
+
+    const movs=filtrarMovs();
+    // Para comparativa: mes anterior al mes seleccionado
+    const refMes=new Date(esMes+'-15');
+    const mesPrevRef=new Date(refMes.getFullYear(), refMes.getMonth()-1, 15);
+    const movsPrev=(periodo==='mes'||periodo==='rango')?
+        (o?.movimientos||[]).filter(m=>{
+            const d=new Date(m.fecha);
+            return d.getMonth()===mesPrevRef.getMonth()&&d.getFullYear()===mesPrevRef.getFullYear();
+        }):[];
 
     const ing=movs.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
     const egr=movs.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
@@ -2279,14 +2307,18 @@ function renderReportes(){
     const ingPrev=movsPrev.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
     const egrPrev=movsPrev.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
 
-    // Variación vs mes anterior
     const varIng=ingPrev>0?((ing-ingPrev)/ingPrev*100).toFixed(1):null;
     const varEgr=egrPrev>0?((egr-egrPrev)/egrPrev*100).toFixed(1):null;
     const varBal=ingPrev-egrPrev!==0?(((bal-(ingPrev-egrPrev))/(Math.abs(ingPrev-egrPrev)))*100).toFixed(1):null;
-
     function varTag(v){ if(v===null) return ''; const n=parseFloat(v); return `<span style="font-size:0.72rem;margin-left:6px;color:${n>=0?'#10b981':'#ef4444'};font-weight:700;">${n>=0?'▲':'▼'}${Math.abs(n)}% vs mes ant.</span>`; }
 
-    // Desglose por forma de pago (ingresos Y egresos)
+    // Etiqueta del periodo activo
+    let periodoLabel='';
+    if(periodo==='hoy') periodoLabel='Hoy '+ahora.toLocaleDateString('es-CO');
+    else if(esRango) periodoLabel=new Date(fechaDesde+'T12:00:00').toLocaleDateString('es-CO')+' → '+new Date(fechaHasta+'T12:00:00').toLocaleDateString('es-CO');
+    else periodoLabel=new Date(esMes+'-15').toLocaleDateString('es-CO',{month:'long',year:'numeric'});
+
+    // Desglose por forma de pago
     const formas=['Efectivo','Efecty','Cta Bancolombia','Cruce de Cuentas','Transferencia'];
     const porFormaIng={}, porFormaEgr={};
     formas.forEach(f=>{ porFormaIng[f]=0; porFormaEgr[f]=0; });
@@ -2298,10 +2330,11 @@ function renderReportes(){
     movs.filter(m=>m.tipo==='ingreso').forEach(m=>{ porConcepto[m.concepto]=(porConcepto[m.concepto]||0)+parseFloat(m.valor||0); });
     movs.filter(m=>m.tipo==='egreso').forEach(m=>{ porEgr[m.concepto]=(porEgr[m.concepto]||0)+parseFloat(m.valor||0); });
 
-    // Día a día del mes
+    // Día a día
     const diasDelMes={};
     if(periodo==='mes'){
-        const daysInMonth=new Date(ahora.getFullYear(),ahora.getMonth()+1,0).getDate();
+        const dRef=new Date(esMes+'-15');
+        const daysInMonth=new Date(dRef.getFullYear(),dRef.getMonth()+1,0).getDate();
         for(let d=1;d<=daysInMonth;d++) diasDelMes[d]={ing:0,egr:0};
         movs.forEach(m=>{
             const d=new Date(m.fecha).getDate();
@@ -2309,6 +2342,14 @@ function renderReportes(){
                 if(m.tipo==='ingreso') diasDelMes[d].ing+=parseFloat(m.valor||0);
                 else diasDelMes[d].egr+=parseFloat(m.valor||0);
             }
+        });
+    } else if(esRango){
+        // Para rango: agrupar por fecha completa
+        movs.forEach(m=>{
+            const key=new Date(m.fecha).toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit'});
+            if(!diasDelMes[key]) diasDelMes[key]={ing:0,egr:0};
+            if(m.tipo==='ingreso') diasDelMes[key].ing+=parseFloat(m.valor||0);
+            else diasDelMes[key].egr+=parseFloat(m.valor||0);
         });
     }
 
@@ -2323,17 +2364,55 @@ function renderReportes(){
     const maxEgrC=Math.max(...Object.values(porEgr),1);
 
     content.innerHTML=`
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
-        <h2 style="font-size:1.1rem;font-weight:700;">📈 Reportes${o?' — '+o.nombre:''}</h2>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+    <div class="card" style="margin-bottom:16px;padding:14px 18px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+            <h2 style="font-size:1.1rem;font-weight:700;margin:0;">📈 Reportes${o?' — '+o.nombre:''}</h2>
             ${USER.role==='admin'&&oficinas.length>1?`<select class="form-control" style="width:auto;" onchange="window._selOfiRep=this.value;renderReportes()">
                 ${oficinas.map(x=>`<option value="${x.id}" ${x.id===oid?'selected':''}>${x.nombre}</option>`).join('')}
             </select>`:''}
-            <select class="form-control" style="width:auto;" onchange="window._periodo=this.value;renderReportes()">
-                <option value="hoy" ${periodo==='hoy'?'selected':''}>Hoy</option>
-                <option value="mes" ${periodo==='mes'?'selected':''}>Mes actual</option>
-            </select>
-            <button class="btn btn-outline btn-sm" onclick="exportarReporteExcel('${oid}','${periodo}')">📥 Exportar Excel</button>
+        </div>
+
+        <!-- Selector de tipo de periodo -->
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
+            ${[['hoy','📅 Hoy'],['mes','📆 Por mes'],['rango','🗓️ Rango de fechas']].map(([v,l])=>
+                `<button onclick="window._periodo='${v}';renderReportes()" style="padding:7px 14px;border:1.5px solid ${periodo===v?'var(--accent)':'var(--border)'};background:${periodo===v?'rgba(16,185,129,0.12)':'transparent'};color:${periodo===v?'var(--accent)':'var(--muted)'};border-radius:8px;cursor:pointer;font-weight:${periodo===v?'700':'400'};font-size:0.82rem;transition:0.15s;">${l}</button>`
+            ).join('')}
+        </div>
+
+        <!-- Controles según tipo de periodo -->
+        ${periodo==='mes'?`
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-outline btn-sm" onclick="cambiarMesReporte(-1)">◀</button>
+            <input type="month" class="form-control" style="width:auto;" value="${esMes}"
+                max="${ahora.toISOString().slice(0,7)}"
+                onchange="window._repMes=this.value;renderReportes()">
+            <button class="btn btn-outline btn-sm" onclick="cambiarMesReporte(1)" ${esMes>=ahora.toISOString().slice(0,7)?'disabled style="opacity:0.4"':''}>▶</button>
+            ${esMes!==ahora.toISOString().slice(0,7)?`<button class="btn btn-primary btn-sm" onclick="window._repMes=null;renderReportes()">Mes actual</button>`:''}
+        </div>`:''}
+
+        ${periodo==='rango'?`
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <div style="display:flex;align-items:center;gap:6px;">
+                <label style="font-size:0.78rem;color:var(--muted);white-space:nowrap;">Desde:</label>
+                <input type="date" class="form-control" style="width:auto;" value="${fechaDesde}"
+                    max="${ahora.toISOString().slice(0,10)}"
+                    onchange="window._repDesde=this.value;renderReportes()">
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;">
+                <label style="font-size:0.78rem;color:var(--muted);white-space:nowrap;">Hasta:</label>
+                <input type="date" class="form-control" style="width:auto;" value="${fechaHasta}"
+                    max="${ahora.toISOString().slice(0,10)}"
+                    onchange="window._repHasta=this.value;renderReportes()">
+            </div>
+            ${fechaDesde&&fechaHasta?`<span style="font-size:0.78rem;color:var(--accent);font-weight:600;">📊 ${movs.length} movimiento(s)</span>`:'<span style="font-size:0.78rem;color:var(--muted);">Selecciona ambas fechas</span>'}
+        </div>
+        ${!fechaDesde||!fechaHasta?'<p style="font-size:0.78rem;color:var(--muted);margin-top:8px;">⚠️ Selecciona una fecha de inicio y una de fin para ver el reporte.</p>':''}`:''}
+
+        ${periodo==='hoy'?`<p style="font-size:0.78rem;color:var(--muted);margin:0;">Mostrando movimientos de hoy: <strong style="color:var(--text);">${ahora.toLocaleDateString('es-CO',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</strong></p>`:''}
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:1px solid var(--border);flex-wrap:wrap;gap:8px;">
+            <span style="font-size:0.8rem;color:var(--muted);">Período: <strong style="color:var(--text);">${periodoLabel}</strong> · <strong style="color:var(--accent);">${movs.length} movimiento(s)</strong></span>
+            <button class="btn btn-primary btn-sm" onclick="exportarReporteExcel('${oid}','${periodo}')">📥 Exportar Excel</button>
         </div>
     </div>
 
@@ -2504,14 +2583,25 @@ function exportarReporteExcel(oid, periodo){
 
 function _exportarReporteExcel(o, periodo){
     const ahora=new Date();
+    const esMesExp=window._repMes||(ahora.toISOString().slice(0,7));
+    const fDesde=window._repDesde||'';
+    const fHasta=window._repHasta||'';
     const movs=(o.movimientos||[]).filter(m=>{
         const d=new Date(m.fecha);
         if(periodo==='hoy') return d.toDateString()===ahora.toDateString();
-        return d.getMonth()===ahora.getMonth()&&d.getFullYear()===ahora.getFullYear();
+        if(periodo==='rango'&&fDesde&&fHasta){
+            return d>=new Date(fDesde+'T00:00:00')&&d<=new Date(fHasta+'T23:59:59');
+        }
+        const ref=new Date(esMesExp+'-15');
+        return d.getMonth()===ref.getMonth()&&d.getFullYear()===ref.getFullYear();
     });
     const ing=movs.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
     const egr=movs.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
     const wb=XLSX.utils.book_new();
+    let periodoTexto='';
+    if(periodo==='hoy') periodoTexto='Hoy '+ahora.toLocaleDateString('es-CO');
+    else if(periodo==='rango'&&fDesde&&fHasta) periodoTexto=new Date(fDesde+'T12:00:00').toLocaleDateString('es-CO')+' al '+new Date(fHasta+'T12:00:00').toLocaleDateString('es-CO');
+    else periodoTexto=new Date(esMesExp+'-15').toLocaleDateString('es-CO',{month:'long',year:'numeric'});
 
     // Hoja 1: Resumen
     const formas=['Efectivo','Efecty','Cta Bancolombia','Cruce de Cuentas','Transferencia'];
@@ -2522,7 +2612,7 @@ function _exportarReporteExcel(o, periodo){
 
     const resumen=[
         ['REPORTE DE OFICINA — '+o.nombre,'','',''],
-        ['Período', periodo==='hoy'?'Hoy '+ahora.toLocaleDateString('es-CO'):ahora.toLocaleDateString('es-CO',{month:'long',year:'numeric'}),'',''],
+        ['Período', periodoTexto,'',''],
         ['Generado', ahora.toLocaleString('es-CO'),'',''],
         ['','','',''],
         ['RESUMEN GENERAL','','',''],
