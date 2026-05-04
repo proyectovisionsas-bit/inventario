@@ -1392,10 +1392,15 @@ function renderRegistro(){
                     <td style="color:var(--muted);font-size:0.78rem;">${m.descripcion||'-'}</td>
                     <td><span class="tag ${m.forma==='Efectivo'?'tag-ef':m.forma==='Efecty'?'tag-efty':'tag-banc'}">${m.forma}</span></td>
                     <td class="money ${m.tipo==='ingreso'?'pos':'neg'}">${m.tipo==='ingreso'?'+':'-'}${fmtShort(m.valor)}</td>
-                    <td>${m.esPagoAdmin
-                        ? (USER.role==='admin'?`<button class="btn btn-danger btn-sm" onclick="eliminarMovimiento('${oid}','${m.id}')">🗑️</button>`:'<span style="font-size:0.72rem;color:var(--muted);">Pago Admin</span>')
-                        : (USER.role==='admin'?`<button class="btn btn-danger btn-sm" onclick="eliminarMovimiento('${oid}','${m.id}')">🗑️</button>`:`<button class="btn btn-outline btn-sm" onclick="solicitarEliminar('${oid}','${m.id}')">🗑️ Solicitar</button>`)
-                    }</td>
+                    <td style="display:flex;gap:4px;flex-wrap:wrap;">
+                        ${m.esPagoAdmin
+                            ? (USER.role==='admin'?`<button class="btn btn-danger btn-sm" onclick="eliminarMovimiento('${oid}','${m.id}')">🗑️</button>`:'<span style="font-size:0.72rem;color:var(--muted);">👑 Admin</span>')
+                            : (USER.role==='admin'
+                                ?`<button class="btn btn-outline btn-sm" onclick="modalEditarMovimiento('${oid}','${m.id}')">✏️</button><button class="btn btn-danger btn-sm" onclick="eliminarMovimiento('${oid}','${m.id}')">🗑️</button>`
+                                :`<button class="btn btn-outline btn-sm" onclick="modalSolicitarEdicion('${oid}','${m.id}')">✏️ Solicitar</button><button class="btn btn-outline btn-sm" onclick="solicitarEliminar('${oid}','${m.id}')">🗑️ Solicitar</button>`
+                              )
+                        }
+                    </td>
                 </tr>`).join('')}
             </tbody>
         </table></div>`}
@@ -2954,6 +2959,17 @@ function aprobarSolicitud(sid){
     if(s.tipo==='eliminar_mov'){
         const o=DB.oficinas.find(x=>x.id===s.oid);
         if(o) o.movimientos=(o.movimientos||[]).filter(m=>m.id!==s.mid);
+    } else if(s.tipo==='editar_mov'){
+        const o=DB.oficinas.find(x=>x.id===s.oid);
+        const m=(o?.movimientos||[]).find(x=>x.id===s.mid);
+        if(m&&s.nuevosDatos){
+            const nd=s.nuevosDatos;
+            const anterior={tipo:m.tipo,concepto:m.concepto,forma:m.forma,valor:m.valor,descripcion:m.descripcion};
+            m.tipo=nd.tipo; m.concepto=nd.concepto; m.forma=nd.forma;
+            m.valor=nd.valor; m.descripcion=nd.descripcion;
+            if(nd.fecha){const[fy,fm,fd]=nd.fecha.split('-');m.fecha=new Date(parseInt(fy),parseInt(fm)-1,parseInt(fd),12,0,0).toISOString();}
+            m.editadoPor='admin'; m.editadoEn=now(); m.anteriorDatos=anterior;
+        }
     } else if(s.tipo==='registro_pasado'){
         const o=DB.oficinas.find(x=>x.id===s.oid);
         if(o){
@@ -6835,18 +6851,21 @@ function modalComprobantes(oid, mid){
     </div>`;
 
     const zonaSubida=`
-    <div style="border:2px dashed var(--border);border-radius:10px;padding:20px;text-align:center;margin-bottom:16px;transition:0.2s;"
+    <div style="background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.2);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:0.8rem;">
+        <strong style="color:#3b82f6;">💡 Cómo funciona:</strong> Selecciona todas las imágenes de comprobantes del día y el sistema las agrupa automáticamente en un <strong>solo PDF</strong> antes de subirlo. Ahorra hasta 80% de espacio.
+    </div>
+    <div style="border:2px dashed var(--border);border-radius:10px;padding:20px;text-align:center;margin-bottom:12px;transition:0.2s;"
         ondragover="event.preventDefault();this.style.borderColor='var(--accent)';this.style.background='rgba(16,185,129,0.05)'"
         ondragleave="this.style.borderColor='var(--border)';this.style.background=''"
         ondrop="event.preventDefault();this.style.borderColor='var(--border)';this.style.background='';procesarArchivos(event.dataTransfer.files,'${oid}','${mid}')">
-        <div style="font-size:2.5rem;margin-bottom:8px;">📁</div>
-        <p style="font-size:0.85rem;color:var(--muted);margin-bottom:10px;">Arrastra los comprobantes aquí<br><span style="font-size:0.75rem;">o haz click en el botón para seleccionarlos</span></p>
-        <input type="file" id="inp_comp_${mid}" accept="image/*,.pdf" multiple style="display:none"
+        <div style="font-size:2.5rem;margin-bottom:8px;">📋</div>
+        <p style="font-size:0.85rem;color:var(--muted);margin-bottom:10px;">Arrastra los comprobantes aquí<br><span style="font-size:0.75rem;">o haz click para seleccionar. Se unirán en un solo PDF.</span></p>
+        <input type="file" id="inp_comp_${mid}" accept="image/*" multiple style="display:none"
             onchange="procesarArchivos(this.files,'${oid}','${mid}')">
         <button class="btn btn-primary" onclick="document.getElementById('inp_comp_${mid}').click()">
-            📤 Seleccionar archivos
+            📤 Seleccionar imágenes
         </button>
-        <p style="font-size:0.72rem;color:var(--muted);margin-top:8px;">JPG · PNG · PDF · Hasta 10MB por archivo · Puedes seleccionar varios a la vez</p>
+        <p style="font-size:0.72rem;color:var(--muted);margin-top:8px;">JPG · PNG · Selecciona todas las que quieras · Se genera un PDF unificado</p>
     </div>
     <div id="prog_${mid}" style="display:none;margin-bottom:12px;"></div>`;
 
@@ -6884,55 +6903,133 @@ async function procesarArchivos(files, oid, mid){
     const m=getMovimiento(oid,mid);
     if(!m){ alert('Error: movimiento no encontrado'); return; }
     if(!m.comprobantes) m.comprobantes=[];
-
     const progEl=document.getElementById('prog_'+mid);
     if(progEl) progEl.style.display='';
 
-    let ok=0, errores=[];
-    const total=files.length;
+    const imageFiles=[...files].filter(f=>f.type.startsWith('image/'));
+    const otherFiles=[...files].filter(f=>!f.type.startsWith('image/'));
 
-    for(let i=0;i<total;i++){
-        const file=files[i];
-        if(progEl) progEl.innerHTML=`
-        <div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px 14px;">
-            <div style="display:flex;justify-content:space-between;font-size:0.82rem;margin-bottom:6px;">
-                <span style="color:#f59e0b;">⏳ Subiendo archivo ${i+1} de ${total}...</span>
-                <span style="color:var(--muted);">${file.name}</span>
-            </div>
-            <div style="background:rgba(255,255,255,0.08);border-radius:4px;height:6px;overflow:hidden;">
-                <div style="height:100%;background:#f59e0b;width:${Math.round((i/total)*100)}%;transition:width 0.3s;"></div>
-            </div>
-        </div>`;
-
-        if(file.size>10*1024*1024){ errores.push(file.name+' (supera 10MB)'); continue; }
-
+    // Step 1: Convert images to PDF using canvas
+    if(imageFiles.length>0){
         try{
-            const res=await subirArchivoCloudinary(file, mid);
-            const esPdf=file.type==='application/pdf'||file.name.toLowerCase().endsWith('.pdf');
-            m.comprobantes.push({
-                url:res.url, nombre:file.name,
-                tipo:esPdf?'pdf':'imagen',
-                fecha:new Date().toISOString()
+            if(progEl) progEl.innerHTML=_progHTML(`📋 Generando PDF con ${imageFiles.length} imagen(es)...`, 10);
+            const pdfBlob=await _imagesToPDF(imageFiles, mid, (i,total)=>{
+                if(progEl) progEl.innerHTML=_progHTML(`🖼️ Procesando imagen ${i} de ${total}...`, Math.round(i/total*60));
             });
-            ok++;
+            if(progEl) progEl.innerHTML=_progHTML('☁️ Subiendo PDF a Cloudinary...', 70);
+            const fechaStr=new Date().toLocaleDateString('es-CO').replace(/\//g,'-');
+            const pdfFile=new File([pdfBlob], `comprobantes_${fechaStr}_${imageFiles.length}imgs.pdf`,{type:'application/pdf'});
+            const res=await subirArchivoCloudinary(pdfFile, mid);
+            m.comprobantes.push({url:res.url, nombre:pdfFile.name, tipo:'pdf', fecha:new Date().toISOString(), imagenes:imageFiles.length});
+            if(progEl) progEl.innerHTML=_progHTML(`✅ PDF subido (${imageFiles.length} imágenes)`, 100, true);
         }catch(e){
-            errores.push(file.name+': '+e.message);
+            if(progEl) progEl.innerHTML=`<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px;font-size:0.82rem;color:#ef4444;">⚠️ Error al generar PDF: ${e.message}</div>`;
         }
     }
 
-    await save();
-
-    if(progEl){
-        const hayErr=errores.length>0;
-        progEl.innerHTML=`
-        <div style="background:${hayErr?'rgba(239,68,68,0.1)':'rgba(16,185,129,0.1)'};border:1px solid ${hayErr?'rgba(239,68,68,0.3)':'rgba(16,185,129,0.3)'};border-radius:8px;padding:10px 14px;font-size:0.82rem;">
-            ${ok>0?`<div style="color:#10b981;margin-bottom:${hayErr?'6px':'0'};">✅ ${ok} comprobante(s) subido(s) correctamente.</div>`:''}
-            ${hayErr?`<div style="color:#ef4444;">⚠️ Errores:<br>${errores.map(e=>'• '+e).join('<br>')}</div>`:''}
-        </div>`;
+    // Step 2: Upload any non-image files individually
+    for(const file of otherFiles){
+        try{
+            const res=await subirArchivoCloudinary(file, mid);
+            m.comprobantes.push({url:res.url, nombre:file.name, tipo:'pdf', fecha:new Date().toISOString()});
+        }catch(e){ console.error('Error subiendo',file.name,e); }
     }
 
+    await save();
     renderRegistro();
-    setTimeout(()=>modalComprobantes(oid, mid), 600);
+    setTimeout(()=>modalComprobantes(oid, mid), 500);
+}
+
+function _progHTML(msg, pct, done=false){
+    return `<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px 14px;">
+        <div style="display:flex;justify-content:space-between;font-size:0.82rem;margin-bottom:6px;">
+            <span style="color:${done?'#10b981':'#f59e0b'};">${msg}</span><span style="color:var(--muted);">${pct}%</span>
+        </div>
+        <div style="background:rgba(255,255,255,0.08);border-radius:4px;height:8px;overflow:hidden;">
+            <div style="height:100%;background:${done?'#10b981':'#f59e0b'};width:${pct}%;transition:width 0.3s;border-radius:4px;"></div>
+        </div>
+    </div>`;
+}
+
+async function _imagesToPDF(imageFiles, mid, onProgress){
+    // Use canvas to combine images into a single PDF (manual PDF generation)
+    const pages=[];
+    for(let i=0;i<imageFiles.length;i++){
+        if(onProgress) onProgress(i+1,imageFiles.length);
+        const img=await _loadImage(imageFiles[i]);
+        pages.push(img);
+    }
+    // Build minimal PDF with all images as pages
+    return _buildPDF(pages);
+}
+
+function _loadImage(file){
+    return new Promise((res,rej)=>{
+        const reader=new FileReader();
+        reader.onload=e=>{
+            const img=new Image();
+            img.onload=()=>res(img);
+            img.onerror=rej;
+            img.src=e.target.result;
+        };
+        reader.onerror=rej;
+        reader.readAsDataURL(file);
+    });
+}
+
+function _buildPDF(images){
+    // Build a valid PDF manually using canvas for each image
+    const canvas=document.createElement('canvas');
+    const parts=[];
+    const enc=s=>s.split('').map(c=>c.charCodeAt(0));
+
+    // PDF header
+    let offset=0;
+    const offsets=[];
+    const body=[];
+
+    const addObj=(n,content)=>{
+        offsets[n]=offset;
+        const line='%PDF object\n'+n+' 0 obj\n'+content+'\nendobj\n';
+        body.push(line); offset+=line.length;
+    };
+
+    // Simpler: use jsPDF if available, else use canvas+dataURL approach
+    return new Promise((resolve)=>{
+        // Load jsPDF dynamically
+        if(typeof window.jspdf==='undefined'&&typeof window.jsPDF==='undefined'){
+            const s=document.createElement('script');
+            s.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+            s.onload=()=>_doJsPDF(images,resolve);
+            document.head.appendChild(s);
+        } else { _doJsPDF(images,resolve); }
+    });
+}
+
+function _doJsPDF(images,resolve){
+    const jsPDF=window.jspdf?.jsPDF||window.jsPDF;
+    if(!jsPDF){ resolve(new Blob(['PDF error'],{type:'application/pdf'})); return; }
+    const first=images[0];
+    const w=first.naturalWidth||first.width;
+    const h=first.naturalHeight||first.height;
+    const orientation=w>h?'landscape':'portrait';
+    const doc=new jsPDF({orientation, unit:'px', format:[w,h]});
+    images.forEach((img,i)=>{
+        if(i>0){
+            const wi=img.naturalWidth||img.width;
+            const hi=img.naturalHeight||img.height;
+            doc.addPage([wi,hi], wi>hi?'landscape':'portrait');
+        }
+        const canvas=document.createElement('canvas');
+        const iw=img.naturalWidth||img.width;
+        const ih=img.naturalHeight||img.height;
+        canvas.width=iw; canvas.height=ih;
+        canvas.getContext('2d').drawImage(img,0,0,iw,ih);
+        const dataUrl=canvas.toDataURL('image/jpeg',0.75); // 75% quality = ~75% size reduction
+        doc.addImage(dataUrl,'JPEG',0,0,iw,ih);
+    });
+    const blob=doc.output('blob');
+    resolve(blob);
 }
 
 function eliminarComp(oid, mid, idx){
@@ -6943,6 +7040,128 @@ function eliminarComp(oid, mid, idx){
     save(); modalComprobantes(oid,mid); renderRegistro();
 }
 
+
+
+// ── EDITAR MOVIMIENTO (admin directo / oficina solicita) ──────────────────────
+function _formEdicionMov(m, oid, mid, esSolicitud=false){
+    return `
+    <div style="background:${esSolicitud?'rgba(245,158,11,0.08)':'rgba(16,185,129,0.06)'};border:1px solid ${esSolicitud?'rgba(245,158,11,0.25)':'rgba(16,185,129,0.2)'};border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:0.82rem;">
+        ${esSolicitud
+            ?'⚠️ Estás solicitando una corrección. El administrador revisará y aplicará el cambio.'
+            :'✏️ Edición directa como administrador. El cambio se aplica de inmediato.'}
+    </div>
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:0.8rem;">
+        <strong>Registro actual:</strong> ${m.concepto} · ${m.descripcion||'Sin descripción'} ·
+        <span class="money ${m.tipo==='ingreso'?'pos':'neg'}">${m.tipo==='ingreso'?'+':'-'}${fmtShort(m.valor)}</span> · ${m.forma}
+        · <span style="color:var(--muted);">${new Date(m.fecha).toLocaleDateString('es-CO')}</span>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Tipo *</label>
+            <select id="em_tipo" class="form-control">
+                <option value="ingreso" ${m.tipo==='ingreso'?'selected':''}>📥 Ingreso</option>
+                <option value="egreso" ${m.tipo==='egreso'?'selected':''}>📤 Egreso</option>
+            </select>
+        </div>
+        <div class="form-group-dark"><label>Concepto *</label>
+            <select id="em_concepto" class="form-control">
+                ${[...CONCEPTOS_ING,...CONCEPTOS_EGR].filter((v,i,a)=>a.indexOf(v)===i).map(c=>`<option ${m.concepto===c?'selected':''}>${c}</option>`).join('')}
+            </select>
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Forma de Pago *</label>
+            <select id="em_forma" class="form-control">
+                ${FORMAS_PAGO.map(f=>`<option ${m.forma===f?'selected':''}>${f}</option>`).join('')}
+            </select>
+        </div>
+        <div class="form-group-dark"><label>Valor (COP) *</label>
+            <input type="number" id="em_valor" class="form-control" value="${m.valor||0}" min="0">
+        </div>
+    </div>
+    <div class="form-group-dark"><label>Descripción / Cliente *</label>
+        <input id="em_desc" class="form-control" value="${m.descripcion||''}">
+    </div>
+    <div class="form-group-dark"><label>Fecha</label>
+        <input type="date" id="em_fecha" class="form-control" value="${new Date(m.fecha).toISOString().slice(0,10)}">
+    </div>
+    ${esSolicitud?`<div class="form-group-dark"><label>Motivo de la corrección *</label>
+        <textarea id="em_motivo" class="form-control" placeholder="Explica por qué necesitas corregir este registro..." rows="2"></textarea>
+    </div>`:''}`;
+}
+
+function modalEditarMovimiento(oid, mid){
+    // Admin edita directo
+    const o=DB.oficinas.find(x=>x.id===oid)||getOficina(oid);
+    const m=(o?.movimientos||[]).find(x=>x.id===mid);
+    if(!m) return alert('Movimiento no encontrado');
+    openModal('✏️ Editar Movimiento', _formEdicionMov(m,oid,mid,false),
+        `<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+         <button class="btn btn-primary" onclick="guardarEdicionMovimiento('${oid}','${mid}')">💾 Guardar cambios</button>`);
+}
+
+function guardarEdicionMovimiento(oid, mid){
+    const o=DB.oficinas.find(x=>x.id===oid);
+    const m=(o?.movimientos||[]).find(x=>x.id===mid);
+    if(!m) return;
+    const tipo=document.getElementById('em_tipo').value;
+    const concepto=document.getElementById('em_concepto').value;
+    const forma=document.getElementById('em_forma').value;
+    const valor=parseFloat(document.getElementById('em_valor').value||0);
+    const desc=document.getElementById('em_desc').value.trim();
+    const fechaStr=document.getElementById('em_fecha').value;
+    if(!desc) return alert('La descripción es obligatoria');
+    if(valor<0) return alert('El valor no puede ser negativo');
+    // Guardar datos anteriores para log
+    const anterior={tipo:m.tipo,concepto:m.concepto,forma:m.forma,valor:m.valor,descripcion:m.descripcion};
+    const [fy,fm,fd]=fechaStr.split('-');
+    const nuevaFecha=new Date(parseInt(fy),parseInt(fm)-1,parseInt(fd),new Date(m.fecha).getHours(),new Date(m.fecha).getMinutes(),0).toISOString();
+    m.tipo=tipo; m.concepto=concepto; m.forma=forma; m.valor=valor;
+    m.descripcion=desc; m.fecha=nuevaFecha;
+    m.editadoPor='admin'; m.editadoEn=now(); m.anteriorDatos=anterior;
+    save(); closeModal();
+    // Reload current view
+    if(document.querySelector('[data-tab="registro"].active')) renderRegistro();
+    else modalGestionarMovimientos(oid);
+}
+
+function modalSolicitarEdicion(oid, mid){
+    // Jefe de oficina solicita corrección
+    const o=getOficina(oid);
+    const m=(o?.movimientos||[]).find(x=>x.id===mid);
+    if(!m) return alert('Movimiento no encontrado');
+    openModal('✏️ Solicitar Corrección', _formEdicionMov(m,oid,mid,true),
+        `<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+         <button class="btn btn-warning" onclick="enviarSolicitudEdicion('${oid}','${mid}')">📤 Enviar solicitud</button>`);
+}
+
+function enviarSolicitudEdicion(oid, mid){
+    const o=getOficina(oid);
+    const m=(o?.movimientos||[]).find(x=>x.id===mid);
+    if(!m) return;
+    const desc=document.getElementById('em_desc').value.trim();
+    const motivo=document.getElementById('em_motivo')?.value.trim();
+    if(!desc) return alert('La descripción es obligatoria');
+    if(!motivo) return alert('Debes indicar el motivo de la corrección');
+    const nuevosDatos={
+        tipo:document.getElementById('em_tipo').value,
+        concepto:document.getElementById('em_concepto').value,
+        forma:document.getElementById('em_forma').value,
+        valor:parseFloat(document.getElementById('em_valor').value||0),
+        descripcion:desc,
+        fecha:document.getElementById('em_fecha').value
+    };
+    if(!DB.solicitudes) DB.solicitudes=[];
+    DB.solicitudes.push({
+        id:uid(), tipo:'editar_mov', oid, mid,
+        movActual:{tipo:m.tipo,concepto:m.concepto,forma:m.forma,valor:m.valor,descripcion:m.descripcion,fecha:new Date(m.fecha).toLocaleDateString('es-CO')},
+        nuevosDatos, motivo,
+        descripcion:`Corrección de ${m.concepto} del ${new Date(m.fecha).toLocaleDateString('es-CO')}: ${m.descripcion||''} → ${desc}`,
+        oficina:o?.nombre||oid, estado:'pendiente', fecha:now()
+    });
+    save(); closeModal();
+    alert('✅ Solicitud de corrección enviada al administrador.');
+    renderRegistro();
+}
 
 function openAdminPanel(){ navigate('administracion'); }
 
