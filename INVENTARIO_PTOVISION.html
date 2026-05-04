@@ -2381,31 +2381,52 @@ function modalEditCuad(cId) {
 
 function modalDevolverMat(cId) {
     const cu = DB.cuadrillas.find(x=>x.id===cId);
-    const mats = cu.materiales.filter(m=>m.cantidad>0);
+    const mats = cu.materiales.map((m,idx)=>({m,idx})).filter(({m})=>m.cantidad>0);
     if(!mats.length) return alert('La cuadrilla no tiene material para devolver.');
     const bodega = DB.bodegas.find(b=>b.id===cu.bodegaId);
     openModal(`↩️ Devolver Material — ${cu.nombre}`,
-        `<div style="background:#fff3cd;padding:10px;border-radius:6px;margin-bottom:15px;font-size:0.88rem;">⚠️ El material seleccionado regresará al inventario de <strong>${bodega?.nombre||'la bodega'}</strong>.</div>
+        `<div style="background:#fff3cd;padding:10px;border-radius:6px;margin-bottom:15px;font-size:0.88rem;">
+            ⚠️ El material regresará al inventario de <strong>${bodega?.nombre||'la bodega asignada'}</strong>.
+        </div>
         <table><thead><tr><th>Artículo</th><th>Disponible</th><th>Cant a devolver</th></tr></thead><tbody>
-        ${mats.map(m=>`<tr><td>${m.nombre} <span class="badge ${m.tipo==='nuevo'?'badge-new':'badge-used'}">${m.tipo}</span></td><td>${m.cantidad} ${m.unidad}</td><td><input type="number" class="form-control" id="dev_${m.id}" min="0" max="${m.cantidad}" value="0" style="width:80px;"></td></tr>`).join('')}
+        ${mats.map(({m,idx})=>`<tr>
+            <td>${m.nombre} <span class="badge ${m.tipo==='nuevo'?'badge-new':'badge-used'}">${m.tipo}</span></td>
+            <td>${m.cantidad} ${m.unidad}</td>
+            <td><input type="number" class="form-control" id="dev_${idx}" min="0" max="${m.cantidad}" value="0" style="width:80px;"></td>
+        </tr>`).join('')}
         </tbody></table>`,
         () => {
-            if(!bodega) return alert('Bodega no encontrada');
+            if(!bodega) return alert('La cuadrilla no tiene bodega asignada. Edita la cuadrilla primero.');
             let devuelto = 0;
-            mats.forEach(m => {
-                const q = parseInt(document.getElementById(`dev_${m.id}`)?.value)||0;
+            mats.forEach(({m,idx}) => {
+                const q = parseInt(document.getElementById(`dev_${idx}`)?.value)||0;
                 if(q<=0 || q>m.cantidad) return;
+                // Devolver SNs si hay
+                const snsDevolver = (m.snes||[]).slice(0, q);
                 m.cantidad -= q;
-                // Devolver al inventario bodega
+                m.snes = (m.snes||[]).slice(q);
+                // Agregar a bodega
                 const ex = bodega.materiales.find(bm=>bm.nombre===m.nombre&&bm.tipo===m.tipo);
-                if(ex) ex.cantidad += q;
-                else bodega.materiales.push({id:Date.now().toString()+Math.random(),nombre:m.nombre,cantidad:q,tipo:m.tipo,unidad:m.unidad,snes:[],fecha:new Date().toLocaleDateString()});
+                if(ex) {
+                    ex.cantidad += q;
+                    ex.snes.push(...snsDevolver);
+                } else {
+                    bodega.materiales.push({
+                        id: Date.now().toString()+Math.random().toString(36).substr(2,4),
+                        nombre:m.nombre, cantidad:q, tipo:m.tipo, unidad:m.unidad,
+                        snes:snsDevolver, stockMin:0, categoria:m.categoria||'material',
+                        observaciones:`Devuelto de cuadrilla ${cu.nombre}`,
+                        fotos:[], fecha:new Date().toLocaleDateString()
+                    });
+                }
                 devuelto += q;
             });
             // Limpiar materiales con cantidad 0
             cu.materiales = cu.materiales.filter(m=>m.cantidad>0);
-            if(devuelto>0) { logMsg(`Devolución de ${devuelto} uds de "${cu.nombre}" a "${bodega.nombre}"`); save(); closeModal(); renderTab('cuads'); }
-            else alert('Ingresa al menos una cantidad a devolver.');
+            if(devuelto>0) {
+                logMsg(`Devolución: ${devuelto} uds de "${cu.nombre}" → "${bodega.nombre}"`);
+                save(); closeModal(); renderTab('cuads');
+            } else alert('Ingresa al menos una cantidad a devolver.');
         });
 }
 
