@@ -245,6 +245,7 @@
                 <button class="nav-btn bodega-only" data-tab="inv_global">🔍 Inv. Bodegas</button>
                 <button class="nav-btn" data-tab="recuperados">♻️ Recuperados</button>
                 <button class="nav-btn" data-tab="danados">🔴 Equipos Dañados</button>
+                <button class="nav-btn" data-tab="ventas">💰 Ventas</button>
             </div>
         </div>
 
@@ -301,7 +302,7 @@
 
 <script>
 const DB_KEY = 'invPro_V9_Seguro';
-let DB = { bodegas:[], cuadrillas:[], entregas:[], instalaciones:[], logs:[], transfers:[], recuperados:[], deleteRequests:[], editRequests:[], clientes:[], adminPass:'admin123' };
+let DB = { bodegas:[], cuadrillas:[], entregas:[], instalaciones:[], logs:[], transfers:[], recuperados:[], deleteRequests:[], editRequests:[], clientes:[], ventas:[], adminPass:'admin123' };
 let USER = null, selBodegaLogin = null, TempLists = {};
 
 const UNIDADES = [
@@ -474,6 +475,7 @@ function setupNav() {
 function navigate(tab) { document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active')); document.querySelector(`.nav-btn[data-tab="${tab}"]`)?.classList.add('active'); renderTab(tab); }
 function renderTab(tab) { const main=id('main-content'); if(!main) return; try { switch(tab) { case 'dash': renderDash(main); break; case 'bodegas': renderBodegas(main); break; case 'clientes': renderClientes(main); break; case 'vista_global': renderVistaGlobal(main); break; case 'inv_global': renderInvGlobal(main); break; case 'transfer': renderTransfer(main); break; case 'recuperados': renderRecuperados(main); break; case 'danados': renderEquiposDanados(main); break; case 'cuads': renderCuads(main); break; case 'entregas': renderEntregas(main); break; case 'inst': renderInst(main); break; case 'busqueda': renderBusquedaGlobal(main); break;
             case 'reportes': renderReportes(main); break;
+            case 'ventas': renderVentas(main); break;
             case 'delete_req': renderDeleteReq(main); break; case 'admin': renderAdmin(main); break; } } catch(e) { alert("Error: "+e.message); console.error(e); } }
 function getUserBodegas() { return USER.role==='admin'?DB.bodegas:DB.bodegas.filter(b=>b.id===USER.id); }
 function getUserCuads() { return USER.role==='admin'?DB.cuadrillas:DB.cuadrillas.filter(c=>c.bodegaId===USER.id); }
@@ -1399,6 +1401,160 @@ function modalRetiroParcial(cliId, eqIdx) {
         });
 }
 window.modalRetiroParcial = modalRetiroParcial;
+
+// ── VENTAS ────────────────────────────────────────────────────────────────────
+function renderVentas(c) {
+    if(!DB.ventas) DB.ventas=[];
+    const total = DB.ventas.reduce((s,v)=>s+(v.total||0),0);
+    c.innerHTML = `<div class="card">
+        <div class="card-header">
+            <h2>💰 Ventas de Equipos</h2>
+            <button class="btn btn-primary" onclick="modalNewVenta()">➕ Registrar Venta</button>
+        </div>
+        <div class="flex" style="gap:15px;margin-bottom:15px;flex-wrap:wrap;">
+            <div class="card text-center" style="flex:1;min-width:140px;border-left:4px solid #16a085;">
+                <h2>${DB.ventas.length}</h2><p class="text-muted">Total Ventas</p>
+            </div>
+            <div class="card text-center" style="flex:1;min-width:140px;border-left:4px solid #27ae60;">
+                <h2>$${total.toLocaleString()}</h2><p class="text-muted">Ingresos Totales</p>
+            </div>
+        </div>
+        ${DB.ventas.length ? `
+        <div class="table-wrap"><table>
+            <thead><tr><th>Fecha</th><th>Artículo</th><th>Cant</th><th>SNs</th><th>Bodega</th><th>Comprador</th><th>Precio Unit.</th><th>Total</th><th></th></tr></thead>
+            <tbody>${[...DB.ventas].reverse().map((v,i)=>`<tr>
+                <td>${v.fecha}</td>
+                <td><strong>${v.nombre}</strong> <span class="badge ${v.tipo==='nuevo'?'badge-new':'badge-used'}">${v.tipo}</span></td>
+                <td>${v.cantidad} ${v.unidad}</td>
+                <td>${v.snes?.length ? v.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' ') : '-'}</td>
+                <td>${v.bodegaNombre}</td>
+                <td>${v.comprador||'-'}</td>
+                <td>$${(v.precioUnit||0).toLocaleString()}</td>
+                <td><strong>$${(v.total||0).toLocaleString()}</strong></td>
+                <td><button class="btn btn-danger btn-sm" onclick="eliminarVenta(${DB.ventas.length-1-i})">🗑️</button></td>
+            </tr>`).join('')}
+            </tbody>
+        </table></div>` : '<p class="text-muted text-center" style="padding:20px;">Sin ventas registradas.</p>'}
+    </div>`;
+}
+
+function modalNewVenta() {
+    const bodOpts = (USER.role==='admin' ? DB.bodegas : DB.bodegas.filter(b=>b.id===USER.id))
+        .map(b=>`<option value="${b.id}">${b.nombre}</option>`).join('');
+
+    openModal('💰 Registrar Venta',
+        `<div class="form-row">
+            <div class="form-group"><label>Bodega *</label>
+                <select id="vBod" class="form-control" onchange="loadVentaMats()">
+                    <option value="">-- Seleccione --</option>${bodOpts}
+                </select>
+            </div>
+            <div class="form-group"><label>Fecha *</label>
+                <input id="vFecha" type="date" class="form-control" value="${new Date().toISOString().split('T')[0]}">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>Material *</label>
+                <select id="vMat" class="form-control" onchange="loadVentaSNs()">
+                    <option value="">-- Seleccione bodega primero --</option>
+                </select>
+            </div>
+            <div class="form-group"><label>Cantidad *</label>
+                <input id="vCant" type="number" value="1" min="1" class="form-control" oninput="loadVentaSNs()">
+            </div>
+        </div>
+        <div id="vSnArea"></div>
+        <div class="form-row">
+            <div class="form-group"><label>Comprador</label>
+                <input id="vComprador" class="form-control" placeholder="Nombre del comprador">
+            </div>
+            <div class="form-group"><label>Precio unitario ($) *</label>
+                <input id="vPrecio" type="number" min="0" class="form-control" placeholder="0">
+            </div>
+        </div>
+        <div class="form-group"><label>Observaciones</label>
+            <input id="vObs" class="form-control" placeholder="Opcional">
+        </div>`,
+        () => {
+            const bodId    = id('vBod').value;
+            const matIdx   = parseInt(id('vMat').value);
+            const cant     = parseInt(id('vCant').value)||0;
+            const precio   = parseFloat(id('vPrecio').value)||0;
+            const comprador= id('vComprador').value.trim();
+            const obs      = id('vObs').value.trim();
+            const fecha    = id('vFecha').value;
+
+            if(!bodId) return alert('Seleccione la bodega');
+            if(isNaN(matIdx)) return alert('Seleccione el material');
+            if(cant<=0) return alert('Cantidad inválida');
+            if(precio<=0) return alert('Ingrese el precio unitario');
+
+            const bodega = DB.bodegas.find(x=>x.id===bodId);
+            const mat = bodega.materiales[matIdx];
+            if(!mat) return alert('Material no encontrado');
+            if(mat.cantidad < cant) return alert(`Stock insuficiente. Disponible: ${mat.cantidad}`);
+
+            const snChecked = [...document.querySelectorAll('.vSnCheck:checked')].map(cb=>cb.value);
+            if((mat.snes||[]).length>0 && snChecked.length!==cant)
+                return alert(`Selecciona exactamente ${cant} serial(es)`);
+
+            // Descontar de bodega
+            mat.cantidad -= cant;
+            mat.snes = (mat.snes||[]).filter(s=>!snChecked.includes(s));
+
+            // Registrar venta
+            if(!DB.ventas) DB.ventas=[];
+            DB.ventas.push({
+                id: Date.now().toString(),
+                fecha, bodegaId: bodId, bodegaNombre: bodega.nombre,
+                nombre: mat.nombre, cantidad: cant, unidad: mat.unidad, tipo: mat.tipo,
+                snes: snChecked, comprador, precioUnit: precio,
+                total: precio * cant, obs,
+                reg: new Date().toISOString()
+            });
+
+            logMsg(`Venta: ${cant} "${mat.nombre}" de "${bodega.nombre}" — $${(precio*cant).toLocaleString()}`);
+            save(); closeModal(); renderTab('ventas');
+        });
+}
+window.modalNewVenta = modalNewVenta;
+
+function loadVentaMats() {
+    const bodId = id('vBod')?.value;
+    const matEl = id('vMat');
+    if(!matEl) return;
+    const bodega = DB.bodegas.find(x=>x.id===bodId);
+    matEl.innerHTML = '<option value="">-- Seleccione material --</option>' +
+        (bodega?.materiales.map((m,idx)=>({m,idx})).filter(({m})=>m.cantidad>0)
+        .map(({m,idx})=>`<option value="${idx}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`).join('')||'');
+    if(id('vSnArea')) id('vSnArea').innerHTML='';
+}
+window.loadVentaMats = loadVentaMats;
+
+function loadVentaSNs() {
+    const bodId  = id('vBod')?.value;
+    const matIdx = parseInt(id('vMat')?.value);
+    const cant   = parseInt(id('vCant')?.value)||1;
+    const area   = id('vSnArea');
+    if(!area || isNaN(matIdx)) return;
+    const bodega = DB.bodegas.find(x=>x.id===bodId);
+    const mat = bodega?.materiales[matIdx];
+    if(!mat || !(mat.snes||[]).length) { area.innerHTML=''; return; }
+    area.innerHTML = `<div class="form-group" style="margin-top:8px;">
+        <label>Seriales a vender <small class="text-muted">(selecciona ${cant})</small></label>
+        <div class="sn-select-area" style="max-height:130px;overflow-y:auto;">
+            ${mat.snes.map(sn=>`<label class="sn-check"><input type="checkbox" class="vSnCheck" value="${sn}"><span class="sn-label">${sn}</span></label>`).join('')}
+        </div>
+    </div>`;
+}
+window.loadVentaSNs = loadVentaSNs;
+
+function eliminarVenta(idx) {
+    if(!confirm('¿Eliminar este registro de venta?')) return;
+    DB.ventas.splice(idx,1);
+    save(); renderTab('ventas');
+}
+window.eliminarVenta = eliminarVenta;
 
 function renderEquiposDanados(c) {
     if(!DB.equiposDanados) DB.equiposDanados = [];
@@ -2385,27 +2541,51 @@ function modalDevolverMat(cId) {
     const mats = cu.materiales.map((m,idx)=>({m,idx})).filter(({m})=>m.cantidad>0);
     if(!mats.length) return alert('La cuadrilla no tiene material para devolver.');
     const bodega = DB.bodegas.find(b=>b.id===cu.bodegaId);
+
+    const filas = mats.map(({m,idx})=>`
+        <tr>
+            <td><strong>${m.nombre}</strong> <span class="badge ${m.tipo==='nuevo'?'badge-new':'badge-used'}">${m.tipo}</span></td>
+            <td>${m.cantidad} ${m.unidad}</td>
+            <td><input type="number" class="form-control dev-cant" id="dev_${idx}" data-idx="${idx}" min="0" max="${m.cantidad}" value="0" style="width:80px;" oninput="updateDevSNs(${idx})"></td>
+        </tr>
+        ${(m.snes||[]).length ? `<tr>
+            <td colspan="3">
+                <div id="devSNArea_${idx}" style="display:none;background:#f0f4ff;padding:8px;border-radius:6px;margin:4px 0;">
+                    <small class="text-muted">Selecciona los seriales a devolver:</small>
+                    <div class="sn-select-area" style="max-height:100px;overflow-y:auto;margin-top:4px;">
+                        ${(m.snes||[]).map(sn=>`<label class="sn-check"><input type="checkbox" class="devSN_${idx}" value="${sn}"> <span class="sn-label">${sn}</span></label>`).join('')}
+                    </div>
+                </div>
+            </td>
+        </tr>` : ''}
+    `).join('');
+
     openModal(`↩️ Devolver Material — ${cu.nombre}`,
         `<div style="background:#fff3cd;padding:10px;border-radius:6px;margin-bottom:15px;font-size:0.88rem;">
-            ⚠️ El material regresará al inventario de <strong>${bodega?.nombre||'la bodega asignada'}</strong>.
+            ⚠️ El material regresará a <strong>${bodega?.nombre||'la bodega asignada'}</strong>.
         </div>
-        <table><thead><tr><th>Artículo</th><th>Disponible</th><th>Cant a devolver</th></tr></thead><tbody>
-        ${mats.map(({m,idx})=>`<tr>
-            <td>${m.nombre} <span class="badge ${m.tipo==='nuevo'?'badge-new':'badge-used'}">${m.tipo}</span></td>
-            <td>${m.cantidad} ${m.unidad}</td>
-            <td><input type="number" class="form-control" id="dev_${idx}" min="0" max="${m.cantidad}" value="0" style="width:80px;"></td>
-        </tr>`).join('')}
-        </tbody></table>`,
+        <div class="table-wrap"><table>
+            <thead><tr><th>Artículo</th><th>Disponible</th><th>Cant a devolver</th></tr></thead>
+            <tbody>${filas}</tbody>
+        </table></div>`,
         () => {
-            if(!bodega) return alert('La cuadrilla no tiene bodega asignada. Edita la cuadrilla primero.');
+            if(!bodega) return alert('La cuadrilla no tiene bodega asignada.');
             let devuelto = 0;
             mats.forEach(({m,idx}) => {
                 const q = parseInt(document.getElementById(`dev_${idx}`)?.value)||0;
                 if(q<=0 || q>m.cantidad) return;
-                // Devolver SNs si hay
-                const snsDevolver = (m.snes||[]).slice(0, q);
+
+                // Get selected SNs
+                const snChecks = [...document.querySelectorAll(`.devSN_${idx}:checked`)].map(cb=>cb.value);
+                const tieneSNs = (m.snes||[]).length > 0;
+                if(tieneSNs && snChecks.length !== q) return alert(`Selecciona exactamente ${q} serial(es) para "${m.nombre}"`);
+
+                const snsDevolver = tieneSNs ? snChecks : [];
+
+                // Descontar de cuadrilla
                 m.cantidad -= q;
-                m.snes = (m.snes||[]).slice(q);
+                m.snes = (m.snes||[]).filter(s=>!snsDevolver.includes(s));
+
                 // Agregar a bodega
                 const ex = bodega.materiales.find(bm=>bm.nombre===m.nombre&&bm.tipo===m.tipo);
                 if(ex) {
@@ -2422,7 +2602,6 @@ function modalDevolverMat(cId) {
                 }
                 devuelto += q;
             });
-            // Limpiar materiales con cantidad 0
             cu.materiales = cu.materiales.filter(m=>m.cantidad>0);
             if(devuelto>0) {
                 logMsg(`Devolución: ${devuelto} uds de "${cu.nombre}" → "${bodega.nombre}"`);
@@ -2430,6 +2609,11 @@ function modalDevolverMat(cId) {
             } else alert('Ingresa al menos una cantidad a devolver.');
         });
 }
+window.updateDevSNs = function(idx) {
+    const q = parseInt(document.getElementById(`dev_${idx}`)?.value)||0;
+    const area = document.getElementById(`devSNArea_${idx}`);
+    if(area) area.style.display = q>0 ? 'block' : 'none';
+};
 
 function modalVerDotacion(cId, tId) {
     const cu = DB.cuadrillas.find(x=>x.id===cId);
@@ -3576,6 +3760,7 @@ window.showSync = showSync;
 
 function fixDB() {
     if(!DB.deleteRequests) DB.deleteRequests=[];
+    if(!DB.ventas) DB.ventas=[];
     if(!DB.editRequests) DB.editRequests=[];
     if(!DB.recuperados) DB.recuperados=[];
     if(!DB.clientes) DB.clientes=[];
