@@ -1169,9 +1169,13 @@ function renderRegistro(){
     const o=getOficina(oid);
     if(!o){ content.innerHTML=''; return; }
     const movs=o.movimientos||[];
+    // Usar la fecha seleccionada en el selector (no necesariamente hoy)
+    const _regFechaVal=document.getElementById('reg_fecha')?.value||new Date().toISOString().slice(0,10);
+    const [_rfy,_rfm,_rfd]=_regFechaVal.split('-').map(Number);
+    const _regFechaSel=new Date(_rfy,_rfm-1,_rfd);
     const hoyMovs=movs.filter(m=>{
-        const d=new Date(m.fecha); const n=new Date();
-        return d.getDate()===n.getDate()&&d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear();
+        const d=new Date(m.fecha);
+        return d.getDate()===_regFechaSel.getDate()&&d.getMonth()===_regFechaSel.getMonth()&&d.getFullYear()===_regFechaSel.getFullYear();
     });
     const ingHoy=hoyMovs.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
     const egrHoy=hoyMovs.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
@@ -1198,7 +1202,7 @@ function renderRegistro(){
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:16px;">
 
         <div class="caja-display" style="flex-direction:column;align-items:flex-start;gap:4px;">
-            <div class="label">💵 Caja Efectivo</div>
+            <div class="label">💵 Caja Efectivo <span style="font-size:0.65rem;color:var(--muted);">${_regFechaVal===new Date().toISOString().slice(0,10)?'hoy':_regFechaSel.toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit'})}</span></div>
             <div class="amount" style="font-size:1.5rem;">${fmtShort(ingEf-egrEf)}</div>
             <div style="font-size:0.75rem;margin-top:2px;display:flex;gap:10px;">
                 <span style="color:#10b981;">▲ ${fmtShort(ingEf)}</span>
@@ -1347,7 +1351,7 @@ function renderRegistro(){
 
     <div class="card">
         <div class="card-header">
-            <h2>📋 Movimientos de hoy <span>— ${hoy()}</span></h2>
+            <h2>📋 Movimientos del día <span>— ${_regFechaSel.toLocaleDateString('es-CO',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</span></h2>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button class="btn btn-outline btn-sm" onclick="verMovimientosMes('${oid}')">📅 Ver mes</button>
                 <button class="btn btn-outline btn-sm" onclick="modalCargaMasiva('${oid}')">📤 Carga masiva</button>
@@ -1419,6 +1423,27 @@ function checkFechaRegistro(fechaStr, oid){
     const esAdmin=USER.role==='admin';
     if(bIng) bIng.textContent=(!esHoy&&!esAdmin)?'📤 Enviar solicitud de ingreso':'✅ Registrar Ingreso';
     if(bEgr) bEgr.textContent=(!esHoy&&!esAdmin)?'📤 Enviar solicitud de egreso':'📤 Registrar Egreso';
+    // Re-render the movimientos list for the selected date
+    _actualizarTablaMovimientos(oid);
+}
+
+function _actualizarTablaMovimientos(oid){
+    // Refresh only the movimientos card without re-rendering the full page
+    const o=getOficina(oid);
+    if(!o) return;
+    const movs=o.movimientos||[];
+    const regFechaVal=document.getElementById('reg_fecha')?.value||new Date().toISOString().slice(0,10);
+    const [rfy,rfm,rfd]=regFechaVal.split('-').map(Number);
+    const regFechaSel=new Date(rfy,rfm-1,rfd);
+    const diaMovs=movs.filter(m=>{
+        const d=new Date(m.fecha);
+        return d.getDate()===regFechaSel.getDate()&&d.getMonth()===regFechaSel.getMonth()&&d.getFullYear()===regFechaSel.getFullYear();
+    });
+    const ingD=diaMovs.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
+    const egrD=diaMovs.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
+    // Update caja numbers
+    // Simpler: just call renderRegistro to refresh everything
+    renderRegistro();
 }
 
 function registrarMovimiento(oid,tipo){
