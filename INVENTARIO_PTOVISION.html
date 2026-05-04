@@ -416,7 +416,7 @@ function enterApp() {
     id('login-screen').style.display = 'none';
     id('app').classList.remove('hidden');
     applyRoles(); setupNav(); navigate('dash');
-    try { localStorage.setItem('pv_session', JSON.stringify({role:USER.role, id:USER.id, nombre:USER.nombre})); } catch(e){}
+    try { if(window.USER) localStorage.setItem('pv_session', JSON.stringify({role:USER.role, id:USER.id, nombre:USER.nombre})); } catch(e){}
 }
 function applyRoles() {
     const badge=id('userBadge');
@@ -3676,15 +3676,17 @@ async function startFirebase(config) {
 
     // Restaurar sesión si hay una guardada (F5 / recarga)
     try {
-        const saved = JSON.parse(localStorage.getItem('pv_session'));
-        if(saved && saved.role) {
-            if(saved.role === 'admin') {
-                window.USER = { role:'admin' };
-            } else {
-                const bodega = DB.bodegas.find(b=>b.id===saved.id);
-                if(bodega) window.USER = { role:'bodega', id:bodega.id, nombre:bodega.nombre };
+        const savedSession = JSON.parse(localStorage.getItem('pv_session'));
+        if(savedSession && savedSession.role) {
+            let restoredUser = null;
+            if(savedSession.role === 'admin') {
+                restoredUser = { role:'admin' };
+            } else if(savedSession.role === 'bodega' && savedSession.id) {
+                const bodega = DB.bodegas.find(b=>b.id===savedSession.id);
+                if(bodega) restoredUser = { role:'bodega', id:bodega.id, nombre:bodega.nombre };
             }
-            if(window.USER) {
+            if(restoredUser) {
+                window.USER = restoredUser;
                 document.getElementById('login-screen').style.display = 'none';
                 document.getElementById('app').classList.remove('hidden');
                 initDarkMode();
@@ -3692,6 +3694,7 @@ async function startFirebase(config) {
                 setInterval(buildNotifications, 60000);
                 applyRoles(); setupNav(); navigate('dash');
             } else {
+                localStorage.removeItem('pv_session');
                 document.getElementById('login-screen').style.display='flex';
             }
         } else {
