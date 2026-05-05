@@ -1958,6 +1958,15 @@ function verMovimientosMes(oid){
                     <td style="color:var(--muted);font-size:0.75rem;">${m.descripcion||'-'}</td>
                     <td><span class="tag ${m.forma==='Efectivo'?'tag-ef':m.forma==='Efecty'?'tag-efty':'tag-banc'}">${m.forma}</span></td>
                     <td class="money ${m.tipo==='ingreso'?'pos':'neg'}">${m.tipo==='ingreso'?'+':'-'}${fmtShort(m.valor)}</td>
+                    <td>
+                        ${m.esPagoAdmin
+                            ? '<span style="font-size:0.68rem;color:var(--muted);">👑</span>'
+                            : (USER.role==='admin'
+                                ? `<button class="btn btn-outline btn-sm" onclick="closeModal();setTimeout(()=>modalEditarMovimiento('${oid}','${m.id}'),100)">✏️</button>`
+                                : `<button class="btn btn-outline btn-sm" onclick="closeModal();setTimeout(()=>modalSolicitarEdicion('${oid}','${m.id}'),100)" title="Solicitar corrección">✏️ Solicitar</button>`
+                              )
+                        }
+                    </td>
                 </tr>`).join('')}
             </tbody>
         </table></div>
@@ -7131,8 +7140,8 @@ function _formEdicionMov(m, oid, mid, esSolicitud=false){
 }
 
 function modalEditarMovimiento(oid, mid){
-    // Admin edita directo
-    const o=DB.oficinas.find(x=>x.id===oid)||getOficina(oid);
+    // Admin edita directo — buscar en todas las oficinas sin filtro de rol
+    const o=DB.oficinas.find(x=>x.id===oid);
     const m=(o?.movimientos||[]).find(x=>x.id===mid);
     if(!m) return alert('Movimiento no encontrado');
     openModal('✏️ Editar Movimiento', _formEdicionMov(m,oid,mid,false),
@@ -7166,8 +7175,8 @@ function guardarEdicionMovimiento(oid, mid){
 }
 
 function modalSolicitarEdicion(oid, mid){
-    // Jefe de oficina solicita corrección
-    const o=getOficina(oid);
+    // Jefe de oficina solicita corrección — buscar la oficina sin filtro
+    const o=DB.oficinas.find(x=>x.id===oid)||getOficina(oid);
     const m=(o?.movimientos||[]).find(x=>x.id===mid);
     if(!m) return alert('Movimiento no encontrado');
     openModal('✏️ Solicitar Corrección', _formEdicionMov(m,oid,mid,true),
@@ -7176,7 +7185,7 @@ function modalSolicitarEdicion(oid, mid){
 }
 
 function enviarSolicitudEdicion(oid, mid){
-    const o=getOficina(oid);
+    const o=DB.oficinas.find(x=>x.id===oid)||getOficina(oid);
     const m=(o?.movimientos||[]).find(x=>x.id===mid);
     if(!m) return;
     const desc=document.getElementById('em_desc').value.trim();
