@@ -6936,7 +6936,7 @@ function modalComprobantes(oid, mid){
                     <div style="font-size:0.65rem;color:var(--muted);">${new Date(c.fecha).toLocaleDateString('es-CO')}</div>
                 </div>
                 <div style="display:flex;gap:4px;padding:0 6px 6px;">
-                    <a href="${c.url}" target="_blank" class="btn btn-outline btn-sm" style="flex:1;text-align:center;font-size:0.68rem;padding:3px;">👁️ Ver</a>
+                    <a href="${c.url.replace('/upload/','/upload/fl_attachment/')}" target="_blank" class="btn btn-outline btn-sm" style="flex:1;text-align:center;font-size:0.68rem;padding:3px;">👁️ Ver</a>
                     <button class="btn btn-danger btn-sm" style="font-size:0.68rem;padding:3px 6px;" onclick="eliminarComp('${oid}','${mid}',${i})">🗑️</button>
                 </div>
             </div>`).join('')}
@@ -6973,21 +6973,46 @@ async function procesarArchivos(files, oid, mid){
     const imageFiles=[...files].filter(f=>f.type.startsWith('image/'));
     const otherFiles=[...files].filter(f=>!f.type.startsWith('image/'));
 
-    // Step 1: Convert images to PDF using canvas
+    // Step 1: Save originals as base64 in memory for IA, then convert to PDF for storage
     if(imageFiles.length>0){
         try{
             if(progEl) progEl.innerHTML=_progHTML(`📋 Generando PDF con ${imageFiles.length} imagen(es)...`, 10);
-            const pdfBlob=await _imagesToPDF(imageFiles, mid, (i,total)=>{
-                if(progEl) progEl.innerHTML=_progHTML(`🖼️ Procesando imagen ${i} de ${total}...`, Math.round(i/total*60));
-            });
-            if(progEl) progEl.innerHTML=_progHTML('☁️ Subiendo PDF a Cloudinary...', 70);
+
+            // Save base64 of originals in memory so IA can verify later
+            const b64Originals=[];
+            for(let i=0;i<imageFiles.length;i++){
+                if(progEl) progEl.innerHTML=_progHTML(`🖼️ Procesando imagen ${i+1} de ${imageFiles.length}...`, Math.round((i/imageFiles.length)*55));
+                const b64=await new Promise(res=>{
+                    const reader=new FileReader();
+                    reader.onload=e=>res(e.target.result);
+                    reader.readAsDataURL(imageFiles[i]);
+                });
+                b64Originals.push({data:b64, type:imageFiles[i].type||'image/jpeg'});
+            }
+            // Store in window for IA verification (keyed by movimiento id)
+            if(!window._compImgCache) window._compImgCache={};
+            window._compImgCache[mid]=b64Originals;
+
+            // Generate PDF from images
+            const images=await Promise.all(imageFiles.map(f=>new Promise((res,rej)=>{
+                const img=new Image(); const reader=new FileReader();
+                reader.onload=e=>{img.onload=()=>res(img);img.onerror=rej;img.src=e.target.result;};
+                reader.onerror=rej; reader.readAsDataURL(f);
+            })));
+
+            if(progEl) progEl.innerHTML=_progHTML('📄 Creando PDF...', 65);
+            const pdfBlob=await _buildPDF(images);
+            if(progEl) progEl.innerHTML=_progHTML('☁️ Subiendo a Cloudinary...', 80);
             const fechaStr=new Date().toLocaleDateString('es-CO').replace(/\//g,'-');
-            const pdfFile=new File([pdfBlob], `comprobantes_${fechaStr}_${imageFiles.length}imgs.pdf`,{type:'application/pdf'});
+            const pdfFile=new File([pdfBlob],`comprobantes_${fechaStr}_${imageFiles.length}imgs.pdf`,{type:'application/pdf'});
             const res=await subirArchivoCloudinary(pdfFile, mid);
-            m.comprobantes.push({url:res.url, nombre:pdfFile.name, tipo:'pdf', fecha:new Date().toISOString(), imagenes:imageFiles.length});
-            if(progEl) progEl.innerHTML=_progHTML(`✅ PDF subido (${imageFiles.length} imágenes)`, 100, true);
+            m.comprobantes.push({
+                url:res.url, nombre:pdfFile.name, tipo:'pdf',
+                fecha:new Date().toISOString(), imagenes:imageFiles.length
+            });
+            if(progEl) progEl.innerHTML=_progHTML(`✅ PDF subido con ${imageFiles.length} imagen(es)`, 100, true);
         }catch(e){
-            if(progEl) progEl.innerHTML=`<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px;font-size:0.82rem;color:#ef4444;">⚠️ Error al generar PDF: ${e.message}</div>`;
+            if(progEl) progEl.innerHTML=`<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px;font-size:0.82rem;color:#ef4444;">⚠️ Error: ${e.message}</div>`;
         }
     }
 
@@ -7241,56 +7266,48 @@ async function verificarComprobantesIA(oid, mid){
     if(resEl) resEl.innerHTML=_iaLoadingHTML();
 
     try{
-        // Fetch images as base64 for Claude API
-        const imagenes=comps.filter(c=>c.tipo!=='pdf');
+        // Use cached base64 images (saved when uploaded) OR fetch from Cloudinary
+        const cachedImgs=(window._compImgCache&&window._compImgCache[mid])||[];
         const pdfs=comps.filter(c=>c.tipo==='pdf');
 
-        // Build message content with images
+        // Build message content
         const msgContent=[];
-        msgContent.push({type:'text',text:`Eres un asistente experto en verificación de comprobantes bancarios colombianos.
-Analiza los siguientes comprobantes de pago y extrae el valor de cada transferencia o transacción.
-El movimiento registrado en el sistema es: ${m.concepto} por ${fmtShort(m.valor)} (${m.forma}).
-Fecha del registro: ${new Date(m.fecha).toLocaleDateString('es-CO')}.
+        msgContent.push({type:'text',text:`Eres un experto en verificación de comprobantes bancarios colombianos (Bancolombia, Nequi, Daviplata, etc).
+Analiza los comprobantes de pago adjuntos y extrae el valor de CADA transacción.
 
-Por favor:
-1. Identifica el valor de cada comprobante
+Movimiento registrado: ${m.concepto} — ${m.descripcion||''}
+Valor registrado: $${m.valor.toLocaleString('es-CO')} (${m.forma})
+Fecha: ${new Date(m.fecha).toLocaleDateString('es-CO')}
+
+Instrucciones:
+1. Lee cada comprobante y extrae el valor exacto de la transacción
 2. Suma todos los valores encontrados
-3. Compara la suma con el valor registrado (${m.valor})
-4. Responde en formato JSON así:
-{
-  "comprobantes": [
-    {"numero": 1, "valor": 50000, "descripcion": "Transferencia a..."},
-    {"numero": 2, "valor": 30000, "descripcion": "Pago desde..."}
-  ],
-  "totalEncontrado": 80000,
-  "totalRegistrado": ${m.valor},
-  "diferencia": 0,
-  "cuadra": true,
-  "observacion": "Los comprobantes suman exactamente el valor registrado"
-}`});
+3. Compara con el valor registrado (${m.valor})
+4. Responde SOLO en JSON con este formato exacto:
+{"comprobantes":[{"numero":1,"valor":50000,"descripcion":"Transferencia Nequi"},{"numero":2,"valor":30000,"descripcion":"Bancolombia app"}],"totalEncontrado":80000,"totalRegistrado":${m.valor},"diferencia":${m.valor}-80000,"cuadra":false,"observacion":"Descripción del resultado"}`});
 
-        // Add images (limit to 10 to avoid token overflow)
-        const imagenesLimitadas=imagenes.slice(0,10);
-        for(const comp of imagenesLimitadas){
-            try{
-                // Fetch image and convert to base64
-                const resp=await fetch(comp.url);
-                const blob=await resp.blob();
-                const b64=await _blobToBase64(blob);
-                const mediaType=blob.type||'image/jpeg';
-                msgContent.push({type:'image',source:{type:'base64',media_type:mediaType,data:b64.split(',')[1]}});
-            }catch(e){ console.warn('No se pudo cargar imagen:', comp.url); }
-        }
-
-        if(pdfs.length>0){
-            msgContent.push({type:'text',text:`Nota: También hay ${pdfs.length} archivo(s) PDF adjunto(s) que no se pueden analizar directamente aquí. Los valores de las imágenes analizadas son los que se muestran arriba.`});
-        }
-
-        if(imagenesLimitadas.length===0&&pdfs.length>0){
+        // Add cached images first (better quality, no CORS issues)
+        let imagenesAnalizadas=0;
+        if(cachedImgs.length>0){
+            const limite=Math.min(cachedImgs.length,10);
+            for(let i=0;i<limite;i++){
+                const img=cachedImgs[i];
+                const mediaType=img.type||'image/jpeg';
+                const data=img.data.includes(',')? img.data.split(',')[1]:img.data;
+                msgContent.push({type:'image',source:{type:'base64',media_type:mediaType,data}});
+                imagenesAnalizadas++;
+            }
+        } else if(pdfs.length>0){
+            // No cached images and only PDFs
             if(resEl) resEl.innerHTML=_iaResultHTML(null,'pdf_only');
             if(btnEl){ btnEl.disabled=false; btnEl.textContent='🔍 Verificar con IA'; }
             return;
+        } else {
+            if(resEl) resEl.innerHTML=`<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px;font-size:0.82rem;color:#f59e0b;">⚠️ No hay imágenes para analizar. Sube los comprobantes primero.</div>`;
+            if(btnEl){ btnEl.disabled=false; btnEl.textContent='🔍 Verificar con IA'; }
+            return;
         }
+        const imagenesLimitadas={length:imagenesAnalizadas};
 
         // Call Claude API
         const response=await fetch('https://api.anthropic.com/v1/messages',{
@@ -7313,7 +7330,7 @@ Por favor:
             if(jsonMatch) resultado=JSON.parse(jsonMatch[0]);
         }catch(e){ console.error('Parse error',e); }
 
-        if(resEl) resEl.innerHTML=_iaResultHTML(resultado,'ok',rawText,imagenesLimitadas.length);
+        if(resEl) resEl.innerHTML=_iaResultHTML(resultado,'ok',rawText,imagenesAnalizadas);
 
     }catch(e){
         console.error('Error IA:',e);
