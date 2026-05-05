@@ -1159,6 +1159,9 @@ function renderDashCharts(oficinas){
 
 // ─── REGISTRO DIARIO ─────────────────────────────────────────────────────────
 function renderRegistro(){
+    // Preserve selected date across re-renders
+    const _existingDate=document.getElementById('reg_fecha')?.value;
+    if(_existingDate) window._regFechaPreserve=_existingDate;
     const content=document.getElementById('appContent');
     const oficinas=currentOficinas();
     if(oficinas.length===0){
@@ -1169,8 +1172,8 @@ function renderRegistro(){
     const o=getOficina(oid);
     if(!o){ content.innerHTML=''; return; }
     const movs=o.movimientos||[];
-    // Usar la fecha seleccionada en el selector (no necesariamente hoy)
-    const _regFechaVal=document.getElementById('reg_fecha')?.value||new Date().toISOString().slice(0,10);
+    // Usar la fecha seleccionada: primero window._regFechaPreserve, luego el input, luego hoy
+    const _regFechaVal=window._regFechaPreserve||document.getElementById('reg_fecha')?.value||new Date().toISOString().slice(0,10);
     const [_rfy,_rfm,_rfd]=_regFechaVal.split('-').map(Number);
     const _regFechaSel=new Date(_rfy,_rfm-1,_rfd);
     const hoyMovs=movs.filter(m=>{
@@ -1244,14 +1247,14 @@ function renderRegistro(){
         <div style="display:flex;align-items:center;gap:8px;flex:1;flex-wrap:wrap;">
             <span style="font-size:0.82rem;font-weight:600;color:var(--text);">📅 Fecha del registro:</span>
             <input type="date" id="reg_fecha" class="form-control" style="width:auto;"
-                value="${new Date().toISOString().slice(0,10)}"
+                value="${window._regFechaPreserve||new Date().toISOString().slice(0,10)}"
                 max="${new Date().toISOString().slice(0,10)}"
                 onchange="checkFechaRegistro(this.value,'${oid}')">
             <div id="reg_fecha_aviso" style="display:none;font-size:0.75rem;color:#f59e0b;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);padding:4px 10px;border-radius:6px;">
                 ⚠️ Estás registrando en una fecha anterior. Se enviará solicitud de aprobación al administrador.
             </div>
         </div>
-        <button class="btn btn-outline btn-sm" onclick="document.getElementById('reg_fecha').value=new Date().toISOString().slice(0,10);checkFechaRegistro(new Date().toISOString().slice(0,10),'${oid}')">Hoy</button>
+        <button class="btn btn-outline btn-sm" onclick="window._regFechaPreserve=null;document.getElementById('reg_fecha').value=new Date().toISOString().slice(0,10);checkFechaRegistro(new Date().toISOString().slice(0,10),'${oid}')">Hoy</button>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr 240px;gap:14px;margin-bottom:16px;align-items:start;" id="registroGrid">
@@ -1413,6 +1416,7 @@ function renderRegistro(){
 }
 
 function checkFechaRegistro(fechaStr, oid){
+    window._regFechaPreserve=fechaStr; // siempre actualizar al cambiar
     const sel=new Date(fechaStr+'T12:00:00');
     const hoy=new Date(); hoy.setHours(0,0,0,0);
     const esHoy=sel>=hoy;
@@ -1483,9 +1487,11 @@ function registrarMovimiento(oid,tipo){
             fecha:now()
         });
         save();
+        // Limpiar campos pero mantener la fecha seleccionada
+        document.getElementById(pfx+'_valor').value='';
+        document.getElementById(pfx+'_desc').value='';
+        window._regFechaPreserve=fechaInputVal; // mantener fecha
         alert('📤 Solicitud enviada al administrador.\nSe registrará cuando sea aprobada.');
-        document.getElementById('reg_fecha').value=new Date().toISOString().slice(0,10);
-        checkFechaRegistro(new Date().toISOString().slice(0,10),oid);
         renderRegistro();
         return;
     }
@@ -1495,6 +1501,7 @@ function registrarMovimiento(oid,tipo){
     if(!o) return;
     if(!o.movimientos) o.movimientos=[];
     o.movimientos.push({id:uid(),tipo,concepto,forma,descripcion:desc,valor,fecha:fechaFinal});
+    window._regFechaPreserve=fechaInputVal; // mantener fecha seleccionada
     save(); renderRegistro();
 }
 
