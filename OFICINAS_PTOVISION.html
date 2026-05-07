@@ -1176,9 +1176,10 @@ function renderRegistro(){
     const _regFechaVal=window._regFechaPreserve||document.getElementById('reg_fecha')?.value||new Date().toISOString().slice(0,10);
     const [_rfy,_rfm,_rfd]=_regFechaVal.split('-').map(Number);
     const _regFechaSel=new Date(_rfy,_rfm-1,_rfd);
+    // Comparar por prefijo de fecha string (YYYY-MM-DD) — evita problemas de UTC
     const hoyMovs=movs.filter(m=>{
-        const d=new Date(m.fecha);
-        return d.getDate()===_regFechaSel.getDate()&&d.getMonth()===_regFechaSel.getMonth()&&d.getFullYear()===_regFechaSel.getFullYear();
+        const mFecha=m.fecha?m.fecha.slice(0,10):'';
+        return mFecha===_regFechaVal;
     });
     const ingHoy=hoyMovs.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
     const egrHoy=hoyMovs.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
@@ -1202,45 +1203,47 @@ function renderRegistro(){
         </select>
     </div>`:''}
 
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:16px;">
+    ${(()=>{
+        // Acumulado de todos los días ANTERIORES al seleccionado
+        const _esHoyReg=_regFechaVal===new Date().toISOString().slice(0,10);
+        const movsAnteriores=(o.movimientos||[]).filter(m=> m.fecha && m.fecha.slice(0,10)<_regFechaVal);
+        const acumEf=m=>['Efectivo'].includes(m.forma);
+        const acumEfty=m=>['Efecty'].includes(m.forma);
+        const acumBco=m=>['Cta Bancolombia','Transferencia','Cruce de Cuentas'].includes(m.forma);
+        const _acumIngEf=movsAnteriores.filter(m=>m.tipo==='ingreso'&&acumEf(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+        const _acumEgrEf=movsAnteriores.filter(m=>m.tipo==='egreso'&&acumEf(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+        const _acumIngEfty=movsAnteriores.filter(m=>m.tipo==='ingreso'&&acumEfty(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+        const _acumEgrEfty=movsAnteriores.filter(m=>m.tipo==='egreso'&&acumEfty(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+        const _acumIngBco=movsAnteriores.filter(m=>m.tipo==='ingreso'&&acumBco(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+        const _acumEgrBco=movsAnteriores.filter(m=>m.tipo==='egreso'&&acumBco(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+        const _acumTotal=(_acumIngEf+_acumIngEfty+_acumIngBco)-(_acumEgrEf+_acumEgrEfty+_acumEgrBco);
+        const _hayAcum=movsAnteriores.length>0&&!_esHoyReg;
 
-        <div class="caja-display" style="flex-direction:column;align-items:flex-start;gap:4px;">
-            <div class="label">💵 Caja Efectivo <span style="font-size:0.65rem;color:var(--muted);">${_regFechaVal===new Date().toISOString().slice(0,10)?'hoy':_regFechaSel.toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit'})}</span></div>
-            <div class="amount" style="font-size:1.5rem;">${fmtShort(ingEf-egrEf)}</div>
-            <div style="font-size:0.75rem;margin-top:2px;display:flex;gap:10px;">
-                <span style="color:#10b981;">▲ ${fmtShort(ingEf)}</span>
-                <span style="color:#ef4444;">▼ ${fmtShort(egrEf)}</span>
+        const _card=(icon,label,color,bg,bd,ingD,egrD,acumIng,acumEgr)=>`
+        <div style="background:${bg};border:1px solid ${bd};border-radius:10px;padding:12px 14px;">
+            <div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);font-weight:600;margin-bottom:6px;">${icon} ${label}</div>
+            <div style="font-size:1.4rem;font-weight:900;color:${color};">${fmtShort(ingD-egrD)}</div>
+            <div style="font-size:0.72rem;margin-top:3px;display:flex;gap:10px;">
+                <span style="color:#10b981;">▲${fmtShort(ingD)}</span>
+                <span style="color:#ef4444;">▼${fmtShort(egrD)}</span>
             </div>
-        </div>
+            ${_hayAcum?`<div style="margin-top:6px;padding-top:6px;border-top:1px dashed rgba(255,255,255,0.1);font-size:0.7rem;color:var(--muted);">
+                <span>Acumulado anterior: </span>
+                <span style="color:${acumIng-acumEgr>=0?'#10b981':'#ef4444'};font-weight:700;">${fmtShort(acumIng-acumEgr)}</span>
+            </div>`:''}
+        </div>`;
 
-        <div style="background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.25);border-radius:10px;padding:14px 18px;">
-            <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);font-weight:600;margin-bottom:6px;">📮 Efecty</div>
-            <div style="font-size:1.5rem;font-weight:900;color:#a78bfa;">${fmtShort(ingEfty-egrEfty)}</div>
-            <div style="font-size:0.75rem;margin-top:4px;display:flex;gap:10px;">
-                <span style="color:#10b981;">▲ ${fmtShort(ingEfty)}</span>
-                <span style="color:#ef4444;">▼ ${fmtShort(egrEfty)}</span>
-            </div>
+        return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:${_hayAcum?'8':'16'}px;">
+            ${_card('💵','Caja Efectivo','#10b981','rgba(16,185,129,0.08)','rgba(16,185,129,0.25)',ingEf,egrEf,_acumIngEf,_acumEgrEf)}
+            ${_card('📮','Efecty','#a78bfa','rgba(139,92,246,0.08)','rgba(139,92,246,0.25)',ingEfty,egrEfty,_acumIngEfty,_acumEgrEfty)}
+            ${_card('🏦','Cuenta Bancaria','#3b82f6','rgba(59,130,246,0.08)','rgba(59,130,246,0.25)',ingBco,egrBco,_acumIngBco,_acumEgrBco)}
+            ${_card('📊','Total General',cajaTotal>=0?'#10b981':'#ef4444','rgba(16,185,129,0.06)','rgba(16,185,129,0.2)',ingHoy,egrHoy,_acumIngEf+_acumIngEfty+_acumIngBco,_acumEgrEf+_acumEgrEfty+_acumEgrBco)}
         </div>
-
-        <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.25);border-radius:10px;padding:14px 18px;">
-            <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);font-weight:600;margin-bottom:6px;">🏦 Cuenta Bancaria</div>
-            <div style="font-size:1.5rem;font-weight:900;color:#3b82f6;">${fmtShort(ingBco-egrBco)}</div>
-            <div style="font-size:0.75rem;margin-top:4px;display:flex;gap:10px;">
-                <span style="color:#10b981;">▲ ${fmtShort(ingBco)}</span>
-                <span style="color:#ef4444;">▼ ${fmtShort(egrBco)}</span>
-            </div>
-        </div>
-
-        <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.2);border-radius:10px;padding:14px 18px;">
-            <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);font-weight:600;margin-bottom:6px;">📊 Total General</div>
-            <div style="font-size:1.5rem;font-weight:900;color:${cajaTotal>=0?'#10b981':'#ef4444'};">${fmtShort(cajaTotal)}</div>
-            <div style="font-size:0.75rem;margin-top:4px;display:flex;gap:10px;">
-                <span style="color:#10b981;">▲ ${fmtShort(ingHoy)}</span>
-                <span style="color:#ef4444;">▼ ${fmtShort(egrHoy)}</span>
-            </div>
-        </div>
-
-    </div>
+        ${_hayAcum?`<div style="background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.15);border-radius:8px;padding:8px 14px;margin-bottom:16px;font-size:0.78rem;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+            <span style="color:var(--muted);">📅 Acumulado hasta el día anterior a ${new Date(_regFechaVal+'T12:00:00').toLocaleDateString('es-CO',{day:'2-digit',month:'long'})}:</span>
+            <span style="font-weight:700;color:${_acumTotal>=0?'#10b981':'#ef4444'};">${fmtShort(_acumTotal)} (${movsAnteriores.length} movimientos)</span>
+        </div>`:''}`;
+    })()}
 
     <!-- Selector de fecha con aviso si es día anterior -->
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px;">
@@ -1477,8 +1480,12 @@ function registrarMovimiento(oid,tipo){
     const esDiaAnterior=fechaSel<hoy;
     const esAdmin=USER.role==='admin';
 
-    // Construir fecha con hora actual pero día seleccionado
-    const fechaFinal=new Date(parseInt(fy),parseInt(fm)-1,parseInt(fd),new Date().getHours(),new Date().getMinutes(),new Date().getSeconds()).toISOString();
+    // Guardar fecha local sin conversión UTC (evita que el día cambie en zonas horarias)
+    const _ahora=new Date();
+    const _hh=String(_ahora.getHours()).padStart(2,'0');
+    const _mm=String(_ahora.getMinutes()).padStart(2,'0');
+    const _ss=String(_ahora.getSeconds()).padStart(2,'0');
+    const fechaFinal=`${fechaInputVal}T${_hh}:${_mm}:${_ss}`;
 
     if(esDiaAnterior && !esAdmin){
         // Jefe de oficina: enviar solicitud
@@ -6163,7 +6170,8 @@ function guardarPagoAdmin(){
     if(!fechaInput) return alert('⚠️ Selecciona una fecha');
     // Construir fecha con hora actual para preservar orden pero día correcto
     const [y,m,d]=fechaInput.split('-');
-    const fechaFinal=new Date(parseInt(y),parseInt(m)-1,parseInt(d),new Date().getHours(),new Date().getMinutes(),new Date().getSeconds()).toISOString();
+    const _ahoraPA=new Date();
+    const fechaFinal=`${fechaInput}T${String(_ahoraPA.getHours()).padStart(2,'0')}:${String(_ahoraPA.getMinutes()).padStart(2,'0')}:${String(_ahoraPA.getSeconds()).padStart(2,'0')}`;
 
     // 1. Registrar en historial de pagos admin
     if(!DB.pagosAdmin) DB.pagosAdmin=[];
@@ -6936,7 +6944,7 @@ function modalComprobantes(oid, mid){
                     <div style="font-size:0.65rem;color:var(--muted);">${new Date(c.fecha).toLocaleDateString('es-CO')}</div>
                 </div>
                 <div style="display:flex;gap:4px;padding:0 6px 6px;">
-                    <a href="${c.url.replace('/upload/','/upload/fl_attachment/')}" target="_blank" class="btn btn-outline btn-sm" style="flex:1;text-align:center;font-size:0.68rem;padding:3px;">👁️ Ver</a>
+                    <a href="${c.url}" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm" style="flex:1;text-align:center;font-size:0.68rem;padding:3px;">👁️ Ver</a>
                     <button class="btn btn-danger btn-sm" style="font-size:0.68rem;padding:3px 6px;" onclick="eliminarComp('${oid}','${mid}',${i})">🗑️</button>
                 </div>
             </div>`).join('')}
@@ -7309,19 +7317,35 @@ Instrucciones:
         }
         const imagenesLimitadas={length:imagenesAnalizadas};
 
-        // Call Claude API
-        const response=await fetch('https://api.anthropic.com/v1/messages',{
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({
-                model:'claude-sonnet-4-20250514',
-                max_tokens:1000,
-                messages:[{role:'user',content:msgContent}]
-            })
-        });
-
-        const data=await response.json();
-        const rawText=data?.content?.[0]?.text||'';
+        // Call Claude API via proxy (evita CORS desde GitHub Pages)
+        let rawText='';
+        try{
+            const response=await fetch('https://api.anthropic.com/v1/messages',{
+                method:'POST',
+                headers:{
+                    'Content-Type':'application/json',
+                    'anthropic-dangerous-direct-browser-access':'true'
+                },
+                body:JSON.stringify({
+                    model:'claude-sonnet-4-20250514',
+                    max_tokens:1000,
+                    messages:[{role:'user',content:msgContent}]
+                })
+            });
+            if(!response.ok) throw new Error('HTTP '+response.status);
+            const data=await response.json();
+            rawText=data?.content?.[0]?.text||'';
+        }catch(corsErr){
+            // Si falla por CORS, mostrar instrucción alternativa
+            if(resEl) resEl.innerHTML=`<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:14px;font-size:0.82rem;">
+                <p style="font-weight:700;color:#f59e0b;margin-bottom:8px;">⚠️ Verificación automática no disponible desde GitHub Pages</p>
+                <p style="color:var(--muted);margin-bottom:10px;">La API de Claude bloquea llamadas directas desde el navegador por seguridad (CORS). Para usar esta función necesitas acceder al sistema desde un servidor.</p>
+                <p style="color:var(--text);font-weight:600;margin-bottom:6px;">✅ Alternativa: Verificación manual rápida</p>
+                <p style="color:var(--muted);">Abre cada comprobante con el botón 👁️ y verifica manualmente que los valores sumen: <strong style="color:var(--accent);">${fmtShort(m.valor)}</strong></p>
+            </div>`;
+            if(btnEl){ btnEl.disabled=false; btnEl.textContent='🔍 Re-intentar'; }
+            return;
+        }
 
         // Parse JSON from response
         let resultado=null;
