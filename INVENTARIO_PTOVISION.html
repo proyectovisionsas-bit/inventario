@@ -476,7 +476,14 @@ function navigate(tab) { document.querySelectorAll('.nav-btn').forEach(b=>b.clas
 function renderTab(tab) { const main=id('main-content'); if(!main) return; try { switch(tab) { case 'dash': renderDash(main); break; case 'bodegas': renderBodegas(main); break; case 'clientes': renderClientes(main); break; case 'vista_global': renderVistaGlobal(main); break; case 'inv_global': renderInvGlobal(main); break; case 'transfer': renderTransfer(main); break; case 'recuperados': renderRecuperados(main); break; case 'danados': renderEquiposDanados(main); break; case 'cuads': renderCuads(main); break; case 'entregas': renderEntregas(main); break; case 'inst': renderInst(main); break; case 'busqueda': renderBusquedaGlobal(main); break;
             case 'reportes': renderReportes(main); break;
             case 'ventas': renderVentas(main); break;
-            case 'delete_req': renderDeleteReq(main); break; case 'admin': renderAdmin(main); break; } } catch(e) { alert("Error: "+e.message); console.error(e); } }
+            case 'delete_req': renderDeleteReq(main); break; case 'admin': renderAdmin(main); break; } } catch(e) { console.error(e); } }
+
+// ── Exponer funciones clave al scope global para que el módulo Firebase pueda accederlas ──
+window.DB = DB;
+window.renderTab = renderTab;
+window.renderLoginBodegas = renderLoginBodegas;
+window.fixDB = fixDB;
+window.navigate = navigate;
 function getUserBodegas() { return USER.role==='admin'?DB.bodegas:DB.bodegas.filter(b=>b.id===USER.id); }
 function getUserCuads() { return USER.role==='admin'?DB.cuadrillas:DB.cuadrillas.filter(c=>c.bodegaId===USER.id); }
 function openModal(title, html, onConfirm) { id('mTitle').textContent=title; id('mBody').innerHTML=html; id('mFooter').innerHTML=`<button class="btn btn-danger" onclick="closeModal()">Cancelar</button><button class="btn btn-success" id="mSaveBtn">Guardar</button>`; id('mSaveBtn').onclick=onConfirm; id('modal').classList.add('show'); }
@@ -3884,50 +3891,43 @@ async function startFirebase(config) {
     document.getElementById('login-screen').style.display='flex';
 
     // ── LISTENER PRINCIPAL — tiempo real para todos los dispositivos ──────────
-    let isLocalSave = false; // flag para no re-renderizar cuando YO guardo
-    window._setLocalSave = (v) => { isLocalSave = v; };
-
     onSnapshot(ref, s=>{
         if(!s.exists()) return;
-        const prevClientes = DB.clientes;
-        Object.assign(DB, s.data());
-        DB.clientes = prevClientes;
-        fixDB();
-        showSync('ok','● En línea');
+        const prevClientes = window.DB.clientes;
+        Object.assign(window.DB, s.data());
+        window.DB.clientes = prevClientes;
+        if(window.fixDB) window.fixDB();
+        if(window.showSync) window.showSync('ok','● En línea');
         if(!window.USER) {
-            renderLoginBodegas();
+            if(window.renderLoginBodegas) window.renderLoginBodegas();
             return;
         }
-        // Siempre re-renderizar el tab activo — sin importar quién guardó
+        // Re-renderizar tab activo en tiempo real
         const activeTab = document.querySelector('.nav-btn.active')?.dataset?.tab || 'dash';
-        renderTab(activeTab);
-    }, (err)=>{ showSync('err','Sin conexión'); console.error(err); });
+        if(window.renderTab) window.renderTab(activeTab);
+    }, (err)=>{ if(window.showSync) window.showSync('err','Sin conexión'); console.error(err); });
 
     // ── LISTENERS DE CLIENTES — uno por chunk, tiempo real ───────────────────
-    // Primero leer el índice para saber cuántos chunks hay
     const setupClienteListeners = async () => {
         try {
             const indexSnap = await getDoc(doc(fsDB, 'inventario/clientes_index'));
             const numChunks = indexSnap.exists() ? indexSnap.data().numChunks : 0;
             if(!numChunks) return;
 
-            // Mapa para guardar los chunks recibidos
             const chunkData = {};
-
             const mergeChunks = () => {
                 const keys = Object.keys(chunkData).map(Number).sort((a,b)=>a-b);
                 if(keys.length < numChunks) return;
                 let all = [];
                 keys.forEach(k => { all = all.concat(chunkData[k] || []); });
-                DB.clientes = all;
-                fixDB();
-                if(window.USER) {
+                window.DB.clientes = all;
+                if(window.fixDB) window.fixDB();
+                if(window.USER && window.renderTab) {
                     const tab = document.querySelector('.nav-btn.active')?.dataset?.tab || 'dash';
-                    renderTab(tab);
+                    window.renderTab(tab);
                 }
             };
 
-            // Crear un listener por cada chunk
             for(let i = 0; i < numChunks; i++) {
                 const chunkRef = doc(fsDB, `inventario/clientes_${i}`);
                 onSnapshot(chunkRef, (snap) => {
