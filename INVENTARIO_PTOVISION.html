@@ -3860,36 +3860,57 @@ async function startFirebase(config) {
 
     document.getElementById('login-screen').style.display='flex';
 
-    // Listen to main document — updates in real time for all users
+    // ── LISTENER PRINCIPAL — tiempo real para todos los dispositivos ──────────
     onSnapshot(ref, s=>{
-        if(s.exists()){
-            const prevClientes = DB.clientes;
-            Object.assign(DB, s.data());
-            DB.clientes = prevClientes;
-            fixDB(); showSync('ok','Sincronizado');
-            renderLoginBodegas();
-            if(window.USER) renderTab(document.querySelector('.nav-btn.active')?.dataset?.tab||'dash');
-        }
-    }, (err)=>{showSync('err','Sin conexión'); console.error(err);});
-
-    // Listen to clientes index — when clients change, reload all chunks
-    const indexRef = doc(fsDB, 'inventario/clientes_index');
-    onSnapshot(indexRef, async (s)=>{
         if(!s.exists()) return;
-        const { numChunks } = s.data();
-        let all = [];
-        for(let i=0; i<numChunks; i++) {
-            const snap = await getDoc(doc(fsDB, `inventario/clientes_${i}`));
-            if(snap.exists()) all = all.concat(snap.data().clientes || []);
-        }
-        DB.clientes = all;
+        const prevClientes = DB.clientes;
+        Object.assign(DB, s.data());
+        DB.clientes = prevClientes;
         fixDB();
-        if(window.USER) {
-            const tab = document.querySelector('.nav-btn.active')?.dataset?.tab || 'dash';
-            // Only re-render if on a clientes-related tab
-            if(['clientes','dash'].includes(tab)) renderTab(tab);
+        showSync('ok','Sincronizado');
+        renderLoginBodegas();
+        if(window.USER) renderTab(document.querySelector('.nav-btn.active')?.dataset?.tab||'dash');
+    }, (err)=>{ showSync('err','Sin conexión'); console.error(err); });
+
+    // ── LISTENERS DE CLIENTES — uno por chunk, tiempo real ───────────────────
+    // Primero leer el índice para saber cuántos chunks hay
+    const setupClienteListeners = async () => {
+        try {
+            const indexSnap = await getDoc(doc(fsDB, 'inventario/clientes_index'));
+            const numChunks = indexSnap.exists() ? indexSnap.data().numChunks : 0;
+            if(!numChunks) return;
+
+            // Mapa para guardar los chunks recibidos
+            const chunkData = {};
+
+            const mergeChunks = () => {
+                const keys = Object.keys(chunkData).map(Number).sort((a,b)=>a-b);
+                if(keys.length < numChunks) return; // esperar a que lleguen todos
+                let all = [];
+                keys.forEach(k => { all = all.concat(chunkData[k] || []); });
+                DB.clientes = all;
+                fixDB();
+                if(window.USER) {
+                    const tab = document.querySelector('.nav-btn.active')?.dataset?.tab || 'dash';
+                    renderTab(tab);
+                }
+            };
+
+            // Crear un listener por cada chunk
+            for(let i = 0; i < numChunks; i++) {
+                const chunkRef = doc(fsDB, `inventario/clientes_${i}`);
+                onSnapshot(chunkRef, (snap) => {
+                    if(snap.exists()) {
+                        chunkData[i] = snap.data().clientes || [];
+                        mergeChunks();
+                    }
+                }, (err) => console.error(`Chunk ${i} listener error:`, err));
+            }
+        } catch(e) {
+            console.error('Error setting up cliente listeners:', e);
         }
-    }, (err)=>{ console.error('Clientes listener error:', err); });
+    };
+    setupClienteListeners();
 }
 
 // Auto-connect if config saved
