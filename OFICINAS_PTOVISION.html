@@ -825,8 +825,12 @@ function getMesMovs(oid, refDate=null){
     const o=DB.oficinas.find(x=>x.id===oid);
     if(!o?.movimientos) return [];
     return o.movimientos.filter(m=>{
-        const d=new Date(m.fecha);
-        return d.getMonth()===mes && d.getFullYear()===año;
+        if(!m.fecha) return false;
+        // Usar slice para evitar problemas de UTC con new Date()
+        const fStr=m.fecha.slice(0,7); // "YYYY-MM"
+        const fMes=parseInt(fStr.slice(5,7))-1;
+        const fAño=parseInt(fStr.slice(0,4));
+        return fMes===mes && fAño===año;
     });
 }
 
@@ -1506,10 +1510,7 @@ function _actualizarTablaMovimientos(oid){
     const regFechaVal=document.getElementById('reg_fecha')?.value||new Date().toISOString().slice(0,10);
     const [rfy,rfm,rfd]=regFechaVal.split('-').map(Number);
     const regFechaSel=new Date(rfy,rfm-1,rfd);
-    const diaMovs=movs.filter(m=>{
-        const d=new Date(m.fecha);
-        return d.getDate()===regFechaSel.getDate()&&d.getMonth()===regFechaSel.getMonth()&&d.getFullYear()===regFechaSel.getFullYear();
-    });
+    const diaMovs=movs.filter(m=> m.fecha && m.fecha.slice(0,10)===regFechaVal);
     const ingD=diaMovs.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
     const egrD=diaMovs.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
     // Update caja numbers
@@ -1923,8 +1924,10 @@ function verMovimientosMes(oid){
     const mes=new Date().getMonth(), año=new Date().getFullYear();
     const o=getOficina(oid);
     const movs=(o.movimientos||[]).filter(m=>{
-        const d=new Date(m.fecha);
-        return d.getMonth()===mes&&d.getFullYear()===año;
+        if(!m.fecha) return false;
+        const fMes=parseInt(m.fecha.slice(5,7))-1;
+        const fAño=parseInt(m.fecha.slice(0,4));
+        return fMes===mes&&fAño===año;
     }).slice().reverse();
     const ing=movs.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
     const egr=movs.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
@@ -2578,7 +2581,7 @@ function renderReportes(){
         const daysInMonth=new Date(dRef.getFullYear(),dRef.getMonth()+1,0).getDate();
         for(let d=1;d<=daysInMonth;d++) diasDelMes[d]={ing:0,egr:0};
         movs.forEach(m=>{
-            const d=new Date(m.fecha).getDate();
+            const d=m.fecha?parseInt(m.fecha.slice(8,10)):0;
             if(diasDelMes[d]!==undefined){
                 if(m.tipo==='ingreso') diasDelMes[d].ing+=parseFloat(m.valor||0);
                 else diasDelMes[d].egr+=parseFloat(m.valor||0);
@@ -3079,7 +3082,7 @@ function aprobarSolicitud(sid){
             const anterior={tipo:m.tipo,concepto:m.concepto,forma:m.forma,valor:m.valor,descripcion:m.descripcion};
             m.tipo=nd.tipo; m.concepto=nd.concepto; m.forma=nd.forma;
             m.valor=nd.valor; m.descripcion=nd.descripcion;
-            if(nd.fecha){const[fy,fm,fd]=nd.fecha.split('-');m.fecha=new Date(parseInt(fy),parseInt(fm)-1,parseInt(fd),12,0,0).toISOString();}
+            if(nd.fecha){ const _hh=m.fecha&&m.fecha.length>10?m.fecha.slice(11,19):'12:00:00'; m.fecha=nd.fecha+'T'+_hh; }
             m.editadoPor='admin'; m.editadoEn=now(); m.anteriorDatos=anterior;
         }
     } else if(s.tipo==='registro_pasado'){
@@ -7236,7 +7239,7 @@ function _formEdicionMov(m, oid, mid, esSolicitud=false){
         <input id="em_desc" class="form-control" value="${m.descripcion||''}">
     </div>
     <div class="form-group-dark"><label>Fecha</label>
-        <input type="date" id="em_fecha" class="form-control" value="${new Date(m.fecha).toISOString().slice(0,10)}">
+        <input type="date" id="em_fecha" class="form-control" value="${m.fecha?m.fecha.slice(0,10):new Date().toISOString().slice(0,10)}">
     </div>
     ${esSolicitud?`<div class="form-group-dark"><label>Motivo de la corrección *</label>
         <textarea id="em_motivo" class="form-control" placeholder="Explica por qué necesitas corregir este registro..." rows="2"></textarea>
@@ -7267,8 +7270,9 @@ function guardarEdicionMovimiento(oid, mid){
     if(valor<0) return alert('El valor no puede ser negativo');
     // Guardar datos anteriores para log
     const anterior={tipo:m.tipo,concepto:m.concepto,forma:m.forma,valor:m.valor,descripcion:m.descripcion};
-    const [fy,fm,fd]=fechaStr.split('-');
-    const nuevaFecha=new Date(parseInt(fy),parseInt(fm)-1,parseInt(fd),new Date(m.fecha).getHours(),new Date(m.fecha).getMinutes(),0).toISOString();
+    // Preservar hora original, solo cambiar fecha — sin conversión UTC
+    const _horaOrig=m.fecha&&m.fecha.length>10?m.fecha.slice(11,19):'12:00:00';
+    const nuevaFecha=fechaStr+'T'+_horaOrig;
     m.tipo=tipo; m.concepto=concepto; m.forma=forma; m.valor=valor;
     m.descripcion=desc; m.fecha=nuevaFecha;
     m.editadoPor='admin'; m.editadoEn=now(); m.anteriorDatos=anterior;
