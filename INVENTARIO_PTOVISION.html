@@ -803,7 +803,13 @@ function saveCliente(editId) {
         const bodId = USER.role==='bodega' ? USER.id : (id('cliBodega')?.value || ''); DB.clientes.push({id:Date.now().toString(), nombre:nom, bodegaId:bodId, direccion:dir, telefono:tel, email:email, fechaInstalacion:fecha, cuadrillaInstaladora:cuad, observaciones:obs, equipos:equipos});
         logMsg(`Cliente "${nom}" creado`);
     }
-    save(); closeModal(); renderClientes(document.getElementById('main-content'));
+    if(window._fbSaveImmediate) {
+        window._fbSaveImmediate().then(()=>{
+            closeModal(); renderClientes(document.getElementById('main-content'));
+        }).catch(()=>{ save(); closeModal(); renderClientes(document.getElementById('main-content')); });
+    } else {
+        save(); closeModal(); renderClientes(document.getElementById('main-content'));
+    }
 }
 function modalAgregarEquipoCliente(cliId) {
     const cl = DB.clientes.find(x=>x.id===cliId);
@@ -2923,7 +2929,7 @@ function saveInstLogic() {
     const tipo = id('iTipo')?.value.trim()||'';
     const fecha = id('iFecha').value;
 
-    // Descontar materiales de cuadrilla using index key
+    // Descontar materiales de cuadrilla usando índice
     TempLists.iItems.forEach(it => {
         const mIdx = parseInt(it.key);
         const m = !isNaN(mIdx) ? c.materiales[mIdx] : c.materiales.find(x=>x.nombre===it.nom);
@@ -2931,6 +2937,9 @@ function saveInstLogic() {
         m.cantidad -= it.cant;
         (it.snes||[]).forEach(s=>{ const idx=m.snes.indexOf(s); if(idx>-1) m.snes.splice(idx,1); });
     });
+
+    // ✅ FIX 1: Eliminar materiales que quedaron en 0
+    c.materiales = c.materiales.filter(m => m.cantidad > 0);
 
     const instData = {
         id: Date.now().toString(),
@@ -2941,9 +2950,23 @@ function saveInstLogic() {
         reg: new Date().toISOString()
     };
     DB.instalaciones.push(instData);
+
+    // ✅ FIX 2: Actualizar cliente en DB.clientes
     actualizarClientesDesdeInstalacion(instData);
+
     logMsg(`Instalación en ${cli}`);
-    save(); closeModal(); renderTab('inst');
+
+    // ✅ FIX 3: Usar _fbSaveImmediate para guardar clientes en chunks también
+    if(window._fbSaveImmediate) {
+        window._fbSaveImmediate().then(()=>{
+            closeModal(); renderTab('inst');
+        }).catch(e=>{
+            console.error(e);
+            save(); closeModal(); renderTab('inst');
+        });
+    } else {
+        save(); closeModal(); renderTab('inst');
+    }
 }
 function delInst(eid) { if(!confirm('¿Eliminar?')) return; DB.instalaciones=DB.instalaciones.filter(x=>x.id!==eid); save(); renderTab('inst'); }
 
