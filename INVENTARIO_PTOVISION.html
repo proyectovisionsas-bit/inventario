@@ -3860,7 +3860,7 @@ async function startFirebase(config) {
 
     document.getElementById('login-screen').style.display='flex';
 
-    // Listen to main document only (clientes loaded separately)
+    // Listen to main document — updates in real time for all users
     onSnapshot(ref, s=>{
         if(s.exists()){
             const prevClientes = DB.clientes;
@@ -3871,6 +3871,25 @@ async function startFirebase(config) {
             if(window.USER) renderTab(document.querySelector('.nav-btn.active')?.dataset?.tab||'dash');
         }
     }, (err)=>{showSync('err','Sin conexión'); console.error(err);});
+
+    // Listen to clientes index — when clients change, reload all chunks
+    const indexRef = doc(fsDB, 'inventario/clientes_index');
+    onSnapshot(indexRef, async (s)=>{
+        if(!s.exists()) return;
+        const { numChunks } = s.data();
+        let all = [];
+        for(let i=0; i<numChunks; i++) {
+            const snap = await getDoc(doc(fsDB, `inventario/clientes_${i}`));
+            if(snap.exists()) all = all.concat(snap.data().clientes || []);
+        }
+        DB.clientes = all;
+        fixDB();
+        if(window.USER) {
+            const tab = document.querySelector('.nav-btn.active')?.dataset?.tab || 'dash';
+            // Only re-render if on a clientes-related tab
+            if(['clientes','dash'].includes(tab)) renderTab(tab);
+        }
+    }, (err)=>{ console.error('Clientes listener error:', err); });
 }
 
 // Auto-connect if config saved
