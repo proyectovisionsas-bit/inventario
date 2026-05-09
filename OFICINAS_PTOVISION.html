@@ -612,6 +612,62 @@ async function save(){
     }catch(e){ showSync('err','Error al guardar'); console.error(e); }
 }
 
+// ── Escucha en tiempo real — todos los dispositivos se sincronizan automáticamente ──
+let _unsubscribeRT = null;
+let _rtActivo = false;
+let _ultimoGuardadoPor = null;
+
+function iniciarEscuchaRealtime(){
+    if(!db) return;
+    if(_unsubscribeRT) _unsubscribeRT(); // cancelar anterior si existe
+
+    _unsubscribeRT = db.collection('oficinas_sistema').doc(DOC_ID)
+        .onSnapshot(snap=>{
+            if(!snap.exists) return;
+            const datos = snap.data();
+            // Si YO fui quien guardó (metadata.hasPendingWrites = true), no re-renderizar
+            // para no perder el estado local (foco, scroll, etc.)
+            if(snap.metadata.hasPendingWrites) return;
+
+            // Actualizar DB con los datos remotos
+            Object.assign(DB, datos);
+
+            // Notificar al usuario si la app ya está activa
+            if(_rtActivo && USER && USER.role){
+                _recargarVistaSilenciosa();
+            }
+        }, err=>{
+            console.error('Error realtime:', err);
+            showSync('err', 'Sin sincronización en tiempo real');
+        });
+}
+
+function _recargarVistaSilenciosa(){
+    // Re-renderizar solo la vista activa sin interrumpir al usuario
+    const tabActivo = document.querySelector('.nav-btn.active')?.dataset?.tab || 'dash';
+    const renders = {
+        dash: renderDash,
+        registro: renderRegistro,
+        clientes: renderClientes,
+        reportes: renderReportes,
+        vendedores: renderVendedores,
+        ventas: renderVentas2,
+        pagos_admin: renderPagosAdmin,
+        prestamos: renderPrestamos,
+        rrhh: renderRRHH,
+        administracion: renderAdmin
+    };
+    // Mostrar indicador discreto
+    const syncEl = document.getElementById('syncStatus');
+    if(syncEl){
+        syncEl.textContent = '🔄 Actualizando...';
+        syncEl.style.color = '#3b82f6';
+        setTimeout(()=>{ if(syncEl) syncEl.textContent = 'Conectado ✓'; syncEl.style.color = '#10b981'; }, 1500);
+    }
+    if(renders[tabActivo]) renders[tabActivo]();
+    verificarRecordatorios();
+}
+
 async function load(){
     if(!db) return;
     try{
@@ -663,6 +719,7 @@ function enterApp(){
     applyRoles(); setupNav(); navigate('dash');
     setTimeout(applyStoredTheme,50);
     setTimeout(iniciarMonitorRecordatorios,1000);
+    setTimeout(()=>{ _rtActivo=true; iniciarEscuchaRealtime(); }, 500);
     setInterval(()=>{
         const c=document.getElementById('clock');
         if(c) c.textContent=new Date().toLocaleTimeString('es-CO');
