@@ -128,9 +128,9 @@
         #loading-screen { display:none; justify-content:center; align-items:center; height:100vh; background:#f0f2f5; flex-direction:column; gap:15px; }
         .spinner { width:48px; height:48px; border:5px solid #e2e8f0; border-top-color:var(--primary); border-radius:50%; animation:spin 0.8s linear infinite; }
         @keyframes spin { to { transform:rotate(360deg); } }
-        #syncStatus { position:fixed; bottom:15px; right:15px; background:white; border-radius:8px; padding:8px 14px; font-size:0.8rem; box-shadow:0 2px 10px rgba(0,0,0,0.15); display:flex; align-items:center; gap:6px; z-index:999; }
+        #syncStatus { position:fixed; bottom:15px; right:15px; background:white; border-radius:20px; padding:6px 14px; font-size:0.78rem; font-weight:600; box-shadow:0 2px 12px rgba(0,0,0,0.15); display:flex; align-items:center; gap:6px; z-index:9999; transition:all 0.3s; }
         .sync-dot { width:8px; height:8px; border-radius:50%; }
-        .sync-ok { background:var(--secondary); } .sync-saving { background:var(--warning); animation:pulse 1s infinite; } .sync-err { background:var(--danger); }
+        .sync-ok { background:#10b981; box-shadow:0 0 6px #10b981; } .sync-saving { background:#f59e0b; animation:pulse 0.8s infinite; } .sync-err { background:#ef4444; box-shadow:0 0 6px #ef4444; }
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 
         /* === MEJORAS V2 === */
@@ -3861,15 +3861,23 @@ async function startFirebase(config) {
     document.getElementById('login-screen').style.display='flex';
 
     // ── LISTENER PRINCIPAL — tiempo real para todos los dispositivos ──────────
+    let isLocalSave = false; // flag para no re-renderizar cuando YO guardo
+    window._setLocalSave = (v) => { isLocalSave = v; };
+
     onSnapshot(ref, s=>{
         if(!s.exists()) return;
         const prevClientes = DB.clientes;
         Object.assign(DB, s.data());
         DB.clientes = prevClientes;
         fixDB();
-        showSync('ok','Sincronizado');
-        renderLoginBodegas();
-        if(window.USER) renderTab(document.querySelector('.nav-btn.active')?.dataset?.tab||'dash');
+        showSync('ok','● En línea');
+        if(!window.USER) {
+            renderLoginBodegas();
+            return;
+        }
+        // Siempre re-renderizar el tab activo — sin importar quién guardó
+        const activeTab = document.querySelector('.nav-btn.active')?.dataset?.tab || 'dash';
+        renderTab(activeTab);
     }, (err)=>{ showSync('err','Sin conexión'); console.error(err); });
 
     // ── LISTENERS DE CLIENTES — uno por chunk, tiempo real ───────────────────
@@ -3885,7 +3893,7 @@ async function startFirebase(config) {
 
             const mergeChunks = () => {
                 const keys = Object.keys(chunkData).map(Number).sort((a,b)=>a-b);
-                if(keys.length < numChunks) return; // esperar a que lleguen todos
+                if(keys.length < numChunks) return;
                 let all = [];
                 keys.forEach(k => { all = all.concat(chunkData[k] || []); });
                 DB.clientes = all;
