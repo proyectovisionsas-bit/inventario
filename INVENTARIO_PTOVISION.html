@@ -376,7 +376,15 @@ function save() {
     if(window._fbSave) { window._fbSave(); return; }
     try { localStorage.setItem('invPro_V9_backup', JSON.stringify(DB)); } catch(e) {}
 }
-function logMsg(msg) { DB.logs.unshift({ msg, t: new Date().toISOString() }); if(DB.logs.length > 60) DB.logs.pop(); save(); }
+function logMsg(msg) {
+    const usuario = window.USER ? (window.USER.role==='admin' ? 'Admin' : window.USER.nombre||'Bodega') : 'Sistema';
+    const ahora = new Date();
+    const fecha = ahora.toLocaleDateString('es-CO');
+    const hora  = ahora.toLocaleTimeString('es-CO', {hour:'2-digit',minute:'2-digit'});
+    DB.logs.unshift({ msg, usuario, fecha, hora, t: ahora.toISOString() });
+    if(DB.logs.length > 200) DB.logs = DB.logs.slice(0, 200);
+    save();
+}
 function id(x) { return document.getElementById(x); }
 function hardReset() {
     const pass1 = prompt('⚠️ ACCIÓN IRREVERSIBLE\n\nEsto borrará TODOS los datos del sistema.\n\nIngresa la contraseña de administrador para continuar:');
@@ -607,10 +615,13 @@ function renderDash(c) {
             <div class="card-header"><h2>📋 Actividad Reciente</h2>
                 <button class="btn btn-outline btn-sm" onclick="navigate('reportes')">📊 Ver Reportes</button>
             </div>
-            ${DB.logs.length ? DB.logs.slice(0,8).map(l=>`
-                <div style="padding:6px 0;border-bottom:1px solid #eee;display:flex;justify-content:space-between;font-size:0.82rem;">
-                    <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:65%;">${l.msg}</span>
-                    <small class="text-muted">${new Date(l.t).toLocaleString()}</small>
+            ${DB.logs.length ? DB.logs.slice(0,15).map(l=>`
+                <div style="padding:7px 0;border-bottom:1px solid #f1f5f9;font-size:0.82rem;">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+                        <span style="flex:1;margin-right:8px;">${l.msg}</span>
+                        <small class="text-muted" style="white-space:nowrap;">${l.hora||''} ${l.fecha||new Date(l.t).toLocaleDateString()}</small>
+                    </div>
+                    ${l.usuario ? `<small style="color:#6366f1;font-weight:600;">👤 ${l.usuario}</small>` : ''}
                 </div>`).join('') : '<p class="text-muted text-center">Sin actividad</p>'}
         </div>
     </div>`;
@@ -1434,7 +1445,7 @@ function renderVentas(c) {
         </div>
         ${DB.ventas.length ? `
         <div class="table-wrap"><table>
-            <thead><tr><th>Fecha</th><th>Artículo</th><th>Cant</th><th>SNs</th><th>Bodega</th><th>Comprador</th><th>Precio Unit.</th><th>Total</th><th></th></tr></thead>
+            <thead><tr><th>Fecha</th><th>Artículo</th><th>Cant</th><th>SNs</th><th>Bodega</th><th>Comprador</th><th>Precio Unit.</th><th>Total</th><th>Observaciones</th><th></th></tr></thead>
             <tbody>${[...DB.ventas].reverse().map((v,i)=>`<tr>
                 <td>${v.fecha}</td>
                 <td><strong>${v.nombre}</strong> <span class="badge ${v.tipo==='nuevo'?'badge-new':'badge-used'}">${v.tipo}</span></td>
@@ -1444,7 +1455,8 @@ function renderVentas(c) {
                 <td>${v.comprador||'-'}</td>
                 <td>$${(v.precioUnit||0).toLocaleString()}</td>
                 <td><strong>$${(v.total||0).toLocaleString()}</strong></td>
-                <td><button class="btn btn-danger btn-sm" onclick="eliminarVenta(${DB.ventas.length-1-i})">🗑️</button></td>
+                <td style="font-size:0.82rem;max-width:150px;">${v.obs||'-'}</td>
+                <td>${USER.role==='admin' ? `<button class="btn btn-danger btn-sm" onclick="solicitarEliminarVenta(${DB.ventas.length-1-i})">🗑️</button>` : `<button class="btn btn-outline btn-sm" onclick="solicitarEliminarVenta(${DB.ventas.length-1-i})" title="Solicitar eliminación">🗑️</button>`}</td>
             </tr>`).join('')}
             </tbody>
         </table></div>` : '<p class="text-muted text-center" style="padding:20px;">Sin ventas registradas.</p>'}
@@ -1562,12 +1574,37 @@ function loadVentaSNs() {
 }
 window.loadVentaSNs = loadVentaSNs;
 
-function eliminarVenta(idx) {
-    if(!confirm('¿Eliminar este registro de venta?')) return;
-    DB.ventas.splice(idx,1);
-    save(); renderTab('ventas');
+function solicitarEliminarVenta(idx) {
+    const v = DB.ventas[idx];
+    if(!v) return;
+    if(USER.role === 'admin') {
+        if(!confirm(`¿Eliminar venta de "${v.nombre}" x${v.cantidad} — $${(v.total||0).toLocaleString()}?`)) return;
+        DB.ventas.splice(idx, 1);
+        logMsg(`Admin eliminó venta: ${v.nombre} x${v.cantidad} de ${v.bodegaNombre} — $${v.total||0}`);
+        save(); renderTab('ventas');
+    } else {
+        const motivo = prompt('Motivo de la solicitud de eliminación:');
+        if(!motivo) return;
+        if(!DB.deleteRequests) DB.deleteRequests = [];
+        DB.deleteRequests.push({
+            id: Date.now().toString(),
+            tipo: 'venta',
+            ventaIdx: idx,
+            ventaId: v.id,
+            bodegaId: v.bodegaId,
+            bodegaNombre: v.bodegaNombre,
+            materialNombre: v.nombre,
+            cantidad: v.cantidad,
+            total: v.total,
+            obs: motivo,
+            fecha: new Date().toISOString(),
+            estado: 'pendiente'
+        });
+        logMsg(`Solicitud eliminación venta: ${v.nombre} x${v.cantidad} — Motivo: ${motivo}`);
+        save(); alert('✅ Solicitud enviada al administrador.'); renderTab('ventas');
+    }
 }
-window.eliminarVenta = eliminarVenta;
+window.solicitarEliminarVenta = solicitarEliminarVenta;
 
 function renderEquiposDanados(c) {
     if(!DB.equiposDanados) DB.equiposDanados = [];
@@ -2376,12 +2413,12 @@ function renderDeleteReq(c) {
             </tbody>
         </table></div>` : '<p class="text-muted" style="padding:10px;">Sin solicitudes de edición pendientes.</p>'}
 
-        <!-- SOLICITUDES DE ELIMINACIÓN -->
-        <h3 style="margin:20px 0 10px;color:var(--danger);">🗑️ Solicitudes de Eliminación</h3>
-        ${pendDel.length ? `
+        <!-- SOLICITUDES DE ELIMINACIÓN DE MATERIAL -->
+        <h3 style="margin:20px 0 10px;color:var(--danger);">🗑️ Solicitudes de Eliminación — Material</h3>
+        ${pendDel.filter(r=>r.tipo!=='venta').length ? `
         <div class="table-wrap"><table>
             <thead><tr><th>Fecha</th><th>Bodega</th><th>Artículo</th><th>Cant</th><th>Motivo</th><th>Acción</th></tr></thead>
-            <tbody>${pendDel.map(r=>`<tr>
+            <tbody>${pendDel.filter(r=>r.tipo!=='venta').map(r=>`<tr>
                 <td>${new Date(r.fecha).toLocaleDateString()}</td>
                 <td>${r.bodegaNombre}</td>
                 <td>${r.materialNombre}</td>
@@ -2393,7 +2430,27 @@ function renderDeleteReq(c) {
                 </td>
             </tr>`).join('')}
             </tbody>
-        </table></div>` : '<p class="text-muted" style="padding:10px;">Sin solicitudes de eliminación pendientes.</p>'}
+        </table></div>` : '<p class="text-muted" style="padding:10px;">Sin solicitudes pendientes.</p>'}
+
+        <!-- SOLICITUDES DE ELIMINACIÓN DE VENTAS -->
+        <h3 style="margin:20px 0 10px;color:#d97706;">💰 Solicitudes de Eliminación — Ventas</h3>
+        ${pendDel.filter(r=>r.tipo==='venta').length ? `
+        <div class="table-wrap"><table>
+            <thead><tr><th>Fecha</th><th>Bodega</th><th>Artículo</th><th>Cant</th><th>Total</th><th>Motivo</th><th>Acción</th></tr></thead>
+            <tbody>${pendDel.filter(r=>r.tipo==='venta').map(r=>`<tr>
+                <td>${new Date(r.fecha).toLocaleDateString()}</td>
+                <td>${r.bodegaNombre}</td>
+                <td><strong>${r.materialNombre}</strong></td>
+                <td>${r.cantidad}</td>
+                <td>$${(r.total||0).toLocaleString()}</td>
+                <td style="max-width:200px;">${r.obs}</td>
+                <td>
+                    <button class="btn btn-success btn-sm" onclick="approveDeleteVenta('${r.id}','aprobada')">✅ Aprobar</button>
+                    <button class="btn btn-danger btn-sm" onclick="approveDeleteVenta('${r.id}','rechazada')">❌ Rechazar</button>
+                </td>
+            </tr>`).join('')}
+            </tbody>
+        </table></div>` : '<p class="text-muted" style="padding:10px;">Sin solicitudes de ventas pendientes.</p>'}
 
         <!-- HISTORIAL -->
         ${(doneDel.length||doneEdit.length) ? `
@@ -2417,6 +2474,27 @@ function renderDeleteReq(c) {
         </table></div>` : ''}
     </div>`;
 }
+
+function approveDeleteVenta(reqId, accion) {
+    const req = DB.deleteRequests.find(r=>r.id===reqId);
+    if(!req || req.estado!=='pendiente') return;
+    req.estado = accion;
+    if(accion === 'aprobada') {
+        // Find and remove the venta
+        const idx = DB.ventas.findIndex(v=>v.id===req.ventaId);
+        if(idx > -1) {
+            const v = DB.ventas[idx];
+            DB.ventas.splice(idx, 1);
+            logMsg(`Admin aprobó eliminación de venta: ${v.nombre} x${v.cantidad} — $${v.total||0}`);
+        }
+    } else {
+        logMsg(`Admin rechazó eliminación de venta: ${req.materialNombre}`);
+    }
+    save();
+    renderDeleteReq(document.getElementById('main-content'));
+    alert(`✅ Solicitud ${accion === 'aprobada' ? 'aprobada — venta eliminada' : 'rechazada'}`);
+}
+window.approveDeleteVenta = approveDeleteVenta;
 
 function approveEdit(reqId, accion) {
     if(!DB.editRequests) return;
