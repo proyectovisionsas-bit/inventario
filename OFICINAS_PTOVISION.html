@@ -493,14 +493,16 @@ let DB = {
     oficinas: [],
     adminPass: 'admin123',
     solicitudes: [],
-    logs: [],
     vendedores: [],
     metas: [],
     ventas: [],
     bonusTiers: [{clientes:10,bono:200000},{clientes:20,bono:350000}],
-    empleados: [],
-    transacciones: [],
-    rrhhConfig: {salud:4, pension:4, interesesCesantias:12, diasVacaciones:15}
+    pagosAdmin: [],
+    prestamos: [],
+    recordatorios: [],
+    rrhh_empleados: [],
+    rrhh_transacciones: [],
+    rrhh_config: {salud:4, pension:4, interesesCesantias:12, diasVacaciones:15}
 };
 let USER = null;
 let selOficinaLogin = null;
@@ -615,9 +617,11 @@ async function save(){
     if(!db){ showSync('err','Sin conexión Firebase'); return; }
     showSync('saving','Guardando...');
     try{
-        await db.collection('oficinas_sistema').doc(DOC_ID).set(DB);
+        // Limpiar undefined antes de guardar (Firebase no acepta undefined)
+        const datosLimpios=JSON.parse(JSON.stringify(DB));
+        await db.collection('oficinas_sistema').doc(DOC_ID).set(datosLimpios);
         showSync('ok','Guardado ✓');
-    }catch(e){ showSync('err','Error al guardar'); console.error(e); }
+    }catch(e){ showSync('err','Error al guardar: '+e.message); console.error(e); }
 }
 
 // ── Escucha en tiempo real — todos los dispositivos se sincronizan automáticamente ──
@@ -630,18 +634,20 @@ function iniciarEscuchaRealtime(){
     if(_unsubscribeRT) _unsubscribeRT(); // cancelar anterior si existe
 
     _unsubscribeRT = db.collection('oficinas_sistema').doc(DOC_ID)
-        .onSnapshot(snap=>{
+        .onSnapshot({includeMetadataChanges:false}, snap=>{
             if(!snap.exists) return;
+            // Solo procesar cambios desde el SERVIDOR (no pending writes locales)
+            // Cuando es un cambio local optimista, fromCache=true
             const datos = snap.data();
-            // Si YO fui quien guardó (metadata.hasPendingWrites = true), no re-renderizar
-            // para no perder el estado local (foco, scroll, etc.)
-            if(snap.metadata.hasPendingWrites) return;
+            const desdeServidor = !snap.metadata.fromCache;
 
-            // Actualizar DB con los datos remotos
-            Object.assign(DB, datos);
+            // Actualizar DB siempre con los datos confirmados del servidor
+            Object.keys(datos).forEach(k=>{
+                if(datos[k]!==undefined) DB[k]=datos[k];
+            });
 
-            // Notificar al usuario si la app ya está activa
-            if(_rtActivo && USER && USER.role){
+            // Solo re-renderizar si los datos vienen del servidor y no son nuestra propia escritura local
+            if(desdeServidor && _rtActivo && USER && USER.role){
                 _recargarVistaSilenciosa();
             }
         }, err=>{
@@ -680,7 +686,10 @@ async function load(){
     if(!db) return;
     try{
         const snap = await db.collection('oficinas_sistema').doc(DOC_ID).get();
-        if(snap.exists){ Object.assign(DB, snap.data()); }
+        if(snap.exists){
+            const datos=snap.data();
+            Object.keys(datos).forEach(k=>{ if(datos[k]!==undefined) DB[k]=datos[k]; });
+        }
     }catch(e){ console.error('Error cargando:', e); }
 }
 
@@ -1228,9 +1237,8 @@ function renderDashCharts(oficinas){
 
 // ─── REGISTRO DIARIO ─────────────────────────────────────────────────────────
 function renderRegistro(){
-    // Preserve selected date across re-renders
-    const _existingDate=document.getElementById('reg_fecha')?.value;
-    if(_existingDate) window._regFechaPreserve=_existingDate;
+    // _regFechaPreserve es la fuente de verdad para la fecha seleccionada
+    // No leer del DOM porque el DOM se reconstruye en cada render
     const content=document.getElementById('appContent');
     const oficinas=currentOficinas();
     if(oficinas.length===0){
@@ -1566,13 +1574,14 @@ function registrarMovimiento(oid,tipo){
             estado:'pendiente',
             fecha:now()
         });
-        save();
         // Limpiar campos pero mantener la fecha seleccionada
         document.getElementById(pfx+'_valor').value='';
         document.getElementById(pfx+'_desc').value='';
         window._regFechaPreserve=fechaInputVal; // mantener fecha
-        alert('📤 Solicitud enviada al administrador.\nSe registrará cuando sea aprobada.');
-        renderRegistro();
+        save().then(()=>{
+            alert('📤 Solicitud enviada al administrador.\nSe registrará cuando sea aprobada.');
+            renderRegistro();
+        });
         return;
     }
 
@@ -1582,7 +1591,10 @@ function registrarMovimiento(oid,tipo){
     if(!o.movimientos) o.movimientos=[];
     o.movimientos.push({id:uid(),tipo,concepto,forma,descripcion:desc,valor,fecha:fechaFinal});
     window._regFechaPreserve=fechaInputVal; // mantener fecha seleccionada
-    save(); renderRegistro();
+    // Limpiar campos del formulario
+    document.getElementById(pfx+'_valor').value='';
+    document.getElementById(pfx+'_desc').value='';
+    save().then(()=>renderRegistro());
 }
 
 function modalGestionarMovimientos(oid){
@@ -2067,7 +2079,7 @@ function eliminarMovimiento(oid,mid){
     const o=DB.oficinas.find(x=>x.id===oid);
     if(!o) return;
     o.movimientos=(o.movimientos||[]).filter(m=>m.id!==mid);
-    save(); renderRegistro();
+    save().then(()=>renderRegistro());
 }
 
 function solicitarEliminar(oid,mid){
@@ -2484,7 +2496,7 @@ function eliminarCliente(oid,cid){
     const o=DB.oficinas.find(x=>x.id===oid);
     if(!o) return;
     o.clientes=(o.clientes||[]).filter(c=>c.id!==cid);
-    save(); renderClientes();
+    save().then(()=>renderClientes());
 }
 
 function solicitarEditarCliente(oid,cid){
@@ -3073,7 +3085,7 @@ function eliminarOficina(oid){
     const o=getOficina(oid);
     if(!confirm(`⚠️ ¿Eliminar oficina "${o?.nombre}"?\nSe eliminarán TODOS sus datos.`)) return;
     DB.oficinas=DB.oficinas.filter(x=>x.id!==oid);
-    save(); renderAdmin();
+    save().then(()=>renderAdmin());
 }
 
 function aprobarSolicitud(sid){
@@ -3101,13 +3113,15 @@ function aprobarSolicitud(sid){
         }
     }
     s.estado='aprobado';
-    save(); renderAdmin();
-    alert('✅ Solicitud aprobada y ejecutada.');
+    save().then(()=>{
+        renderAdmin();
+        alert('✅ Solicitud aprobada y ejecutada.');
+    });
 }
 
 function rechazarSolicitud(sid){
     const s=DB.solicitudes.find(x=>x.id===sid);
-    if(s){ s.estado='rechazado'; save(); renderAdmin(); }
+    if(s){ s.estado='rechazado'; save().then(()=>renderAdmin()); }
 }
 
 function cambiarPassAdmin(){
@@ -3330,7 +3344,7 @@ function clickEstadoComision(vid, cid, esPagada){
             }
         }
     }
-    save(); renderVendedores();
+    save().then(()=>renderVendedores());
 }
 
 function eliminarComisionTabla(vid, cid){
@@ -3347,7 +3361,7 @@ function eliminarComisionTabla(vid, cid){
         }
     }
     v.comisiones=(v.comisiones||[]).filter(x=>x.id!==cid);
-    save(); renderVendedores();
+    save().then(()=>renderVendedores());
 }
 
 function modalAgregarVendedor(){
@@ -3605,7 +3619,7 @@ function togglePagoComision(vid,cid){
     const c=(v?.comisiones||[]).find(x=>x.id===cid);
     if(!c) return;
     c.pagado=!c.pagado;
-    save(); renderVendedores();
+    save().then(()=>renderVendedores());
 }
 
 // revertirComision() integrada en accionComision()
@@ -3713,7 +3727,7 @@ function verificarIncentivosVendedor(vid){
 function eliminarVendedor(vid){
     if(!confirm('¿Eliminar este vendedor y todas sus comisiones?')) return;
     DB.vendedores=(DB.vendedores||[]).filter(v=>v.id!==vid);
-    save(); renderVendedores();
+    save().then(()=>renderVendedores());
 }
 
 // ─── INCENTIVOS ──────────────────────────────────────────────────────────────
@@ -3911,7 +3925,7 @@ function actualizarMeta(mid){
 function eliminarMeta(mid){
     if(!confirm('¿Eliminar esta meta?')) return;
     DB.metas=(DB.metas||[]).filter(m=>m.id!==mid);
-    save(); renderIncentivos();
+    save().then(()=>renderIncentivos());
 }
 
 
@@ -4580,7 +4594,7 @@ function guardarPagosVenta(idx){
 function eliminarVenta2(idx){
     if(!confirm('¿Eliminar esta venta?')) return;
     DB.ventas.splice(idx,1);
-    save(); renderVentas2();
+    save().then(()=>renderVentas2());
 }
 
 function exportarVentasExcel(){
@@ -4628,7 +4642,7 @@ function empStatusClass(e){ return e==='Activo'?'motivo-activo':e==='Inactivo'?'
 function renderRRHH(){
     const content=document.getElementById('appContent');
     const tab=window._rrhhTab||'directorio';
-    const empleados=DB.empleados||[];
+    const empleados=DB.rrhh_empleados||[];
 
     const activos=empleados.filter(e=>e.estado==='Activo').length;
     const hoyStr=new Date().toLocaleDateString('es-CO');
@@ -4659,12 +4673,12 @@ function renderRRHH(){
 
 function _contarCumplemes(){
     const m=new Date().getMonth()+1;
-    return (DB.empleados||[]).filter(e=>e.fechaNacimiento&&new Date(e.fechaNacimiento).getMonth()+1===m).length;
+    return (DB.rrhh_empleados||[]).filter(e=>e.fechaNacimiento&&new Date(e.fechaNacimiento).getMonth()+1===m).length;
 }
 
 // ── DIRECTORIO ───────────────────────────────────────────────────
 function renderRRHHDirectorio(){
-    const empleados=DB.empleados||[];
+    const empleados=DB.rrhh_empleados||[];
     const q=(window._qEmp||'').toLowerCase();
     const fEst=window._fEmpEst||'';
     const filtrados=empleados.filter(e=>{
@@ -4731,7 +4745,7 @@ function renderRRHHDirectorio(){
 
 // ── ASISTENCIA ───────────────────────────────────────────────────
 function renderRRHHAsistencia(){
-    const empleados=DB.empleados||[];
+    const empleados=DB.rrhh_empleados||[];
     const hoyStr=new Date().toLocaleDateString('es-CO');
     document.getElementById('rrhh_content').innerHTML=`
     <div id="clock_panel_wrap"></div>
@@ -4766,7 +4780,7 @@ function seleccionarFichaje(id){
 }
 
 function renderClockPanel(){
-    const e=(DB.empleados||[]).find(x=>x.id===rrhhFichajeId);
+    const e=(DB.rrhh_empleados||[]).find(x=>x.id===rrhhFichajeId);
     if(!e) return;
     const hoyStr=new Date().toLocaleDateString('es-CO');
     const reg=(e.asistencia||[]).find(r=>r.fecha===hoyStr)||{};
@@ -4801,9 +4815,9 @@ function renderClockPanel(){
 }
 
 function registrarHora_rrhh(tipo){
-    const idx=(DB.empleados||[]).findIndex(x=>x.id===rrhhFichajeId);
+    const idx=(DB.rrhh_empleados||[]).findIndex(x=>x.id===rrhhFichajeId);
     if(idx===-1) return alert('Selecciona un empleado primero');
-    const e=DB.empleados[idx];
+    const e=DB.rrhh_empleados[idx];
     const ahora=new Date();
     const fechaStr=ahora.toLocaleDateString('es-CO');
     const horaStr=ahora.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
@@ -4821,16 +4835,16 @@ function registrarHora_rrhh(tipo){
 
 // ── NÓMINA ───────────────────────────────────────────────────────
 function renderRRHHNomina(){
-    const cfg=DB.rrhhConfig||{salud:4,pension:4};
+    const cfg=DB.rrhh_config||{salud:4,pension:4};
     const mes=window._rrhhMes||new Date().toISOString().slice(0,7);
     const empFil=window._rrhhEmpNom||'all';
-    const empleados=(DB.empleados||[]).filter(e=>empFil==='all'||String(e.id)===String(empFil));
+    const empleados=(DB.rrhh_empleados||[]).filter(e=>empFil==='all'||String(e.id)===String(empFil));
     let totalDev=0,totalDed=0,totalNet=0;
 
     const filas=empleados.map(e=>{
         const salario=parseInt(e.salario)||0;
         const aux=parseInt(e.auxTrans)||0;
-        const trans=(DB.transacciones||[]).filter(t=>String(t.empleadoId)===String(e.id)&&t.mes===mes);
+        const trans=(DB.rrhh_transacciones||[]).filter(t=>String(t.empleadoId)===String(e.id)&&t.mes===mes);
         const adelantos=trans.filter(t=>t.tipo==='adelanto').reduce((s,t)=>s+parseFloat(t.valor||0),0);
         const otrasDed=trans.filter(t=>t.tipo==='deduccion').reduce((s,t)=>s+parseFloat(t.valor||0),0);
         const salud=salario*(cfg.salud/100);
@@ -4859,7 +4873,7 @@ function renderRRHHNomina(){
                 <input type="month" value="${mes}" class="form-control" style="width:auto;" onchange="window._rrhhMes=this.value;renderRRHHNomina()">
                 <select class="form-control" style="width:auto;" onchange="window._rrhhEmpNom=this.value;renderRRHHNomina()">
                     <option value="all">Todos</option>
-                    ${(DB.empleados||[]).map(e=>`<option value="${e.id}" ${String(e.id)===String(empFil)?'selected':''}>${e.nombre}</option>`).join('')}
+                    ${(DB.rrhh_empleados||[]).map(e=>`<option value="${e.id}" ${String(e.id)===String(empFil)?'selected':''}>${e.nombre}</option>`).join('')}
                 </select>
                 <button class="btn btn-outline btn-sm" onclick="exportarNominaRRHH('${mes}')">📥 Excel</button>
             </div>
@@ -4883,8 +4897,8 @@ function renderRRHHNomina(){
 }
 
 function modalTransacciones(eid, mes){
-    const e=(DB.empleados||[]).find(x=>x.id===eid); if(!e) return;
-    const trans=(DB.transacciones||[]).filter(t=>String(t.empleadoId)===String(eid)&&t.mes===mes);
+    const e=(DB.rrhh_empleados||[]).find(x=>x.id===eid); if(!e) return;
+    const trans=(DB.rrhh_transacciones||[]).filter(t=>String(t.empleadoId)===String(eid)&&t.mes===mes);
     openModal(`💳 Transacciones — ${e.nombre}`,`
     <div class="form-row">
         <div class="form-group-dark"><label>Tipo</label>
@@ -4915,8 +4929,8 @@ function guardarTransaccion(eid,mes){
     const desc=document.getElementById('tr_desc').value.trim();
     const valor=parseFloat(document.getElementById('tr_valor').value||0);
     if(!desc||!valor) return alert('Completa descripción y valor');
-    if(!DB.transacciones) DB.transacciones=[];
-    DB.transacciones.push({
+    if(!DB.rrhh_transacciones) DB.rrhh_transacciones=[];
+    DB.rrhh_transacciones.push({
         id:Date.now(), empleadoId:eid, mes,
         tipo:document.getElementById('tr_tipo').value,
         descripcion:desc, valor,
@@ -4927,7 +4941,7 @@ function guardarTransaccion(eid,mes){
 
 function eliminarTransaccion_rrhh(id){
     if(!confirm('¿Eliminar esta transacción?')) return;
-    DB.transacciones=(DB.transacciones||[]).filter(t=>t.id!==id);
+    DB.rrhh_transacciones=(DB.rrhh_transacciones||[]).filter(t=>t.id!==id);
     guardarRRHH(); closeModal(); renderRRHHNomina();
 }
 
@@ -4940,11 +4954,11 @@ function exportarNominaRRHH(mes){
 }
 
 function _exportarNomina(mes){
-    const cfg=DB.rrhhConfig||{salud:4,pension:4};
+    const cfg=DB.rrhh_config||{salud:4,pension:4};
     const data=[['Empleado','Cargo','Salario','Aux. Trans','Salud','Pensión','Adelantos','Otras Ded.','Neto']];
-    (DB.empleados||[]).forEach(e=>{
+    (DB.rrhh_empleados||[]).forEach(e=>{
         const sal=parseInt(e.salario)||0, aux=parseInt(e.auxTrans)||0;
-        const trans=(DB.transacciones||[]).filter(t=>String(t.empleadoId)===String(e.id)&&t.mes===mes);
+        const trans=(DB.rrhh_transacciones||[]).filter(t=>String(t.empleadoId)===String(e.id)&&t.mes===mes);
         const ad=trans.filter(t=>t.tipo==='adelanto').reduce((s,t)=>s+parseFloat(t.valor||0),0);
         const od=trans.filter(t=>t.tipo==='deduccion').reduce((s,t)=>s+parseFloat(t.valor||0),0);
         const sal_d=sal*(cfg.salud/100), pen=sal*(cfg.pension/100);
@@ -4959,11 +4973,11 @@ function _exportarNomina(mes){
 
 // ── PRESTACIONES ─────────────────────────────────────────────────
 function renderRRHHPrestaciones(){
-    const cfg=DB.rrhhConfig||{interesesCesantias:12};
+    const cfg=DB.rrhh_config||{interesesCesantias:12};
     const eid=window._rrhhEmpBen||'';
     const mes=window._rrhhMesBen||new Date().toISOString().slice(0,7);
     const dias=parseInt(window._rrhhDias||30);
-    const e=eid?(DB.empleados||[]).find(x=>String(x.id)===String(eid)):null;
+    const e=eid?(DB.rrhh_empleados||[]).find(x=>String(x.id)===String(eid)):null;
 
     let vac=0,prima=0,ces=0,intCes=0;
     if(e){
@@ -4983,7 +4997,7 @@ function renderRRHHPrestaciones(){
             <div class="form-group-dark" style="margin:0"><label>Empleado</label>
                 <select class="form-control" onchange="window._rrhhEmpBen=this.value;renderRRHHPrestaciones()">
                     <option value="">Seleccionar...</option>
-                    ${(DB.empleados||[]).map(x=>`<option value="${x.id}" ${String(x.id)===String(eid)?'selected':''}>${x.nombre}</option>`).join('')}
+                    ${(DB.rrhh_empleados||[]).map(x=>`<option value="${x.id}" ${String(x.id)===String(eid)?'selected':''}>${x.nombre}</option>`).join('')}
                 </select>
             </div>
             <div class="form-group-dark" style="margin:0"><label>Mes de corte</label>
@@ -5032,9 +5046,9 @@ function exportarPrestacionesRRHH(){
 }
 
 function _exportarPrestaciones(){
-    const cfg=DB.rrhhConfig||{interesesCesantias:12};
+    const cfg=DB.rrhh_config||{interesesCesantias:12};
     const eid=window._rrhhEmpBen;
-    const e=(DB.empleados||[]).find(x=>String(x.id)===String(eid));
+    const e=(DB.rrhh_empleados||[]).find(x=>String(x.id)===String(eid));
     if(!e) return;
     const dias=parseInt(window._rrhhDias||30);
     const sal=parseInt(e.salario)||0, m=dias/30;
@@ -5047,7 +5061,7 @@ function _exportarPrestaciones(){
 
 // ── CONFIG RRHH ──────────────────────────────────────────────────
 function renderRRHHConfig(){
-    const cfg=DB.rrhhConfig||{salud:4,pension:4,interesesCesantias:12,diasVacaciones:15};
+    const cfg=DB.rrhh_config||{salud:4,pension:4,interesesCesantias:12,diasVacaciones:15};
     document.getElementById('rrhh_content').innerHTML=`
     <div class="card" style="max-width:500px;">
         <div class="card-header"><h2>⚙️ Configuración RRHH</h2></div>
@@ -5064,7 +5078,7 @@ function renderRRHHConfig(){
 }
 
 function guardarConfigRRHH(){
-    DB.rrhhConfig={
+    DB.rrhh_config={
         salud:parseFloat(document.getElementById('cfg_salud').value||4),
         pension:parseFloat(document.getElementById('cfg_pension').value||4),
         interesesCesantias:parseFloat(document.getElementById('cfg_int').value||12),
@@ -5152,31 +5166,31 @@ function modalNuevoEmpleado(){
 function guardarNuevoEmpleado(){
     const d=_getFormEmpleado();
     if(!d.nombre||!d.documento||!d.cargo||!d.salario) return alert('Completa los campos obligatorios (*)');
-    if(!DB.empleados) DB.empleados=[];
+    if(!DB.rrhh_empleados) DB.rrhh_empleados=[];
     d.id=Date.now();
-    DB.empleados.push(d);
+    DB.rrhh_empleados.push(d);
     guardarRRHH(); closeModal(); renderRRHH();
 }
 
 function modalEditarEmpleado(id){
-    const e=(DB.empleados||[]).find(x=>x.id===id); if(!e) return;
+    const e=(DB.rrhh_empleados||[]).find(x=>x.id===id); if(!e) return;
     openModal('✏️ Editar — '+e.nombre, _formEmpleado(e),
     `<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
      <button class="btn btn-primary" onclick="actualizarEmpleado(${id})">💾 Guardar</button>`);
 }
 
 function actualizarEmpleado(id){
-    const idx=(DB.empleados||[]).findIndex(x=>x.id===id); if(idx===-1) return;
-    const existente=DB.empleados[idx];
+    const idx=(DB.rrhh_empleados||[]).findIndex(x=>x.id===id); if(idx===-1) return;
+    const existente=DB.rrhh_empleados[idx];
     const d=_getFormEmpleado(existente);
     if(!d.nombre) return alert('El nombre es obligatorio');
     d.id=id;
-    DB.empleados[idx]=d;
+    DB.rrhh_empleados[idx]=d;
     guardarRRHH(); closeModal(); renderRRHH();
 }
 
 function modalVerEmpleado(id){
-    const e=(DB.empleados||[]).find(x=>x.id===id); if(!e) return;
+    const e=(DB.rrhh_empleados||[]).find(x=>x.id===id); if(!e) return;
     const hist=(e.asistencia||[]).slice(0,10);
     const diasTrab=(e.asistencia||[]).filter(r=>r.e1).length;
     openModal('👤 '+e.nombre,`
@@ -5213,10 +5227,10 @@ function modalVerEmpleado(id){
 }
 
 function eliminarEmpleado_rrhh(id){
-    const e=(DB.empleados||[]).find(x=>x.id===id);
+    const e=(DB.rrhh_empleados||[]).find(x=>x.id===id);
     if(!confirm(`¿Eliminar a ${e?.nombre} y todo su historial?`)) return;
-    DB.empleados=(DB.empleados||[]).filter(x=>x.id!==id);
-    DB.transacciones=(DB.transacciones||[]).filter(t=>String(t.empleadoId)!==String(id));
+    DB.rrhh_empleados=(DB.rrhh_empleados||[]).filter(x=>x.id!==id);
+    DB.rrhh_transacciones=(DB.rrhh_transacciones||[]).filter(t=>String(t.empleadoId)!==String(id));
     guardarRRHH(); renderRRHH();
 }
 
@@ -6289,7 +6303,7 @@ function eliminarPagoAdmin(pid){
         if(o) o.movimientos=(o.movimientos||[]).filter(m=>m.pagoAdminId!==pid);
     });
     DB.pagosAdmin=DB.pagosAdmin.filter(p=>p.id!==pid);
-    save(); renderPagosAdmin();
+    save().then(()=>renderPagosAdmin());
 }
 
 
@@ -6525,7 +6539,7 @@ function guardarEdicionRecordatorio(rid){
 function eliminarRecordatorio(rid){
     if(!confirm('¿Eliminar este recordatorio?')) return;
     DB.recordatorios=(DB.recordatorios||[]).filter(r=>r.id!==rid);
-    save(); renderDash();
+    save().then(()=>renderDash());
 }
 
 
@@ -6824,7 +6838,7 @@ function modalVerPrestamo(pid){
 function eliminarPrestamo(pid){
     if(!confirm('¿Eliminar este préstamo y todo su historial de abonos?')) return;
     DB.prestamos=(DB.prestamos||[]).filter(p=>p.id!==pid);
-    save(); renderPrestamos();
+    save().then(()=>renderPrestamos());
 }
 
 
@@ -7100,8 +7114,7 @@ async function procesarArchivos(files, oid, mid){
         }catch(e){ console.error('Error subiendo',file.name,e); }
     }
 
-    await save();
-    renderRegistro();
+    await save().then(()=>renderRegistro());
     setTimeout(()=>modalComprobantes(oid, mid), 500);
 }
 
