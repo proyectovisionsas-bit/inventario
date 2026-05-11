@@ -2586,6 +2586,7 @@ function renderCuads(c) {
             <div class="flex" style="margin:10px 0;">
                 ${canDo('cuads','editar_cuadrilla')?`<button class="btn btn-outline btn-sm" onclick="modalEditCuad('${cu.id}')">✏️ Editar</button>`:''}
                 ${canDo('cuads','devolver_material')?`<button class="btn btn-warning btn-sm" onclick="modalDevolverMat('${cu.id}')">↩️ Devolver Material</button>`:''}
+                ${USER.role==='admin'?`<button class="btn btn-danger btn-sm" onclick="eliminarCuadrilla('${cu.id}')">🗑️ Eliminar Cuadrilla</button>`:''}
             </div>
             <h4 style="margin:10px 0;">👤 Técnicos</h4>
             ${cu.tecnicos.map(t => `
@@ -2626,6 +2627,20 @@ function modalEditCuad(cId) {
             logMsg(`Cuadrilla "${cu.nombre}" editada`); save(); closeModal(); renderTab('cuads');
         });
 }
+
+function eliminarCuadrilla(cId) {
+    const cu = DB.cuadrillas.find(x=>x.id===cId);
+    if(!cu) return;
+    if(cu.materiales.some(m=>m.cantidad>0)) {
+        if(!confirm(`⚠️ La cuadrilla "${cu.nombre}" aún tiene material en stock.\n\n¿Deseas eliminarla de todas formas? El material NO se devolverá automáticamente.`)) return;
+    } else {
+        if(!confirm(`¿Eliminar la cuadrilla "${cu.nombre}"? Esta acción no se puede deshacer.`)) return;
+    }
+    DB.cuadrillas = DB.cuadrillas.filter(x=>x.id!==cId);
+    logMsg(`Admin eliminó cuadrilla "${cu.nombre}"`);
+    save(); renderTab('cuads');
+}
+window.eliminarCuadrilla = eliminarCuadrilla;
 
 function modalDevolverMat(cId) {
     const cu = DB.cuadrillas.find(x=>x.id===cId);
@@ -3494,100 +3509,76 @@ window.renderBusquedaGlobal = renderBusquedaGlobal;
 
 // ─── REPORTES ─────────────────────────────────────────────────────────────────
 function renderReportes(c) {
-    const bs = getUserBodegas();
-    const cs = getUserCuads();
+    const reportes = [
+        { fn:'exportReporteInventario',   icon:'📦', titulo:'Inventario General',      color:'#4f46e5', desc:'Stock completo por bodega con ID, seriales, categoría, stock mínimo y observaciones' },
+        { fn:'exportReporteEntregas',     icon:'📤', titulo:'Entregas a Cuadrillas',   color:'#059669', desc:'Historial detallado de entregas con receptor, materiales, cantidades y seriales' },
+        { fn:'exportReporteCuadrillas',   icon:'👷', titulo:'Cuadrillas y Técnicos',   color:'#7c3aed', desc:'Stock por cuadrilla, técnicos, dotación personal con seriales' },
+        { fn:'exportReporteClientes',     icon:'👥', titulo:'Clientes Instalados',     color:'#0891b2', desc:'Clientes con equipos, seriales, dirección, bodega y historial de traslados' },
+        { fn:'exportReporteTransferencias',icon:'🔄',titulo:'Transferencias',          color:'#d97706', desc:'Historial de transferencias entre bodegas con estado y detalle de materiales' },
+        { fn:'exportReporteInstalaciones',icon:'🔧', titulo:'Instalaciones',           color:'#dc2626', desc:'Registro de instalaciones con cliente, cuadrilla, materiales y seriales usados' },
+        { fn:'exportReporteVentas',       icon:'💰', titulo:'Ventas',                  color:'#16a085', desc:'Historial de ventas con artículo, bodega, comprador, precio y observaciones' },
+        { fn:'exportReporteRecuperados',  icon:'♻️', titulo:'Recuperados',             color:'#65a30d', desc:'Materiales recuperados e integrados al inventario' },
+        { fn:'exportReporteDanados',      icon:'🔴', titulo:'Equipos Dañados',         color:'#be185d', desc:'Registro de cambios de equipos dañados en clientes' },
+        { fn:'exportReporteActividad',    icon:'📋', titulo:'Actividad del Sistema',   color:'#6b7280', desc:'Log completo con usuario, fecha, hora y detalle de cada acción' },
+    ];
     c.innerHTML = `<div class="card">
-        <div class="card-header"><h2>📊 Reportes</h2></div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:15px;">
-
-            <div class="card" style="border-top:4px solid var(--primary);text-align:center;padding:25px 15px;cursor:pointer;transition:0.2s;" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''" onclick="exportReporteInventario()">
-                <div style="font-size:2.5rem;">📦</div>
-                <h3 style="color:var(--primary);margin:10px 0 5px;">Inventario General</h3>
-                <p class="text-muted" style="font-size:0.85rem;">Todo el stock por bodega con seriales, categoría y estado</p>
-                <button class="btn btn-primary btn-sm" style="margin-top:10px;">📥 Descargar Excel</button>
-            </div>
-
-            <div class="card" style="border-top:4px solid var(--secondary);text-align:center;padding:25px 15px;cursor:pointer;transition:0.2s;" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''" onclick="exportReporteEntregas()">
-                <div style="font-size:2.5rem;">📤</div>
-                <h3 style="color:var(--secondary);margin:10px 0 5px;">Entregas</h3>
-                <p class="text-muted" style="font-size:0.85rem;">Historial de entregas a cuadrillas por fecha y bodega</p>
-                <button class="btn btn-success btn-sm" style="margin-top:10px;">📥 Descargar Excel</button>
-            </div>
-
-            <div class="card" style="border-top:4px solid #8e44ad;text-align:center;padding:25px 15px;cursor:pointer;transition:0.2s;" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''" onclick="exportReporteCuadrillas()">
-                <div style="font-size:2.5rem;">👷</div>
-                <h3 style="color:#8e44ad;margin:10px 0 5px;">Cuadrillas y Técnicos</h3>
-                <p class="text-muted" style="font-size:0.85rem;">Stock por cuadrilla, dotación de técnicos y materiales</p>
-                <button class="btn btn-sm" style="margin-top:10px;background:#8e44ad;color:white;">📥 Descargar Excel</button>
-            </div>
-
-            <div class="card" style="border-top:4px solid #16a085;text-align:center;padding:25px 15px;cursor:pointer;transition:0.2s;" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''" onclick="exportReporteClientes()">
-                <div style="font-size:2.5rem;">👥</div>
-                <h3 style="color:#16a085;margin:10px 0 5px;">Clientes Instalados</h3>
-                <p class="text-muted" style="font-size:0.85rem;">Lista de clientes con equipos instalados y estado</p>
-                <button class="btn btn-sm" style="margin-top:10px;background:#16a085;color:white;">📥 Descargar Excel</button>
-            </div>
-
-            <div class="card" style="border-top:4px solid var(--warning);text-align:center;padding:25px 15px;cursor:pointer;transition:0.2s;" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''" onclick="exportReporteTransferencias()">
-                <div style="font-size:2.5rem;">🔄</div>
-                <h3 style="color:var(--warning);margin:10px 0 5px;">Transferencias</h3>
-                <p class="text-muted" style="font-size:0.85rem;">Historial completo de transferencias entre bodegas</p>
-                <button class="btn btn-warning btn-sm" style="margin-top:10px;">📥 Descargar Excel</button>
-            </div>
-
-            <div class="card" style="border-top:4px solid var(--danger);text-align:center;padding:25px 15px;cursor:pointer;transition:0.2s;" onmouseover="this.style.transform='translateY(-3px)'" onmouseout="this.style.transform=''" onclick="exportReporteActividad()">
-                <div style="font-size:2.5rem;">📋</div>
-                <h3 style="color:var(--danger);margin:10px 0 5px;">Actividad del Sistema</h3>
-                <p class="text-muted" style="font-size:0.85rem;">Log completo de todas las acciones realizadas</p>
-                <button class="btn btn-danger btn-sm" style="margin-top:10px;">📥 Descargar Excel</button>
-            </div>
-
+        <div class="card-header"><h2>📊 Reportes Excel</h2><p class="text-muted" style="margin:4px 0 0;font-size:0.85rem;">Exporta información detallada en formato Excel</p></div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:15px;padding:5px 0;">
+        ${reportes.map(r=>`
+            <div class="card" style="border-top:4px solid ${r.color};text-align:center;padding:20px 15px;cursor:pointer;transition:0.2s;" onmouseover="this.style.transform='translateY(-3px)';this.style.boxShadow='0 8px 24px rgba(0,0,0,0.12)'" onmouseout="this.style.transform='';this.style.boxShadow=''" onclick="${r.fn}()">
+                <div style="font-size:2.2rem;">${r.icon}</div>
+                <h3 style="color:${r.color};margin:8px 0 5px;font-size:1rem;">${r.titulo}</h3>
+                <p class="text-muted" style="font-size:0.78rem;margin-bottom:12px;">${r.desc}</p>
+                <button class="btn btn-sm" style="background:${r.color};color:white;border:none;">📥 Descargar Excel</button>
+            </div>`).join('')}
         </div>
     </div>`;
 }
 
 function exportReporteInventario() {
     const bs = getUserBodegas();
-    const rows = [['Bodega','Categoría','Artículo','Tipo','Cantidad','Unidad','Stock Mínimo','Seriales','Observaciones','Fecha Ingreso']];
+    const rows = [['ID Material','Bodega','Categoría','Artículo','Tipo','Cantidad','Unidad','Stock Mínimo','Seriales','Observaciones','Fecha Ingreso']];
     bs.forEach(b => {
-        if(!b.materiales.length) { rows.push([b.nombre,'','(sin materiales)','','','','','','','']); return; }
+        if(!b.materiales.length) { rows.push(['',b.nombre,'','(sin materiales)','','','','','','','']); return; }
         b.materiales.forEach(m => {
-            rows.push([b.nombre, m.categoria==='equipo'?'Equipo':'Material', m.nombre, m.tipo,
-                m.cantidad, m.unidad, m.stockMin||0, m.snes.join(', '), m.observaciones||'', m.fecha||'']);
+            rows.push([m.id||'', b.nombre, m.categoria==='equipo'?'Equipo':'Material', m.nombre, m.tipo,
+                m.cantidad, m.unidad, m.stockMin||0, (m.snes||[]).join(', '), m.observaciones||'', m.fecha||'']);
         });
     });
     exportToExcel(rows, 'Inventario General', 'reporte_inventario');
 }
 
 function exportReporteEntregas() {
-    const rows = [['Fecha','Bodega Origen','Cuadrilla','Receptor','Artículo','Cantidad','Unidad','Seriales']];
+    const rows = [['Fecha','Bodega Origen','Cuadrilla','Receptor','Artículo','Cantidad','Unidad','Tipo','Seriales','Registro']];
     const entregas = USER.role==='bodega' ? DB.entregas.filter(e=>e.bodegaId===USER.id) : DB.entregas;
     entregas.sort((a,b)=>new Date(b.reg||b.fecha)-new Date(a.reg||a.fecha));
     entregas.forEach(e => {
-        e.mats.forEach(m => {
-            rows.push([e.fecha, e.bodega, e.cuadrilla, e.receptor, m.nom, m.cant, m.unidad||'', m.snes?m.snes.join(', '):'']);
+        if(!e.mats.length) rows.push([e.fecha, e.bodega, e.cuadrilla, e.receptor||'','','','','','',new Date(e.reg||e.fecha).toLocaleString()]);
+        else e.mats.forEach(m => {
+            rows.push([e.fecha, e.bodega, e.cuadrilla, e.receptor||'', m.nom, m.cant, m.unidad||'', m.tipo||'', (m.snes||[]).join(', '), new Date(e.reg||e.fecha).toLocaleString()]);
         });
     });
     exportToExcel(rows, 'Entregas', 'reporte_entregas');
 }
 
 function exportReporteCuadrillas() {
-    const rows = [['Cuadrilla','Bodega','Receptor','Técnico','Cédula','Cargo','Categoría Dotación','Artículo Dotación','Cant Dotación','Artículo Cuadrilla','Cant Cuadrilla','Unidad']];
+    const rows = [['Cuadrilla','Bodega Asignada','Receptor','Especialidad','Artículo Cuadrilla','Cant','Unidad','Tipo','Seriales Cuadrilla','Técnico','Cédula','Cargo','Categoría Dotación','Artículo Dotación','Cant Dotación','SNs Dotación','Fecha Dotación']];
     const cs = getUserCuads();
     cs.forEach(cu => {
         const bodega = DB.bodegas.find(b=>b.id===cu.bodegaId);
-        // Materiales cuadrilla
+        if(!cu.materiales.length && !cu.tecnicos.length) {
+            rows.push([cu.nombre, bodega?.nombre||'', cu.receptor||'', cu.especialidad||'','','','','','','','','','','','','','']);
+        }
         cu.materiales.forEach(m => {
-            rows.push([cu.nombre, bodega?.nombre||'', cu.receptor, '','','','','', '',m.nombre,m.cantidad,m.unidad]);
+            rows.push([cu.nombre, bodega?.nombre||'', cu.receptor||'', cu.especialidad||'', m.nombre, m.cantidad, m.unidad, m.tipo||'', (m.snes||[]).join(', '),'','','','','','','','']);
         });
-        // Técnicos y dotación
         cu.tecnicos.forEach(t => {
             if(!t.dotacion.length) {
-                rows.push([cu.nombre, bodega?.nombre||'', cu.receptor, t.nombre, t.cedula||'', t.cargo||'','','','','','','']);
+                rows.push([cu.nombre, bodega?.nombre||'', cu.receptor||'', cu.especialidad||'','','','','','', t.nombre, t.cedula||'', t.cargo||'','','','','','']);
             } else {
                 t.dotacion.forEach(d => {
-                    rows.push([cu.nombre, bodega?.nombre||'', cu.receptor, t.nombre, t.cedula||'', t.cargo||'',
-                        d.categoria||'', d.nom, d.cant,'','','']);
+                    rows.push([cu.nombre, bodega?.nombre||'', cu.receptor||'', cu.especialidad||'','','','','','',
+                        t.nombre, t.cedula||'', t.cargo||'', d.categoria||'', d.nom, d.cant, (d.snes||[]).join(', '), d.fecha||'']);
                 });
             }
         });
@@ -3596,14 +3587,17 @@ function exportReporteCuadrillas() {
 }
 
 function exportReporteClientes() {
-    const rows = [['Cliente','Dirección','Teléfono','Email','Fecha Instalación','Cuadrilla','Artículo','Cantidad','Unidad','Estado','Seriales','Observaciones']];
-    DB.clientes.forEach(cl => {
+    const misClientes = USER.role==='bodega' ? DB.clientes.filter(cl=>cl.bodegaId===USER.id) : DB.clientes;
+    const rows = [['Bodega','Cliente','Dirección','Teléfono','Email','Fecha Instalación','Cuadrilla','Artículo','Cantidad','Unidad','Tipo','Estado','Seriales','Observaciones','Traslados']];
+    misClientes.forEach(cl => {
+        const bodNom = DB.bodegas.find(b=>b.id===cl.bodegaId)?.nombre||'Sin bodega';
+        const traslados = (cl.historialTraslados||[]).length;
         if(!cl.equipos.length) {
-            rows.push([cl.nombre, cl.direccion||'', cl.telefono||'', cl.email||'', cl.fechaInstalacion||'', cl.cuadrillaInstaladora||'','','','','','','']);
+            rows.push([bodNom, cl.nombre, cl.direccion||'', cl.telefono||'', cl.email||'', cl.fechaInstalacion||'', cl.cuadrillaInstaladora||'','','','','','','',cl.observaciones||'',traslados]);
         } else {
             cl.equipos.forEach(eq => {
-                rows.push([cl.nombre, cl.direccion||'', cl.telefono||'', cl.email||'', cl.fechaInstalacion||'', cl.cuadrillaInstaladora||'',
-                    eq.nombre, eq.cantidad, eq.unidad, eq.estado||'Activo', eq.snes?eq.snes.join(', '):'', cl.observaciones||'']);
+                rows.push([bodNom, cl.nombre, cl.direccion||'', cl.telefono||'', cl.email||'', cl.fechaInstalacion||'', cl.cuadrillaInstaladora||'',
+                    eq.nombre, eq.cantidad, eq.unidad, eq.tipo||'', eq.estado||'Activo', (eq.snes||[]).join(', '), cl.observaciones||'', traslados]);
             });
         }
     });
@@ -3611,21 +3605,71 @@ function exportReporteClientes() {
 }
 
 function exportReporteTransferencias() {
-    const rows = [['Fecha','Bodega Origen','Bodega Destino','Estado','Artículo','Cantidad','Seriales','Observaciones']];
+    const rows = [['Fecha','Bodega Origen','Bodega Destino','Estado','Artículo','Cantidad','Unidad','Tipo','Seriales','Observaciones','Fecha Registro']];
     const ts = USER.role==='bodega' ? DB.transfers.filter(t=>t.oriId===USER.id||t.desId===USER.id) : DB.transfers;
     ts.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
     ts.forEach(t => {
-        t.mats.forEach(m => {
-            rows.push([t.fecha, t.oriName, t.desName, t.estado, m.nom, m.cant, m.snes?m.snes.join(', '):'', t.obs||'']);
+        if(!t.mats.length) rows.push([t.fecha, t.oriName, t.desName, t.estado,'','','','','',t.obs||'', new Date(t.reg||t.fecha).toLocaleString()]);
+        else t.mats.forEach(m => {
+            rows.push([t.fecha, t.oriName, t.desName, t.estado, m.nom, m.cant, m.unidad||'', m.tipo||'', (m.snes||[]).join(', '), t.obs||'', new Date(t.reg||t.fecha).toLocaleString()]);
         });
     });
     exportToExcel(rows, 'Transferencias', 'reporte_transferencias');
 }
 
+function exportReporteInstalaciones() {
+    const rows = [['Fecha','Cuadrilla','Cliente','Dirección','Teléfono','Tipo','Artículo','Cantidad','Unidad','Tipo Mat','Seriales','Observaciones']];
+    const insts = USER.role==='bodega'
+        ? DB.instalaciones.filter(i=>DB.cuadrillas.find(c=>c.id===i.cuadrillaId)?.bodegaId===USER.id)
+        : DB.instalaciones;
+    insts.sort((a,b)=>new Date(b.reg||b.fecha)-new Date(a.reg||a.fecha));
+    insts.forEach(inst => {
+        if(!inst.mats.length) rows.push([inst.fecha, inst.cuadrilla, inst.cliente, inst.direccion||'', inst.telefono||'', inst.tipo||'','','','','','',inst.observaciones||'']);
+        else inst.mats.forEach(m => {
+            rows.push([inst.fecha, inst.cuadrilla, inst.cliente, inst.direccion||'', inst.telefono||'', inst.tipo||'',
+                m.nom, m.cant, m.unidad||'', m.tipo||'', (m.snes||[]).join(', '), inst.observaciones||'']);
+        });
+    });
+    exportToExcel(rows, 'Instalaciones', 'reporte_instalaciones');
+}
+
+function exportReporteVentas() {
+    const rows = [['Fecha','Bodega','Artículo','Tipo','Cantidad','Unidad','Seriales','Comprador','Precio Unitario','Total','Observaciones']];
+    const ventas = USER.role==='bodega' ? (DB.ventas||[]).filter(v=>v.bodegaId===USER.id) : (DB.ventas||[]);
+    ventas.sort((a,b)=>new Date(b.reg||b.fecha)-new Date(a.reg||a.fecha));
+    ventas.forEach(v => {
+        rows.push([v.fecha, v.bodegaNombre, v.nombre, v.tipo||'', v.cantidad, v.unidad||'',
+            (v.snes||[]).join(', '), v.comprador||'', v.precioUnit||0, v.total||0, v.obs||'']);
+    });
+    exportToExcel(rows, 'Ventas', 'reporte_ventas');
+}
+
+function exportReporteRecuperados() {
+    const rows = [['Fecha','Bodega','Artículo','Cantidad','Unidad','Tipo','Seriales','Origen','Estado','Observaciones']];
+    const recs = USER.role==='bodega' ? DB.recuperados.filter(r=>r.bodegaId===USER.id) : DB.recuperados;
+    recs.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+    recs.forEach(r => {
+        rows.push([r.fecha, r.bodegaNombre||'', r.nom, r.cant, r.unidad||'', r.tipo||'',
+            (r.snes||[]).join(', '), r.origen||'', r.estado||'', r.obs||'']);
+    });
+    exportToExcel(rows, 'Recuperados', 'reporte_recuperados');
+}
+
+function exportReporteDanados() {
+    const rows = [['Fecha','Cliente','Equipo Dañado','SN Dañado','Cantidad Dañada','Equipo Nuevo','SN Nuevo','Origen','Motivo','Observaciones']];
+    const dan = DB.equiposDanados||[];
+    dan.sort((a,b)=>new Date(b.fechaISO||b.fecha)-new Date(a.fechaISO||a.fecha));
+    dan.forEach(d => {
+        rows.push([d.fecha, d.clienteNombre||'', d.equipoNombre||'', d.snDanado||'', d.cantidadDanada||1,
+            d.equipoNuevo||'', d.snNuevo||'', d.origenNombre||d.bodegaOrigen||'', d.motivo||'', d.obs||'']);
+    });
+    exportToExcel(rows, 'Equipos Dañados', 'reporte_danados');
+}
+
 function exportReporteActividad() {
-    const rows = [['Fecha y Hora','Actividad']];
+    const rows = [['Fecha','Hora','Usuario','Actividad']];
     DB.logs.forEach(l => {
-        rows.push([new Date(l.t).toLocaleString(), l.msg]);
+        rows.push([l.fecha||new Date(l.t).toLocaleDateString(), l.hora||new Date(l.t).toLocaleTimeString(), l.usuario||'Sistema', l.msg]);
     });
     exportToExcel(rows, 'Actividad del Sistema', 'reporte_actividad');
 }
