@@ -251,6 +251,7 @@
                 <button class="nav-btn" data-tab="recuperados">♻️ Recuperados</button>
                 <button class="nav-btn" data-tab="danados">🔴 Equipos Dañados</button>
                 <button class="nav-btn" data-tab="ventas">💰 Ventas</button>
+                <button class="nav-btn" data-tab="cuartos">🖥️ Cuartos de Equipos</button>
             </div>
         </div>
 
@@ -307,7 +308,7 @@
 
 <script>
 const DB_KEY = 'invPro_V9_Seguro';
-let DB = { bodegas:[], cuadrillas:[], entregas:[], instalaciones:[], logs:[], transfers:[], recuperados:[], deleteRequests:[], editRequests:[], clientes:[], ventas:[], adminPass:'admin123' };
+let DB = { bodegas:[], cuadrillas:[], entregas:[], instalaciones:[], logs:[], transfers:[], recuperados:[], deleteRequests:[], editRequests:[], clientes:[], ventas:[], cuartos:[], adminPass:'admin123' };
 let USER = null, selBodegaLogin = null, TempLists = {};
 
 const UNIDADES = [
@@ -489,6 +490,7 @@ function navigate(tab) { document.querySelectorAll('.nav-btn').forEach(b=>b.clas
 function renderTab(tab) { const main=id('main-content'); if(!main) return; try { switch(tab) { case 'dash': renderDash(main); break; case 'bodegas': renderBodegas(main); break; case 'clientes': renderClientes(main); break; case 'vista_global': renderVistaGlobal(main); break; case 'inv_global': renderInvGlobal(main); break; case 'transfer': renderTransfer(main); break; case 'recuperados': renderRecuperados(main); break; case 'danados': renderEquiposDanados(main); break; case 'cuads': renderCuads(main); break; case 'entregas': renderEntregas(main); break; case 'inst': renderInst(main); break; case 'busqueda': renderBusquedaGlobal(main); break;
             case 'reportes': renderReportes(main); break;
             case 'ventas': renderVentas(main); break;
+            case 'cuartos': renderCuartos(main); break;
             case 'delete_req': renderDeleteReq(main); break; case 'admin': renderAdmin(main); break; } } catch(e) { console.error(e); } }
 
 // ── Exponer funciones clave al scope global para que el módulo Firebase pueda accederlas ──
@@ -1610,6 +1612,626 @@ function solicitarEliminarVenta(idx) {
     }
 }
 window.solicitarEliminarVenta = solicitarEliminarVenta;
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 🖥️ CUARTOS DE EQUIPOS - Inventario, racks, conexiones
+// ═════════════════════════════════════════════════════════════════════════════
+function renderCuartos(c) {
+    if(!DB.cuartos) DB.cuartos=[];
+    // Filtrar por bodega si no es admin
+    const cuartos = USER.role==='admin' ? DB.cuartos : DB.cuartos.filter(q=>q.bodegaId===USER.id);
+    // Si no existe el cuarto de la bodega del usuario, sugerir crearlo
+    const sugerirCrear = USER.role==='bodega' && !cuartos.length;
+
+    c.innerHTML = `<div class="card">
+        <div class="card-header">
+            <h2>🖥️ Cuartos de Equipos</h2>
+            <div class="flex" style="gap:8px;">
+                ${USER.role==='admin' ? `<button class="btn btn-primary" onclick="modalNewCuarto()">➕ Nuevo Cuarto</button>` : ''}
+                ${sugerirCrear ? `<button class="btn btn-primary" onclick="modalNewCuarto()">➕ Crear Cuarto de mi Bodega</button>` : ''}
+            </div>
+        </div>
+        ${cuartos.length === 0 ? `
+            <div class="text-center" style="padding:30px;">
+                <div style="font-size:3rem;">🖥️</div>
+                <p class="text-muted">No hay cuartos de equipos registrados.</p>
+            </div>
+        ` : cuartos.map(q => renderCuartoCard(q)).join('')}
+    </div>`;
+}
+
+function renderCuartoCard(q) {
+    const bodNom = DB.bodegas.find(b=>b.id===q.bodegaId)?.nombre || 'Sin bodega';
+    const totalEquipos = (q.racks||[]).reduce((s,r)=>s+(r.equipos||[]).length, 0);
+    const totalConexiones = (q.conexiones||[]).length;
+    return `<div class="card" style="border-left:4px solid #4f46e5;margin-bottom:15px;">
+        <div class="card-header">
+            <div>
+                <h3 style="margin:0;">🖥️ ${q.nombre}</h3>
+                <p class="text-muted" style="margin:4px 0 0;font-size:0.85rem;">🏭 ${bodNom} | 📍 ${q.ubicacion||'Sin ubicación'} | ${(q.racks||[]).length} rack(s) | ${totalEquipos} equipo(s) | ${totalConexiones} conexión(es)</p>
+            </div>
+            <div class="flex" style="gap:6px;flex-wrap:wrap;">
+                <button class="btn btn-outline btn-sm" onclick="modalEditCuarto('${q.id}')">✏️ Editar</button>
+                <button class="btn btn-success btn-sm" onclick="modalNewRack('${q.id}')">➕ Rack</button>
+                <button class="btn btn-primary btn-sm" onclick="modalVerConexiones('${q.id}')">🔌 Conexiones (${totalConexiones})</button>
+                ${USER.role==='admin' ? `<button class="btn btn-danger btn-sm" onclick="eliminarCuarto('${q.id}')">🗑️</button>` : ''}
+            </div>
+        </div>
+        ${q.descripcion ? `<p class="text-muted" style="font-size:0.85rem;">${q.descripcion}</p>` : ''}
+        ${(q.racks||[]).length === 0 ? '<p class="text-muted">Sin racks. Agrega uno con el botón "➕ Rack".</p>' :
+            (q.racks||[]).map(r => renderRackCard(q.id, r)).join('')}
+    </div>`;
+}
+
+function renderRackCard(cuartoId, rack) {
+    const totalU = rack.alturaU || 42;
+    const equipos = (rack.equipos||[]).sort((a,b)=>(a.posU||0)-(b.posU||0));
+    return `<details style="border:1px solid #e2e8f0;border-radius:10px;margin:10px 0;background:#fafbfc;" ${equipos.length>0 ? 'open':''}>
+        <summary style="padding:10px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-weight:600;">
+            <span>🗄️ ${rack.nombre} <small class="text-muted" style="font-weight:normal;">(${totalU}U · ${equipos.length} equipo(s))</small></span>
+            <span style="display:flex;gap:6px;">
+                <button class="btn btn-outline btn-sm" onclick="event.preventDefault();modalNewEquipoRack('${cuartoId}','${rack.id}')">➕ Equipo</button>
+                <button class="btn btn-outline btn-sm" onclick="event.preventDefault();modalEditRack('${cuartoId}','${rack.id}')">✏️</button>
+                <button class="btn btn-danger btn-sm" onclick="event.preventDefault();eliminarRack('${cuartoId}','${rack.id}')">🗑️</button>
+            </span>
+        </summary>
+        <div style="padding:0 14px 14px;">
+            ${equipos.length === 0 ? '<p class="text-muted text-center" style="padding:15px;">Sin equipos en este rack</p>' : `
+            <div class="table-wrap"><table>
+                <thead><tr>
+                    <th>Pos U</th><th>Equipo</th><th>Marca / Modelo</th><th>Serial</th><th>IP</th><th>Puertos</th><th>Estado</th><th>Acciones</th>
+                </tr></thead>
+                <tbody>
+                ${equipos.map(eq=>`<tr>
+                    <td><strong>U${eq.posU||'-'}</strong>${eq.tamanioU>1?` (${eq.tamanioU}U)`:''}</td>
+                    <td><strong>${eq.nombre}</strong><br><small class="text-muted">${eq.tipo||''}</small></td>
+                    <td>${eq.marca||'-'} ${eq.modelo||''}</td>
+                    <td><span class="sn-tag">${eq.serial||'-'}</span></td>
+                    <td>${eq.ip||'-'}</td>
+                    <td>${eq.puertosUsados||0}/${eq.puertosTotal||0}</td>
+                    <td><span class="badge ${eq.estado==='activo'?'badge-new':'badge-used'}">${eq.estado||'activo'}</span></td>
+                    <td style="white-space:nowrap;">
+                        <button class="btn btn-outline btn-sm" onclick="modalVerEquipo('${cuartoId}','${rack.id}','${eq.id}')">👁️</button>
+                        <button class="btn btn-outline btn-sm" onclick="modalEditEquipoRack('${cuartoId}','${rack.id}','${eq.id}')">✏️</button>
+                        <button class="btn btn-danger btn-sm" onclick="eliminarEquipoRack('${cuartoId}','${rack.id}','${eq.id}')">🗑️</button>
+                    </td>
+                </tr>`).join('')}
+                </tbody>
+            </table></div>`}
+        </div>
+    </details>`;
+}
+
+// ── MODALES CUARTO ────────────────────────────────────────────────────────────
+function modalNewCuarto() {
+    const bodegas = USER.role==='admin' ? DB.bodegas : DB.bodegas.filter(b=>b.id===USER.id);
+    const bodOpts = bodegas.map(b=>`<option value="${b.id}">${b.nombre}</option>`).join('');
+    openModal('➕ Nuevo Cuarto de Equipos',
+        `<div class="form-group"><label>Bodega *</label>
+            <select id="qBod" class="form-control">${bodOpts}</select>
+        </div>
+        <div class="form-group"><label>Nombre del cuarto *</label>
+            <input id="qNom" class="form-control" placeholder="Ej: Cuarto Principal, NOC, Sala de Servidores">
+        </div>
+        <div class="form-group"><label>Ubicación</label>
+            <input id="qUbic" class="form-control" placeholder="Ej: Edificio principal, 2do piso">
+        </div>
+        <div class="form-group"><label>Descripción</label>
+            <textarea id="qDesc" class="form-control" rows="2" placeholder="Notas adicionales"></textarea>
+        </div>`,
+        ()=>{
+            const bodId = id('qBod').value;
+            const nom = id('qNom').value.trim();
+            if(!bodId || !nom) return alert('Bodega y nombre son obligatorios');
+            DB.cuartos.push({
+                id: Date.now().toString(),
+                bodegaId: bodId,
+                nombre: nom,
+                ubicacion: id('qUbic').value.trim(),
+                descripcion: id('qDesc').value.trim(),
+                racks: [],
+                conexiones: [],
+                fecha: new Date().toISOString()
+            });
+            logMsg(`Cuarto de equipos "${nom}" creado`);
+            save(); closeModal(); renderTab('cuartos');
+        });
+}
+window.modalNewCuarto = modalNewCuarto;
+
+function modalEditCuarto(qId) {
+    const q = DB.cuartos.find(x=>x.id===qId);
+    if(!q) return;
+    openModal('✏️ Editar Cuarto',
+        `<div class="form-group"><label>Nombre *</label>
+            <input id="qNom" class="form-control" value="${q.nombre}">
+        </div>
+        <div class="form-group"><label>Ubicación</label>
+            <input id="qUbic" class="form-control" value="${q.ubicacion||''}">
+        </div>
+        <div class="form-group"><label>Descripción</label>
+            <textarea id="qDesc" class="form-control" rows="2">${q.descripcion||''}</textarea>
+        </div>`,
+        ()=>{
+            q.nombre = id('qNom').value.trim() || q.nombre;
+            q.ubicacion = id('qUbic').value.trim();
+            q.descripcion = id('qDesc').value.trim();
+            logMsg(`Cuarto "${q.nombre}" editado`);
+            save(); closeModal(); renderTab('cuartos');
+        });
+}
+window.modalEditCuarto = modalEditCuarto;
+
+function eliminarCuarto(qId) {
+    const q = DB.cuartos.find(x=>x.id===qId);
+    if(!q) return;
+    const eqCount = (q.racks||[]).reduce((s,r)=>s+(r.equipos||[]).length, 0);
+    if(eqCount > 0) {
+        if(!confirm(`⚠️ El cuarto "${q.nombre}" tiene ${eqCount} equipo(s) registrado(s).\n\n¿Eliminar de todas formas?`)) return;
+    } else {
+        if(!confirm(`¿Eliminar cuarto "${q.nombre}"?`)) return;
+    }
+    DB.cuartos = DB.cuartos.filter(x=>x.id!==qId);
+    logMsg(`Cuarto "${q.nombre}" eliminado`);
+    save(); renderTab('cuartos');
+}
+window.eliminarCuarto = eliminarCuarto;
+
+// ── MODALES RACK ──────────────────────────────────────────────────────────────
+function modalNewRack(qId) {
+    openModal('➕ Nuevo Rack',
+        `<div class="form-group"><label>Nombre del rack *</label>
+            <input id="rNom" class="form-control" placeholder="Ej: Rack A, Rack Principal, Rack-01">
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>Altura (U) *</label>
+                <input id="rAltura" type="number" class="form-control" value="42" min="1" max="60">
+                <small class="text-muted">Unidades rack típicas: 24U, 42U, 48U</small>
+            </div>
+            <div class="form-group"><label>Marca / Modelo</label>
+                <input id="rMarca" class="form-control" placeholder="Ej: APC, Beaucoup">
+            </div>
+        </div>
+        <div class="form-group"><label>Notas</label>
+            <textarea id="rNotas" class="form-control" rows="2"></textarea>
+        </div>`,
+        ()=>{
+            const q = DB.cuartos.find(x=>x.id===qId);
+            const nom = id('rNom').value.trim();
+            if(!nom) return alert('El nombre es obligatorio');
+            if(!q.racks) q.racks = [];
+            q.racks.push({
+                id: Date.now().toString(),
+                nombre: nom,
+                alturaU: parseInt(id('rAltura').value)||42,
+                marca: id('rMarca').value.trim(),
+                notas: id('rNotas').value.trim(),
+                equipos: []
+            });
+            logMsg(`Rack "${nom}" agregado a "${q.nombre}"`);
+            save(); closeModal(); renderTab('cuartos');
+        });
+}
+window.modalNewRack = modalNewRack;
+
+function modalEditRack(qId, rId) {
+    const q = DB.cuartos.find(x=>x.id===qId);
+    const r = q?.racks.find(x=>x.id===rId);
+    if(!r) return;
+    openModal('✏️ Editar Rack',
+        `<div class="form-group"><label>Nombre *</label>
+            <input id="rNom" class="form-control" value="${r.nombre}">
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>Altura (U)</label>
+                <input id="rAltura" type="number" class="form-control" value="${r.alturaU||42}">
+            </div>
+            <div class="form-group"><label>Marca / Modelo</label>
+                <input id="rMarca" class="form-control" value="${r.marca||''}">
+            </div>
+        </div>
+        <div class="form-group"><label>Notas</label>
+            <textarea id="rNotas" class="form-control" rows="2">${r.notas||''}</textarea>
+        </div>`,
+        ()=>{
+            r.nombre = id('rNom').value.trim() || r.nombre;
+            r.alturaU = parseInt(id('rAltura').value)||42;
+            r.marca = id('rMarca').value.trim();
+            r.notas = id('rNotas').value.trim();
+            save(); closeModal(); renderTab('cuartos');
+        });
+}
+window.modalEditRack = modalEditRack;
+
+function eliminarRack(qId, rId) {
+    const q = DB.cuartos.find(x=>x.id===qId);
+    const r = q?.racks.find(x=>x.id===rId);
+    if(!r) return;
+    if((r.equipos||[]).length > 0) {
+        if(!confirm(`⚠️ El rack "${r.nombre}" tiene ${r.equipos.length} equipo(s).\n\n¿Eliminar de todas formas?`)) return;
+    } else {
+        if(!confirm(`¿Eliminar rack "${r.nombre}"?`)) return;
+    }
+    q.racks = q.racks.filter(x=>x.id!==rId);
+    // Eliminar conexiones que involucren equipos de este rack
+    const eqIds = (r.equipos||[]).map(e=>e.id);
+    if(q.conexiones) {
+        q.conexiones = q.conexiones.filter(c => !eqIds.includes(c.equipoOrigenId) && !eqIds.includes(c.equipoDestinoId));
+    }
+    logMsg(`Rack "${r.nombre}" eliminado`);
+    save(); renderTab('cuartos');
+}
+window.eliminarRack = eliminarRack;
+
+// ── MODALES EQUIPO DEL RACK ───────────────────────────────────────────────────
+function modalNewEquipoRack(qId, rId) {
+    openModal('➕ Nuevo Equipo en Rack',
+        formEquipoRackHTML({}),
+        ()=>{
+            const q = DB.cuartos.find(x=>x.id===qId);
+            const r = q?.racks.find(x=>x.id===rId);
+            if(!r) return;
+            const nom = id('eqNom').value.trim();
+            if(!nom) return alert('El nombre es obligatorio');
+            if(!r.equipos) r.equipos = [];
+            r.equipos.push({
+                id: Date.now().toString(),
+                nombre: nom,
+                tipo: id('eqTipo').value,
+                marca: id('eqMarca').value.trim(),
+                modelo: id('eqModelo').value.trim(),
+                serial: id('eqSerial').value.trim(),
+                ip: id('eqIP').value.trim(),
+                usuario: id('eqUsuario').value.trim(),
+                clave: id('eqClave').value.trim(),
+                posU: parseInt(id('eqPosU').value)||0,
+                tamanioU: parseInt(id('eqTamU').value)||1,
+                capacidad: id('eqCap').value.trim(),
+                puertosTotal: parseInt(id('eqPuertosTot').value)||0,
+                puertosUsados: parseInt(id('eqPuertosUsados').value)||0,
+                estado: id('eqEstado').value,
+                fechaInstalacion: id('eqFecha').value,
+                observaciones: id('eqObs').value.trim()
+            });
+            logMsg(`Equipo "${nom}" agregado a rack "${r.nombre}"`);
+            save(); closeModal(); renderTab('cuartos');
+        });
+}
+window.modalNewEquipoRack = modalNewEquipoRack;
+
+function modalEditEquipoRack(qId, rId, eqId) {
+    const q = DB.cuartos.find(x=>x.id===qId);
+    const r = q?.racks.find(x=>x.id===rId);
+    const eq = r?.equipos.find(x=>x.id===eqId);
+    if(!eq) return;
+    openModal('✏️ Editar Equipo',
+        formEquipoRackHTML(eq),
+        ()=>{
+            eq.nombre = id('eqNom').value.trim() || eq.nombre;
+            eq.tipo = id('eqTipo').value;
+            eq.marca = id('eqMarca').value.trim();
+            eq.modelo = id('eqModelo').value.trim();
+            eq.serial = id('eqSerial').value.trim();
+            eq.ip = id('eqIP').value.trim();
+            eq.usuario = id('eqUsuario').value.trim();
+            eq.clave = id('eqClave').value.trim();
+            eq.posU = parseInt(id('eqPosU').value)||0;
+            eq.tamanioU = parseInt(id('eqTamU').value)||1;
+            eq.capacidad = id('eqCap').value.trim();
+            eq.puertosTotal = parseInt(id('eqPuertosTot').value)||0;
+            eq.puertosUsados = parseInt(id('eqPuertosUsados').value)||0;
+            eq.estado = id('eqEstado').value;
+            eq.fechaInstalacion = id('eqFecha').value;
+            eq.observaciones = id('eqObs').value.trim();
+            save(); closeModal(); renderTab('cuartos');
+        });
+}
+window.modalEditEquipoRack = modalEditEquipoRack;
+
+function modalVerEquipo(qId, rId, eqId) {
+    const q = DB.cuartos.find(x=>x.id===qId);
+    const r = q?.racks.find(x=>x.id===rId);
+    const eq = r?.equipos.find(x=>x.id===eqId);
+    if(!eq) return;
+    // Buscar conexiones que involucran este equipo
+    const conexiones = (q.conexiones||[]).filter(c => c.equipoOrigenId===eqId || c.equipoDestinoId===eqId);
+    const buscarEqNom = (id) => {
+        for(const rk of (q.racks||[])) {
+            const e = rk.equipos?.find(x=>x.id===id);
+            if(e) return `${e.nombre} (${rk.nombre})`;
+        }
+        return 'Desconocido';
+    };
+    openModal(`👁️ ${eq.nombre}`,
+        `<div style="font-size:0.9rem;">
+            <p><strong>Tipo:</strong> ${eq.tipo||'-'}</p>
+            <p><strong>Marca / Modelo:</strong> ${eq.marca||'-'} ${eq.modelo||''}</p>
+            <p><strong>Serial:</strong> <span class="sn-tag">${eq.serial||'-'}</span></p>
+            <p><strong>IP:</strong> ${eq.ip||'-'}</p>
+            <p><strong>Usuario:</strong> ${eq.usuario||'-'}</p>
+            <p><strong>Clave:</strong> ${eq.clave ? '<span style="cursor:pointer;color:#4f46e5;" onclick="this.textContent=this.dataset.clave" data-clave="'+eq.clave.replace(/"/g,'&quot;')+'">••••••• (clic para mostrar)</span>' : '-'}</p>
+            <p><strong>Posición:</strong> U${eq.posU||'-'} ${eq.tamanioU>1?`(${eq.tamanioU}U)`:''} en ${r.nombre}</p>
+            <p><strong>Capacidad:</strong> ${eq.capacidad||'-'}</p>
+            <p><strong>Puertos:</strong> ${eq.puertosUsados||0} usados / ${eq.puertosTotal||0} totales</p>
+            <p><strong>Estado:</strong> ${eq.estado||'-'}</p>
+            <p><strong>Fecha instalación:</strong> ${eq.fechaInstalacion||'-'}</p>
+            <p><strong>Observaciones:</strong> ${eq.observaciones||'-'}</p>
+            <hr style="margin:12px 0;">
+            <h4>🔌 Conexiones (${conexiones.length})</h4>
+            ${conexiones.length === 0 ? '<p class="text-muted">Sin conexiones registradas.</p>' :
+                conexiones.map(cn=>{
+                    const otherId = cn.equipoOrigenId===eqId ? cn.equipoDestinoId : cn.equipoOrigenId;
+                    const direccion = cn.equipoOrigenId===eqId ? '→' : '←';
+                    const puerto = cn.equipoOrigenId===eqId ? cn.puertoOrigen : cn.puertoDestino;
+                    return `<div style="padding:8px;background:#f8fafc;border-radius:6px;margin-bottom:6px;font-size:0.85rem;">
+                        <strong>Puerto ${puerto||'-'}</strong> ${direccion} ${buscarEqNom(otherId)}
+                        ${cn.tipoCable ? `<span class="badge badge-new">${cn.tipoCable}</span>` : ''}
+                        ${cn.descripcion ? `<br><small class="text-muted">${cn.descripcion}</small>` : ''}
+                    </div>`;
+                }).join('')}
+        </div>`, null, 'Cerrar');
+}
+window.modalVerEquipo = modalVerEquipo;
+
+function formEquipoRackHTML(eq) {
+    return `<div class="form-row">
+        <div class="form-group"><label>Nombre *</label>
+            <input id="eqNom" class="form-control" value="${eq.nombre||''}" placeholder="Ej: OLT-01, Switch Core, Servidor Web">
+        </div>
+        <div class="form-group"><label>Tipo</label>
+            <select id="eqTipo" class="form-control">
+                <option value="OLT" ${eq.tipo==='OLT'?'selected':''}>OLT</option>
+                <option value="Switch" ${eq.tipo==='Switch'?'selected':''}>Switch</option>
+                <option value="Router" ${eq.tipo==='Router'?'selected':''}>Router</option>
+                <option value="Servidor" ${eq.tipo==='Servidor'?'selected':''}>Servidor</option>
+                <option value="UPS" ${eq.tipo==='UPS'?'selected':''}>UPS</option>
+                <option value="Firewall" ${eq.tipo==='Firewall'?'selected':''}>Firewall</option>
+                <option value="ODF" ${eq.tipo==='ODF'?'selected':''}>ODF (Fibra)</option>
+                <option value="PatchPanel" ${eq.tipo==='PatchPanel'?'selected':''}>Patch Panel</option>
+                <option value="Otro" ${eq.tipo==='Otro'?'selected':''}>Otro</option>
+            </select>
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Marca</label><input id="eqMarca" class="form-control" value="${eq.marca||''}"></div>
+        <div class="form-group"><label>Modelo</label><input id="eqModelo" class="form-control" value="${eq.modelo||''}"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Serial</label><input id="eqSerial" class="form-control" value="${eq.serial||''}"></div>
+        <div class="form-group"><label>IP / Gestión</label><input id="eqIP" class="form-control" value="${eq.ip||''}" placeholder="Ej: 192.168.1.10"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Usuario</label><input id="eqUsuario" class="form-control" value="${eq.usuario||''}"></div>
+        <div class="form-group"><label>Clave 🔒</label><input id="eqClave" type="password" class="form-control" value="${eq.clave||''}"></div>
+    </div>
+    <hr style="margin:12px 0;">
+    <h4 style="margin-bottom:8px;">📍 Posición en Rack</h4>
+    <div class="form-row">
+        <div class="form-group"><label>Posición U (desde abajo)</label>
+            <input id="eqPosU" type="number" class="form-control" value="${eq.posU||1}" min="0">
+        </div>
+        <div class="form-group"><label>Tamaño (U)</label>
+            <input id="eqTamU" type="number" class="form-control" value="${eq.tamanioU||1}" min="1">
+            <small class="text-muted">1U, 2U, etc.</small>
+        </div>
+    </div>
+    <hr style="margin:12px 0;">
+    <h4 style="margin-bottom:8px;">⚙️ Capacidad / Puertos</h4>
+    <div class="form-row">
+        <div class="form-group"><label>Capacidad</label>
+            <input id="eqCap" class="form-control" value="${eq.capacidad||''}" placeholder="Ej: 2GB RAM, 1TB HDD">
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Puertos totales</label>
+            <input id="eqPuertosTot" type="number" class="form-control" value="${eq.puertosTotal||0}" min="0">
+        </div>
+        <div class="form-group"><label>Puertos usados</label>
+            <input id="eqPuertosUsados" type="number" class="form-control" value="${eq.puertosUsados||0}" min="0">
+        </div>
+    </div>
+    <hr style="margin:12px 0;">
+    <div class="form-row">
+        <div class="form-group"><label>Estado</label>
+            <select id="eqEstado" class="form-control">
+                <option value="activo" ${eq.estado==='activo'?'selected':''}>🟢 Activo</option>
+                <option value="standby" ${eq.estado==='standby'?'selected':''}>🟡 Standby</option>
+                <option value="averiado" ${eq.estado==='averiado'?'selected':''}>🔴 Averiado</option>
+                <option value="mantenimiento" ${eq.estado==='mantenimiento'?'selected':''}>🔧 Mantenimiento</option>
+            </select>
+        </div>
+        <div class="form-group"><label>Fecha instalación</label>
+            <input id="eqFecha" type="date" class="form-control" value="${eq.fechaInstalacion||new Date().toISOString().split('T')[0]}">
+        </div>
+    </div>
+    <div class="form-group"><label>Observaciones</label>
+        <textarea id="eqObs" class="form-control" rows="2">${eq.observaciones||''}</textarea>
+    </div>`;
+}
+
+function eliminarEquipoRack(qId, rId, eqId) {
+    const q = DB.cuartos.find(x=>x.id===qId);
+    const r = q?.racks.find(x=>x.id===rId);
+    const eq = r?.equipos.find(x=>x.id===eqId);
+    if(!eq) return;
+    if(!confirm(`¿Eliminar equipo "${eq.nombre}"? Esto también eliminará sus conexiones.`)) return;
+    r.equipos = r.equipos.filter(x=>x.id!==eqId);
+    if(q.conexiones) {
+        q.conexiones = q.conexiones.filter(c => c.equipoOrigenId!==eqId && c.equipoDestinoId!==eqId);
+    }
+    logMsg(`Equipo "${eq.nombre}" eliminado`);
+    save(); renderTab('cuartos');
+}
+window.eliminarEquipoRack = eliminarEquipoRack;
+
+// ── CONEXIONES ────────────────────────────────────────────────────────────────
+function modalVerConexiones(qId) {
+    const q = DB.cuartos.find(x=>x.id===qId);
+    if(!q) return;
+    const conexiones = q.conexiones || [];
+    // Lista de todos los equipos del cuarto
+    const todosEquipos = [];
+    (q.racks||[]).forEach(r => {
+        (r.equipos||[]).forEach(e => todosEquipos.push({...e, rackNombre:r.nombre}));
+    });
+    const buscarEq = (eqId) => todosEquipos.find(e=>e.id===eqId);
+
+    openModal(`🔌 Conexiones — ${q.nombre}`,
+        `<div style="background:#f0f4ff;padding:10px;border-radius:8px;margin-bottom:15px;">
+            <strong>Total: ${conexiones.length} conexión(es)</strong>
+            <button class="btn btn-primary btn-sm" style="margin-left:10px;" onclick="modalAddConexion('${qId}')">➕ Nueva Conexión</button>
+        </div>
+        ${conexiones.length === 0 ? '<p class="text-muted text-center" style="padding:20px;">Sin conexiones registradas.</p>' : `
+        <div class="table-wrap"><table>
+            <thead><tr><th>Origen</th><th>Puerto</th><th>→</th><th>Destino</th><th>Puerto</th><th>Cable</th><th>Acciones</th></tr></thead>
+            <tbody>${conexiones.map(cn=>{
+                const o = buscarEq(cn.equipoOrigenId);
+                const d = buscarEq(cn.equipoDestinoId);
+                return `<tr>
+                    <td><strong>${o?.nombre||'?'}</strong><br><small class="text-muted">${o?.rackNombre||''}</small></td>
+                    <td><span class="sn-tag">${cn.puertoOrigen||'-'}</span></td>
+                    <td>→</td>
+                    <td><strong>${d?.nombre||'?'}</strong><br><small class="text-muted">${d?.rackNombre||''}</small></td>
+                    <td><span class="sn-tag">${cn.puertoDestino||'-'}</span></td>
+                    <td>${cn.tipoCable||'-'}${cn.descripcion?`<br><small class="text-muted">${cn.descripcion}</small>`:''}</td>
+                    <td>
+                        <button class="btn btn-outline btn-sm" onclick="modalEditConexion('${qId}','${cn.id}')">✏️</button>
+                        <button class="btn btn-danger btn-sm" onclick="eliminarConexion('${qId}','${cn.id}')">🗑️</button>
+                    </td>
+                </tr>`;
+            }).join('')}
+            </tbody>
+        </table></div>`}`, null, 'Cerrar');
+}
+window.modalVerConexiones = modalVerConexiones;
+
+function modalAddConexion(qId) {
+    const q = DB.cuartos.find(x=>x.id===qId);
+    if(!q) return;
+    const todosEquipos = [];
+    (q.racks||[]).forEach(r => {
+        (r.equipos||[]).forEach(e => todosEquipos.push({...e, rackNombre:r.nombre}));
+    });
+    if(todosEquipos.length < 2) return alert('Necesitas al menos 2 equipos en el cuarto para crear una conexión.');
+    const opts = todosEquipos.map(e=>`<option value="${e.id}">${e.nombre} (${e.rackNombre})</option>`).join('');
+    openModal('➕ Nueva Conexión',
+        `<div class="form-row">
+            <div class="form-group"><label>Equipo Origen *</label>
+                <select id="cnOri" class="form-control"><option value="">--</option>${opts}</select>
+            </div>
+            <div class="form-group"><label>Puerto Origen</label>
+                <input id="cnPOri" class="form-control" placeholder="Ej: PON-1, GE-0/0/1">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>Equipo Destino *</label>
+                <select id="cnDes" class="form-control"><option value="">--</option>${opts}</select>
+            </div>
+            <div class="form-group"><label>Puerto Destino</label>
+                <input id="cnPDes" class="form-control" placeholder="Ej: ETH-1, Port 24">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>Tipo de cable</label>
+                <select id="cnTipo" class="form-control">
+                    <option value="Fibra">🌈 Fibra Óptica</option>
+                    <option value="UTP Cat6">🔌 UTP Cat6</option>
+                    <option value="UTP Cat5e">🔌 UTP Cat5e</option>
+                    <option value="Patch SC/APC">🔗 Patch SC/APC</option>
+                    <option value="Patch LC">🔗 Patch LC</option>
+                    <option value="Poder">⚡ Poder</option>
+                    <option value="Otro">Otro</option>
+                </select>
+            </div>
+            <div class="form-group"><label>Color / Etiqueta</label>
+                <input id="cnColor" class="form-control" placeholder="Ej: Verde, Etiq.A01">
+            </div>
+        </div>
+        <div class="form-group"><label>Descripción / Notas</label>
+            <textarea id="cnDesc" class="form-control" rows="2" placeholder="Ej: Backbone principal, uplink al ISP"></textarea>
+        </div>`,
+        ()=>{
+            const ori = id('cnOri').value;
+            const des = id('cnDes').value;
+            if(!ori || !des) return alert('Seleccione equipos origen y destino');
+            if(ori === des) return alert('Origen y destino no pueden ser el mismo');
+            if(!q.conexiones) q.conexiones = [];
+            q.conexiones.push({
+                id: Date.now().toString(),
+                equipoOrigenId: ori,
+                equipoDestinoId: des,
+                puertoOrigen: id('cnPOri').value.trim(),
+                puertoDestino: id('cnPDes').value.trim(),
+                tipoCable: id('cnTipo').value,
+                color: id('cnColor').value.trim(),
+                descripcion: id('cnDesc').value.trim(),
+                fecha: new Date().toISOString()
+            });
+            logMsg(`Conexión creada en ${q.nombre}`);
+            save(); closeModal(); modalVerConexiones(qId);
+        });
+}
+window.modalAddConexion = modalAddConexion;
+
+function modalEditConexion(qId, cnId) {
+    const q = DB.cuartos.find(x=>x.id===qId);
+    const cn = q?.conexiones.find(x=>x.id===cnId);
+    if(!cn) return;
+    const todosEquipos = [];
+    (q.racks||[]).forEach(r => {
+        (r.equipos||[]).forEach(e => todosEquipos.push({...e, rackNombre:r.nombre}));
+    });
+    const opts = todosEquipos.map(e=>`<option value="${e.id}" ${e.id===cn.equipoOrigenId?'data-ori="selected"':''} ${e.id===cn.equipoDestinoId?'data-des="selected"':''}>${e.nombre} (${e.rackNombre})</option>`).join('');
+    openModal('✏️ Editar Conexión',
+        `<div class="form-row">
+            <div class="form-group"><label>Equipo Origen *</label>
+                <select id="cnOri" class="form-control">${todosEquipos.map(e=>`<option value="${e.id}" ${e.id===cn.equipoOrigenId?'selected':''}>${e.nombre} (${e.rackNombre})</option>`).join('')}</select>
+            </div>
+            <div class="form-group"><label>Puerto Origen</label>
+                <input id="cnPOri" class="form-control" value="${cn.puertoOrigen||''}">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>Equipo Destino *</label>
+                <select id="cnDes" class="form-control">${todosEquipos.map(e=>`<option value="${e.id}" ${e.id===cn.equipoDestinoId?'selected':''}>${e.nombre} (${e.rackNombre})</option>`).join('')}</select>
+            </div>
+            <div class="form-group"><label>Puerto Destino</label>
+                <input id="cnPDes" class="form-control" value="${cn.puertoDestino||''}">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>Tipo de cable</label>
+                <select id="cnTipo" class="form-control">
+                    ${['Fibra','UTP Cat6','UTP Cat5e','Patch SC/APC','Patch LC','Poder','Otro'].map(t=>`<option value="${t}" ${t===cn.tipoCable?'selected':''}>${t}</option>`).join('')}
+                </select>
+            </div>
+            <div class="form-group"><label>Color / Etiqueta</label>
+                <input id="cnColor" class="form-control" value="${cn.color||''}">
+            </div>
+        </div>
+        <div class="form-group"><label>Descripción</label>
+            <textarea id="cnDesc" class="form-control" rows="2">${cn.descripcion||''}</textarea>
+        </div>`,
+        ()=>{
+            cn.equipoOrigenId = id('cnOri').value;
+            cn.equipoDestinoId = id('cnDes').value;
+            cn.puertoOrigen = id('cnPOri').value.trim();
+            cn.puertoDestino = id('cnPDes').value.trim();
+            cn.tipoCable = id('cnTipo').value;
+            cn.color = id('cnColor').value.trim();
+            cn.descripcion = id('cnDesc').value.trim();
+            save(); closeModal(); modalVerConexiones(qId);
+        });
+}
+window.modalEditConexion = modalEditConexion;
+
+function eliminarConexion(qId, cnId) {
+    if(!confirm('¿Eliminar esta conexión?')) return;
+    const q = DB.cuartos.find(x=>x.id===qId);
+    q.conexiones = (q.conexiones||[]).filter(x=>x.id!==cnId);
+    save(); modalVerConexiones(qId);
+}
+window.eliminarConexion = eliminarConexion;
 
 function renderEquiposDanados(c) {
     if(!DB.equiposDanados) DB.equiposDanados = [];
@@ -4155,6 +4777,7 @@ function fixDB() {
     if(!DB.clientes) DB.clientes=[];
     if(!DB.ventas) DB.ventas=[];
     if(!DB.equiposDanados) DB.equiposDanados=[];
+    if(!DB.cuartos) DB.cuartos=[];
     const fx=m=>{ if(!Array.isArray(m.snes)) m.snes=[]; if(!m.categoria) m.categoria='material'; };
     DB.bodegas.forEach(b=>{ if(!b.materiales) b.materiales=[]; b.materiales.forEach(fx); });
     DB.cuadrillas.forEach(c=>{ if(!c.materiales) c.materiales=[]; if(!c.tecnicos) c.tecnicos=[]; c.materiales.forEach(fx); c.tecnicos.forEach(t=>{ if(!t.dotacion) t.dotacion=[]; }); });
