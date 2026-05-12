@@ -2905,24 +2905,66 @@ function renderInst(c) {
     let is = DB.instalaciones;
     if(USER.role==='bodega'){ const cIds=getUserCuads().map(x=>x.id); is=is.filter(x=>cIds.includes(x.cuadrillaId)); }
     is.sort((a,b)=>new Date(b.reg)-new Date(a.reg));
-    // Contar clientes sin bodega para el admin
-    const sinBodega = DB.clientes.filter(cl=>!cl.bodegaId).length;
-    const adminAlerta = (USER.role==='admin' && sinBodega>0) ? `
+
+    // Helper para obtener la bodega de una instalación: 1) campo directo, 2) cliente asociado, 3) cuadrilla
+    const getInstBodega = (i) => {
+        if(i.bodegaId) return DB.bodegas.find(b=>b.id===i.bodegaId);
+        const cli = DB.clientes.find(cl=>cl.nombre.toLowerCase()===i.cliente.toLowerCase());
+        if(cli?.bodegaId) return DB.bodegas.find(b=>b.id===cli.bodegaId);
+        const cuad = DB.cuadrillas.find(cu=>cu.id===i.cuadrillaId);
+        if(cuad?.bodegaId) return DB.bodegas.find(b=>b.id===cuad.bodegaId);
+        return null;
+    };
+
+    // Contar instalaciones que no logran resolver bodega
+    const instSinBodega = is.filter(i => !getInstBodega(i));
+    const sinBodegaCount = instSinBodega.length;
+
+    const adminAlerta = (USER.role==='admin' && sinBodegaCount>0) ? `
         <div style="background:#fff3cd;padding:10px;border-radius:8px;margin-bottom:15px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
-            <span>⚠️ <strong>${sinBodega}</strong> cliente(s) sin bodega asignada. Estos no aparecen en Clientes Instalados.</span>
-            <button class="btn btn-warning btn-sm" onclick="renderAsignarClientesBodega(document.getElementById('main-content'))">🏭 Asignar a Bodega</button>
+            <span>⚠️ <strong>${sinBodegaCount}</strong> instalación(es) sin bodega resoluble. Puedes asignarles bodega directamente abajo.</span>
+            <button class="btn btn-warning btn-sm" onclick="renderAsignarClientesBodega(document.getElementById('main-content'))">🏭 Asignar Clientes</button>
         </div>` : '';
+
     c.innerHTML = `<div class="card">
         <div class="card-header"><h2>🔧 Instalaciones</h2>${canDo('inst','crear')?`<button class="btn btn-success btn-sm" onclick="modalNewInst()">➕ Nueva</button>`:''}</div>
         ${adminAlerta}
-        ${is.length?is.map(i=>`<div style="border:1px solid #eee; padding:15px; border-radius:8px; margin-bottom:10px; background:white;">
-            <div class="flex"><strong>🔧 ${i.cliente}</strong> <span class="badge badge-new">${i.fecha}</span></div>
-            <p class="text-muted">Cuadrilla: ${i.cuadrilla} | Tipo: ${i.tipo||'-'}${i.bodegaId?` | 🏭 ${DB.bodegas.find(b=>b.id===i.bodegaId)?.nombre||''}`:'<span style="color:#d97706;"> | ⚠️ Sin bodega</span>'}</p>
-            <div style="margin-top:5px;">${i.mats.map(m=>`<span class="sn-tag">${m.nom}: ${m.cant} ${m.unidad}${m.snes.length?' [SN:'+m.snes.join(',')+']':''}</span>`).join(' ')}</div>
-            ${canDo('inst','eliminar')?`<button class="btn btn-danger btn-sm" style="margin-top:10px;" onclick="delInst('${i.id}')">✕</button>`:''}
-        </div>`).join(''):'<p class="text-muted">Sin instalaciones</p>'}
+        ${is.length ? is.map(i=>{
+            const bodega = getInstBodega(i);
+            const bodHtml = bodega
+                ? ` | 🏭 ${bodega.nombre}`
+                : (USER.role==='admin'
+                    ? ` | <select onchange="asignarBodegaInst('${i.id}', this.value)" style="font-size:0.8rem;padding:2px 6px;border-radius:4px;border:1px solid #d97706;background:#fff3cd;"><option value="">⚠️ Asignar bodega...</option>${DB.bodegas.map(b=>`<option value="${b.id}">${b.nombre}</option>`).join('')}</select>`
+                    : ' | <span style="color:#d97706;">⚠️ Sin bodega</span>');
+            return `<div style="border:1px solid #eee; padding:15px; border-radius:8px; margin-bottom:10px; background:white;">
+                <div class="flex"><strong>🔧 ${i.cliente}</strong> <span class="badge badge-new">${i.fecha}</span></div>
+                <p class="text-muted">Cuadrilla: ${i.cuadrilla} | Tipo: ${i.tipo||'-'}${bodHtml}</p>
+                <div style="margin-top:5px;">${i.mats.map(m=>`<span class="sn-tag">${m.nom}: ${m.cant} ${m.unidad}${m.snes.length?' [SN:'+m.snes.join(',')+']':''}</span>`).join(' ')}</div>
+                ${canDo('inst','eliminar')?`<button class="btn btn-danger btn-sm" style="margin-top:10px;" onclick="delInst('${i.id}')">✕</button>`:''}
+            </div>`;
+        }).join('') : '<p class="text-muted">Sin instalaciones</p>'}
     </div>`;
 }
+
+function asignarBodegaInst(instId, bodegaId) {
+    if(!bodegaId) return;
+    const inst = DB.instalaciones.find(x=>x.id===instId);
+    if(!inst) return;
+    const bodega = DB.bodegas.find(b=>b.id===bodegaId);
+    if(!bodega) return;
+    // Asignar bodega a la instalación
+    inst.bodegaId = bodegaId;
+    // También asignar al cliente si existe
+    const cli = DB.clientes.find(c=>c.nombre.toLowerCase()===inst.cliente.toLowerCase());
+    if(cli && !cli.bodegaId) cli.bodegaId = bodegaId;
+    logMsg(`Bodega "${bodega.nombre}" asignada a instalación de ${inst.cliente}`);
+    if(window._fbSaveImmediate) {
+        window._fbSaveImmediate().then(()=>renderTab('inst'));
+    } else {
+        save(); renderTab('inst');
+    }
+}
+window.asignarBodegaInst = asignarBodegaInst;
 function modalNewInst() {
     const cs = getUserCuads().map(c=>`<option value="${c.id}">${c.nombre}</option>`).join('');
     TempLists.iItems = [];
