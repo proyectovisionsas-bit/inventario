@@ -2906,7 +2906,7 @@ function renderInst(c) {
     if(USER.role==='bodega'){ const cIds=getUserCuads().map(x=>x.id); is=is.filter(x=>cIds.includes(x.cuadrillaId)); }
     is.sort((a,b)=>new Date(b.reg)-new Date(a.reg));
 
-    // Helper para obtener la bodega de una instalación: 1) campo directo, 2) cliente asociado, 3) cuadrilla
+    // Helper para obtener la bodega de una instalación
     const getInstBodega = (i) => {
         if(i.bodegaId) return DB.bodegas.find(b=>b.id===i.bodegaId);
         const cli = DB.clientes.find(cl=>cl.nombre.toLowerCase()===i.cliente.toLowerCase());
@@ -2916,14 +2916,29 @@ function renderInst(c) {
         return null;
     };
 
-    // Contar instalaciones que no logran resolver bodega
-    const instSinBodega = is.filter(i => !getInstBodega(i));
-    const sinBodegaCount = instSinBodega.length;
+    // Detectar instalaciones huérfanas (cuyo cliente no existe en DB.clientes)
+    const instalacionesHuerfanas = is.filter(i =>
+        !DB.clientes.find(cl => cl.nombre.toLowerCase().trim() === i.cliente.toLowerCase().trim())
+    );
+    const huerfanasCount = instalacionesHuerfanas.length;
 
-    const adminAlerta = (USER.role==='admin' && sinBodegaCount>0) ? `
-        <div style="background:#fff3cd;padding:10px;border-radius:8px;margin-bottom:15px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
-            <span>⚠️ <strong>${sinBodegaCount}</strong> instalación(es) sin bodega resoluble. Puedes asignarles bodega directamente abajo.</span>
-            <button class="btn btn-warning btn-sm" onclick="renderAsignarClientesBodega(document.getElementById('main-content'))">🏭 Asignar Clientes</button>
+    const adminAlerta = (USER.role==='admin' && huerfanasCount>0) ? `
+        <div style="background:#fff3cd;padding:14px;border-radius:8px;margin-bottom:15px;border-left:4px solid #d97706;">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+                <div>
+                    <strong style="color:#92400e;">⚠️ ${huerfanasCount} instalación(es) sin cliente en "Clientes Instalados"</strong>
+                    <p class="text-muted" style="margin:4px 0 0;font-size:0.85rem;">Estas instalaciones no se reflejan en el módulo de Clientes Instalados.</p>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button class="btn btn-warning btn-sm" onclick="sincronizarInstalacionesAClientes()">🔄 Sincronizar a Clientes</button>
+                </div>
+            </div>
+            <details style="margin-top:10px;">
+                <summary style="cursor:pointer;font-size:0.85rem;color:#92400e;">Ver lista de clientes pendientes</summary>
+                <ul style="margin:8px 0 0 20px;font-size:0.82rem;max-height:200px;overflow-y:auto;">
+                    ${instalacionesHuerfanas.map(i=>`<li><strong>${i.cliente}</strong> — ${i.fecha} (${i.cuadrilla})</li>`).join('')}
+                </ul>
+            </details>
         </div>` : '';
 
     c.innerHTML = `<div class="card">
@@ -2931,15 +2946,18 @@ function renderInst(c) {
         ${adminAlerta}
         ${is.length ? is.map(i=>{
             const bodega = getInstBodega(i);
+            const cliExists = DB.clientes.find(cl => cl.nombre.toLowerCase().trim() === i.cliente.toLowerCase().trim());
             const bodHtml = bodega
                 ? ` | 🏭 ${bodega.nombre}`
                 : (USER.role==='admin'
                     ? ` | <select onchange="asignarBodegaInst('${i.id}', this.value)" style="font-size:0.8rem;padding:2px 6px;border-radius:4px;border:1px solid #d97706;background:#fff3cd;"><option value="">⚠️ Asignar bodega...</option>${DB.bodegas.map(b=>`<option value="${b.id}">${b.nombre}</option>`).join('')}</select>`
                     : ' | <span style="color:#d97706;">⚠️ Sin bodega</span>');
+            const cliWarning = !cliExists ? ' <span style="color:#d97706;font-size:0.78rem;background:#fff3cd;padding:2px 6px;border-radius:4px;">⚠️ No en Clientes Instalados</span>' : '';
             return `<div style="border:1px solid #eee; padding:15px; border-radius:8px; margin-bottom:10px; background:white;">
-                <div class="flex"><strong>🔧 ${i.cliente}</strong> <span class="badge badge-new">${i.fecha}</span></div>
+                <div class="flex"><strong>🔧 ${i.cliente}</strong> <span class="badge badge-new">${i.fecha}</span>${cliWarning}</div>
                 <p class="text-muted">Cuadrilla: ${i.cuadrilla} | Tipo: ${i.tipo||'-'}${bodHtml}</p>
                 <div style="margin-top:5px;">${i.mats.map(m=>`<span class="sn-tag">${m.nom}: ${m.cant} ${m.unidad}${m.snes.length?' [SN:'+m.snes.join(',')+']':''}</span>`).join(' ')}</div>
+                ${USER.role==='admin' && !cliExists ? `<button class="btn btn-warning btn-sm" style="margin-top:10px;margin-right:5px;" onclick="sincronizarInstalacionAUnCliente('${i.id}')">➕ Crear en Clientes</button>` : ''}
                 ${canDo('inst','eliminar')?`<button class="btn btn-danger btn-sm" style="margin-top:10px;" onclick="delInst('${i.id}')">✕</button>`:''}
             </div>`;
         }).join('') : '<p class="text-muted">Sin instalaciones</p>'}
@@ -2952,9 +2970,7 @@ function asignarBodegaInst(instId, bodegaId) {
     if(!inst) return;
     const bodega = DB.bodegas.find(b=>b.id===bodegaId);
     if(!bodega) return;
-    // Asignar bodega a la instalación
     inst.bodegaId = bodegaId;
-    // También asignar al cliente si existe
     const cli = DB.clientes.find(c=>c.nombre.toLowerCase()===inst.cliente.toLowerCase());
     if(cli && !cli.bodegaId) cli.bodegaId = bodegaId;
     logMsg(`Bodega "${bodega.nombre}" asignada a instalación de ${inst.cliente}`);
@@ -2965,6 +2981,123 @@ function asignarBodegaInst(instId, bodegaId) {
     }
 }
 window.asignarBodegaInst = asignarBodegaInst;
+
+// ── SINCRONIZAR INSTALACIONES → CLIENTES ─────────────────────────────────────
+function sincronizarInstalacionAUnCliente(instId) {
+    const inst = DB.instalaciones.find(x=>x.id===instId);
+    if(!inst) return alert('Instalación no encontrada');
+
+    // Pedir bodega si no la tiene
+    let bodegaId = inst.bodegaId;
+    if(!bodegaId) {
+        const cuad = DB.cuadrillas.find(cu=>cu.id===inst.cuadrillaId);
+        bodegaId = cuad?.bodegaId || '';
+    }
+    if(!bodegaId) {
+        const opts = DB.bodegas.map((b,i)=>`${i+1}. ${b.nombre}`).join('\n');
+        const sel = prompt(`Bodega para "${inst.cliente}":\n\n${opts}\n\nIngresa el número:`);
+        if(!sel) return;
+        const idx = parseInt(sel)-1;
+        if(isNaN(idx) || !DB.bodegas[idx]) return alert('Bodega inválida');
+        bodegaId = DB.bodegas[idx].id;
+        inst.bodegaId = bodegaId;
+    }
+
+    // Crear el cliente
+    const nuevoCli = {
+        id: Date.now().toString() + '_' + Math.random().toString(36).substr(2,4),
+        nombre: inst.cliente,
+        bodegaId,
+        direccion: inst.direccion||'',
+        telefono: inst.telefono||'',
+        email: '',
+        fechaInstalacion: inst.fecha,
+        cuadrillaInstaladora: inst.cuadrilla,
+        observaciones: inst.observaciones||inst.tipo||'',
+        equipos: inst.mats.map(m=>({
+            nombre: m.nom, cantidad: m.cant, unidad: m.unidad||'Und',
+            tipo: m.tipo||'nuevo', snes: [...(m.snes||[])], estado: 'Activo'
+        }))
+    };
+    DB.clientes.push(nuevoCli);
+    logMsg(`Cliente "${inst.cliente}" sincronizado desde instalación`);
+
+    if(window._fbSaveImmediate) {
+        window._fbSaveImmediate().then(()=>{
+            alert(`✅ Cliente "${inst.cliente}" agregado a Clientes Instalados`);
+            renderTab('inst');
+        });
+    } else {
+        save();
+        alert(`✅ Cliente "${inst.cliente}" agregado`);
+        renderTab('inst');
+    }
+}
+window.sincronizarInstalacionAUnCliente = sincronizarInstalacionAUnCliente;
+
+function sincronizarInstalacionesAClientes() {
+    const huerfanas = DB.instalaciones.filter(i =>
+        !DB.clientes.find(cl => cl.nombre.toLowerCase().trim() === i.cliente.toLowerCase().trim())
+    );
+    if(!huerfanas.length) return alert('No hay instalaciones sin cliente asociado.');
+
+    // Pedir bodega por defecto para las que no tengan
+    const opts = DB.bodegas.map((b,i)=>`${i+1}. ${b.nombre}`).join('\n');
+    const sel = prompt(`Se crearán ${huerfanas.length} cliente(s).\n\nPara las que no tengan bodega asignada, ¿a qué bodega los asignamos?\n\n${opts}\n\nIngresa el número (deja vacío para usar la bodega de cada cuadrilla):`);
+    let bodegaDefaultId = '';
+    if(sel) {
+        const idx = parseInt(sel)-1;
+        if(!isNaN(idx) && DB.bodegas[idx]) bodegaDefaultId = DB.bodegas[idx].id;
+    }
+
+    let creados = 0;
+    huerfanas.forEach(inst => {
+        let bodegaId = inst.bodegaId;
+        if(!bodegaId) {
+            const cuad = DB.cuadrillas.find(cu=>cu.id===inst.cuadrillaId);
+            bodegaId = cuad?.bodegaId || bodegaDefaultId;
+        }
+        if(!bodegaId) return; // saltar si no se puede determinar
+
+        // Verificar duplicado por si acaso
+        const exists = DB.clientes.find(cl => cl.nombre.toLowerCase().trim() === inst.cliente.toLowerCase().trim());
+        if(exists) return;
+
+        if(!inst.bodegaId) inst.bodegaId = bodegaId;
+
+        DB.clientes.push({
+            id: Date.now().toString() + '_' + creados + '_' + Math.random().toString(36).substr(2,4),
+            nombre: inst.cliente,
+            bodegaId,
+            direccion: inst.direccion||'',
+            telefono: inst.telefono||'',
+            email: '',
+            fechaInstalacion: inst.fecha,
+            cuadrillaInstaladora: inst.cuadrilla,
+            observaciones: inst.observaciones||inst.tipo||'',
+            equipos: inst.mats.map(m=>({
+                nombre: m.nom, cantidad: m.cant, unidad: m.unidad||'Und',
+                tipo: m.tipo||'nuevo', snes: [...(m.snes||[])], estado: 'Activo'
+            }))
+        });
+        creados++;
+    });
+
+    if(!creados) return alert('No se pudo crear ningún cliente (faltó bodega).');
+
+    logMsg(`Sincronización masiva: ${creados} cliente(s) creados desde instalaciones`);
+    if(window._fbSaveImmediate) {
+        window._fbSaveImmediate().then(()=>{
+            alert(`✅ ${creados} cliente(s) agregados a Clientes Instalados`);
+            renderTab('inst');
+        });
+    } else {
+        save();
+        alert(`✅ ${creados} cliente(s) agregados`);
+        renderTab('inst');
+    }
+}
+window.sincronizarInstalacionesAClientes = sincronizarInstalacionesAClientes;
 function modalNewInst() {
     const cs = getUserCuads().map(c=>`<option value="${c.id}">${c.nombre}</option>`).join('');
     TempLists.iItems = [];
