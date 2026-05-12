@@ -2559,7 +2559,7 @@ function approveDelete(reqId, act) {
 function renderTransfer(c) { let ts=DB.transfers; if(USER.role==='bodega') ts=ts.filter(t=>t.oriId===USER.id||t.desId===USER.id); ts.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)); c.innerHTML=`<div class="card"><div class="card-header"><h2>🔄 Transferencias</h2>${USER.role==='bodega'&&canDo('transfer','enviar')?`<button class="btn btn-primary btn-sm" onclick="modalSendTrans()">📤 Enviar</button>`:''}</div>${ts.length?ts.map(t=>`<div style="border:1px solid #eee; border-radius:8px; padding:15px; margin-bottom:10px; background:${t.estado==='pendiente'?'#fff':'#f9f9f9'}"><div class="flex"><strong>🔄 ${t.oriName} ➜ ${t.desName}</strong><span class="badge ${t.estado==='pendiente'?'badge-pend':t.estado==='aceptada'?'badge-ok':'badge-rej'}">${t.estado.toUpperCase()}</span></div><div class="text-muted" style="font-size:0.85rem; margin:5px 0;">📅 ${t.fecha}</div><div style="margin-bottom:10px;">${t.mats.map(m=>`<span class="sn-tag">${m.nom}: ${m.cant} ${m.unidad}${m.snes.length?' [SN:'+m.snes.join(', ')+']':''}</span>`).join(' ')}</div>${t.estado==='pendiente'&&t.desId===USER.id?`<div class="flex"><button class="btn btn-success btn-sm" onclick="procTrans('${t.id}','aceptada')">✅</button><button class="btn btn-danger btn-sm" onclick="procTrans('${t.id}','rechazada')">❌</button></div>`:''}</div>`).join(''):'<p class="text-center text-muted">Sin transferencias</p>'}</div>`; }
 function modalSendTrans() { if(USER.role!=='bodega') return; const dests=DB.bodegas.filter(b=>b.id!==USER.id).map(b=>`<option value="${b.id}">${b.nombre}</option>`).join(''); const mats=DB.bodegas.find(x=>x.id===USER.id).materiales.filter(m=>m.cantidad>0).map(m=>`<option value="${m.id}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`).join(''); TempLists.transItems=[]; openModal('🔄 Transferencia', `<div class="form-group"><label>Destino</label><select id="tDest" class="form-control"><option value="">...</option>${dests}</select></div><hr style="margin:15px 0;"><div class="form-row"><div class="form-group"><label>Material</label><select id="tMat" class="form-control" onchange="showTransferSNBox()">${mats}</select></div><div class="form-group"><label>Cantidad</label><input id="tCant" type="number" value="1" min="1" class="form-control" onchange="showTransferSNBox()"></div></div><div id="tSNArea"></div><div id="tMsg" class="text-muted text-sm"></div><button class="btn btn-outline btn-sm" onclick="addTransItem()" style="margin-top:10px;">➕ Agregar</button><div id="tList" style="margin-top:10px;"></div><div class="form-group"><label>Observaciones</label><input id="tObs" class="form-control"></div>`, ()=>{ if(!id('tDest').value||!TempLists.transItems.length) return alert('Faltan datos'); sendTransLogic(); }); TempLists.tSelectedSNs={}; showTransferSNBox(); renderTList(); }
 function showTransferSNBox() { const mId=id('tMat').value, box=id('tSNArea'), msg=id('tMsg'); if(!mId||!box) return; const m=DB.bodegas.find(x=>x.id===USER.id)?.materiales.find(x=>x.id===mId); if(!m) { box.innerHTML=''; return; } TempLists.tSelectedSNs={}; const q = parseInt(id('tCant').value) || 1; if(m.snes.length > 0) { let html=`<div class="sn-select-area"><div class="flex" style="justify-content:space-between;margin-bottom:8px;"><strong>Seleccione ${q} SNs</strong><label style="font-size:0.85rem;cursor:pointer;"><input type="checkbox" onchange="toggleAllSN(this,'tSNChk')"> Todos</label></div>`; m.snes.forEach((sn,i)=>{ html+=`<label class="sn-check"><input type="checkbox" id="tSNChk_${i}" value="${sn}" onchange="updateTSelection(${q})"> <span class="sn-label">${sn}</span></label>`; }); html+=`</div>`; box.innerHTML=html; msg.textContent = `Seleccione ${q} seriales.`; } else { box.innerHTML = `<div class="alert" style="background:#e8f5e9;color:#2e7d32;padding:8px;font-size:0.85rem;">✅ Sin serial. Se transferirán ${q} ${m.unidad}.</div>`; msg.textContent = ''; } }
-function toggleAllSN(master, prefix) { document.querySelectorAll(`input[id^="${prefix}"]`).forEach(cb=>{cb.checked=master.checked;}); updateTSelection(parseInt(id('tCant').value)||1); }
+// Unificado más abajo
 function updateTSelection(q) { const checked = document.querySelectorAll('#tSNArea input[type="checkbox"]:checked').length; TempLists.tSelectedSNs = {}; document.querySelectorAll('#tSNArea input[type="checkbox"]:checked').forEach(cb=>TempLists.tSelectedSNs[cb.value]=true); document.querySelectorAll('#tSNArea .sn-check').forEach(el=>{ const cb=el.querySelector('input[type="checkbox"]'); el.classList.toggle('selected',cb.checked); }); const msg=id('tMsg'); if(q>0) { if(checked===q){msg.style.color='var(--secondary)';msg.textContent='✅ Correcto.';}else if(checked>q){msg.style.color='var(--danger)';msg.textContent=`⚠️ ${checked}/${q}`;}else{msg.style.color='var(--warning)';msg.textContent=`⏳ ${checked}/${q}`;} } }
 function addTransItem() { const mId=id('tMat').value, q=parseInt(id('tCant').value); if(!mId||!q) return alert('Datos inválidos'); const m=DB.bodegas.find(x=>x.id===USER.id)?.materiales.find(x=>x.id===mId); if(!m) return; let snes=[]; if(m.snes.length>0){snes=Object.keys(TempLists.tSelectedSNs);if(snes.length!==q) return alert(`Seleccione ${q} SNs`);} const inList=TempLists.transItems.find(x=>x.id===mId)?.cant||0; if(q+inList>m.cantidad) return alert('Stock insuficiente'); const exist=TempLists.transItems.find(x=>x.id===mId); if(exist){exist.cant+=q;exist.snes.push(...snes);} else TempLists.transItems.push({id:m.id,nom:m.nombre,cant:q,tipo:m.tipo,unidad:m.unidad,snes:snes}); TempLists.tSelectedSNs={}; showTransferSNBox(); renderTList(); }
 function renderTList() { const el=id('tList'); if(!el) return; el.innerHTML=TempLists.transItems.map((it,i)=>`<div class="item-list-item"><span><strong>${it.nom}</strong> x${it.cant} ${it.unidad}${it.snes.length?' [SN:'+it.snes.join(', ')+']':''}</span><button class="btn btn-danger btn-sm" onclick="TempLists.transItems.splice(${i},1);renderTList();">✕</button></div>`).join('')||'<p class="text-muted">Vacío</p>'; }
@@ -2850,7 +2850,7 @@ function showDotSNBox() {
         box.innerHTML=`<div class="alert" style="background:#e8f5e9;color:#2e7d32;padding:8px;font-size:0.85rem;">Sin serial. Se asignarán ${q} ${m.unidad}.</div>`; msg.textContent='';
     }
 }
-function toggleAllSN(master,prefix){ document.querySelectorAll(`input[id^="${prefix}"]`).forEach(cb=>{cb.checked=master.checked;}); updateDSelection(parseInt(id('dCant').value)||1); }
+// Unificado más abajo
 function updateDSelection(q){ TempLists.dSelectedSNs={}; document.querySelectorAll('#dSNArea input[type="checkbox"]:checked').forEach(cb=>TempLists.dSelectedSNs[cb.value]=true); document.querySelectorAll('#dSNArea .sn-check').forEach(el=>{const cb=el.querySelector('input[type="checkbox"]');el.classList.toggle('selected',cb.checked);}); const checked=document.querySelectorAll('#dSNArea input[type="checkbox"]:checked').length; const msg=id('dMsg'); if(q>0){if(checked===q){msg.style.color='var(--secondary)';msg.textContent='✅ Correcto';}else if(checked>q){msg.style.color='var(--danger)';msg.textContent=`⚠️ ${checked}/${q}`;}else{msg.style.color='var(--warning)';msg.textContent=`⏳ ${checked}/${q}`;}} }
 function addDotItem() {
     const mIdx=parseInt(id('dMat').value), q=parseInt(id('dCant').value), cat=id('dCategoria').value;
@@ -2883,7 +2883,14 @@ function modalNewEntrega() { const bs=getUserBodegas().map(b=>`<option value="${
 function updateEOptions() { const bId=id('eBod').value; id('eCuad').innerHTML=DB.cuadrillas.filter(c=>c.bodegaId===bId).map(c=>`<option value="${c.id}">${c.nombre}</option>`).join(''); loadERec(); const b=DB.bodegas.find(x=>x.id===bId); id('eMat').innerHTML=b?b.materiales.filter(m=>m.cantidad>0).map(m=>`<option value="${m.id}">${m.nombre} (${m.cantidad} ${m.unidad})</option>`).join(''):'<option value="">-</option>'; showESNBox(); }
 function loadERec() { const c=DB.cuadrillas.find(x=>x.id===id('eCuad').value); id('eRec').value=c?c.receptor:''; }
 function showESNBox() { const mId=id('eMat').value, box=id('eSNArea'), msg=id('eMsg'); if(!mId||!box) return; const bId=id('eBod').value, b=DB.bodegas.find(x=>x.id===bId), m=b?.materiales.find(x=>x.id===mId); if(!m) return; TempLists.eSelectedSNs={}; const q=parseInt(id('eCant').value)||1; if(m.snes.length>0){ let html=`<div class="sn-select-area"><div class="flex" style="justify-content:space-between;margin-bottom:8px;"><strong>Seleccione ${q} SNs</strong><label style="font-size:0.85rem;cursor:pointer;"><input type="checkbox" onchange="toggleAllSN(this,'eSNChk')"> Todos</label></div>`; m.snes.forEach((sn,i)=>{html+=`<label class="sn-check"><input type="checkbox" id="eSNChk_${i}" value="${sn}" onchange="updateESelection(${q})"> <span class="sn-label">${sn}</span></label>`;}); html+=`</div>`; box.innerHTML=html; msg.textContent=`Seleccione ${q} seriales.`; }else{ box.innerHTML=`<div class="alert" style="background:#e8f5e9;color:#2e7d32;padding:8px;font-size:0.85rem;">Sin serial. Se entregarán ${q} ${m.unidad}.</div>`; msg.textContent=''; } }
-function toggleAllSN(master,prefix){ document.querySelectorAll(`input[id^="${prefix}"]`).forEach(cb=>{cb.checked=master.checked;}); updateESelection(parseInt(id('eCant').value)||1); }
+function toggleAllSN(master, prefix) {
+    document.querySelectorAll(`input[id^="${prefix}"]`).forEach(cb=>{cb.checked=master.checked;});
+    // Detectar qué selector llamar según el prefix
+    if(prefix==='tSNChk' && typeof updateTSelection==='function') updateTSelection(parseInt(id('tCant').value)||1);
+    else if(prefix==='dSNChk' && typeof updateDSelection==='function') updateDSelection(parseInt(id('dCant').value)||1);
+    else if(prefix==='eSNChk' && typeof updateESelection==='function') updateESelection(parseInt(id('eCant').value)||1);
+}
+window.toggleAllSN = toggleAllSN;
 function updateESelection(q){ TempLists.eSelectedSNs={}; document.querySelectorAll('#eSNArea input[type="checkbox"]:checked').forEach(cb=>TempLists.eSelectedSNs[cb.value]=true); document.querySelectorAll('#eSNArea .sn-check').forEach(el=>{const cb=el.querySelector('input[type="checkbox"]');el.classList.toggle('selected',cb.checked);}); const checked=document.querySelectorAll('#eSNArea input[type="checkbox"]:checked').length; const msg=id('eMsg'); if(q>0){if(checked===q){msg.style.color='var(--secondary)';msg.textContent='✅ Correcto';}else if(checked>q){msg.style.color='var(--danger)';msg.textContent=`⚠️ ${checked}/${q}`;}else{msg.style.color='var(--warning)';msg.textContent=`⏳ ${checked}/${q}`;}} }
 function addEItem() { const mId=id('eMat').value, q=parseInt(id('eCant').value); if(!mId||!q) return alert('Datos inválidos'); const bId=id('eBod').value, b=DB.bodegas.find(x=>x.id===bId), m=b.materiales.find(x=>x.id===mId); let snes=[]; if(m.snes.length>0){snes=Object.keys(TempLists.eSelectedSNs);if(snes.length!==q) return alert(`Seleccione ${q} SNs`);} const inList=TempLists.eItems.find(x=>x.id===mId)?.cant||0; if(q+inList>m.cantidad) return alert('Stock insuficiente'); const exist=TempLists.eItems.find(x=>x.id===mId); if(exist){exist.cant+=q;exist.snes.push(...snes);} else TempLists.eItems.push({id:m.id,nom:m.nombre,cant:q,tipo:m.tipo,unidad:m.unidad,snes:snes}); TempLists.eSelectedSNs={}; showESNBox(); renderEList(); }
 function renderEList() { const el=id('eList'); if(!el) return; el.innerHTML=TempLists.eItems.map((it,i)=>`<div class="item-list-item"><span><strong>${it.nom}</strong> x${it.cant} ${it.unidad}${it.snes.length?' [SN:'+it.snes.join(', ')+']':''}</span><button class="btn btn-danger btn-sm" onclick="TempLists.eItems.splice(${i},1);renderEList();">✕</button></div>`).join('')||'Vacío'; }
@@ -3086,7 +3093,6 @@ function renderAdmin(c) {
             <button class="btn btn-primary" onclick="exportData()">📥 Exportar JSON</button>
             <button class="btn btn-outline" onclick="document.getElementById('impFile').click()">📤 Importar JSON</button>
             <input type="file" id="impFile" hidden accept=".json" onchange="importData(this)">
-            <button class="btn btn-outline" onclick="changeFirebaseConfig()">🔧 Firebase</button>
         </div>
         <hr style="margin:20px 0;">
         <div style="background:#fff3cd;padding:12px;border-radius:8px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
@@ -3693,6 +3699,10 @@ window.exportReporteEntregas=exportReporteEntregas;
 window.exportReporteCuadrillas=exportReporteCuadrillas;
 window.exportReporteClientes=exportReporteClientes;
 window.exportReporteTransferencias=exportReporteTransferencias;
+window.exportReporteInstalaciones=exportReporteInstalaciones;
+window.exportReporteVentas=exportReporteVentas;
+window.exportReporteRecuperados=exportReporteRecuperados;
+window.exportReporteDanados=exportReporteDanados;
 window.exportReporteActividad=exportReporteActividad;
 window.exportToExcel=exportToExcel;
 
@@ -3911,16 +3921,22 @@ function showSync(state, text) {
 window.showSync = showSync;
 
 function fixDB() {
-    if(!DB.deleteRequests) DB.deleteRequests=[];
-    if(!DB.ventas) DB.ventas=[];
-    if(!DB.editRequests) DB.editRequests=[];
+    if(!DB.bodegas) DB.bodegas=[];
+    if(!DB.cuadrillas) DB.cuadrillas=[];
+    if(!DB.entregas) DB.entregas=[];
+    if(!DB.instalaciones) DB.instalaciones=[];
+    if(!DB.logs) DB.logs=[];
+    if(!DB.transfers) DB.transfers=[];
     if(!DB.recuperados) DB.recuperados=[];
+    if(!DB.deleteRequests) DB.deleteRequests=[];
+    if(!DB.editRequests) DB.editRequests=[];
     if(!DB.clientes) DB.clientes=[];
+    if(!DB.ventas) DB.ventas=[];
     if(!DB.equiposDanados) DB.equiposDanados=[];
-    const fx=m=>{if(!Array.isArray(m.snes))m.snes=[];};
-    DB.bodegas.forEach(b=>b.materiales.forEach(fx));
-    DB.cuadrillas.forEach(c=>c.materiales.forEach(fx));
-    DB.clientes.forEach(c=>{if(c.equipos)c.equipos.forEach(e=>fx(e));});
+    const fx=m=>{ if(!Array.isArray(m.snes)) m.snes=[]; if(!m.categoria) m.categoria='material'; };
+    DB.bodegas.forEach(b=>{ if(!b.materiales) b.materiales=[]; b.materiales.forEach(fx); });
+    DB.cuadrillas.forEach(c=>{ if(!c.materiales) c.materiales=[]; if(!c.tecnicos) c.tecnicos=[]; c.materiales.forEach(fx); c.tecnicos.forEach(t=>{ if(!t.dotacion) t.dotacion=[]; }); });
+    DB.clientes.forEach(c=>{ if(!c.equipos) c.equipos=[]; c.equipos.forEach(fx); });
 }
 
 // Compress image to max ~30KB
@@ -3945,6 +3961,7 @@ window._fbSave = function() {
     showSync('saving','Guardando...');
     clearTimeout(saveTO);
     saveTO = setTimeout(async ()=>{
+        window._pendingClienteSave = true; // 🛡️ Bloquear listeners
         try {
             const { dbCopy, clientes } = await prepareDbCopy();
             await setDoc(doc(fsDB, DB_DOC), dbCopy);
@@ -3953,6 +3970,8 @@ window._fbSave = function() {
         } catch(e) {
             showSync('err','Error al guardar');
             console.error(e);
+        } finally {
+            setTimeout(()=>{ window._pendingClienteSave = false; }, 1500);
         }
     }, 600);
 };
@@ -3960,10 +3979,16 @@ window._fbSave = function() {
 window._fbSaveImmediate = async function() {
     clearTimeout(saveTO);
     showSync('saving','Guardando...');
-    const { dbCopy, clientes } = await prepareDbCopy();
-    await setDoc(doc(fsDB, DB_DOC), dbCopy);
-    await saveClienteChunks(clientes);
-    showSync('ok','Guardado ✓');
+    window._pendingClienteSave = true; // 🛡️ Bloquear listeners durante el guardado
+    try {
+        const { dbCopy, clientes } = await prepareDbCopy();
+        await setDoc(doc(fsDB, DB_DOC), dbCopy);
+        await saveClienteChunks(clientes);
+        showSync('ok','Guardado ✓');
+    } finally {
+        // Esperar un poco para que los listeners reciban nuestros cambios antes de re-habilitarlos
+        setTimeout(()=>{ window._pendingClienteSave = false; }, 1500);
+    }
 };
 
 window.connectFirebase = async function() {
@@ -4013,18 +4038,20 @@ async function startFirebase(config) {
     document.getElementById('login-screen').style.display='flex';
 
     // ── LISTENER PRINCIPAL — tiempo real para todos los dispositivos ──────────
+    // Marca para evitar que listeners externos sobrescriban clientes recién creados localmente
+    window._pendingClienteSave = false;
+
     onSnapshot(ref, s=>{
         if(!s.exists()) return;
         const prevClientes = window.DB.clientes;
         Object.assign(window.DB, s.data());
-        window.DB.clientes = prevClientes;
+        window.DB.clientes = prevClientes; // siempre preservar lista local de clientes
         if(window.fixDB) window.fixDB();
         if(window.showSync) window.showSync('ok','● En línea');
         if(!window.USER) {
             if(window.renderLoginBodegas) window.renderLoginBodegas();
             return;
         }
-        // Re-renderizar tab activo en tiempo real
         const activeTab = document.querySelector('.nav-btn.active')?.dataset?.tab || 'dash';
         if(window.renderTab) window.renderTab(activeTab);
     }, (err)=>{ if(window.showSync) window.showSync('err','Sin conexión'); console.error(err); });
@@ -4038,6 +4065,11 @@ async function startFirebase(config) {
 
             const chunkData = {};
             const mergeChunks = () => {
+                // 🛡️ No sobrescribir si tenemos un guardado local pendiente
+                if(window._pendingClienteSave) {
+                    console.log('Skipping chunk merge - local save pending');
+                    return;
+                }
                 const keys = Object.keys(chunkData).map(Number).sort((a,b)=>a-b);
                 if(keys.length < numChunks) return;
                 let all = [];
