@@ -4178,7 +4178,7 @@ window._fbSave = function() {
     showSync('saving','Guardando...');
     clearTimeout(saveTO);
     saveTO = setTimeout(async ()=>{
-        window._pendingClienteSave = true; // 🛡️ Bloquear listeners
+        window._pendingClienteSave = 'active';
         try {
             const { dbCopy, clientes } = await prepareDbCopy();
             await setDoc(doc(fsDB, DB_DOC), dbCopy);
@@ -4188,23 +4188,23 @@ window._fbSave = function() {
             showSync('err','Error al guardar');
             console.error(e);
         } finally {
-            setTimeout(()=>{ window._pendingClienteSave = false; }, 1500);
+            // Solo proteger durante el save real, no bloquear actualizaciones futuras
+            setTimeout(()=>{ window._pendingClienteSave = false; }, 800);
         }
-    }, 600);
+    }, 400);
 };
 
 window._fbSaveImmediate = async function() {
     clearTimeout(saveTO);
     showSync('saving','Guardando...');
-    window._pendingClienteSave = true; // 🛡️ Bloquear listeners durante el guardado
+    window._pendingClienteSave = 'active';
     try {
         const { dbCopy, clientes } = await prepareDbCopy();
         await setDoc(doc(fsDB, DB_DOC), dbCopy);
         await saveClienteChunks(clientes);
         showSync('ok','Guardado ✓');
     } finally {
-        // Esperar un poco para que los listeners reciban nuestros cambios antes de re-habilitarlos
-        setTimeout(()=>{ window._pendingClienteSave = false; }, 1500);
+        setTimeout(()=>{ window._pendingClienteSave = false; }, 800);
     }
 };
 
@@ -4254,37 +4254,54 @@ async function startFirebase(config) {
 
     document.getElementById('login-screen').style.display='flex';
 
-    // ── LISTENER PRINCIPAL — tiempo real para todos los dispositivos ──────────
-    // Marca para evitar que listeners externos sobrescriban clientes recién creados localmente
-    window._pendingClienteSave = false;
+    // ── SISTEMA DE TIEMPO REAL ──────────────────────────────────────────────
+    // Track de cambios locales para distinguir nuestros propios saves
+    window._localSaveTimestamp = 0;
+    window._lastSyncTimestamp = 0;
 
-    onSnapshot(ref, s=>{
+    // ── LISTENER PRINCIPAL (bodegas, cuadrillas, transfers, etc) ─────────────
+    onSnapshot(ref, (s)=>{
         if(!s.exists()) return;
+        // Preservar clientes locales (vienen de chunks separados)
         const prevClientes = window.DB.clientes;
         Object.assign(window.DB, s.data());
-        window.DB.clientes = prevClientes; // siempre preservar lista local de clientes
+        window.DB.clientes = prevClientes;
         if(window.fixDB) window.fixDB();
         if(window.showSync) window.showSync('ok','● En línea');
+
         if(!window.USER) {
             if(window.renderLoginBodegas) window.renderLoginBodegas();
             return;
         }
-        const activeTab = document.querySelector('.nav-btn.active')?.dataset?.tab || 'dash';
-        if(window.renderTab) window.renderTab(activeTab);
-    }, (err)=>{ if(window.showSync) window.showSync('err','Sin conexión'); console.error(err); });
 
-    // ── LISTENERS DE CLIENTES — uno por chunk, tiempo real ───────────────────
+        // Re-renderizar tab activo SIEMPRE — todos los dispositivos ven los cambios
+        const activeTab = document.querySelector('.nav-btn.active')?.dataset?.tab || 'dash';
+        if(window.renderTab) {
+            try { window.renderTab(activeTab); } catch(e) { console.error('Render error:', e); }
+        }
+    }, (err)=>{
+        if(window.showSync) window.showSync('err','Sin conexión');
+        console.error('Main listener error:', err);
+    });
+
+    // ── LISTENERS DE CLIENTES — uno por chunk ──────────────────────────────
     const setupClienteListeners = async () => {
         try {
+            // Limpiar listeners viejos si existen
+            if(window._clienteUnsubs) {
+                window._clienteUnsubs.forEach(unsub => { try { unsub(); } catch(e){} });
+            }
+            window._clienteUnsubs = [];
+
             const indexSnap = await getDoc(doc(fsDB, 'inventario/clientes_index'));
             const numChunks = indexSnap.exists() ? indexSnap.data().numChunks : 0;
             if(!numChunks) return;
 
             const chunkData = {};
             const mergeChunks = () => {
-                // 🛡️ No sobrescribir si tenemos un guardado local pendiente
-                if(window._pendingClienteSave) {
-                    console.log('Skipping chunk merge - local save pending');
+                // Solo bloquear DURANTE un save activo (no después)
+                if(window._pendingClienteSave === 'active') {
+                    console.log('Skip merge - save in progress');
                     return;
                 }
                 const keys = Object.keys(chunkData).map(Number).sort((a,b)=>a-b);
@@ -4295,21 +4312,34 @@ async function startFirebase(config) {
                 if(window.fixDB) window.fixDB();
                 if(window.USER && window.renderTab) {
                     const tab = document.querySelector('.nav-btn.active')?.dataset?.tab || 'dash';
-                    window.renderTab(tab);
+                    try { window.renderTab(tab); } catch(e) { console.error('Render error:', e); }
                 }
             };
 
             for(let i = 0; i < numChunks; i++) {
                 const chunkRef = doc(fsDB, `inventario/clientes_${i}`);
-                onSnapshot(chunkRef, (snap) => {
+                const unsub = onSnapshot(chunkRef, (snap)=>{
                     if(snap.exists()) {
                         chunkData[i] = snap.data().clientes || [];
                         mergeChunks();
                     }
-                }, (err) => console.error(`Chunk ${i} listener error:`, err));
+                }, (err)=>console.error(`Chunk ${i} listener error:`, err));
+                window._clienteUnsubs.push(unsub);
             }
+
+            // Listener del INDEX por si se crean nuevos chunks
+            const indexRef = doc(fsDB, 'inventario/clientes_index');
+            const unsubIdx = onSnapshot(indexRef, (snap)=>{
+                if(!snap.exists()) return;
+                const newNum = snap.data().numChunks;
+                if(newNum !== numChunks) {
+                    console.log(`Chunk count changed: ${numChunks} → ${newNum}, re-init listeners`);
+                    setupClienteListeners();
+                }
+            });
+            window._clienteUnsubs.push(unsubIdx);
         } catch(e) {
-            console.error('Error setting up cliente listeners:', e);
+            console.error('Error setup cliente listeners:', e);
         }
     };
     setupClienteListeners();
