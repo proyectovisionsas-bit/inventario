@@ -1645,8 +1645,9 @@ function renderEquiposDanados(c) {
 
 function actualizarClientesDesdeInstalacion(inst) {
     let cli = DB.clientes.find(c => c.nombre.toLowerCase() === inst.cliente.toLowerCase());
+    // Determinar la bodega: usar la de la instalación, o la del usuario si es bodega
+    const bodId = inst.bodegaId || (USER.role==='bodega' ? USER.id : '');
     if(!cli) {
-        const bodId = USER.role==='bodega' ? USER.id : '';
         cli = { id: Date.now().toString(), nombre: inst.cliente, bodegaId: bodId,
             direccion: inst.direccion||'', telefono: inst.telefono||'',
             email: '', fechaInstalacion: inst.fecha,
@@ -1657,6 +1658,8 @@ function actualizarClientesDesdeInstalacion(inst) {
     } else {
         if(inst.direccion) cli.direccion = inst.direccion;
         if(inst.telefono) cli.telefono = inst.telefono;
+        // Si el cliente no tenía bodega asignada, asignarla ahora
+        if(!cli.bodegaId && bodId) cli.bodegaId = bodId;
         cli.fechaInstalacion = inst.fecha;
         cli.cuadrillaInstaladora = inst.cuadrilla;
         if(inst.observaciones||inst.tipo) cli.observaciones = inst.observaciones||inst.tipo;
@@ -2898,10 +2901,41 @@ function saveEntregaLogic() { const b=DB.bodegas.find(x=>x.id===id('eBod').value
 function delEntrega(eid) { if(!confirm('¿Eliminar? Stock NO se devuelve.')) return; DB.entregas=DB.entregas.filter(x=>x.id!==eid); save(); renderTab('entregas'); }
 
 // INSTALACIONES
-function renderInst(c) { let is=DB.instalaciones; if(USER.role==='bodega'){const cIds=getUserCuads().map(x=>x.id);is=is.filter(x=>cIds.includes(x.cuadrillaId));} is.sort((a,b)=>new Date(b.reg)-new Date(a.reg)); c.innerHTML=`<div class="card"><div class="card-header"><h2>🔧 Instalaciones</h2>${canDo('inst','crear')?`<button class="btn btn-success btn-sm" onclick="modalNewInst()">➕ Nueva</button>`:''}</div>${is.length?is.map(i=>`<div style="border:1px solid #eee; padding:15px; border-radius:8px; margin-bottom:10px; background:white;"><div class="flex"><strong>🔧 ${i.cliente}</strong> <span class="badge badge-new">${i.fecha}</span></div><p class="text-muted">Cuadrilla: ${i.cuadrilla} | Tipo: ${i.tipo||'-'}</p><div style="margin-top:5px;">${i.mats.map(m=>`<span class="sn-tag">${m.nom}: ${m.cant} ${m.unidad}${m.snes.length?' [SN:'+m.snes.join(',')+']':''}</span>`).join(' ')}</div>${canDo('inst','eliminar')?`<button class="btn btn-danger btn-sm" style="margin-top:10px;" onclick="delInst('${i.id}')">✕</button>`:''}</div>`).join(''):'<p class="text-muted">Sin instalaciones</p>'}</div>`; }
+function renderInst(c) {
+    let is = DB.instalaciones;
+    if(USER.role==='bodega'){ const cIds=getUserCuads().map(x=>x.id); is=is.filter(x=>cIds.includes(x.cuadrillaId)); }
+    is.sort((a,b)=>new Date(b.reg)-new Date(a.reg));
+    // Contar clientes sin bodega para el admin
+    const sinBodega = DB.clientes.filter(cl=>!cl.bodegaId).length;
+    const adminAlerta = (USER.role==='admin' && sinBodega>0) ? `
+        <div style="background:#fff3cd;padding:10px;border-radius:8px;margin-bottom:15px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+            <span>⚠️ <strong>${sinBodega}</strong> cliente(s) sin bodega asignada. Estos no aparecen en Clientes Instalados.</span>
+            <button class="btn btn-warning btn-sm" onclick="renderAsignarClientesBodega(document.getElementById('main-content'))">🏭 Asignar a Bodega</button>
+        </div>` : '';
+    c.innerHTML = `<div class="card">
+        <div class="card-header"><h2>🔧 Instalaciones</h2>${canDo('inst','crear')?`<button class="btn btn-success btn-sm" onclick="modalNewInst()">➕ Nueva</button>`:''}</div>
+        ${adminAlerta}
+        ${is.length?is.map(i=>`<div style="border:1px solid #eee; padding:15px; border-radius:8px; margin-bottom:10px; background:white;">
+            <div class="flex"><strong>🔧 ${i.cliente}</strong> <span class="badge badge-new">${i.fecha}</span></div>
+            <p class="text-muted">Cuadrilla: ${i.cuadrilla} | Tipo: ${i.tipo||'-'}${i.bodegaId?` | 🏭 ${DB.bodegas.find(b=>b.id===i.bodegaId)?.nombre||''}`:'<span style="color:#d97706;"> | ⚠️ Sin bodega</span>'}</p>
+            <div style="margin-top:5px;">${i.mats.map(m=>`<span class="sn-tag">${m.nom}: ${m.cant} ${m.unidad}${m.snes.length?' [SN:'+m.snes.join(',')+']':''}</span>`).join(' ')}</div>
+            ${canDo('inst','eliminar')?`<button class="btn btn-danger btn-sm" style="margin-top:10px;" onclick="delInst('${i.id}')">✕</button>`:''}
+        </div>`).join(''):'<p class="text-muted">Sin instalaciones</p>'}
+    </div>`;
+}
 function modalNewInst() {
     const cs = getUserCuads().map(c=>`<option value="${c.id}">${c.nombre}</option>`).join('');
     TempLists.iItems = [];
+    // Si es admin, mostrar selector de bodega para asignar al cliente
+    const bodegaAdminSelector = USER.role === 'admin' ? `
+        <div class="form-group"><label>Bodega del Cliente *</label>
+            <select id="iBodegaCli" class="form-control" required>
+                <option value="">-- Seleccione bodega --</option>
+                ${DB.bodegas.map(b=>`<option value="${b.id}">${b.nombre}</option>`).join('')}
+            </select>
+            <small class="text-muted">El cliente se asignará a esta bodega para aparecer en Clientes Instalados.</small>
+        </div>` : '';
+
     openModal('🔧 Nueva Instalación',
         `<div class="form-row">
             <div class="form-group"><label>Cuadrilla *</label>
@@ -2912,6 +2946,7 @@ function modalNewInst() {
             </div>
         </div>
         <hr style="margin:10px 0;"><h4 style="margin-bottom:8px;">👤 Datos del Cliente</h4>
+        ${bodegaAdminSelector}
         <div class="form-row">
             <div class="form-group"><label>Nombre Cliente *</label>
                 <input id="iCli" class="form-control" placeholder="Nombre completo">
@@ -2946,6 +2981,7 @@ function modalNewInst() {
         () => {
             const cli = id('iCli').value.trim();
             if(!cli) return alert('El nombre del cliente es obligatorio');
+            if(USER.role === 'admin' && !id('iBodegaCli')?.value) return alert('Seleccione la bodega a la que pertenecerá el cliente');
             if(!TempLists.iItems.length) return alert('Agrega al menos un material');
             saveInstLogic();
         });
@@ -3035,6 +3071,11 @@ function saveInstLogic() {
     const obs = id('iObs')?.value.trim()||'';
     const tipo = id('iTipo')?.value.trim()||'';
     const fecha = id('iFecha').value;
+    // Bodega del cliente: si admin elige, si bodega usa la suya, si no usa la de la cuadrilla
+    const bodegaCliId = id('iBodegaCli')?.value
+        || (USER.role==='bodega' ? USER.id : '')
+        || c?.bodegaId
+        || '';
 
     // Descontar materiales de cuadrilla usando índice
     TempLists.iItems.forEach(it => {
@@ -3045,7 +3086,7 @@ function saveInstLogic() {
         (it.snes||[]).forEach(s=>{ const idx=m.snes.indexOf(s); if(idx>-1) m.snes.splice(idx,1); });
     });
 
-    // ✅ FIX 1: Eliminar materiales que quedaron en 0
+    // ✅ Eliminar materiales que quedaron en 0
     c.materiales = c.materiales.filter(m => m.cantidad > 0);
 
     const instData = {
@@ -3053,17 +3094,18 @@ function saveInstLogic() {
         cuadrillaId: c.id, cuadrilla: c.nombre,
         fecha, cliente: cli, direccion: dir,
         telefono: tel, observaciones: obs, tipo,
+        bodegaId: bodegaCliId,
         mats: [...TempLists.iItems],
         reg: new Date().toISOString()
     };
     DB.instalaciones.push(instData);
 
-    // ✅ FIX 2: Actualizar cliente en DB.clientes
+    // ✅ Actualizar cliente en DB.clientes con la bodega correcta
     actualizarClientesDesdeInstalacion(instData);
 
     logMsg(`Instalación en ${cli}`);
 
-    // ✅ FIX 3: Usar _fbSaveImmediate para guardar clientes en chunks también
+    // ✅ Usar _fbSaveImmediate para guardar clientes en chunks también
     if(window._fbSaveImmediate) {
         window._fbSaveImmediate().then(()=>{
             closeModal(); renderTab('inst');
