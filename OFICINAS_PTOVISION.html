@@ -264,6 +264,37 @@
         @media(max-width:1100px){ #registroGrid { grid-template-columns:1fr 1fr !important; } #registroGrid .card:last-child { grid-column:span 2; } }
         @media(max-width:700px){ #registroGrid { grid-template-columns:1fr !important; } #registroGrid .card:last-child { grid-column:1 !important; } }
         @media(max-width:700px){ #pagosAdminGrid { grid-template-columns:1fr !important; } #pagosAdminGrid .card:last-child { grid-column:span 1; } }
+        /* ── ASISTENTE IA FLOTANTE ───────────────────────────────────── */
+        .ai-fab { position:fixed; bottom:20px; right:20px; width:56px; height:56px; border-radius:50%; background:linear-gradient(135deg,#4285f4,#9333ea); border:none; box-shadow:0 6px 20px rgba(66,133,244,0.4); cursor:pointer; z-index:9998; display:flex; align-items:center; justify-content:center; font-size:1.5rem; color:#fff; transition:0.2s; }
+        .ai-fab:hover { transform:scale(1.1); box-shadow:0 8px 26px rgba(66,133,244,0.55); }
+        .ai-fab.pulse::before { content:''; position:absolute; inset:-4px; border-radius:50%; border:2px solid #4285f4; animation:aipulse 1.8s ease-out infinite; }
+        @keyframes aipulse { 0%{opacity:1;transform:scale(0.9)} 100%{opacity:0;transform:scale(1.5)} }
+        .ai-panel { position:fixed; bottom:88px; right:20px; width:380px; max-width:calc(100vw - 40px); height:520px; max-height:calc(100vh - 120px); background:var(--surface); border:1px solid var(--border); border-radius:16px; box-shadow:0 12px 40px rgba(0,0,0,0.5); z-index:9999; display:flex; flex-direction:column; overflow:hidden; opacity:0; transform:translateY(20px) scale(0.95); pointer-events:none; transition:0.25s; }
+        .ai-panel.open { opacity:1; transform:translateY(0) scale(1); pointer-events:auto; }
+        .ai-header { padding:14px 16px; background:linear-gradient(135deg,#4285f4,#9333ea); color:#fff; display:flex; justify-content:space-between; align-items:center; }
+        .ai-header h3 { font-size:0.92rem; font-weight:700; margin:0; }
+        .ai-header p { font-size:0.7rem; opacity:0.9; margin:0; }
+        .ai-close { background:rgba(255,255,255,0.2); border:none; color:#fff; width:26px; height:26px; border-radius:50%; cursor:pointer; font-size:0.9rem; }
+        .ai-body { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:10px; }
+        .ai-msg { padding:10px 14px; border-radius:14px; font-size:0.85rem; line-height:1.45; max-width:88%; }
+        .ai-msg-user { background:var(--accent); color:#fff; align-self:flex-end; border-bottom-right-radius:4px; }
+        .ai-msg-bot { background:var(--surface2); border:1px solid var(--border); color:var(--text); align-self:flex-start; border-bottom-left-radius:4px; }
+        .ai-msg-bot pre { background:rgba(0,0,0,0.2); padding:6px 8px; border-radius:6px; font-size:0.75rem; overflow-x:auto; margin:4px 0; }
+        .ai-suggestions { display:flex; flex-wrap:wrap; gap:6px; padding:0 14px 8px; }
+        .ai-chip { background:var(--surface2); border:1px solid var(--border); padding:6px 10px; border-radius:14px; font-size:0.72rem; cursor:pointer; color:var(--muted); }
+        .ai-chip:hover { background:rgba(66,133,244,0.1); border-color:#4285f4; color:#4285f4; }
+        .ai-input-row { display:flex; gap:6px; padding:10px 12px; border-top:1px solid var(--border); }
+        .ai-input { flex:1; padding:9px 12px; border-radius:20px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-size:0.85rem; outline:none; }
+        .ai-input:focus { border-color:#4285f4; }
+        .ai-send { width:38px; height:38px; border-radius:50%; border:none; background:#4285f4; color:#fff; cursor:pointer; font-size:1rem; }
+        .ai-send:disabled { opacity:0.4; cursor:not-allowed; }
+        .ai-typing { display:inline-flex; gap:3px; }
+        .ai-typing span { width:6px; height:6px; border-radius:50%; background:var(--muted); animation:aitype 1.2s infinite; }
+        .ai-typing span:nth-child(2) { animation-delay:0.2s; }
+        .ai-typing span:nth-child(3) { animation-delay:0.4s; }
+        @keyframes aitype { 0%,80%,100%{opacity:0.3;transform:translateY(0)} 40%{opacity:1;transform:translateY(-3px)} }
+        @media (max-width:500px){ .ai-panel { width:calc(100vw - 24px); right:12px; bottom:80px; height:75vh; } .ai-fab { bottom:14px; right:14px; } }
+
         /* ── CALCULADORA ──────────────────────────────────────────────── */
         .calc-display { background:rgba(0,0,0,0.3); border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin-bottom:10px; text-align:right; }
         .calc-expr { font-size:0.78rem; color:var(--muted); min-height:18px; word-break:break-all; }
@@ -737,6 +768,7 @@ function enterApp(){
     setTimeout(applyStoredTheme,50);
     setTimeout(iniciarMonitorRecordatorios,1000);
     setTimeout(()=>{ _rtActivo=true; iniciarEscuchaRealtime(); }, 500);
+    setTimeout(showAIFab, 800);
     setInterval(()=>{
         const c=document.getElementById('clock');
         if(c) c.textContent=new Date().toLocaleTimeString('es-CO');
@@ -793,6 +825,10 @@ function closeAllNavGroups(){
 function navigate(tab){
     document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
     closeAllNavGroups();
+    // Update AI context if panel is open
+    if(document.getElementById('aiPanel')?.classList.contains('open')){
+        setTimeout(()=>{actualizarContextoIA();actualizarSugerenciasIA();},100);
+    }
     const renders = { dash:renderDash, registro:renderRegistro, clientes:renderClientes, reportes:renderReportes, vendedores:renderVendedores, incentivos:renderIncentivos, ventas:renderVentas2, pagos_admin:renderPagosAdmin, prestamos:renderPrestamos, rrhh:renderRRHH, administracion:renderAdmin };
     if(renders[tab]) renders[tab]();
 }
@@ -7445,7 +7481,7 @@ Donde "cuadra" es true solo si la diferencia es 0 o menor a $100.`;
 
         // Call Gemini API
         const GEMINI_KEY='AIzaSyATB_bRNFNtN6ZT1Ijv70PkkhaMHzOF0t4';
-        const GEMINI_URL=`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`;
+        const GEMINI_URL=`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_KEY}`;
 
         let rawText='';
         try{
@@ -7577,6 +7613,241 @@ function _iaResultHTML(r, tipo, rawText='', numImagenes=0){
     </div>`;
 }
 
+
+// ═══════════════════════════════════════════════════════════════
+// ASISTENTE IA FLOTANTE (Gemini)
+// ═══════════════════════════════════════════════════════════════
+
+const AI_HISTORY = []; // historial de conversación
+
+function showAIFab(){
+    const fab=document.getElementById('aiFab');
+    if(fab) fab.style.display='flex';
+}
+
+function toggleAIPanel(){
+    const panel=document.getElementById('aiPanel');
+    const fab=document.getElementById('aiFab');
+    if(!panel) return;
+    const isOpen=panel.classList.toggle('open');
+    if(isOpen){
+        actualizarContextoIA();
+        actualizarSugerenciasIA();
+        if(fab) fab.classList.remove('pulse');
+        setTimeout(()=>document.getElementById('aiInput')?.focus(),300);
+    }
+}
+
+function actualizarContextoIA(){
+    const ctx=document.getElementById('aiContext');
+    const tab=document.querySelector('.nav-btn.active')?.dataset?.tab||'dash';
+    const ctxMap={
+        dash:'📊 Dashboard - resumen general',
+        registro:'📝 Registro Diario',
+        clientes:'👥 Clientes',
+        reportes:'📈 Reportes',
+        vendedores:'🧑‍💼 Vendedores',
+        ventas:'📋 Ventas',
+        pagos_admin:'💳 Pagos Admin',
+        prestamos:'💵 Préstamos',
+        rrhh:'👔 RRHH',
+        administracion:'🛠️ Administración'
+    };
+    if(ctx) ctx.textContent=ctxMap[tab]||'Pregúntame sobre tu negocio';
+}
+
+function actualizarSugerenciasIA(){
+    const cont=document.getElementById('aiSuggestions');
+    if(!cont) return;
+    const tab=document.querySelector('.nav-btn.active')?.dataset?.tab||'dash';
+    const sugs={
+        dash:['¿Cómo va el mes?','¿Cuál es mi oficina más rentable?','Resumen de hoy'],
+        registro:['¿Cuánto llevo hoy?','¿Qué falta registrar?','Concepto más frecuente'],
+        clientes:['¿Cuántos clientes morosos tengo?','Clientes activos por oficina','Total cartera'],
+        reportes:['Compara mes actual vs anterior','¿Dónde gasto más?','Tendencia 3 meses'],
+        vendedores:['Top vendedor del mes','¿Quién está cerca del bono?','Resumen comisiones'],
+        ventas:['Ventas pendientes de pago','¿Cuánto vendí esta semana?','Promociones activas'],
+        prestamos:['¿Cuánto tengo prestado?','Préstamos por cobrar','Próximos pagos'],
+        rrhh:['Cumpleaños del mes','Empleados con tardanzas','Total nómina mensual'],
+        pagos_admin:['Resumen pagos del mes','¿Qué he pagado más?','Pagos por oficina'],
+        administracion:['Solicitudes pendientes','Estado de oficinas','¿Algo urgente?']
+    };
+    const lista=sugs[tab]||['¿Cómo está mi negocio?','Hazme un resumen','¿Algo importante?'];
+    cont.innerHTML=lista.map(s=>`<button class="ai-chip" onclick="document.getElementById('aiInput').value='${s.replace(/'/g,"\\'")}';enviarMensajeIA()">${s}</button>`).join('');
+}
+
+function _aiMsg(texto, tipo){
+    const body=document.getElementById('aiBody');
+    if(!body) return null;
+    const div=document.createElement('div');
+    div.className='ai-msg ai-msg-'+(tipo==='user'?'user':'bot');
+    if(tipo==='typing'){
+        div.innerHTML='<span class="ai-typing"><span></span><span></span><span></span></span>';
+    } else {
+        // Renderizado simple de markdown: **bold** y saltos de línea
+        const safe=texto.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        div.innerHTML=safe.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br>');
+    }
+    body.appendChild(div);
+    body.scrollTop=body.scrollHeight;
+    return div;
+}
+
+function _construirContextoNegocio(){
+    // Construye un resumen compacto de datos del negocio para que Gemini tenga contexto
+    const oficinas=currentOficinas();
+    const _hoyStr=hoyLocal();
+    const _mesActual=_hoyStr.slice(0,7);
+
+    let resumen={
+        usuario:USER?.role==='admin'?'Administrador del sistema':('Oficina: '+(USER?.nombre||'')),
+        fecha:_hoyStr,
+        oficinas:[]
+    };
+
+    oficinas.forEach(o=>{
+        const movs=o.movimientos||[];
+        const movsMes=movs.filter(m=>(m.fecha||'').slice(0,7)===_mesActual);
+        const ing=movsMes.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
+        const egr=movsMes.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
+        const ingHoy=movs.filter(m=>m.tipo==='ingreso'&&(m.fecha||'').slice(0,10)===_hoyStr).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+        const egrHoy=movs.filter(m=>m.tipo==='egreso'&&(m.fecha||'').slice(0,10)===_hoyStr).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+
+        // Conceptos top del mes
+        const concIng={}, concEgr={};
+        movsMes.filter(m=>m.tipo==='ingreso').forEach(m=>{ const l=m.concepto||'Otro'; concIng[l]=(concIng[l]||0)+parseFloat(m.valor||0); });
+        movsMes.filter(m=>m.tipo==='egreso').forEach(m=>{ const l=m.concepto||'Otro'; concEgr[l]=(concEgr[l]||0)+parseFloat(m.valor||0); });
+
+        // Clientes
+        const cli=o.clientes||[];
+        const cliActivos=cli.filter(c=>c.estado==='Activo').length;
+        const cliMorosos=cli.filter(c=>c.estado==='Moroso').length;
+
+        resumen.oficinas.push({
+            nombre:o.nombre,
+            ingresosMes:ing,
+            egresosMes:egr,
+            balanceMes:ing-egr,
+            ingresosHoy:ingHoy,
+            egresosHoy:egrHoy,
+            totalClientes:cli.length,
+            clientesActivos:cliActivos,
+            clientesMorosos:cliMorosos,
+            top3ConceptosIngreso:Object.entries(concIng).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([k,v])=>k+': $'+v.toLocaleString('es-CO')),
+            top3ConceptosEgreso:Object.entries(concEgr).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([k,v])=>k+': $'+v.toLocaleString('es-CO'))
+        });
+    });
+
+    // RRHH si admin
+    if(USER?.role==='admin'){
+        const emps=DB.rrhh_empleados||[];
+        resumen.rrhh={
+            totalEmpleados:emps.length,
+            activos:emps.filter(e=>e.estado==='Activo').length,
+            totalNomina:emps.filter(e=>e.estado==='Activo').reduce((s,e)=>s+parseFloat(e.salario||0),0)
+        };
+        // Préstamos
+        const prest=DB.prestamos||[];
+        const prestActivos=prest.filter(p=>p.estado==='activo');
+        resumen.prestamos={
+            activos:prestActivos.length,
+            saldoPendiente:prestActivos.reduce((s,p)=>{
+                const abonado=(p.abonos||[]).reduce((x,a)=>x+parseFloat(a.valor||0),0);
+                return s+(parseFloat(p.monto||0)-abonado);
+            },0)
+        };
+        // Solicitudes pendientes
+        const pend=(DB.solicitudes||[]).filter(s=>s.estado==='pendiente');
+        resumen.solicitudesPendientes=pend.length;
+    }
+
+    return resumen;
+}
+
+async function enviarMensajeIA(){
+    const inp=document.getElementById('aiInput');
+    const sendBtn=document.getElementById('aiSend');
+    if(!inp) return;
+    const pregunta=inp.value.trim();
+    if(!pregunta) return;
+    inp.value='';
+    if(sendBtn) sendBtn.disabled=true;
+
+    _aiMsg(pregunta,'user');
+    const typingEl=_aiMsg('','typing');
+
+    try{
+        const contexto=_construirContextoNegocio();
+        const tab=document.querySelector('.nav-btn.active')?.dataset?.tab||'dash';
+
+        const sysPrompt=`Eres un asistente experto en gestión empresarial integrado al sistema de PROYECTOVISION (empresa de internet en Colombia con múltiples oficinas). Hablas en español colombiano, eres cordial y directo.
+
+DATOS ACTUALES DEL NEGOCIO:
+${JSON.stringify(contexto,null,2)}
+
+SECCIÓN ACTUAL DEL USUARIO: ${tab}
+
+INSTRUCCIONES:
+- Usa los datos reales del JSON para responder
+- Formatea valores en pesos colombianos con $ y separador de miles
+- Sé conciso (máximo 4-5 frases salvo que pidan análisis profundo)
+- Usa **negrita** para resaltar números importantes
+- Si la pregunta no tiene relación con los datos, responde brevemente sin inventar
+- Si te piden algo que requiere acción (ej: registrar movimiento), explica DÓNDE hacerlo en el sistema, no lo hagas tú`;
+
+        // Build conversation messages
+        const messages=[];
+        AI_HISTORY.forEach(h=>{
+            messages.push({role:h.role==='user'?'user':'model',parts:[{text:h.text}]});
+        });
+        messages.push({role:'user',parts:[{text:pregunta}]});
+
+        const GEMINI_KEY='AIzaSyATB_bRNFNtN6ZT1Ijv70PkkhaMHzOF0t4';
+        const URL=`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_KEY}`;
+
+        const response=await fetch(URL,{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({
+                contents:messages,
+                systemInstruction:{parts:[{text:sysPrompt}]},
+                generationConfig:{temperature:0.4,maxOutputTokens:800}
+            })
+        });
+
+        if(typingEl) typingEl.remove();
+
+        if(response.status===429){
+            _aiMsg('⚠️ Cuota temporal excedida. Espera unos segundos y vuelve a preguntar.','bot');
+            if(sendBtn) sendBtn.disabled=false;
+            return;
+        }
+        if(!response.ok){
+            const errTxt=await response.text();
+            _aiMsg('Error: '+response.status+' '+errTxt.substring(0,150),'bot');
+            if(sendBtn) sendBtn.disabled=false;
+            return;
+        }
+
+        const data=await response.json();
+        const respuesta=data?.candidates?.[0]?.content?.parts?.[0]?.text||'No pude generar una respuesta.';
+
+        _aiMsg(respuesta,'bot');
+        AI_HISTORY.push({role:'user',text:pregunta});
+        AI_HISTORY.push({role:'model',text:respuesta});
+        // Mantener solo últimos 10 turnos para no saturar tokens
+        if(AI_HISTORY.length>20) AI_HISTORY.splice(0,2);
+
+    }catch(err){
+        if(typingEl) typingEl.remove();
+        console.error('Error IA:',err);
+        _aiMsg('⚠️ No pude conectar con Gemini: '+err.message,'bot');
+    }
+
+    if(sendBtn) sendBtn.disabled=false;
+    inp.focus();
+}
+
 function openAdminPanel(){ navigate('administracion'); }
 
 // ─── MODAL ──────────────────────────────────────────────────────────────────
@@ -7616,5 +7887,25 @@ const firebaseConfig = {
     renderLoginOficinas();
 })();
 </script>
+<!-- ASISTENTE IA FLOTANTE -->
+<button id="aiFab" class="ai-fab" onclick="toggleAIPanel()" title="Asistente IA" style="display:none;">✨</button>
+<div id="aiPanel" class="ai-panel">
+    <div class="ai-header">
+        <div>
+            <h3>✨ Asistente IA</h3>
+            <p id="aiContext">Pregúntame sobre tu negocio</p>
+        </div>
+        <button class="ai-close" onclick="toggleAIPanel()">✕</button>
+    </div>
+    <div class="ai-body" id="aiBody">
+        <div class="ai-msg ai-msg-bot">¡Hola! 👋 Soy tu asistente. Puedo analizar tus datos, responder preguntas sobre ventas, finanzas, empleados, o ayudarte a usar el sistema. ¿En qué te ayudo?</div>
+    </div>
+    <div class="ai-suggestions" id="aiSuggestions"></div>
+    <div class="ai-input-row">
+        <input type="text" id="aiInput" class="ai-input" placeholder="Escribe tu pregunta..." onkeydown="if(event.key==='Enter')enviarMensajeIA()">
+        <button id="aiSend" class="ai-send" onclick="enviarMensajeIA()">↑</button>
+    </div>
+</div>
+
 </body>
 </html>
