@@ -7344,6 +7344,38 @@ function enviarSolicitudEdicion(oid, mid){
 
 
 // ── VERIFICACIÓN IA DE COMPROBANTES ──────────────────────────────────────────
+// Comprime una imagen base64 a JPEG 60% calidad max 1024px (reduce tokens en Gemini)
+function _comprimirImagenParaIA(base64Data){
+    return new Promise((resolve, reject)=>{
+        const img=new Image();
+        img.onload=()=>{
+            try{
+                const MAX_DIM=1024;
+                let w=img.naturalWidth||img.width;
+                let h=img.naturalHeight||img.height;
+                // Resize keeping aspect ratio
+                if(w>MAX_DIM||h>MAX_DIM){
+                    const ratio=Math.min(MAX_DIM/w,MAX_DIM/h);
+                    w=Math.round(w*ratio);
+                    h=Math.round(h*ratio);
+                }
+                const canvas=document.createElement('canvas');
+                canvas.width=w; canvas.height=h;
+                const ctx=canvas.getContext('2d');
+                // Fondo blanco (para PNGs transparentes)
+                ctx.fillStyle='#fff';
+                ctx.fillRect(0,0,w,h);
+                ctx.drawImage(img,0,0,w,h);
+                // 60% calidad JPEG = ~80% menos tamaño que original
+                const dataUrl=canvas.toDataURL('image/jpeg',0.6);
+                resolve(dataUrl.split(',')[1]); // sin el "data:image/jpeg;base64,"
+            }catch(e){ reject(e); }
+        };
+        img.onerror=reject;
+        img.src=base64Data;
+    });
+}
+
 async function verificarComprobantesIA(oid, mid){
     const m=getMovimiento(oid,mid);
     if(!m) return;
@@ -7394,17 +7426,26 @@ Donde "cuadra" es true solo si la diferencia es 0 o menor a $100.`;
         const parts=[{text:prompt}];
         let imagenesAnalizadas=0;
         const limite=Math.min(cachedImgs.length,10);
+        if(btnEl) btnEl.textContent='🗜️ Comprimiendo imágenes...';
         for(let i=0;i<limite;i++){
             const img=cachedImgs[i];
-            const mediaType=img.type||'image/jpeg';
-            const data=img.data.includes(',')? img.data.split(',')[1]:img.data;
-            parts.push({inline_data:{mime_type:mediaType,data:data}});
-            imagenesAnalizadas++;
+            try{
+                // Comprimir imagen antes de enviar (reduce tokens consumidos)
+                const compressed=await _comprimirImagenParaIA(img.data);
+                parts.push({inline_data:{mime_type:'image/jpeg',data:compressed}});
+                imagenesAnalizadas++;
+            }catch(e){
+                console.warn('Error comprimiendo imagen, usando original',e);
+                const data=img.data.includes(',')? img.data.split(',')[1]:img.data;
+                parts.push({inline_data:{mime_type:img.type||'image/jpeg',data:data}});
+                imagenesAnalizadas++;
+            }
         }
+        if(btnEl) btnEl.textContent='✨ Analizando con Gemini...';
 
         // Call Gemini API
         const GEMINI_KEY='AIzaSyATB_bRNFNtN6ZT1Ijv70PkkhaMHzOF0t4';
-        const GEMINI_URL=`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`;
+        const GEMINI_URL=`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`;
 
         let rawText='';
         try{
@@ -7420,6 +7461,9 @@ Donde "cuadra" es true solo si la diferencia es 0 o menor a $100.`;
                     }
                 })
             });
+            if(response.status===429){
+                throw new Error('Cuota excedida temporalmente. Espera 60 segundos y vuelve a intentar.');
+            }
             if(!response.ok){
                 const errTxt=await response.text();
                 throw new Error('HTTP '+response.status+': '+errTxt.substring(0,200));
