@@ -1665,41 +1665,86 @@ function renderCuartoCard(q) {
 
 function renderRackCard(cuartoId, rack) {
     const totalU = rack.alturaU || 42;
-    const equipos = (rack.equipos||[]).sort((a,b)=>(a.posU||0)-(b.posU||0));
-    return `<details style="border:1px solid #e2e8f0;border-radius:10px;margin:10px 0;background:#fafbfc;" ${equipos.length>0 ? 'open':''}>
-        <summary style="padding:10px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-weight:600;">
-            <span>🗄️ ${rack.nombre} <small class="text-muted" style="font-weight:normal;">(${totalU}U · ${equipos.length} equipo(s))</small></span>
-            <span style="display:flex;gap:6px;">
-                <button class="btn btn-outline btn-sm" onclick="event.preventDefault();modalNewEquipoRack('${cuartoId}','${rack.id}')">➕ Equipo</button>
-                <button class="btn btn-outline btn-sm" onclick="event.preventDefault();modalEditRack('${cuartoId}','${rack.id}')">✏️</button>
-                <button class="btn btn-danger btn-sm" onclick="event.preventDefault();eliminarRack('${cuartoId}','${rack.id}')">🗑️</button>
-            </span>
-        </summary>
-        <div style="padding:0 14px 14px;">
-            ${equipos.length === 0 ? '<p class="text-muted text-center" style="padding:15px;">Sin equipos en este rack</p>' : `
-            <div class="table-wrap"><table>
-                <thead><tr>
-                    <th>Pos U</th><th>Equipo</th><th>Marca / Modelo</th><th>Serial</th><th>IP</th><th>Puertos</th><th>Estado</th><th>Acciones</th>
-                </tr></thead>
-                <tbody>
-                ${equipos.map(eq=>`<tr>
-                    <td><strong>U${eq.posU||'-'}</strong>${eq.tamanioU>1?` (${eq.tamanioU}U)`:''}</td>
-                    <td><strong>${eq.nombre}</strong><br><small class="text-muted">${eq.tipo||''}</small></td>
-                    <td>${eq.marca||'-'} ${eq.modelo||''}</td>
-                    <td><span class="sn-tag">${eq.serial||'-'}</span></td>
-                    <td>${eq.ip||'-'}</td>
-                    <td>${eq.puertosUsados||0}/${eq.puertosTotal||0}</td>
-                    <td><span class="badge ${eq.estado==='activo'?'badge-new':'badge-used'}">${eq.estado||'activo'}</span></td>
-                    <td style="white-space:nowrap;">
-                        <button class="btn btn-outline btn-sm" onclick="modalVerEquipo('${cuartoId}','${rack.id}','${eq.id}')">👁️</button>
-                        <button class="btn btn-outline btn-sm" onclick="modalEditEquipoRack('${cuartoId}','${rack.id}','${eq.id}')">✏️</button>
-                        <button class="btn btn-danger btn-sm" onclick="eliminarEquipoRack('${cuartoId}','${rack.id}','${eq.id}')">🗑️</button>
-                    </td>
-                </tr>`).join('')}
-                </tbody>
-            </table></div>`}
-        </div>
-    </details>`;
+    const equipos = (rack.equipos||[]).sort((a,b)=>(b.posU||0)-(a.posU||0));
+
+    // Mapa de posiciones ocupadas
+    const ocupadas = {};
+    equipos.forEach(eq=>{
+        const start = eq.posU||1;
+        const size = eq.tamanioU||1;
+        for(let i=0; i<size; i++) ocupadas[start+i] = eq;
+    });
+
+    // Colores por tipo de equipo y estado
+    const colorTipo = {
+        'OLT':'#7c3aed','Switch':'#0891b2','Router':'#059669','Servidor':'#dc2626',
+        'UPS':'#f59e0b','Firewall':'#be185d','ODF':'#8b5cf6','PatchPanel':'#0284c7','Otro':'#64748b'
+    };
+    const colorEstado = { 'activo':'#10b981','standby':'#f59e0b','averiado':'#ef4444','mantenimiento':'#3b82f6' };
+
+    // Construir vista gráfica del rack: de U más alta arriba a U1 abajo
+    let rackHtml = '';
+    let u = totalU;
+    while(u >= 1) {
+        const eq = ocupadas[u];
+        if(eq && (eq.posU||1) + (eq.tamanioU||1) - 1 === u) {
+            const size = eq.tamanioU||1;
+            const bg = colorTipo[eq.tipo] || '#64748b';
+            const est = colorEstado[eq.estado] || '#64748b';
+            rackHtml += '<div style="height:'+(size*28)+'px;background:linear-gradient(135deg,'+bg+'cc,'+bg+');color:white;padding:4px 8px;display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;border-bottom:1px solid #1f2937;overflow:hidden;" onclick="modalVerEquipo(\''+cuartoId+'\',\''+rack.id+'\',\''+eq.id+'\')" title="'+(eq.nombre||'')+' - '+(eq.tipo||'')+'">'
+                + '<div style="display:flex;align-items:center;gap:6px;min-width:0;">'
+                + '<span style="background:rgba(255,255,255,0.2);padding:2px 6px;border-radius:4px;font-size:0.68rem;font-weight:bold;white-space:nowrap;">U'+eq.posU+(size>1?'-U'+(eq.posU+size-1):'')+'</span>'
+                + '<strong style="font-size:0.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(eq.nombre||'')+'</strong>'
+                + '<span style="font-size:0.7rem;opacity:0.85;white-space:nowrap;">'+(eq.marca||'')+' '+(eq.modelo||'')+'</span>'
+                + '</div>'
+                + '<div style="display:flex;gap:4px;align-items:center;flex-shrink:0;">'
+                + (eq.ip ? '<span style="background:rgba(0,0,0,0.25);padding:1px 5px;border-radius:3px;font-size:0.65rem;">'+eq.ip+'</span>' : '')
+                + (eq.puertosTotal ? '<span style="background:rgba(0,0,0,0.25);padding:1px 5px;border-radius:3px;font-size:0.65rem;">'+(eq.puertosUsados||0)+'/'+eq.puertosTotal+'</span>' : '')
+                + '<span style="width:8px;height:8px;border-radius:50%;background:'+est+';box-shadow:0 0 4px '+est+';" title="'+(eq.estado||'')+'"></span>'
+                + '</div>'
+                + '</div>';
+            u -= size;
+        } else if(!eq) {
+            rackHtml += '<div style="height:28px;background:repeating-linear-gradient(45deg,#1f2937,#1f2937 4px,#111827 4px,#111827 8px);color:#475569;font-size:0.65rem;display:flex;align-items:center;padding:0 8px;border-bottom:1px solid #1f2937;font-family:monospace;">U'+u+'</div>';
+            u--;
+        } else {
+            u--;
+        }
+    }
+
+    const tablaHtml = equipos.length === 0
+        ? '<p class="text-muted text-center" style="padding:15px;">Sin equipos. Haz clic en "➕ Equipo" para agregar.</p>'
+        : '<div class="table-wrap"><table style="font-size:0.82rem;"><thead><tr><th>Pos</th><th>Equipo</th><th>IP</th><th>Puertos</th><th>Estado</th><th></th></tr></thead><tbody>'
+        + equipos.map(eq => '<tr>'
+            + '<td><strong>U'+(eq.posU||'-')+'</strong>'+(eq.tamanioU>1?' ('+eq.tamanioU+'U)':'')+'</td>'
+            + '<td><strong>'+(eq.nombre||'')+'</strong><br><small class="text-muted">'+(eq.tipo||'')+' · '+(eq.marca||'')+' '+(eq.modelo||'')+'</small></td>'
+            + '<td>'+(eq.ip||'-')+'</td>'
+            + '<td>'+(eq.puertosUsados||0)+'/'+(eq.puertosTotal||0)+'</td>'
+            + '<td><span class="badge '+(eq.estado==='activo'?'badge-new':'badge-used')+'">'+(eq.estado||'activo')+'</span></td>'
+            + '<td style="white-space:nowrap;">'
+            + '<button class="btn btn-outline btn-sm" onclick="modalVerEquipo(\''+cuartoId+'\',\''+rack.id+'\',\''+eq.id+'\')">👁️</button> '
+            + '<button class="btn btn-outline btn-sm" onclick="modalEditEquipoRack(\''+cuartoId+'\',\''+rack.id+'\',\''+eq.id+'\')">✏️</button> '
+            + '<button class="btn btn-danger btn-sm" onclick="eliminarEquipoRack(\''+cuartoId+'\',\''+rack.id+'\',\''+eq.id+'\')">🗑️</button>'
+            + '</td></tr>').join('')
+        + '</tbody></table></div>';
+
+    return '<details style="border:1px solid #e2e8f0;border-radius:10px;margin:10px 0;background:#fafbfc;" '+(equipos.length>0?'open':'')+'>'
+        + '<summary style="padding:10px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-weight:600;">'
+        + '<span>🗄️ '+rack.nombre+' <small class="text-muted" style="font-weight:normal;">('+totalU+'U · '+equipos.length+' equipo(s) · '+Object.keys(ocupadas).length+'U usadas)</small></span>'
+        + '<span style="display:flex;gap:6px;">'
+        + '<button class="btn btn-outline btn-sm" onclick="event.preventDefault();modalNewEquipoRack(\''+cuartoId+'\',\''+rack.id+'\')">➕ Equipo</button>'
+        + '<button class="btn btn-outline btn-sm" onclick="event.preventDefault();modalEditRack(\''+cuartoId+'\',\''+rack.id+'\')">✏️</button>'
+        + '<button class="btn btn-danger btn-sm" onclick="event.preventDefault();eliminarRack(\''+cuartoId+'\',\''+rack.id+'\')">🗑️</button>'
+        + '</span></summary>'
+        + '<div style="padding:14px;display:grid;grid-template-columns:minmax(360px,auto) 1fr;gap:14px;">'
+        + '<div style="background:#0f172a;padding:10px;border-radius:8px;box-shadow:inset 0 0 12px rgba(0,0,0,0.5);">'
+        + '<div style="text-align:center;color:#94a3b8;font-size:0.7rem;margin-bottom:4px;font-family:monospace;">━━ TOP ━━</div>'
+        + '<div style="width:340px;border:2px solid #475569;border-radius:4px;overflow:hidden;">'+rackHtml+'</div>'
+        + '<div style="text-align:center;color:#94a3b8;font-size:0.7rem;margin-top:4px;font-family:monospace;">━━ BOTTOM ━━</div>'
+        + '</div>'
+        + '<div>'+tablaHtml+'</div>'
+        + '</div>'
+        + '</details>';
 }
 
 // ── MODALES CUARTO ────────────────────────────────────────────────────────────
@@ -2072,36 +2117,110 @@ function modalVerConexiones(qId) {
     // Lista de todos los equipos del cuarto
     const todosEquipos = [];
     (q.racks||[]).forEach(r => {
-        (r.equipos||[]).forEach(e => todosEquipos.push({...e, rackNombre:r.nombre}));
+        (r.equipos||[]).forEach(e => todosEquipos.push({...e, rackNombre:r.nombre, rackId:r.id}));
     });
     const buscarEq = (eqId) => todosEquipos.find(e=>e.id===eqId);
 
-    openModal(`🔌 Conexiones — ${q.nombre}`,
-        `<div style="background:#f0f4ff;padding:10px;border-radius:8px;margin-bottom:15px;">
-            <strong>Total: ${conexiones.length} conexión(es)</strong>
-            <button class="btn btn-primary btn-sm" style="margin-left:10px;" onclick="modalAddConexion('${qId}')">➕ Nueva Conexión</button>
-        </div>
-        ${conexiones.length === 0 ? '<p class="text-muted text-center" style="padding:20px;">Sin conexiones registradas.</p>' : `
-        <div class="table-wrap"><table>
-            <thead><tr><th>Origen</th><th>Puerto</th><th>→</th><th>Destino</th><th>Puerto</th><th>Cable</th><th>Acciones</th></tr></thead>
-            <tbody>${conexiones.map(cn=>{
+    // ── Generar diagrama SVG ──
+    const colorTipo = {
+        'OLT':'#7c3aed','Switch':'#0891b2','Router':'#059669','Servidor':'#dc2626',
+        'UPS':'#f59e0b','Firewall':'#be185d','ODF':'#8b5cf6','PatchPanel':'#0284c7','Otro':'#64748b'
+    };
+    const colorCable = {
+        'Fibra':'#10b981','UTP Cat6':'#3b82f6','UTP Cat5e':'#60a5fa',
+        'Patch SC/APC':'#f59e0b','Patch LC':'#fbbf24','Poder':'#ef4444','Otro':'#94a3b8'
+    };
+
+    // Agrupar equipos por rack para layout
+    const equiposPorRack = {};
+    (q.racks||[]).forEach(r=>{ equiposPorRack[r.id] = {nombre:r.nombre, equipos:[]}; });
+    todosEquipos.forEach(e=>{ if(equiposPorRack[e.rackId]) equiposPorRack[e.rackId].equipos.push(e); });
+
+    // Calcular posiciones
+    const racks = Object.values(equiposPorRack).filter(r=>r.equipos.length>0);
+    const rackWidth = 200, rackGap = 80, equipoHeight = 38;
+    const svgW = Math.max(800, racks.length * (rackWidth + rackGap));
+    const maxEquipos = Math.max(1, ...racks.map(r=>r.equipos.length));
+    const svgH = 80 + maxEquipos * equipoHeight + 40;
+
+    // Mapa: equipoId → {x, y, w, h}
+    const eqPositions = {};
+    racks.forEach((r, ri) => {
+        const x = 40 + ri * (rackWidth + rackGap);
+        r.equipos.forEach((eq, ei) => {
+            const y = 60 + ei * equipoHeight;
+            eqPositions[eq.id] = {x, y, w:rackWidth, h:equipoHeight-6, eq};
+        });
+    });
+
+    // Construir SVG
+    let svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+svgW+' '+svgH+'" style="width:100%;max-width:100%;background:#0f172a;border-radius:8px;">';
+    // Título de cada rack
+    racks.forEach((r, ri) => {
+        const x = 40 + ri * (rackWidth + rackGap) + rackWidth/2;
+        svg += '<text x="'+x+'" y="30" fill="#cbd5e1" font-size="14" font-weight="bold" text-anchor="middle">🗄️ '+r.nombre+'</text>';
+    });
+    // Conexiones (líneas) — dibujar primero para que queden detrás
+    conexiones.forEach(cn => {
+        const a = eqPositions[cn.equipoOrigenId];
+        const b = eqPositions[cn.equipoDestinoId];
+        if(!a || !b) return;
+        const x1 = a.x + a.w, y1 = a.y + a.h/2;
+        const x2 = b.x, y2 = b.y + b.h/2;
+        const midX = (x1+x2)/2;
+        const color = colorCable[cn.tipoCable] || '#94a3b8';
+        // Curva Bezier
+        const path = 'M '+x1+' '+y1+' C '+midX+' '+y1+', '+midX+' '+y2+', '+x2+' '+y2;
+        svg += '<path d="'+path+'" stroke="'+color+'" stroke-width="2" fill="none" opacity="0.7"/>';
+        // Etiqueta puerto origen y destino
+        if(cn.puertoOrigen) svg += '<text x="'+(x1+5)+'" y="'+(y1-3)+'" fill="#fbbf24" font-size="9">'+cn.puertoOrigen+'</text>';
+        if(cn.puertoDestino) svg += '<text x="'+(x2-5)+'" y="'+(y2-3)+'" fill="#fbbf24" font-size="9" text-anchor="end">'+cn.puertoDestino+'</text>';
+    });
+    // Equipos (rectángulos)
+    Object.values(eqPositions).forEach(({x, y, w, h, eq}) => {
+        const c = colorTipo[eq.tipo] || '#64748b';
+        const escapedName = (eq.nombre||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        svg += '<g style="cursor:pointer;" onclick="modalVerEquipo(\''+qId+'\',\''+eq.rackId+'\',\''+eq.id+'\')">';
+        svg += '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="5" fill="'+c+'" stroke="#1e293b" stroke-width="2"/>';
+        svg += '<text x="'+(x+8)+'" y="'+(y+15)+'" fill="white" font-size="11" font-weight="bold">'+escapedName.substring(0,22)+'</text>';
+        svg += '<text x="'+(x+8)+'" y="'+(y+28)+'" fill="white" font-size="9" opacity="0.85">'+(eq.tipo||'')+(eq.ip?' · '+eq.ip:'')+'</text>';
+        svg += '</g>';
+    });
+    svg += '</svg>';
+
+    // Leyenda de colores de cable
+    const leyendaCables = Object.entries(colorCable).map(([k,v])=>
+        '<span style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;font-size:0.78rem;"><span style="width:18px;height:3px;background:'+v+';display:inline-block;"></span>'+k+'</span>'
+    ).join('');
+
+    openModal('🔌 Conexiones — '+q.nombre,
+        '<div style="background:#f0f4ff;padding:10px;border-radius:8px;margin-bottom:15px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">'
+        + '<strong>Total: '+conexiones.length+' conexión(es)</strong>'
+        + '<button class="btn btn-primary btn-sm" onclick="modalAddConexion(\''+qId+'\')">➕ Nueva Conexión</button>'
+        + '</div>'
+        + (todosEquipos.length===0
+            ? '<p class="text-muted text-center" style="padding:20px;">Agrega equipos antes de crear conexiones.</p>'
+            : '<div style="margin-bottom:15px;"><div style="overflow-x:auto;border-radius:8px;">'+svg+'</div>'
+                + '<div style="padding:8px;background:#f8fafc;border-radius:6px;margin-top:6px;">'+leyendaCables+'</div></div>')
+        + (conexiones.length === 0
+            ? '<p class="text-muted text-center" style="padding:10px;">Sin conexiones. Haz clic en "➕ Nueva Conexión".</p>'
+            : '<div class="table-wrap"><table style="font-size:0.85rem;">'
+            + '<thead><tr><th>Origen</th><th>Puerto</th><th>→</th><th>Destino</th><th>Puerto</th><th>Cable</th><th>Acciones</th></tr></thead>'
+            + '<tbody>' + conexiones.map(cn => {
                 const o = buscarEq(cn.equipoOrigenId);
                 const d = buscarEq(cn.equipoDestinoId);
-                return `<tr>
-                    <td><strong>${o?.nombre||'?'}</strong><br><small class="text-muted">${o?.rackNombre||''}</small></td>
-                    <td><span class="sn-tag">${cn.puertoOrigen||'-'}</span></td>
-                    <td>→</td>
-                    <td><strong>${d?.nombre||'?'}</strong><br><small class="text-muted">${d?.rackNombre||''}</small></td>
-                    <td><span class="sn-tag">${cn.puertoDestino||'-'}</span></td>
-                    <td>${cn.tipoCable||'-'}${cn.descripcion?`<br><small class="text-muted">${cn.descripcion}</small>`:''}</td>
-                    <td>
-                        <button class="btn btn-outline btn-sm" onclick="modalEditConexion('${qId}','${cn.id}')">✏️</button>
-                        <button class="btn btn-danger btn-sm" onclick="eliminarConexion('${qId}','${cn.id}')">🗑️</button>
-                    </td>
-                </tr>`;
-            }).join('')}
-            </tbody>
-        </table></div>`}`, null, 'Cerrar');
+                const colorBar = colorCable[cn.tipoCable] || '#94a3b8';
+                return '<tr>'
+                    + '<td><strong>'+(o?.nombre||'?')+'</strong><br><small class="text-muted">'+(o?.rackNombre||'')+'</small></td>'
+                    + '<td><span class="sn-tag">'+(cn.puertoOrigen||'-')+'</span></td>'
+                    + '<td>→</td>'
+                    + '<td><strong>'+(d?.nombre||'?')+'</strong><br><small class="text-muted">'+(d?.rackNombre||'')+'</small></td>'
+                    + '<td><span class="sn-tag">'+(cn.puertoDestino||'-')+'</span></td>'
+                    + '<td><span style="display:inline-block;width:14px;height:3px;background:'+colorBar+';vertical-align:middle;margin-right:4px;"></span>'+(cn.tipoCable||'-')+(cn.descripcion?'<br><small class="text-muted">'+cn.descripcion+'</small>':'')+'</td>'
+                    + '<td><button class="btn btn-outline btn-sm" onclick="modalEditConexion(\''+qId+'\',\''+cn.id+'\')">✏️</button> <button class="btn btn-danger btn-sm" onclick="eliminarConexion(\''+qId+'\',\''+cn.id+'\')">🗑️</button></td>'
+                    + '</tr>';
+            }).join('') + '</tbody></table></div>'),
+        null, 'Cerrar');
 }
 window.modalVerConexiones = modalVerConexiones;
 
