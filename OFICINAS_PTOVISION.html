@@ -7070,14 +7070,16 @@ function modalComprobantes(oid, mid){
 
     // Panel de verificación IA (solo si hay comprobantes y el movimiento es bancario)
     const esBancario=['Cta Bancolombia','Transferencia','Cruce de Cuentas'].includes(m.forma);
+    const _cachedImgsCount=(window._compImgCache&&window._compImgCache[mid]||[]).length;
     const verPanel=comps.length>0?`
     <div id="ia_verif_panel" style="background:rgba(66,133,244,0.06);border:1px solid rgba(66,133,244,0.2);border-radius:10px;padding:14px;margin-bottom:14px;">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:8px;">
             <div>
                 <p style="font-size:0.85rem;font-weight:700;color:#4285f4;margin-bottom:3px;">✨ Verificación con Gemini AI</p>
                 <p style="font-size:0.75rem;color:var(--muted);">Google Gemini analiza los comprobantes y extrae los valores para verificar que cuadren con el total registrado.</p>
+                ${_cachedImgsCount>0?`<p style="font-size:0.72rem;color:#10b981;margin-top:4px;">📸 ${_cachedImgsCount} imagen(es) en caché lista(s) para analizar</p>`:`<p style="font-size:0.72rem;color:#f59e0b;margin-top:4px;">⚠️ Sin imágenes en caché. Vuelve a subir las imágenes para verificar con IA.</p>`}
             </div>
-            <button class="btn btn-primary btn-sm" onclick="verificarComprobantesIA('${oid}','${mid}')" id="btn_ia_verif" style="background:#4285f4;">
+            <button class="btn btn-primary btn-sm" onclick="verificarComprobantesIA('${oid}','${mid}')" id="btn_ia_verif" style="background:#4285f4;" ${_cachedImgsCount===0?'disabled':''}>
                 ✨ Verificar con Gemini
             </button>
         </div>
@@ -7115,9 +7117,11 @@ async function procesarArchivos(files, oid, mid){
                 });
                 b64Originals.push({data:b64, type:imageFiles[i].type||'image/jpeg'});
             }
-            // Store in window for IA verification (keyed by movimiento id)
+            // Store in window for IA verification - ACUMULAR, no sobrescribir
             if(!window._compImgCache) window._compImgCache={};
-            window._compImgCache[mid]=b64Originals;
+            if(!window._compImgCache[mid]) window._compImgCache[mid]=[];
+            // Agregar las nuevas imágenes al caché existente
+            b64Originals.forEach(img=>window._compImgCache[mid].push(img));
 
             // Generate PDF from images
             const images=await Promise.all(imageFiles.map(f=>new Promise((res,rej)=>{
@@ -7461,8 +7465,11 @@ Donde "cuadra" es true solo si la diferencia es 0 o menor a $100.`;
 
         const parts=[{text:prompt}];
         let imagenesAnalizadas=0;
-        const limite=Math.min(cachedImgs.length,10);
-        if(btnEl) btnEl.textContent='🗜️ Comprimiendo imágenes...';
+        const totalImagenes=cachedImgs.length;
+        // Gemini 1.5 Flash acepta hasta 3600 imágenes pero limitamos por tokens
+        // Con compresión a 1024px y 60% calidad podemos procesar más
+        const limite=Math.min(totalImagenes,15);
+        if(btnEl) btnEl.textContent=`🗜️ Comprimiendo ${limite} de ${totalImagenes}...`;
         for(let i=0;i<limite;i++){
             const img=cachedImgs[i];
             try{
@@ -7477,7 +7484,10 @@ Donde "cuadra" es true solo si la diferencia es 0 o menor a $100.`;
                 imagenesAnalizadas++;
             }
         }
-        if(btnEl) btnEl.textContent='✨ Analizando con Gemini...';
+        if(btnEl) btnEl.textContent=`✨ Analizando ${imagenesAnalizadas} comprobante(s)...`;
+        if(totalImagenes>15){
+            console.warn(`Solo se analizarán las primeras 15 de ${totalImagenes} imágenes`);
+        }
 
         // Call Gemini API
         const GEMINI_KEY='AIzaSyA6Omo1yMf-JH1kEViiq1j2b4q6KFfpszg';
