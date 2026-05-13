@@ -1657,6 +1657,8 @@ function renderCuartoCard(q) {
                 <button class="btn btn-success btn-sm" onclick="modalNewRack('${q.id}')">➕ Rack</button>
                 <button class="btn btn-success btn-sm" onclick="modalNewExterno('${q.id}')">📡 Equipo Externo</button>
                 <button class="btn btn-primary btn-sm" onclick="modalVerConexiones('${q.id}')">🔌 Conexiones (${totalConexiones})</button>
+                <button class="btn btn-primary btn-sm" onclick="modalDiagramaCompleto('${q.id}')" style="background:linear-gradient(135deg,#4f46e5,#7c3aed);">🌐 Diagrama Completo</button>
+                <button class="btn btn-warning btn-sm" onclick="modalDiagramaCompleto('${q.id}')">📊 Diagrama Completo</button>
                 ${USER.role==='admin' ? `<button class="btn btn-danger btn-sm" onclick="eliminarCuarto('${q.id}')">🗑️</button>` : ''}
             </div>
         </div>
@@ -1854,6 +1856,239 @@ function modalEditCuarto(qId) {
         });
 }
 window.modalEditCuarto = modalEditCuarto;
+
+// ── DIAGRAMA COMPLETO DEL CUARTO ─────────────────────────────────────────────
+function modalDiagramaCompleto(qId) {
+    const q = DB.cuartos.find(x=>x.id===qId);
+    if(!q) return;
+
+    const colorTipo = {
+        'OLT':'#7c3aed','Switch':'#0891b2','Router':'#059669','Servidor':'#dc2626',
+        'UPS':'#f59e0b','Firewall':'#be185d','ODF':'#8b5cf6','PatchPanel':'#0284c7','Otro':'#64748b',
+        'Antena':'#0ea5e9','Splitter':'#a855f7','NAP':'#10b981','CTO':'#0891b2',
+        'Mufa':'#f59e0b','Poste':'#84cc16','Torre':'#8b5cf6','CPE':'#ec4899'
+    };
+    const colorCable = {
+        'Fibra':'#10b981','UTP Cat6':'#3b82f6','UTP Cat5e':'#60a5fa',
+        'Patch SC/APC':'#f59e0b','Patch LC':'#fbbf24','Coaxial':'#dc2626','Poder':'#ef4444','Otro':'#94a3b8'
+    };
+    const colorEstado = { 'activo':'#10b981','standby':'#f59e0b','averiado':'#ef4444','mantenimiento':'#3b82f6' };
+
+    // Layout config
+    const RACK_W = 240, RACK_PAD = 14, U_H = 18, RACK_GAP = 60;
+    const EXT_W = 200, EXT_H = 60, EXT_GAP = 20;
+    const TOP_PAD = 50, BOTTOM_PAD = 40;
+
+    const racks = q.racks || [];
+    const externos = q.externos || [];
+    const conexiones = q.conexiones || [];
+
+    // Calcular tamaño SVG
+    const racksHeight = racks.length > 0
+        ? Math.max(...racks.map(r => (r.alturaU||42) * U_H)) + RACK_PAD * 2 + 30
+        : 200;
+    const externosCols = Math.min(2, Math.max(1, externos.length));
+    const externosRows = Math.ceil(externos.length / externosCols);
+    const externosHeight = externos.length > 0
+        ? externosRows * (EXT_H + EXT_GAP) + 30
+        : 0;
+
+    const svgW = Math.max(900, racks.length * (RACK_W + RACK_GAP) + (externos.length > 0 ? EXT_W + 100 : 0) + 80);
+    const svgH = TOP_PAD + racksHeight + (externosHeight > 0 ? externosHeight + 30 : 0) + BOTTOM_PAD;
+
+    // Mapa: equipoId → {cx, cy, w, h, eq, rackId, esExterno}
+    const eqPositions = {};
+
+    // ── Renderizar racks
+    let svgRacks = '';
+    racks.forEach((r, ri) => {
+        const rackX = 40 + ri * (RACK_W + RACK_GAP);
+        const rackY = TOP_PAD;
+        const totalU = r.alturaU || 42;
+        const rackH = totalU * U_H + RACK_PAD * 2;
+
+        // Caja del rack
+        svgRacks += `<g>
+            <rect x="${rackX}" y="${rackY}" width="${RACK_W}" height="${rackH+20}" rx="6" fill="#0f172a" stroke="#475569" stroke-width="2"/>
+            <text x="${rackX + RACK_W/2}" y="${rackY + 15}" fill="#e2e8f0" font-size="12" font-weight="bold" text-anchor="middle">🗄️ ${r.nombre}</text>
+            <text x="${rackX + RACK_W/2}" y="${rackY + rackH+15}" fill="#64748b" font-size="9" text-anchor="middle" font-family="monospace">${totalU}U</text>
+        </g>`;
+
+        // Mapa de posiciones ocupadas
+        const ocupadas = {};
+        (r.equipos||[]).forEach(eq => {
+            const start = eq.posU||1;
+            const size = eq.tamanioU||1;
+            for(let i=0; i<size; i++) ocupadas[start+i] = eq;
+        });
+
+        // Dibujar unidades U desde arriba (alta) hacia abajo (baja)
+        let drawnIds = new Set();
+        for(let u = totalU; u >= 1; u--) {
+            const eq = ocupadas[u];
+            const yU = rackY + 25 + (totalU - u) * U_H;
+
+            if(eq && !drawnIds.has(eq.id)) {
+                drawnIds.add(eq.id);
+                const size = eq.tamanioU||1;
+                const eqH = size * U_H - 2;
+                const eqY = rackY + 25 + (totalU - (eq.posU + size - 1)) * U_H;
+                const bg = colorTipo[eq.tipo] || '#64748b';
+                const est = colorEstado[eq.estado] || '#64748b';
+                const eqX = rackX + RACK_PAD/2;
+                const eqW = RACK_W - RACK_PAD;
+                const cx = eqX + eqW;  // punto de conexión derecho
+                const cy = eqY + eqH/2;
+                eqPositions[eq.id] = { x:eqX, y:eqY, w:eqW, h:eqH, cx, cy, eq, esExterno:false, rackId:r.id };
+
+                const escapedName = (eq.nombre||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').substring(0,20);
+                svgRacks += `<g style="cursor:pointer;" onclick="modalVerEquipo('${qId}','${r.id}','${eq.id}')">
+                    <rect x="${eqX}" y="${eqY}" width="${eqW}" height="${eqH}" rx="3" fill="${bg}" stroke="#1e293b" stroke-width="1"/>
+                    <text x="${eqX+6}" y="${eqY+12}" fill="white" font-size="10" font-weight="bold">${escapedName}</text>
+                    <text x="${eqX+6}" y="${eqY+eqH-3}" fill="white" font-size="8" opacity="0.85">U${eq.posU}${size>1?'-'+(eq.posU+size-1):''} · ${eq.tipo||''}${eq.ip?' · '+eq.ip:''}</text>
+                    <circle cx="${eqX+eqW-8}" cy="${eqY+8}" r="3" fill="${est}"/>
+                </g>`;
+            } else if(!eq) {
+                // Slot vacío
+                svgRacks += `<rect x="${rackX + RACK_PAD/2}" y="${yU}" width="${RACK_W - RACK_PAD}" height="${U_H-2}" fill="#1e293b" opacity="0.5"/>
+                    <text x="${rackX+6}" y="${yU+12}" fill="#475569" font-size="7" font-family="monospace">U${u}</text>`;
+            }
+        }
+    });
+
+    // ── Renderizar equipos externos
+    let svgExternos = '';
+    if(externos.length > 0) {
+        const extStartX = racks.length > 0 ? 40 + racks.length * (RACK_W + RACK_GAP) + 30 : 40;
+        const extStartY = TOP_PAD + 10;
+        svgExternos += `<text x="${extStartX}" y="${extStartY + 15}" fill="#475569" font-size="13" font-weight="bold">📡 Equipos Externos</text>`;
+        externos.forEach((eq, i) => {
+            const col = i % externosCols;
+            const row = Math.floor(i / externosCols);
+            const exX = extStartX + col * (EXT_W + EXT_GAP);
+            const exY = extStartY + 30 + row * (EXT_H + EXT_GAP);
+            const bg = colorTipo[eq.tipo] || '#64748b';
+            const est = colorEstado[eq.estado] || '#64748b';
+            const escapedName = (eq.nombre||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').substring(0,22);
+            const cx = exX;
+            const cy = exY + EXT_H/2;
+            eqPositions[eq.id] = { x:exX, y:exY, w:EXT_W, h:EXT_H, cx, cy, eq, esExterno:true, rackId:'__externos__' };
+
+            svgExternos += `<g style="cursor:pointer;" onclick="modalVerEquipoExterno('${qId}','${eq.id}')">
+                <rect x="${exX}" y="${exY}" width="${EXT_W}" height="${EXT_H}" rx="8" fill="${bg}" stroke="#1e293b" stroke-width="2" stroke-dasharray="5,3"/>
+                <text x="${exX+10}" y="${exY+18}" fill="white" font-size="12" font-weight="bold">📡 ${escapedName}</text>
+                <text x="${exX+10}" y="${exY+34}" fill="white" font-size="10" opacity="0.9">${eq.tipo||''}${eq.ip?' · '+eq.ip:''}</text>
+                <text x="${exX+10}" y="${exY+48}" fill="white" font-size="9" opacity="0.85">${eq.ubicacionFisica||''}</text>
+                <circle cx="${exX+EXT_W-12}" cy="${exY+12}" r="4" fill="${est}"/>
+            </g>`;
+        });
+    }
+
+    // ── Renderizar conexiones (curvas) — antes de los equipos para que queden detrás
+    let svgConexiones = '';
+    conexiones.forEach(cn => {
+        const a = eqPositions[cn.equipoOrigenId];
+        const b = eqPositions[cn.equipoDestinoId];
+        if(!a || !b) return;
+
+        // Decidir puntos de conexión inteligente: salir del lado que apunta al otro
+        let x1, y1, x2, y2;
+        if(a.x + a.w/2 < b.x + b.w/2) {
+            // a está a la izquierda de b
+            x1 = a.x + a.w; y1 = a.y + a.h/2;
+            x2 = b.x; y2 = b.y + b.h/2;
+        } else {
+            x1 = a.x; y1 = a.y + a.h/2;
+            x2 = b.x + b.w; y2 = b.y + b.h/2;
+        }
+
+        const dx = Math.abs(x2 - x1);
+        const ctrlOffset = Math.min(80, dx/2);
+        const cx1 = x1 + (x2 > x1 ? ctrlOffset : -ctrlOffset);
+        const cx2 = x2 + (x2 > x1 ? -ctrlOffset : ctrlOffset);
+        const color = colorCable[cn.tipoCable] || '#94a3b8';
+        const path = `M ${x1} ${y1} C ${cx1} ${y1}, ${cx2} ${y2}, ${x2} ${y2}`;
+
+        svgConexiones += `<path d="${path}" stroke="${color}" stroke-width="2.5" fill="none" opacity="0.7"/>`;
+        // Puntos de conexión
+        svgConexiones += `<circle cx="${x1}" cy="${y1}" r="3" fill="${color}"/>`;
+        svgConexiones += `<circle cx="${x2}" cy="${y2}" r="3" fill="${color}"/>`;
+        // Etiquetas de puerto
+        const pOriLabel = cn.puertoOrigenNombre || cn.puertoOrigen;
+        const pDesLabel = cn.puertoDestinoNombre || cn.puertoDestino;
+        if(pOriLabel) svgConexiones += `<text x="${x1 + (x2>x1?6:-6)}" y="${y1-4}" fill="#fbbf24" font-size="9" text-anchor="${x2>x1?'start':'end'}">${pOriLabel}</text>`;
+        if(pDesLabel) svgConexiones += `<text x="${x2 + (x2>x1?-6:6)}" y="${y2-4}" fill="#fbbf24" font-size="9" text-anchor="${x2>x1?'end':'start'}">${pDesLabel}</text>`;
+    });
+
+    const svg = `<svg id="diagSvg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${svgW} ${svgH}" style="width:100%;background:#1e293b;border-radius:8px;">
+        <defs>
+            <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#334155" stroke-width="0.5"/>
+            </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#grid)"/>
+        ${svgRacks}
+        ${svgExternos}
+        ${svgConexiones}
+    </svg>`;
+
+    // Leyendas
+    const leyendaTipos = Object.entries(colorTipo).map(([k,v])=>
+        `<span style="display:inline-flex;align-items:center;gap:4px;margin:2px 6px 2px 0;font-size:0.74rem;"><span style="width:12px;height:12px;background:${v};border-radius:3px;"></span>${k}</span>`
+    ).join('');
+    const leyendaCables = Object.entries(colorCable).map(([k,v])=>
+        `<span style="display:inline-flex;align-items:center;gap:4px;margin:2px 6px 2px 0;font-size:0.74rem;"><span style="width:20px;height:3px;background:${v};"></span>${k}</span>`
+    ).join('');
+
+    openModal(`📊 Diagrama Completo — ${q.nombre}`,
+        `<div style="background:#f8fafc;padding:10px;border-radius:8px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;font-size:0.85rem;">
+            <div>
+                <strong>${racks.length}</strong> rack(s) · <strong>${racks.reduce((s,r)=>s+(r.equipos||[]).length,0)}</strong> equipo(s) en rack · <strong>${externos.length}</strong> externo(s) · <strong>${conexiones.length}</strong> conexión(es)
+            </div>
+            <div class="flex" style="gap:6px;">
+                <button class="btn btn-outline btn-sm" onclick="descargarDiagramaSVG('${qId}')">⬇️ Descargar SVG</button>
+                <button class="btn btn-outline btn-sm" onclick="imprimirDiagrama()">🖨️ Imprimir</button>
+            </div>
+        </div>
+        <div id="diagContainer" style="overflow:auto;max-height:65vh;border:1px solid #e2e8f0;border-radius:8px;">${svg}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;font-size:0.8rem;">
+            <div style="background:#f8fafc;padding:10px;border-radius:6px;">
+                <strong style="display:block;margin-bottom:4px;">🏷️ Tipos de Equipo</strong>
+                ${leyendaTipos}
+            </div>
+            <div style="background:#f8fafc;padding:10px;border-radius:6px;">
+                <strong style="display:block;margin-bottom:4px;">🔌 Tipos de Cable</strong>
+                ${leyendaCables}
+            </div>
+        </div>`,
+        null, 'Cerrar');
+}
+window.modalDiagramaCompleto = modalDiagramaCompleto;
+
+function descargarDiagramaSVG(qId) {
+    const q = DB.cuartos.find(x=>x.id===qId);
+    const svgEl = document.getElementById('diagSvg');
+    if(!svgEl) return;
+    const svgData = new XMLSerializer().serializeToString(svgEl);
+    const blob = new Blob([svgData], {type:'image/svg+xml'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `diagrama_${q.nombre.replace(/\s/g,'_')}_${new Date().toISOString().split('T')[0]}.svg`;
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
+window.descargarDiagramaSVG = descargarDiagramaSVG;
+
+function imprimirDiagrama() {
+    const svgEl = document.getElementById('diagSvg');
+    if(!svgEl) return;
+    const win = window.open('', '_blank');
+    win.document.write(`<html><head><title>Diagrama</title></head><body style="margin:0;padding:20px;">${svgEl.outerHTML}</body></html>`);
+    win.document.close();
+    setTimeout(()=>{ win.print(); }, 500);
+}
+window.imprimirDiagrama = imprimirDiagrama;
 
 function eliminarCuarto(qId) {
     const q = DB.cuartos.find(x=>x.id===qId);
@@ -2294,6 +2529,241 @@ function modalVerConexiones(qId) {
         null, 'Cerrar');
 }
 window.modalVerConexiones = modalVerConexiones;
+
+// ── DIAGRAMA COMPLETO DEL CUARTO ─────────────────────────────────────────────
+function modalDiagramaCompleto(qId) {
+    const q = DB.cuartos.find(x=>x.id===qId);
+    if(!q) return;
+
+    const colorTipo = {
+        'OLT':'#7c3aed','Switch':'#0891b2','Router':'#059669','Servidor':'#dc2626',
+        'UPS':'#f59e0b','Firewall':'#be185d','ODF':'#8b5cf6','PatchPanel':'#0284c7','Otro':'#64748b',
+        'Antena':'#0ea5e9','Splitter':'#a855f7','NAP':'#10b981','CTO':'#0891b2',
+        'Mufa':'#f59e0b','Poste':'#84cc16','Torre':'#8b5cf6','CPE':'#ec4899'
+    };
+    const colorCable = {
+        'Fibra':'#10b981','UTP Cat6':'#3b82f6','UTP Cat5e':'#60a5fa',
+        'Patch SC/APC':'#f59e0b','Patch LC':'#fbbf24','Coaxial':'#dc2626','Poder':'#ef4444','Otro':'#94a3b8'
+    };
+    const iconoTipo = {
+        'OLT':'🟣','Switch':'🔵','Router':'🟢','Servidor':'🔴','UPS':'🟠','Firewall':'🩷',
+        'ODF':'🟪','PatchPanel':'🌊','Antena':'📡','Splitter':'⚡','NAP':'🟩','CTO':'🔷',
+        'Mufa':'🟧','Poste':'📍','Torre':'🗼','CPE':'📦','Otro':'⬜'
+    };
+
+    // Reunir equipos
+    const racksList = q.racks || [];
+    const externosList = q.externos || [];
+    const conexiones = q.conexiones || [];
+
+    // Dimensiones
+    const eqWidth = 220, eqHeight = 56, eqGapY = 14;
+    const colGapX = 100;
+    const headerH = 50;
+    const padding = 30;
+
+    // Layout: cada rack es una columna, externos van en una columna adicional al final
+    const columnas = [];
+    racksList.forEach(r => {
+        const eqs = (r.equipos||[]).sort((a,b)=>(b.posU||0)-(a.posU||0)).map(eq=>({...eq, rackId:r.id, rackNombre:r.nombre, esExterno:false}));
+        columnas.push({ nombre: '🗄️ '+r.nombre, equipos: eqs, esExterno:false });
+    });
+    if(externosList.length > 0) {
+        columnas.push({
+            nombre: '📡 Equipos Externos',
+            equipos: externosList.map(eq=>({...eq, rackId:'__externos__', esExterno:true})),
+            esExterno: true
+        });
+    }
+
+    if(columnas.length === 0) {
+        return alert('No hay equipos en este cuarto. Agrega racks o equipos externos primero.');
+    }
+
+    // Calcular dimensiones SVG
+    const maxEqs = Math.max(1, ...columnas.map(c=>c.equipos.length));
+    const svgW = padding*2 + columnas.length * eqWidth + (columnas.length-1) * colGapX;
+    const svgH = padding*2 + headerH + maxEqs * (eqHeight + eqGapY);
+
+    // Posición de cada equipo
+    const eqPos = {};
+    columnas.forEach((col, ci) => {
+        const x = padding + ci * (eqWidth + colGapX);
+        col.equipos.forEach((eq, ei) => {
+            const y = padding + headerH + ei * (eqHeight + eqGapY);
+            eqPos[eq.id] = { x, y, w:eqWidth, h:eqHeight, eq, ci, ei };
+        });
+    });
+
+    // Construir SVG
+    let svg = '<svg id="diagramaSVG" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+svgW+' '+svgH+'" style="width:100%;height:auto;background:#0f172a;border-radius:12px;cursor:grab;" preserveAspectRatio="xMidYMid meet">';
+
+    // Definir patrones / gradientes
+    svg += '<defs>';
+    svg += '<pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="1"/></pattern>';
+    svg += '<filter id="glow"><feGaussianBlur stdDeviation="2" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>';
+    svg += '</defs>';
+    svg += '<rect width="100%" height="100%" fill="url(#grid)"/>';
+
+    // Títulos de columnas
+    columnas.forEach((col, ci) => {
+        const x = padding + ci * (eqWidth + colGapX) + eqWidth/2;
+        svg += '<rect x="'+(x-eqWidth/2-5)+'" y="'+(padding-5)+'" width="'+(eqWidth+10)+'" height="36" rx="6" fill="'+(col.esExterno?'#065f46':'#1e293b')+'" opacity="0.7"/>';
+        svg += '<text x="'+x+'" y="'+(padding+18)+'" fill="#f1f5f9" font-size="15" font-weight="bold" text-anchor="middle">'+col.nombre+'</text>';
+        svg += '<text x="'+x+'" y="'+(padding+32)+'" fill="#94a3b8" font-size="10" text-anchor="middle">'+col.equipos.length+' equipo(s)</text>';
+    });
+
+    // Dibujar conexiones (curvas Bezier)
+    conexiones.forEach(cn => {
+        const a = eqPos[cn.equipoOrigenId];
+        const b = eqPos[cn.equipoDestinoId];
+        if(!a || !b) return;
+        const color = colorCable[cn.tipoCable] || '#94a3b8';
+        // Determinar lado de salida según posición
+        let x1, x2;
+        if(a.ci <= b.ci) {
+            x1 = a.x + a.w;
+            x2 = b.x;
+        } else {
+            x1 = a.x;
+            x2 = b.x + b.w;
+        }
+        const y1 = a.y + a.h/2;
+        const y2 = b.y + b.h/2;
+        const midX = (x1+x2)/2;
+        const path = 'M '+x1+' '+y1+' C '+midX+' '+y1+', '+midX+' '+y2+', '+x2+' '+y2;
+        // Sombra de glow
+        svg += '<path d="'+path+'" stroke="'+color+'" stroke-width="6" fill="none" opacity="0.2"/>';
+        svg += '<path d="'+path+'" stroke="'+color+'" stroke-width="2.5" fill="none" opacity="0.95"/>';
+        // Puntos en extremos
+        svg += '<circle cx="'+x1+'" cy="'+y1+'" r="4" fill="'+color+'" stroke="#0f172a" stroke-width="1"/>';
+        svg += '<circle cx="'+x2+'" cy="'+y2+'" r="4" fill="'+color+'" stroke="#0f172a" stroke-width="1"/>';
+        // Etiquetas de puerto
+        const pOri = cn.puertoOrigenNombre || cn.puertoOrigen;
+        const pDes = cn.puertoDestinoNombre || cn.puertoDestino;
+        if(pOri) {
+            const lx = a.ci <= b.ci ? x1+8 : x1-8;
+            const anchor = a.ci <= b.ci ? 'start' : 'end';
+            svg += '<rect x="'+(lx-2-(pOri.length*3.5))+'" y="'+(y1-13)+'" width="'+(pOri.length*7+8)+'" height="13" rx="3" fill="#1e293b" opacity="0.85"/>';
+            svg += '<text x="'+lx+'" y="'+(y1-3)+'" fill="#fbbf24" font-size="10" text-anchor="'+anchor+'" font-weight="bold">'+pOri+'</text>';
+        }
+        if(pDes) {
+            const lx = a.ci <= b.ci ? x2-8 : x2+8;
+            const anchor = a.ci <= b.ci ? 'end' : 'start';
+            svg += '<rect x="'+(lx-(anchor==='end'?(pDes.length*7+4):-4))+'" y="'+(y2-13)+'" width="'+(pDes.length*7+8)+'" height="13" rx="3" fill="#1e293b" opacity="0.85"/>';
+            svg += '<text x="'+lx+'" y="'+(y2-3)+'" fill="#fbbf24" font-size="10" text-anchor="'+anchor+'" font-weight="bold">'+pDes+'</text>';
+        }
+    });
+
+    // Dibujar equipos
+    Object.values(eqPos).forEach(({x, y, w, h, eq}) => {
+        const c = colorTipo[eq.tipo] || '#64748b';
+        const escapedName = (eq.nombre||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const clickFn = eq.esExterno
+            ? 'modalVerEquipoExterno(\''+qId+'\',\''+eq.id+'\')'
+            : 'modalVerEquipo(\''+qId+'\',\''+eq.rackId+'\',\''+eq.id+'\')';
+        const icono = iconoTipo[eq.tipo] || '⬜';
+        const strokeStyle = eq.esExterno ? 'stroke-dasharray="6,3"' : '';
+        const puertosTotales = (eq.puertos||[]).length;
+        const puertosOcupados = (eq.puertos||[]).filter(p=>p.ocupado).length;
+        const estadoColor = eq.estado==='activo'?'#10b981':(eq.estado==='averiado'?'#ef4444':'#f59e0b');
+
+        svg += '<g style="cursor:pointer;" onclick="'+clickFn+'">';
+        // Sombra
+        svg += '<rect x="'+(x+2)+'" y="'+(y+3)+'" width="'+w+'" height="'+h+'" rx="8" fill="rgba(0,0,0,0.4)"/>';
+        // Caja principal con gradiente simulado
+        svg += '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="8" fill="'+c+'" stroke="#1e293b" stroke-width="2" '+strokeStyle+'/>';
+        svg += '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+(h/2)+'" rx="8" fill="rgba(255,255,255,0.12)"/>';
+        // LED de estado
+        svg += '<circle cx="'+(x+w-12)+'" cy="'+(y+12)+'" r="5" fill="'+estadoColor+'" stroke="white" stroke-width="1.5"/>';
+        svg += '<circle cx="'+(x+w-12)+'" cy="'+(y+12)+'" r="2" fill="white" opacity="0.6"/>';
+        // Nombre
+        svg += '<text x="'+(x+10)+'" y="'+(y+18)+'" fill="white" font-size="13" font-weight="bold">'+icono+' '+escapedName.substring(0,22)+'</text>';
+        // Tipo y modelo
+        svg += '<text x="'+(x+10)+'" y="'+(y+32)+'" fill="white" font-size="10" opacity="0.85">'+(eq.tipo||'')+(eq.marca?' · '+eq.marca:'')+'</text>';
+        // IP y puertos
+        const infoLinea = (eq.ip ? '🌐 '+eq.ip : '') + (puertosTotales > 0 ? '  🔌 '+puertosOcupados+'/'+puertosTotales : '');
+        if(infoLinea) {
+            svg += '<text x="'+(x+10)+'" y="'+(y+46)+'" fill="white" font-size="10" opacity="0.85">'+infoLinea+'</text>';
+        }
+        svg += '</g>';
+    });
+
+    svg += '</svg>';
+
+    // Leyenda
+    const leyendaCables = Object.entries(colorCable).map(([k,v])=>
+        '<span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px;font-size:0.8rem;color:#cbd5e1;"><span style="width:22px;height:3px;background:'+v+';display:inline-block;border-radius:2px;"></span>'+k+'</span>'
+    ).join('');
+
+    // Stats
+    const totalEq = Object.keys(eqPos).length;
+    const totalPuertos = Object.values(eqPos).reduce((s,p)=>s+(p.eq.puertos||[]).length,0);
+    const puertosUsados = Object.values(eqPos).reduce((s,p)=>s+(p.eq.puertos||[]).filter(pt=>pt.ocupado).length,0);
+
+    openModal('🌐 Diagrama Completo — '+q.nombre,
+        '<div style="background:linear-gradient(135deg,#1e1b4b,#312e81);padding:14px;border-radius:10px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;color:white;">'
+        + '<div style="display:flex;gap:18px;flex-wrap:wrap;">'
+        + '<div><div style="font-size:1.4rem;font-weight:bold;">'+totalEq+'</div><div style="font-size:0.75rem;opacity:0.8;">Equipos</div></div>'
+        + '<div><div style="font-size:1.4rem;font-weight:bold;">'+conexiones.length+'</div><div style="font-size:0.75rem;opacity:0.8;">Conexiones</div></div>'
+        + '<div><div style="font-size:1.4rem;font-weight:bold;">'+puertosUsados+'/'+totalPuertos+'</div><div style="font-size:0.75rem;opacity:0.8;">Puertos</div></div>'
+        + '<div><div style="font-size:1.4rem;font-weight:bold;">'+racksList.length+'</div><div style="font-size:0.75rem;opacity:0.8;">Racks</div></div>'
+        + '<div><div style="font-size:1.4rem;font-weight:bold;">'+externosList.length+'</div><div style="font-size:0.75rem;opacity:0.8;">Externos</div></div>'
+        + '</div>'
+        + '<div style="display:flex;gap:6px;">'
+        + '<button class="btn btn-sm" style="background:white;color:#4f46e5;" onclick="zoomDiagrama(1.2)">🔍+</button>'
+        + '<button class="btn btn-sm" style="background:white;color:#4f46e5;" onclick="zoomDiagrama(0.8)">🔍−</button>'
+        + '<button class="btn btn-sm" style="background:white;color:#4f46e5;" onclick="zoomDiagrama(0)">↺ Reset</button>'
+        + '<button class="btn btn-sm" style="background:white;color:#4f46e5;" onclick="descargarDiagrama(\''+q.nombre.replace(/[^a-z0-9]/gi,'_')+'\')">📥 SVG</button>'
+        + '</div>'
+        + '</div>'
+        + '<div id="diagramaWrapper" style="overflow:auto;background:#0f172a;border-radius:12px;padding:8px;max-height:70vh;">'+svg+'</div>'
+        + '<div style="padding:10px;background:#f8fafc;border-radius:8px;margin-top:10px;">'
+        + '<small style="color:#64748b;font-weight:bold;display:block;margin-bottom:4px;">Tipos de cable:</small>'
+        + '<div>'+leyendaCables+'</div>'
+        + '<small style="color:#64748b;margin-top:6px;display:block;">💡 Tip: Los equipos con borde punteado son externos. Haz clic en cualquier equipo para ver sus detalles.</small>'
+        + '</div>',
+        null, 'Cerrar');
+
+    // Hacer que el modal sea más ancho
+    setTimeout(()=>{
+        const modal = document.querySelector('.modal-content');
+        if(modal) modal.style.maxWidth = '95vw';
+    }, 50);
+}
+window.modalDiagramaCompleto = modalDiagramaCompleto;
+
+// Zoom del SVG
+let _zoomLevel = 1;
+function zoomDiagrama(factor) {
+    const svg = document.getElementById('diagramaSVG');
+    if(!svg) return;
+    if(factor === 0) { _zoomLevel = 1; }
+    else { _zoomLevel = Math.max(0.3, Math.min(3, _zoomLevel * factor)); }
+    svg.style.transform = 'scale('+_zoomLevel+')';
+    svg.style.transformOrigin = 'top left';
+    svg.style.width = (_zoomLevel * 100) + '%';
+}
+window.zoomDiagrama = zoomDiagrama;
+
+// Descargar como SVG
+function descargarDiagrama(filename) {
+    const svg = document.getElementById('diagramaSVG');
+    if(!svg) return;
+    const serializer = new XMLSerializer();
+    let src = serializer.serializeToString(svg);
+    if(!src.match(/^<svg[^>]+xmlns="http:\/\/www\.w3\.org\/2000\/svg"/)) {
+        src = src.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+    }
+    const blob = new Blob([src], {type:'image/svg+xml'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'diagrama_'+filename+'_'+new Date().toISOString().split('T')[0]+'.svg';
+    a.click();
+    URL.revokeObjectURL(url);
+}
+window.descargarDiagrama = descargarDiagrama;
 
 function modalAddConexion(qId) {
     const q = DB.cuartos.find(x=>x.id===qId);
