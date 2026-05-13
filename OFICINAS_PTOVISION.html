@@ -7076,7 +7076,7 @@ function modalComprobantes(oid, mid){
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:8px;">
             <div>
                 <p style="font-size:0.85rem;font-weight:700;color:#4285f4;margin-bottom:3px;">✨ Verificación con Gemini AI</p>
-                <p style="font-size:0.75rem;color:var(--muted);">Google Gemini analiza los comprobantes y extrae los valores para verificar que cuadren con el total registrado.</p>
+                <p style="font-size:0.75rem;color:var(--muted);">Google Gemini analiza los comprobantes y extrae los valores para verificar que cuadren con el total registrado. ${!obtenerAPIKey()?'<a href="javascript:modalConfigurarAPIKey()" style="color:#4285f4;">⚙️ Configurar API Key</a>':''}</p>
                 ${_cachedImgsCount>0?`<p style="font-size:0.72rem;color:#10b981;margin-top:4px;">📸 ${_cachedImgsCount} imagen(es) en caché lista(s) para analizar</p>`:`<p style="font-size:0.72rem;color:#f59e0b;margin-top:4px;">⚠️ Sin imágenes en caché. Vuelve a subir las imágenes para verificar con IA.</p>`}
             </div>
             <button class="btn btn-primary btn-sm" onclick="verificarComprobantesIA('${oid}','${mid}')" id="btn_ia_verif" style="background:#4285f4;" ${_cachedImgsCount===0?'disabled':''}>
@@ -7384,6 +7384,53 @@ function enviarSolicitudEdicion(oid, mid){
 
 
 // ── VERIFICACIÓN IA DE COMPROBANTES ──────────────────────────────────────────
+
+// ── GESTIÓN DE API KEY GEMINI (localStorage) ──────────────────────────────
+function obtenerAPIKey(){
+    return localStorage.getItem('gemini_api_key') || '';
+}
+
+function guardarAPIKey(key){
+    if(!key||!key.startsWith('AIza')) return false;
+    localStorage.setItem('gemini_api_key', key.trim());
+    return true;
+}
+
+function eliminarAPIKey(){
+    localStorage.removeItem('gemini_api_key');
+}
+
+function modalConfigurarAPIKey(callback){
+    const actual=obtenerAPIKey();
+    const html=`
+    <div style="background:rgba(66,133,244,0.08);border:1px solid rgba(66,133,244,0.25);border-radius:10px;padding:14px;margin-bottom:14px;font-size:0.82rem;">
+        <p style="font-weight:700;color:#4285f4;margin-bottom:6px;">🔑 Configuración de API Key de Gemini</p>
+        <p style="color:var(--muted);margin-bottom:8px;">Para usar la IA necesitas tu propia API Key de Google Gemini. Se guardará en este dispositivo (localStorage) y solo tú la verás.</p>
+        <p style="color:var(--muted);font-size:0.75rem;">📌 Obtén una gratis en: <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:#4285f4;text-decoration:underline;">aistudio.google.com/app/apikey</a></p>
+    </div>
+    <div class="form-group-dark">
+        <label>API Key de Gemini</label>
+        <input type="text" id="api_key_input" class="form-control" placeholder="AIzaSy..." value="${actual}" style="font-family:monospace;font-size:0.85rem;">
+        <p style="font-size:0.72rem;color:var(--muted);margin-top:4px;">Debe empezar con "AIza"</p>
+    </div>
+    ${actual?'<div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:8px 12px;font-size:0.78rem;color:#10b981;">✅ Ya tienes una API Key guardada. Puedes cambiarla si necesitas.</div>':''}`;
+
+    const footer=`
+        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        ${actual?`<button class="btn btn-danger" onclick="if(confirm('¿Eliminar la API Key guardada?')){eliminarAPIKey();closeModal();alert('API Key eliminada');}">🗑️ Eliminar</button>`:''}
+        <button class="btn btn-primary" onclick="(()=>{
+            const k=document.getElementById('api_key_input').value.trim();
+            if(!k){ alert('Pega tu API Key'); return; }
+            if(!k.startsWith('AIza')){ alert('La API Key debe empezar con AIza'); return; }
+            guardarAPIKey(k);
+            closeModal();
+            alert('✅ API Key guardada. Ya puedes usar la IA.');
+            ${callback?'('+callback.toString()+')();':''}
+        })()">💾 Guardar</button>`;
+
+    openModal('🔑 Configurar API Key', html, footer);
+}
+
 // Comprime una imagen base64 a JPEG 60% calidad max 1024px (reduce tokens en Gemini)
 function _comprimirImagenParaIA(base64Data){
     return new Promise((resolve, reject)=>{
@@ -7490,8 +7537,19 @@ Donde "cuadra" es true solo si la diferencia es 0 o menor a $100.`;
         }
 
         // Call Gemini API
-        const GEMINI_KEY='AIzaSyA6Omo1yMf-JH1kEViiq1j2b4q6KFfpszg';
-        const GEMINI_URL=`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_KEY}`;
+        // Usar Cloudflare Worker como proxy (oculta API key)
+        // Usar API Key del usuario (guardada en localStorage)
+        const USER_KEY=obtenerAPIKey();
+        if(!USER_KEY){
+            if(resEl) resEl.innerHTML=`<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:14px;font-size:0.82rem;">
+                <p style="font-weight:700;color:#f59e0b;margin-bottom:8px;">🔑 Falta configurar tu API Key</p>
+                <p style="color:var(--muted);margin-bottom:10px;">Para usar la verificación con IA necesitas configurar tu API Key de Gemini (gratis).</p>
+                <button class="btn btn-primary btn-sm" onclick="modalConfigurarAPIKey()">⚙️ Configurar API Key</button>
+            </div>`;
+            if(btnEl){ btnEl.disabled=false; btnEl.textContent='🔑 Configurar API Key'; }
+            return;
+        }
+        const GEMINI_URL=`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${USER_KEY}`;
 
         let rawText='';
         try{
@@ -7812,8 +7870,24 @@ INSTRUCCIONES:
         });
         messages.push({role:'user',parts:[{text:pregunta}]});
 
-        const GEMINI_KEY='AIzaSyA6Omo1yMf-JH1kEViiq1j2b4q6KFfpszg';
-        const URL=`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_KEY}`;
+        const USER_KEY=obtenerAPIKey();
+        if(!USER_KEY){
+            if(typingEl) typingEl.remove();
+            _aiMsg('🔑 Necesitas configurar tu API Key de Gemini primero. Haz click en el botón ⚙️ del chat o usa el botón abajo.','bot');
+            const body=document.getElementById('aiBody');
+            if(body){
+                const btn=document.createElement('button');
+                btn.className='btn btn-primary btn-sm';
+                btn.style.cssText='align-self:flex-start;margin-top:-4px;';
+                btn.textContent='⚙️ Configurar API Key';
+                btn.onclick=()=>{toggleAIPanel();modalConfigurarAPIKey();};
+                body.appendChild(btn);
+                body.scrollTop=body.scrollHeight;
+            }
+            if(sendBtn) sendBtn.disabled=false;
+            return;
+        }
+        const URL=`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${USER_KEY}`;
 
         const response=await fetch(URL,{
             method:'POST',
@@ -7905,7 +7979,10 @@ const firebaseConfig = {
             <h3>✨ Asistente IA</h3>
             <p id="aiContext">Pregúntame sobre tu negocio</p>
         </div>
-        <button class="ai-close" onclick="toggleAIPanel()">✕</button>
+        <div style="display:flex;gap:6px;">
+            <button class="ai-close" onclick="modalConfigurarAPIKey()" title="Configurar API Key">⚙️</button>
+            <button class="ai-close" onclick="toggleAIPanel()">✕</button>
+        </div>
     </div>
     <div class="ai-body" id="aiBody">
         <div class="ai-msg ai-msg-bot">¡Hola! 👋 Soy tu asistente. Puedo analizar tus datos, responder preguntas sobre ventas, finanzas, empleados, o ayudarte a usar el sistema. ¿En qué te ayudo?</div>
