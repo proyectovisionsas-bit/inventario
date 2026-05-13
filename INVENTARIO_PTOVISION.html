@@ -1641,18 +1641,21 @@ function renderCuartos(c) {
 }
 
 function renderCuartoCard(q) {
+    if(!q.externos) q.externos = [];
     const bodNom = DB.bodegas.find(b=>b.id===q.bodegaId)?.nombre || 'Sin bodega';
-    const totalEquipos = (q.racks||[]).reduce((s,r)=>s+(r.equipos||[]).length, 0);
+    const totalRackEquipos = (q.racks||[]).reduce((s,r)=>s+(r.equipos||[]).length, 0);
+    const totalExt = q.externos.length;
     const totalConexiones = (q.conexiones||[]).length;
     return `<div class="card" style="border-left:4px solid #4f46e5;margin-bottom:15px;">
         <div class="card-header">
             <div>
                 <h3 style="margin:0;">🖥️ ${q.nombre}</h3>
-                <p class="text-muted" style="margin:4px 0 0;font-size:0.85rem;">🏭 ${bodNom} | 📍 ${q.ubicacion||'Sin ubicación'} | ${(q.racks||[]).length} rack(s) | ${totalEquipos} equipo(s) | ${totalConexiones} conexión(es)</p>
+                <p class="text-muted" style="margin:4px 0 0;font-size:0.85rem;">🏭 ${bodNom} | 📍 ${q.ubicacion||'Sin ubicación'} | ${(q.racks||[]).length} rack(s) | ${totalRackEquipos+totalExt} equipo(s) (${totalExt} externos) | ${totalConexiones} conexión(es)</p>
             </div>
             <div class="flex" style="gap:6px;flex-wrap:wrap;">
                 <button class="btn btn-outline btn-sm" onclick="modalEditCuarto('${q.id}')">✏️ Editar</button>
                 <button class="btn btn-success btn-sm" onclick="modalNewRack('${q.id}')">➕ Rack</button>
+                <button class="btn btn-success btn-sm" onclick="modalNewExterno('${q.id}')">📡 Equipo Externo</button>
                 <button class="btn btn-primary btn-sm" onclick="modalVerConexiones('${q.id}')">🔌 Conexiones (${totalConexiones})</button>
                 ${USER.role==='admin' ? `<button class="btn btn-danger btn-sm" onclick="eliminarCuarto('${q.id}')">🗑️</button>` : ''}
             </div>
@@ -1660,7 +1663,52 @@ function renderCuartoCard(q) {
         ${q.descripcion ? `<p class="text-muted" style="font-size:0.85rem;">${q.descripcion}</p>` : ''}
         ${(q.racks||[]).length === 0 ? '<p class="text-muted">Sin racks. Agrega uno con el botón "➕ Rack".</p>' :
             (q.racks||[]).map(r => renderRackCard(q.id, r)).join('')}
+        ${renderExternosSection(q)}
     </div>`;
+}
+
+function renderExternosSection(q) {
+    if(!q.externos || q.externos.length === 0) {
+        return `<div style="margin-top:15px;padding:14px;border:2px dashed #cbd5e1;border-radius:10px;text-align:center;color:#64748b;">
+            <div style="font-size:2rem;">📡</div>
+            <p style="margin:6px 0;">Sin equipos externos. Usa "📡 Equipo Externo" para agregar antenas, splitters, equipos en torres/postes, etc.</p>
+        </div>`;
+    }
+    const colorTipo = {
+        'Antena':'#0ea5e9','Splitter':'#a855f7','NAP':'#10b981','CTO':'#0891b2',
+        'Mufa':'#f59e0b','Poste':'#84cc16','Torre':'#8b5cf6','CPE':'#ec4899','Otro':'#64748b'
+    };
+    return `<details open style="border:1px solid #e2e8f0;border-radius:10px;margin:15px 0 0;background:#f0fdf4;">
+        <summary style="padding:10px 14px;cursor:pointer;font-weight:600;color:#065f46;">
+            📡 Equipos Externos (${q.externos.length}) — Antenas, Splitters, Postes, etc.
+        </summary>
+        <div style="padding:14px;">
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;">
+            ${q.externos.map(eq => {
+                const bg = colorTipo[eq.tipo] || '#64748b';
+                const puertosUsados = (eq.puertos||[]).filter(p=>p.ocupado).length;
+                return `<div style="background:white;border-left:4px solid ${bg};border-radius:8px;padding:10px;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.08);" onclick="modalVerEquipoExterno('${q.id}','${eq.id}')">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+                        <div style="flex:1;min-width:0;">
+                            <strong style="display:block;color:${bg};">${eq.icono||'📡'} ${eq.nombre}</strong>
+                            <small class="text-muted">${eq.tipo||''} ${eq.marca?'· '+eq.marca:''} ${eq.modelo||''}</small>
+                            ${eq.ubicacionFisica ? `<div style="font-size:0.78rem;color:#475569;margin-top:4px;">📍 ${eq.ubicacionFisica}</div>` : ''}
+                            ${eq.ip ? `<div style="font-size:0.78rem;color:#475569;">🌐 ${eq.ip}</div>` : ''}
+                            <div style="font-size:0.75rem;margin-top:4px;">
+                                Puertos: <strong>${puertosUsados}/${(eq.puertos||[]).length}</strong>
+                                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${eq.estado==='activo'?'#10b981':'#ef4444'};margin-left:4px;"></span>
+                            </div>
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:4px;">
+                            <button class="btn btn-outline btn-sm" onclick="event.stopPropagation();modalEditExterno('${q.id}','${eq.id}')">✏️</button>
+                            <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();eliminarExterno('${q.id}','${eq.id}')">🗑️</button>
+                        </div>
+                    </div>
+                </div>`;
+            }).join('')}
+            </div>
+        </div>
+    </details>`;
 }
 
 function renderRackCard(cuartoId, rack) {
@@ -1932,8 +1980,7 @@ function modalNewEquipoRack(qId, rId) {
                 posU: parseInt(id('eqPosU').value)||0,
                 tamanioU: parseInt(id('eqTamU').value)||1,
                 capacidad: id('eqCap').value.trim(),
-                puertosTotal: parseInt(id('eqPuertosTot').value)||0,
-                puertosUsados: parseInt(id('eqPuertosUsados').value)||0,
+                puertos: window._tempPuertos_eq || [],
                 estado: id('eqEstado').value,
                 fechaInstalacion: id('eqFecha').value,
                 observaciones: id('eqObs').value.trim()
@@ -1941,6 +1988,7 @@ function modalNewEquipoRack(qId, rId) {
             logMsg(`Equipo "${nom}" agregado a rack "${r.nombre}"`);
             save(); closeModal(); renderTab('cuartos');
         });
+    setupPuertosUI('eq', []);
 }
 window.modalNewEquipoRack = modalNewEquipoRack;
 
@@ -1963,13 +2011,13 @@ function modalEditEquipoRack(qId, rId, eqId) {
             eq.posU = parseInt(id('eqPosU').value)||0;
             eq.tamanioU = parseInt(id('eqTamU').value)||1;
             eq.capacidad = id('eqCap').value.trim();
-            eq.puertosTotal = parseInt(id('eqPuertosTot').value)||0;
-            eq.puertosUsados = parseInt(id('eqPuertosUsados').value)||0;
+            eq.puertos = window._tempPuertos_eq || eq.puertos || [];
             eq.estado = id('eqEstado').value;
             eq.fechaInstalacion = id('eqFecha').value;
             eq.observaciones = id('eqObs').value.trim();
             save(); closeModal(); renderTab('cuartos');
         });
+    setupPuertosUI('eq', eq.puertos||[]);
 }
 window.modalEditEquipoRack = modalEditEquipoRack;
 
@@ -1978,43 +2026,54 @@ function modalVerEquipo(qId, rId, eqId) {
     const r = q?.racks.find(x=>x.id===rId);
     const eq = r?.equipos.find(x=>x.id===eqId);
     if(!eq) return;
-    // Buscar conexiones que involucran este equipo
     const conexiones = (q.conexiones||[]).filter(c => c.equipoOrigenId===eqId || c.equipoDestinoId===eqId);
     const buscarEqNom = (id) => {
         for(const rk of (q.racks||[])) {
             const e = rk.equipos?.find(x=>x.id===id);
-            if(e) return `${e.nombre} (${rk.nombre})`;
+            if(e) return e.nombre + ' (' + rk.nombre + ')';
         }
+        const ex = q.externos?.find(x=>x.id===id);
+        if(ex) return ex.nombre + ' (externo)';
         return 'Desconocido';
     };
-    openModal(`👁️ ${eq.nombre}`,
-        `<div style="font-size:0.9rem;">
-            <p><strong>Tipo:</strong> ${eq.tipo||'-'}</p>
-            <p><strong>Marca / Modelo:</strong> ${eq.marca||'-'} ${eq.modelo||''}</p>
-            <p><strong>Serial:</strong> <span class="sn-tag">${eq.serial||'-'}</span></p>
-            <p><strong>IP:</strong> ${eq.ip||'-'}</p>
-            <p><strong>Usuario:</strong> ${eq.usuario||'-'}</p>
-            <p><strong>Clave:</strong> ${eq.clave ? '<span style="cursor:pointer;color:#4f46e5;" onclick="this.textContent=this.dataset.clave" data-clave="'+eq.clave.replace(/"/g,'&quot;')+'">••••••• (clic para mostrar)</span>' : '-'}</p>
-            <p><strong>Posición:</strong> U${eq.posU||'-'} ${eq.tamanioU>1?`(${eq.tamanioU}U)`:''} en ${r.nombre}</p>
-            <p><strong>Capacidad:</strong> ${eq.capacidad||'-'}</p>
-            <p><strong>Puertos:</strong> ${eq.puertosUsados||0} usados / ${eq.puertosTotal||0} totales</p>
-            <p><strong>Estado:</strong> ${eq.estado||'-'}</p>
-            <p><strong>Fecha instalación:</strong> ${eq.fechaInstalacion||'-'}</p>
-            <p><strong>Observaciones:</strong> ${eq.observaciones||'-'}</p>
-            <hr style="margin:12px 0;">
-            <h4>🔌 Conexiones (${conexiones.length})</h4>
-            ${conexiones.length === 0 ? '<p class="text-muted">Sin conexiones registradas.</p>' :
-                conexiones.map(cn=>{
-                    const otherId = cn.equipoOrigenId===eqId ? cn.equipoDestinoId : cn.equipoOrigenId;
-                    const direccion = cn.equipoOrigenId===eqId ? '→' : '←';
-                    const puerto = cn.equipoOrigenId===eqId ? cn.puertoOrigen : cn.puertoDestino;
-                    return `<div style="padding:8px;background:#f8fafc;border-radius:6px;margin-bottom:6px;font-size:0.85rem;">
-                        <strong>Puerto ${puerto||'-'}</strong> ${direccion} ${buscarEqNom(otherId)}
-                        ${cn.tipoCable ? `<span class="badge badge-new">${cn.tipoCable}</span>` : ''}
-                        ${cn.descripcion ? `<br><small class="text-muted">${cn.descripcion}</small>` : ''}
-                    </div>`;
-                }).join('')}
-        </div>`, null, 'Cerrar');
+    const puertosUsados = (eq.puertos||[]).filter(p=>p.ocupado).length;
+    const puertosHtml = (eq.puertos||[]).map(p =>
+        '<div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:'+(p.ocupado?'#fee2e2':'#dcfce7')+';border-radius:4px;font-size:0.8rem;">'
+        + '<span style="font-weight:bold;">'+p.nombre+'</span>'
+        + '<small class="text-muted">'+p.tipo+'</small>'
+        + (p.ocupado ? '<span class="badge" style="background:#dc2626;color:white;font-size:0.7rem;">OCUPADO</span>' : '<span class="badge" style="background:#16a34a;color:white;font-size:0.7rem;">LIBRE</span>')
+        + '</div>'
+    ).join('');
+    openModal('👁️ '+eq.nombre,
+        '<div style="font-size:0.9rem;">'
+        + '<p><strong>Tipo:</strong> '+(eq.tipo||'-')+'</p>'
+        + '<p><strong>Marca / Modelo:</strong> '+(eq.marca||'-')+' '+(eq.modelo||'')+'</p>'
+        + '<p><strong>Serial:</strong> <span class="sn-tag">'+(eq.serial||'-')+'</span></p>'
+        + '<p><strong>IP:</strong> '+(eq.ip||'-')+'</p>'
+        + '<p><strong>Usuario:</strong> '+(eq.usuario||'-')+'</p>'
+        + '<p><strong>Clave:</strong> '+(eq.clave ? '<span style="cursor:pointer;color:#4f46e5;" onclick="this.textContent=this.dataset.clave" data-clave="'+eq.clave.replace(/"/g,'&quot;')+'">••••••• (clic para mostrar)</span>' : '-')+'</p>'
+        + '<p><strong>Posición:</strong> U'+(eq.posU||'-')+' '+(eq.tamanioU>1?'('+eq.tamanioU+'U)':'')+' en '+r.nombre+'</p>'
+        + '<p><strong>Capacidad:</strong> '+(eq.capacidad||'-')+'</p>'
+        + '<p><strong>Estado:</strong> '+(eq.estado||'-')+'</p>'
+        + '<p><strong>Fecha instalación:</strong> '+(eq.fechaInstalacion||'-')+'</p>'
+        + '<p><strong>Observaciones:</strong> '+(eq.observaciones||'-')+'</p>'
+        + '<hr style="margin:12px 0;">'
+        + '<h4>🔌 Puertos ('+puertosUsados+'/'+((eq.puertos||[]).length)+')</h4>'
+        + '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px;">'+(puertosHtml||'<p class="text-muted">Sin puertos definidos.</p>')+'</div>'
+        + '<hr style="margin:12px 0;">'
+        + '<h4>🔗 Conexiones ('+conexiones.length+')</h4>'
+        + (conexiones.length === 0 ? '<p class="text-muted">Sin conexiones registradas.</p>' :
+            conexiones.map(cn=>{
+                const otherId = cn.equipoOrigenId===eqId ? cn.equipoDestinoId : cn.equipoOrigenId;
+                const direccion = cn.equipoOrigenId===eqId ? '→' : '←';
+                const puerto = cn.equipoOrigenId===eqId ? cn.puertoOrigenNombre : cn.puertoDestinoNombre;
+                return '<div style="padding:8px;background:#f8fafc;border-radius:6px;margin-bottom:6px;font-size:0.85rem;">'
+                    + '<strong>Puerto '+(puerto||'-')+'</strong> '+direccion+' '+buscarEqNom(otherId)
+                    + (cn.tipoCable ? ' <span class="badge badge-new">'+cn.tipoCable+'</span>' : '')
+                    + (cn.descripcion ? '<br><small class="text-muted">'+cn.descripcion+'</small>' : '')
+                    + '</div>';
+            }).join(''))
+        + '</div>', null, 'Cerrar');
 }
 window.modalVerEquipo = modalVerEquipo;
 
@@ -2067,14 +2126,9 @@ function formEquipoRackHTML(eq) {
             <input id="eqCap" class="form-control" value="${eq.capacidad||''}" placeholder="Ej: 2GB RAM, 1TB HDD">
         </div>
     </div>
-    <div class="form-row">
-        <div class="form-group"><label>Puertos totales</label>
-            <input id="eqPuertosTot" type="number" class="form-control" value="${eq.puertosTotal||0}" min="0">
-        </div>
-        <div class="form-group"><label>Puertos usados</label>
-            <input id="eqPuertosUsados" type="number" class="form-control" value="${eq.puertosUsados||0}" min="0">
-        </div>
-    </div>
+    <hr style="margin:12px 0;">
+    <h4 style="margin-bottom:8px;">🔌 Puertos</h4>
+    ${renderPuertosForm('eq')}
     <hr style="margin:12px 0;">
     <div class="form-row">
         <div class="form-group"><label>Estado</label>
@@ -2114,26 +2168,34 @@ function modalVerConexiones(qId) {
     const q = DB.cuartos.find(x=>x.id===qId);
     if(!q) return;
     const conexiones = q.conexiones || [];
-    // Lista de todos los equipos del cuarto
+    // Lista de todos los equipos del cuarto (racks + externos)
     const todosEquipos = [];
     (q.racks||[]).forEach(r => {
-        (r.equipos||[]).forEach(e => todosEquipos.push({...e, rackNombre:r.nombre, rackId:r.id}));
+        (r.equipos||[]).forEach(e => todosEquipos.push({...e, rackNombre:r.nombre, rackId:r.id, esExterno:false}));
+    });
+    (q.externos||[]).forEach(e => {
+        todosEquipos.push({...e, rackNombre:'Externos', rackId:'__externos__', esExterno:true});
     });
     const buscarEq = (eqId) => todosEquipos.find(e=>e.id===eqId);
 
     // ── Generar diagrama SVG ──
     const colorTipo = {
         'OLT':'#7c3aed','Switch':'#0891b2','Router':'#059669','Servidor':'#dc2626',
-        'UPS':'#f59e0b','Firewall':'#be185d','ODF':'#8b5cf6','PatchPanel':'#0284c7','Otro':'#64748b'
+        'UPS':'#f59e0b','Firewall':'#be185d','ODF':'#8b5cf6','PatchPanel':'#0284c7','Otro':'#64748b',
+        'Antena':'#0ea5e9','Splitter':'#a855f7','NAP':'#10b981','CTO':'#0891b2',
+        'Mufa':'#f59e0b','Poste':'#84cc16','Torre':'#8b5cf6','CPE':'#ec4899'
     };
     const colorCable = {
         'Fibra':'#10b981','UTP Cat6':'#3b82f6','UTP Cat5e':'#60a5fa',
-        'Patch SC/APC':'#f59e0b','Patch LC':'#fbbf24','Poder':'#ef4444','Otro':'#94a3b8'
+        'Patch SC/APC':'#f59e0b','Patch LC':'#fbbf24','Coaxial':'#dc2626','Poder':'#ef4444','Otro':'#94a3b8'
     };
 
     // Agrupar equipos por rack para layout
     const equiposPorRack = {};
-    (q.racks||[]).forEach(r=>{ equiposPorRack[r.id] = {nombre:r.nombre, equipos:[]}; });
+    (q.racks||[]).forEach(r=>{ equiposPorRack[r.id] = {nombre:r.nombre, equipos:[], esExterno:false}; });
+    if((q.externos||[]).length>0) {
+        equiposPorRack['__externos__'] = {nombre:'📡 Equipos Externos', equipos:[], esExterno:true};
+    }
     todosEquipos.forEach(e=>{ if(equiposPorRack[e.rackId]) equiposPorRack[e.rackId].equipos.push(e); });
 
     // Calcular posiciones
@@ -2155,10 +2217,11 @@ function modalVerConexiones(qId) {
 
     // Construir SVG
     let svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+svgW+' '+svgH+'" style="width:100%;max-width:100%;background:#0f172a;border-radius:8px;">';
-    // Título de cada rack
+    // Título de cada rack/grupo
     racks.forEach((r, ri) => {
         const x = 40 + ri * (rackWidth + rackGap) + rackWidth/2;
-        svg += '<text x="'+x+'" y="30" fill="#cbd5e1" font-size="14" font-weight="bold" text-anchor="middle">🗄️ '+r.nombre+'</text>';
+        const icon = r.esExterno ? '' : '🗄️ ';
+        svg += '<text x="'+x+'" y="30" fill="#cbd5e1" font-size="14" font-weight="bold" text-anchor="middle">'+icon+r.nombre+'</text>';
     });
     // Conexiones (líneas) — dibujar primero para que queden detrás
     conexiones.forEach(cn => {
@@ -2173,16 +2236,24 @@ function modalVerConexiones(qId) {
         const path = 'M '+x1+' '+y1+' C '+midX+' '+y1+', '+midX+' '+y2+', '+x2+' '+y2;
         svg += '<path d="'+path+'" stroke="'+color+'" stroke-width="2" fill="none" opacity="0.7"/>';
         // Etiqueta puerto origen y destino
-        if(cn.puertoOrigen) svg += '<text x="'+(x1+5)+'" y="'+(y1-3)+'" fill="#fbbf24" font-size="9">'+cn.puertoOrigen+'</text>';
-        if(cn.puertoDestino) svg += '<text x="'+(x2-5)+'" y="'+(y2-3)+'" fill="#fbbf24" font-size="9" text-anchor="end">'+cn.puertoDestino+'</text>';
+        const pOriLabel = cn.puertoOrigenNombre || cn.puertoOrigen;
+        const pDesLabel = cn.puertoDestinoNombre || cn.puertoDestino;
+        if(pOriLabel) svg += '<text x="'+(x1+5)+'" y="'+(y1-3)+'" fill="#fbbf24" font-size="9">'+pOriLabel+'</text>';
+        if(pDesLabel) svg += '<text x="'+(x2-5)+'" y="'+(y2-3)+'" fill="#fbbf24" font-size="9" text-anchor="end">'+pDesLabel+'</text>';
     });
     // Equipos (rectángulos)
     Object.values(eqPositions).forEach(({x, y, w, h, eq}) => {
         const c = colorTipo[eq.tipo] || '#64748b';
         const escapedName = (eq.nombre||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        svg += '<g style="cursor:pointer;" onclick="modalVerEquipo(\''+qId+'\',\''+eq.rackId+'\',\''+eq.id+'\')">';
-        svg += '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="5" fill="'+c+'" stroke="#1e293b" stroke-width="2"/>';
-        svg += '<text x="'+(x+8)+'" y="'+(y+15)+'" fill="white" font-size="11" font-weight="bold">'+escapedName.substring(0,22)+'</text>';
+        const clickFn = eq.esExterno
+            ? 'modalVerEquipoExterno(\''+qId+'\',\''+eq.id+'\')'
+            : 'modalVerEquipo(\''+qId+'\',\''+eq.rackId+'\',\''+eq.id+'\')';
+        const icono = eq.esExterno ? '📡 ' : '';
+        // Forma diferente para externos: bordes redondeados con dash
+        const strokeStyle = eq.esExterno ? 'stroke-dasharray="4,2"' : '';
+        svg += '<g style="cursor:pointer;" onclick="'+clickFn+'">';
+        svg += '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" rx="5" fill="'+c+'" stroke="#1e293b" stroke-width="2" '+strokeStyle+'/>';
+        svg += '<text x="'+(x+8)+'" y="'+(y+15)+'" fill="white" font-size="11" font-weight="bold">'+icono+escapedName.substring(0,22)+'</text>';
         svg += '<text x="'+(x+8)+'" y="'+(y+28)+'" fill="white" font-size="9" opacity="0.85">'+(eq.tipo||'')+(eq.ip?' · '+eq.ip:'')+'</text>';
         svg += '</g>';
     });
@@ -2212,10 +2283,10 @@ function modalVerConexiones(qId) {
                 const colorBar = colorCable[cn.tipoCable] || '#94a3b8';
                 return '<tr>'
                     + '<td><strong>'+(o?.nombre||'?')+'</strong><br><small class="text-muted">'+(o?.rackNombre||'')+'</small></td>'
-                    + '<td><span class="sn-tag">'+(cn.puertoOrigen||'-')+'</span></td>'
+                    + '<td><span class="sn-tag">'+(cn.puertoOrigenNombre||cn.puertoOrigen||'-')+'</span></td>'
                     + '<td>→</td>'
                     + '<td><strong>'+(d?.nombre||'?')+'</strong><br><small class="text-muted">'+(d?.rackNombre||'')+'</small></td>'
-                    + '<td><span class="sn-tag">'+(cn.puertoDestino||'-')+'</span></td>'
+                    + '<td><span class="sn-tag">'+(cn.puertoDestinoNombre||cn.puertoDestino||'-')+'</span></td>'
                     + '<td><span style="display:inline-block;width:14px;height:3px;background:'+colorBar+';vertical-align:middle;margin-right:4px;"></span>'+(cn.tipoCable||'-')+(cn.descripcion?'<br><small class="text-muted">'+cn.descripcion+'</small>':'')+'</td>'
                     + '<td><button class="btn btn-outline btn-sm" onclick="modalEditConexion(\''+qId+'\',\''+cn.id+'\')">✏️</button> <button class="btn btn-danger btn-sm" onclick="eliminarConexion(\''+qId+'\',\''+cn.id+'\')">🗑️</button></td>'
                     + '</tr>';
@@ -2227,27 +2298,32 @@ window.modalVerConexiones = modalVerConexiones;
 function modalAddConexion(qId) {
     const q = DB.cuartos.find(x=>x.id===qId);
     if(!q) return;
+    // Incluir equipos de racks + equipos externos
     const todosEquipos = [];
     (q.racks||[]).forEach(r => {
-        (r.equipos||[]).forEach(e => todosEquipos.push({...e, rackNombre:r.nombre}));
+        (r.equipos||[]).forEach(e => todosEquipos.push({...e, rackNombre:r.nombre, ubicacion:'Rack: '+r.nombre, esExterno:false}));
+    });
+    (q.externos||[]).forEach(e => {
+        todosEquipos.push({...e, rackNombre:'Externo', ubicacion:'📡 Externo: '+(e.ubicacionFisica||e.tipo||''), esExterno:true});
     });
     if(todosEquipos.length < 2) return alert('Necesitas al menos 2 equipos en el cuarto para crear una conexión.');
-    const opts = todosEquipos.map(e=>`<option value="${e.id}">${e.nombre} (${e.rackNombre})</option>`).join('');
+    const opts = todosEquipos.map(e=>`<option value="${e.id}">${e.esExterno?'📡 ':''}${e.nombre} (${e.ubicacion})</option>`).join('');
     openModal('➕ Nueva Conexión',
         `<div class="form-row">
             <div class="form-group"><label>Equipo Origen *</label>
-                <select id="cnOri" class="form-control"><option value="">--</option>${opts}</select>
+                <select id="cnOri" class="form-control" onchange="loadPuertosCnx('cnOri','cnPOri','${qId}')"><option value="">--</option>${opts}</select>
             </div>
-            <div class="form-group"><label>Puerto Origen</label>
-                <input id="cnPOri" class="form-control" placeholder="Ej: PON-1, GE-0/0/1">
+            <div class="form-group"><label>Puerto Origen *</label>
+                <select id="cnPOri" class="form-control"><option value="">-- Seleccione equipo primero --</option></select>
+                <small class="text-muted">Solo aparecen puertos libres</small>
             </div>
         </div>
         <div class="form-row">
             <div class="form-group"><label>Equipo Destino *</label>
-                <select id="cnDes" class="form-control"><option value="">--</option>${opts}</select>
+                <select id="cnDes" class="form-control" onchange="loadPuertosCnx('cnDes','cnPDes','${qId}')"><option value="">--</option>${opts}</select>
             </div>
-            <div class="form-group"><label>Puerto Destino</label>
-                <input id="cnPDes" class="form-control" placeholder="Ej: ETH-1, Port 24">
+            <div class="form-group"><label>Puerto Destino *</label>
+                <select id="cnPDes" class="form-control"><option value="">-- Seleccione equipo primero --</option></select>
             </div>
         </div>
         <div class="form-row">
@@ -2258,6 +2334,7 @@ function modalAddConexion(qId) {
                     <option value="UTP Cat5e">🔌 UTP Cat5e</option>
                     <option value="Patch SC/APC">🔗 Patch SC/APC</option>
                     <option value="Patch LC">🔗 Patch LC</option>
+                    <option value="Coaxial">📡 Coaxial</option>
                     <option value="Poder">⚡ Poder</option>
                     <option value="Otro">Otro</option>
                 </select>
@@ -2272,15 +2349,29 @@ function modalAddConexion(qId) {
         ()=>{
             const ori = id('cnOri').value;
             const des = id('cnDes').value;
+            const pOri = id('cnPOri').value;
+            const pDes = id('cnPDes').value;
             if(!ori || !des) return alert('Seleccione equipos origen y destino');
             if(ori === des) return alert('Origen y destino no pueden ser el mismo');
+            if(!pOri || !pDes) return alert('Seleccione puertos en ambos extremos');
+
+            // Marcar puertos como ocupados
+            const eqOri = findEquipoInCuarto(q, ori);
+            const eqDes = findEquipoInCuarto(q, des);
+            const puertoOri = eqOri?.puertos?.find(p=>p.id===pOri);
+            const puertoDes = eqDes?.puertos?.find(p=>p.id===pDes);
+            if(puertoOri) puertoOri.ocupado = true;
+            if(puertoDes) puertoDes.ocupado = true;
+
             if(!q.conexiones) q.conexiones = [];
             q.conexiones.push({
                 id: Date.now().toString(),
                 equipoOrigenId: ori,
                 equipoDestinoId: des,
-                puertoOrigen: id('cnPOri').value.trim(),
-                puertoDestino: id('cnPDes').value.trim(),
+                puertoOrigenId: pOri,
+                puertoDestinoId: pDes,
+                puertoOrigenNombre: puertoOri?.nombre || '',
+                puertoDestinoNombre: puertoDes?.nombre || '',
                 tipoCable: id('cnTipo').value,
                 color: id('cnColor').value.trim(),
                 descripcion: id('cnDesc').value.trim(),
@@ -2344,13 +2435,335 @@ function modalEditConexion(qId, cnId) {
 }
 window.modalEditConexion = modalEditConexion;
 
-function eliminarConexion(qId, cnId) {
-    if(!confirm('¿Eliminar esta conexión?')) return;
+function findEquipoInCuarto(q, eqId) {
+    for(const r of (q.racks||[])) {
+        const e = r.equipos?.find(x=>x.id===eqId);
+        if(e) return e;
+    }
+    return q.externos?.find(x=>x.id===eqId);
+}
+window.findEquipoInCuarto = findEquipoInCuarto;
+
+function loadPuertosCnx(equipoSelId, puertoSelId, qId) {
     const q = DB.cuartos.find(x=>x.id===qId);
+    if(!q) return;
+    const eqId = id(equipoSelId)?.value;
+    const sel = id(puertoSelId);
+    if(!sel) return;
+    if(!eqId) { sel.innerHTML = '<option value="">-- Seleccione equipo primero --</option>'; return; }
+    const eq = findEquipoInCuarto(q, eqId);
+    if(!eq || !eq.puertos || eq.puertos.length === 0) {
+        sel.innerHTML = '<option value="">-- Sin puertos definidos --</option>';
+        return;
+    }
+    const libres = eq.puertos.filter(p=>!p.ocupado);
+    if(libres.length === 0) {
+        sel.innerHTML = '<option value="">⚠️ Todos los puertos están ocupados</option>';
+        return;
+    }
+    sel.innerHTML = '<option value="">-- Seleccione puerto --</option>' +
+        libres.map(p=>`<option value="${p.id}">${p.nombre} (${p.tipo})</option>`).join('');
+}
+window.loadPuertosCnx = loadPuertosCnx;
+
+function eliminarConexion(qId, cnId) {
+    if(!confirm('¿Eliminar esta conexión? Los puertos quedarán libres.')) return;
+    const q = DB.cuartos.find(x=>x.id===qId);
+    const cn = (q.conexiones||[]).find(x=>x.id===cnId);
+    if(cn) {
+        // Liberar puertos
+        const eqOri = findEquipoInCuarto(q, cn.equipoOrigenId);
+        const eqDes = findEquipoInCuarto(q, cn.equipoDestinoId);
+        const pOri = eqOri?.puertos?.find(p=>p.id===cn.puertoOrigenId);
+        const pDes = eqDes?.puertos?.find(p=>p.id===cn.puertoDestinoId);
+        if(pOri) pOri.ocupado = false;
+        if(pDes) pDes.ocupado = false;
+    }
     q.conexiones = (q.conexiones||[]).filter(x=>x.id!==cnId);
     save(); modalVerConexiones(qId);
 }
 window.eliminarConexion = eliminarConexion;
+
+// ── PUERTOS: tipos disponibles y helpers ──────────────────────────────────────
+const TIPOS_PUERTO_BASE = [
+    'ETH (RJ45)','GPON','Fibra SC','Fibra LC','SFP','SFP+','USB','Consola','Poder',
+    'Coaxial','Antena','Radio','Otro'
+];
+
+function getTiposPuerto() {
+    const custom = (DB.tiposPuertoCustom||[]);
+    return [...TIPOS_PUERTO_BASE, ...custom];
+}
+
+// Genera puertos automáticos por tipo+cantidad
+function generarPuertos(tipo, cantidad, prefijo='') {
+    const arr = [];
+    for(let i=1; i<=cantidad; i++) {
+        arr.push({
+            id: Date.now().toString()+'_'+i+'_'+Math.random().toString(36).substr(2,4),
+            nombre: (prefijo || (tipo.split(' ')[0]||'P')) + i,
+            tipo: tipo,
+            ocupado: false,
+            observaciones: ''
+        });
+    }
+    return arr;
+}
+window.generarPuertos = generarPuertos;
+
+// ── MODAL: EQUIPO EXTERNO ─────────────────────────────────────────────────────
+function modalNewExterno(qId) {
+    openModal('📡 Nuevo Equipo Externo',
+        formEquipoExternoHTML({}),
+        ()=>{
+            const q = DB.cuartos.find(x=>x.id===qId);
+            const nom = id('exNom').value.trim();
+            if(!nom) return alert('El nombre es obligatorio');
+            if(!q.externos) q.externos = [];
+            q.externos.push(buildEquipoExternoFromForm());
+            logMsg(`Equipo externo "${nom}" agregado a ${q.nombre}`);
+            save(); closeModal(); renderTab('cuartos');
+        });
+    setupPuertosUI('ex', []);
+}
+window.modalNewExterno = modalNewExterno;
+
+function modalEditExterno(qId, eqId) {
+    const q = DB.cuartos.find(x=>x.id===qId);
+    const eq = q?.externos?.find(x=>x.id===eqId);
+    if(!eq) return;
+    openModal('✏️ Editar Equipo Externo',
+        formEquipoExternoHTML(eq),
+        ()=>{
+            const updated = buildEquipoExternoFromForm();
+            updated.id = eq.id;
+            updated.puertos = eq.puertos; // preservar puertos
+            Object.assign(eq, updated);
+            save(); closeModal(); renderTab('cuartos');
+        });
+    setupPuertosUI('ex', eq.puertos||[]);
+}
+window.modalEditExterno = modalEditExterno;
+
+function modalVerEquipoExterno(qId, eqId) {
+    const q = DB.cuartos.find(x=>x.id===qId);
+    const eq = q?.externos?.find(x=>x.id===eqId);
+    if(!eq) return;
+    const conexiones = (q.conexiones||[]).filter(c => c.equipoOrigenId===eqId || c.equipoDestinoId===eqId);
+    const buscarEqNom = (id) => {
+        for(const rk of (q.racks||[])) {
+            const e = rk.equipos?.find(x=>x.id===id);
+            if(e) return e.nombre + ' (' + rk.nombre + ')';
+        }
+        const ex = q.externos?.find(x=>x.id===id);
+        if(ex) return ex.nombre + ' (externo)';
+        return 'Desconocido';
+    };
+    const puertosHtml = (eq.puertos||[]).map(p =>
+        '<div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:'+(p.ocupado?'#fee2e2':'#dcfce7')+';border-radius:4px;font-size:0.8rem;">'
+        + '<span style="font-weight:bold;">'+p.nombre+'</span>'
+        + '<small class="text-muted">'+p.tipo+'</small>'
+        + (p.ocupado ? '<span class="badge" style="background:#dc2626;color:white;font-size:0.7rem;">OCUPADO</span>' : '<span class="badge" style="background:#16a34a;color:white;font-size:0.7rem;">LIBRE</span>')
+        + '</div>'
+    ).join('');
+    openModal('📡 '+eq.nombre,
+        '<div style="font-size:0.9rem;">'
+        + '<p><strong>Tipo:</strong> '+(eq.tipo||'-')+'</p>'
+        + '<p><strong>Marca / Modelo:</strong> '+(eq.marca||'-')+' '+(eq.modelo||'')+'</p>'
+        + '<p><strong>Serial:</strong> <span class="sn-tag">'+(eq.serial||'-')+'</span></p>'
+        + '<p><strong>IP:</strong> '+(eq.ip||'-')+'</p>'
+        + '<p><strong>Ubicación física:</strong> '+(eq.ubicacionFisica||'-')+'</p>'
+        + '<p><strong>Coordenadas:</strong> '+(eq.coordenadas||'-')+'</p>'
+        + '<p><strong>Altura:</strong> '+(eq.altura||'-')+'</p>'
+        + '<p><strong>Estado:</strong> '+(eq.estado||'-')+'</p>'
+        + '<p><strong>Observaciones:</strong> '+(eq.observaciones||'-')+'</p>'
+        + '<hr style="margin:12px 0;">'
+        + '<h4>🔌 Puertos ('+(eq.puertos||[]).length+')</h4>'
+        + '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px;">'+puertosHtml+'</div>'
+        + '<hr style="margin:12px 0;">'
+        + '<h4>🔗 Conexiones ('+conexiones.length+')</h4>'
+        + (conexiones.length === 0 ? '<p class="text-muted">Sin conexiones registradas.</p>' :
+            conexiones.map(cn => {
+                const otherId = cn.equipoOrigenId===eqId ? cn.equipoDestinoId : cn.equipoOrigenId;
+                const dir = cn.equipoOrigenId===eqId ? '→' : '←';
+                const puerto = cn.equipoOrigenId===eqId ? cn.puertoOrigenNombre : cn.puertoDestinoNombre;
+                return '<div style="padding:8px;background:#f8fafc;border-radius:6px;margin-bottom:6px;font-size:0.85rem;">'
+                    + '<strong>Puerto '+(puerto||'-')+'</strong> '+dir+' '+buscarEqNom(otherId)
+                    + (cn.tipoCable ? ' <span class="badge badge-new">'+cn.tipoCable+'</span>' : '')
+                    + (cn.descripcion ? '<br><small class="text-muted">'+cn.descripcion+'</small>' : '')
+                    + '</div>';
+            }).join(''))
+        + '</div>', null, 'Cerrar');
+}
+window.modalVerEquipoExterno = modalVerEquipoExterno;
+
+function eliminarExterno(qId, eqId) {
+    const q = DB.cuartos.find(x=>x.id===qId);
+    const eq = q?.externos?.find(x=>x.id===eqId);
+    if(!eq) return;
+    if(!confirm('¿Eliminar equipo externo "'+eq.nombre+'"? También se eliminarán sus conexiones.')) return;
+    q.externos = q.externos.filter(x=>x.id!==eqId);
+    if(q.conexiones) {
+        q.conexiones = q.conexiones.filter(c => c.equipoOrigenId!==eqId && c.equipoDestinoId!==eqId);
+    }
+    logMsg(`Equipo externo "${eq.nombre}" eliminado`);
+    save(); renderTab('cuartos');
+}
+window.eliminarExterno = eliminarExterno;
+
+function formEquipoExternoHTML(eq) {
+    return `<div class="form-row">
+        <div class="form-group"><label>Nombre *</label>
+            <input id="exNom" class="form-control" value="${eq.nombre||''}" placeholder="Ej: Antena Sector A, Splitter Poste 12">
+        </div>
+        <div class="form-group"><label>Tipo</label>
+            <select id="exTipo" class="form-control">
+                ${['Antena','Splitter','NAP','CTO','Mufa','Poste','Torre','CPE','Otro'].map(t=>`<option value="${t}" ${eq.tipo===t?'selected':''}>${t}</option>`).join('')}
+            </select>
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Marca</label><input id="exMarca" class="form-control" value="${eq.marca||''}"></div>
+        <div class="form-group"><label>Modelo</label><input id="exModelo" class="form-control" value="${eq.modelo||''}"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Serial</label><input id="exSerial" class="form-control" value="${eq.serial||''}"></div>
+        <div class="form-group"><label>IP / Gestión</label><input id="exIP" class="form-control" value="${eq.ip||''}"></div>
+    </div>
+    <hr style="margin:12px 0;">
+    <h4 style="margin-bottom:8px;">📍 Ubicación Física</h4>
+    <div class="form-row">
+        <div class="form-group"><label>Ubicación / Lugar</label>
+            <input id="exUbic" class="form-control" value="${eq.ubicacionFisica||''}" placeholder="Ej: Torre principal, Poste #12, Techo edificio A">
+        </div>
+        <div class="form-group"><label>Coordenadas GPS</label>
+            <input id="exCoord" class="form-control" value="${eq.coordenadas||''}" placeholder="Ej: 1.6135,-75.6133">
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Altura</label>
+            <input id="exAltura" class="form-control" value="${eq.altura||''}" placeholder="Ej: 30m, planta baja, techo">
+        </div>
+        <div class="form-group"><label>Estado</label>
+            <select id="exEstado" class="form-control">
+                ${['activo','standby','averiado','mantenimiento'].map(s=>`<option value="${s}" ${eq.estado===s?'selected':''}>${s}</option>`).join('')}
+            </select>
+        </div>
+    </div>
+    <hr style="margin:12px 0;">
+    <h4 style="margin-bottom:8px;">🔌 Puertos</h4>
+    ${renderPuertosForm('ex')}
+    <div class="form-group"><label>Observaciones</label>
+        <textarea id="exObs" class="form-control" rows="2">${eq.observaciones||''}</textarea>
+    </div>`;
+}
+
+function buildEquipoExternoFromForm() {
+    return {
+        id: Date.now().toString()+Math.random().toString(36).substr(2,4),
+        nombre: id('exNom').value.trim(),
+        tipo: id('exTipo').value,
+        marca: id('exMarca').value.trim(),
+        modelo: id('exModelo').value.trim(),
+        serial: id('exSerial').value.trim(),
+        ip: id('exIP').value.trim(),
+        ubicacionFisica: id('exUbic').value.trim(),
+        coordenadas: id('exCoord').value.trim(),
+        altura: id('exAltura').value.trim(),
+        estado: id('exEstado').value,
+        observaciones: id('exObs').value.trim(),
+        puertos: window._tempPuertos_ex || []
+    };
+}
+
+// ── UI DE PUERTOS reutilizable ────────────────────────────────────────────────
+function renderPuertosForm(prefix) {
+    return `<div id="${prefix}PuertosContainer" style="background:#f8fafc;padding:10px;border-radius:8px;margin-bottom:10px;">
+        <p class="text-muted" style="font-size:0.8rem;margin:0 0 8px;">Agrega puertos manualmente o autogenera por tipo:</p>
+        <div class="form-row">
+            <div class="form-group"><label style="font-size:0.78rem;">Tipo</label>
+                <select id="${prefix}PuertoTipo" class="form-control"></select>
+            </div>
+            <div class="form-group"><label style="font-size:0.78rem;">Cantidad</label>
+                <input id="${prefix}PuertoCant" type="number" min="1" value="1" class="form-control">
+            </div>
+            <div class="form-group"><label style="font-size:0.78rem;">Prefijo nombre</label>
+                <input id="${prefix}PuertoPref" class="form-control" placeholder="Ej: ETH, PON">
+            </div>
+            <div class="form-group" style="align-self:flex-end;">
+                <button class="btn btn-success btn-sm" onclick="autogenerarPuertos('${prefix}')">➕ Generar</button>
+            </div>
+        </div>
+        <div id="${prefix}PuertosList" style="margin-top:8px;max-height:200px;overflow-y:auto;"></div>
+    </div>`;
+}
+
+function setupPuertosUI(prefix, puertosExistentes) {
+    window['_tempPuertos_'+prefix] = puertosExistentes ? puertosExistentes.map(p=>({...p})) : [];
+    const sel = id(prefix+'PuertoTipo');
+    if(sel) sel.innerHTML = getTiposPuerto().map(t=>`<option value="${t}">${t}</option>`).join('');
+    renderPuertosList(prefix);
+}
+window.setupPuertosUI = setupPuertosUI;
+
+function renderPuertosList(prefix) {
+    const list = id(prefix+'PuertosList');
+    if(!list) return;
+    const puertos = window['_tempPuertos_'+prefix] || [];
+    if(puertos.length === 0) {
+        list.innerHTML = '<p class="text-muted text-center" style="padding:8px;font-size:0.85rem;">Sin puertos. Usa "Generar" o agrega manualmente.</p>';
+        return;
+    }
+    list.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:6px;">'
+        + puertos.map((p,i)=>`<div style="background:white;border:1px solid #cbd5e1;border-radius:6px;padding:6px 8px;display:flex;align-items:center;gap:6px;font-size:0.8rem;">
+            <span style="font-weight:bold;">${p.nombre}</span>
+            <small class="text-muted">${p.tipo}</small>
+            ${p.ocupado ? '<span class="badge" style="background:#dc2626;color:white;font-size:0.65rem;">●</span>' : ''}
+            <button class="btn btn-danger btn-sm" style="padding:1px 6px;font-size:0.7rem;" onclick="eliminarPuerto('${prefix}',${i})">✕</button>
+        </div>`).join('')
+        + '<button class="btn btn-outline btn-sm" onclick="agregarPuertoManual(\''+prefix+'\')">➕ Manual</button>'
+        + '</div>';
+}
+window.renderPuertosList = renderPuertosList;
+
+function autogenerarPuertos(prefix) {
+    const tipo = id(prefix+'PuertoTipo').value;
+    const cant = parseInt(id(prefix+'PuertoCant').value) || 1;
+    const pref = id(prefix+'PuertoPref').value.trim();
+    const nuevos = generarPuertos(tipo, cant, pref);
+    window['_tempPuertos_'+prefix] = (window['_tempPuertos_'+prefix] || []).concat(nuevos);
+    renderPuertosList(prefix);
+}
+window.autogenerarPuertos = autogenerarPuertos;
+
+function agregarPuertoManual(prefix) {
+    const tipos = getTiposPuerto();
+    const tipoOpts = tipos.map(t=>`<option value="${t}">${t}</option>`).join('');
+    openModal('➕ Puerto Manual',
+        `<div class="form-row">
+            <div class="form-group"><label>Nombre *</label><input id="pmNom" class="form-control" placeholder="Ej: PON-1, GE-0/0/1"></div>
+            <div class="form-group"><label>Tipo</label><select id="pmTipo" class="form-control">${tipoOpts}</select></div>
+        </div>
+        <div class="form-group"><label>Observaciones</label><input id="pmObs" class="form-control"></div>`,
+        ()=>{
+            const nom = id('pmNom').value.trim();
+            if(!nom) return alert('Nombre obligatorio');
+            window['_tempPuertos_'+prefix].push({
+                id: Date.now().toString()+Math.random().toString(36).substr(2,4),
+                nombre: nom, tipo: id('pmTipo').value, ocupado: false, observaciones: id('pmObs').value.trim()
+            });
+            closeModal();
+            // Re-renderizar lista (sin perder el modal padre)
+            setTimeout(()=>renderPuertosList(prefix), 50);
+        });
+}
+window.agregarPuertoManual = agregarPuertoManual;
+
+function eliminarPuerto(prefix, idx) {
+    window['_tempPuertos_'+prefix].splice(idx, 1);
+    renderPuertosList(prefix);
+}
+window.eliminarPuerto = eliminarPuerto;
 
 function renderEquiposDanados(c) {
     if(!DB.equiposDanados) DB.equiposDanados = [];
