@@ -751,6 +751,19 @@ function renderClientes(c) {
                             </div>`).join('')}
                         </div>
                     </details>` : ''}
+                    ${cl.historialEquipos?.length ? `
+                    <details style="margin-top:10px;border:1px solid #e2e8f0;border-radius:8px;">
+                        <summary style="padding:8px 12px;cursor:pointer;font-size:0.85rem;font-weight:bold;">📝 Historial de Equipos Agregados (${cl.historialEquipos.length})</summary>
+                        <div style="padding:10px;">
+                        ${[...cl.historialEquipos].reverse().map(h=>`
+                            <div style="border-left:3px solid #16a085;padding:6px 10px;margin-bottom:6px;font-size:0.82rem;background:#f0fdfa;border-radius:4px;">
+                                <strong>${h.fecha} ${h.hora||''}</strong> — <strong>${h.equipoNombre}</strong> x${h.cantidad}
+                                ${h.snes?.length?`<br><span style="color:#0891b2;">SN: ${h.snes.join(', ')}</span>`:''}
+                                <br><span class="text-muted">Desde ${h.origenTipo==='bodega'?'🏭':'👷'} ${h.origenNombre} · 👤 ${h.usuario||'-'}</span>
+                                <br><span style="color:#0f766e;">📝 ${h.nota}</span>
+                            </div>`).join('')}
+                        </div>
+                    </details>` : ''}
                     <div style="margin-top:10px; display:flex; gap:5px; flex-wrap:wrap;">
                         <button class="btn btn-outline btn-sm" onclick="modalEditCliente('${cl.id}')">✏️ Editar Cliente</button>
                         <button class="btn btn-success btn-sm" onclick="modalAgregarEquipoCliente('${cl.id}')">➕ Agregar Equipo</button>
@@ -862,13 +875,20 @@ function modalAgregarEquipoCliente(cliId) {
                 <input id="aeCant" type="number" value="1" min="1" class="form-control">
             </div>
         </div>
-        <div id="aeSnArea"></div>`,
+        <div id="aeSnArea"></div>
+        <div class="form-group">
+            <label>📝 Motivo / Nota *</label>
+            <textarea id="aeNota" class="form-control" rows="2" placeholder="Ej: Cliente solicitó equipo adicional para segundo punto / Reposición por daño / Ampliación del servicio..."></textarea>
+            <small class="text-muted">Indica por qué se le agrega este equipo al cliente.</small>
+        </div>`,
         () => {
             const origenTipo = id('aeOrigen').value;
             const fuenteId   = id('aeFuente').value;
             const matIdx     = parseInt(id('aeMat').value);
             const cant       = parseInt(id('aeCant').value)||1;
+            const nota       = id('aeNota').value.trim();
             if(isNaN(matIdx)) return alert('Seleccione un material');
+            if(!nota) return alert('Indica el motivo / nota para agregar el equipo');
 
             const fuente = origenTipo==='bodega'
                 ? DB.bodegas.find(x=>x.id===fuenteId)
@@ -884,14 +904,52 @@ function modalAgregarEquipoCliente(cliId) {
             mat.cantidad -= cant;
             snsChecked.forEach(sn => { mat.snes = mat.snes.filter(s=>s!==sn); });
 
-            // Agregar al cliente
-            const ex = cl.equipos.find(e=>e.nombre===mat.nombre&&e.tipo===mat.tipo);
-            if(ex) { ex.cantidad+=cant; ex.snes.push(...snsChecked); }
-            else cl.equipos.push({nombre:mat.nombre,cantidad:cant,unidad:mat.unidad,tipo:mat.tipo,snes:snsChecked,estado:'Activo'});
+            // Crear registro histórico
+            const fechaAhora = new Date();
+            const eventoHistorial = {
+                fecha: fechaAhora.toISOString().split('T')[0],
+                hora:  fechaAhora.toLocaleTimeString('es-CO', {hour:'2-digit',minute:'2-digit'}),
+                tipo:  'agregar_equipo',
+                origenTipo, // 'bodega' o 'cuadrilla'
+                origenNombre: fuente.nombre,
+                equipoNombre: mat.nombre,
+                cantidad: cant,
+                snes: [...snsChecked],
+                nota,
+                usuario: USER.role==='admin' ? 'Admin' : (USER.nombre||'Bodega')
+            };
+            if(!cl.historialEquipos) cl.historialEquipos = [];
+            cl.historialEquipos.push(eventoHistorial);
 
-            logMsg(`Equipo "${mat.nombre}" x${cant} agregado a "${cl.nombre}"`);
-            save(); closeModal();
-            renderClientes(document.getElementById('main-content'));
+            // Agregar al cliente (con motivo de origen guardado en el equipo también)
+            const ex = cl.equipos.find(e=>e.nombre===mat.nombre&&e.tipo===mat.tipo);
+            if(ex) {
+                ex.cantidad += cant;
+                ex.snes.push(...snsChecked);
+                // Acumular notas si ya existían
+                ex.notaOrigen = (ex.notaOrigen ? ex.notaOrigen + ' | ' : '')
+                              + `[${eventoHistorial.fecha}] ${nota} (desde ${origenTipo}: ${fuente.nombre})`;
+            } else {
+                cl.equipos.push({
+                    nombre:mat.nombre,
+                    cantidad:cant,
+                    unidad:mat.unidad,
+                    tipo:mat.tipo,
+                    snes:snsChecked,
+                    estado:'Activo',
+                    notaOrigen: `[${eventoHistorial.fecha}] ${nota} (desde ${origenTipo}: ${fuente.nombre})`,
+                    fechaAgregado: eventoHistorial.fecha
+                });
+            }
+
+            logMsg(`Equipo "${mat.nombre}" x${cant} agregado a "${cl.nombre}" — Motivo: ${nota}`);
+
+            if(window._fbSaveImmediate) {
+                window._fbSaveImmediate().then(()=>{ closeModal(); renderClientes(document.getElementById('main-content')); });
+            } else {
+                save(); closeModal();
+                renderClientes(document.getElementById('main-content'));
+            }
         });
     // Initialize
     loadAeMats();
