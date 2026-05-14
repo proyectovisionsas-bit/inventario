@@ -5685,6 +5685,302 @@ window.notifClick=notifClick;
 window.markAllRead=markAllRead;
 window.buildNotifications=buildNotifications;
 
+// ════════════════════════════════════════════════════════════════════════════
+// ✨ ASISTENTE IA - Groq (Llama 3.3) - 100% gratuito
+// ════════════════════════════════════════════════════════════════════════════
+const AI_HISTORY = [];
+
+function obtenerAPIKey() { return localStorage.getItem('groq_api_key') || ''; }
+function guardarAPIKey(k) { if(!k||!k.startsWith('gsk_'))return false; localStorage.setItem('groq_api_key',k.trim()); return true; }
+function eliminarAPIKey() { localStorage.removeItem('groq_api_key'); }
+
+function modalConfigurarAPIKey() {
+    const actual = obtenerAPIKey();
+    const masked = actual ? actual.slice(0,8)+'...'+actual.slice(-4) : '';
+    openModal('🔑 Configurar API Key de Groq',
+        `<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:14px;margin-bottom:14px;font-size:0.85rem;">
+            <p style="font-weight:700;color:#f97316;margin:0 0 6px;">⚡ IA gratuita con Groq</p>
+            <p style="color:#7c2d12;margin:0 0 8px;">Para usar la IA necesitas tu propia API Key de Groq (100% gratis, sin tarjeta de crédito).</p>
+            <p style="font-size:0.78rem;color:#9a3412;margin:0;">📌 Obtenla gratis aquí: <a href="https://console.groq.com/keys" target="_blank" style="color:#ea580c;font-weight:bold;">console.groq.com/keys</a></p>
+            <p style="font-size:0.75rem;color:#9a3412;margin:6px 0 0;">⚡ Ultra rápida: 14,400 solicitudes/día gratis.</p>
+        </div>
+        <div class="form-group">
+            <label>API Key ${actual?`(actual: ${masked})`:''}</label>
+            <input type="text" id="apiKeyInput" class="form-control" placeholder="gsk_..." style="font-family:monospace;">
+            <small class="text-muted">Debe empezar con "gsk_"</small>
+        </div>
+        ${actual?`<div style="background:#dcfce7;border:1px solid #86efac;border-radius:8px;padding:8px;font-size:0.8rem;color:#166534;margin-top:8px;">✅ Ya tienes una API Key guardada. Solo pega una nueva si quieres cambiarla.</div>`:''}`,
+        ()=>{
+            const k = id('apiKeyInput').value.trim();
+            if(!k) return alert('Pega tu API Key');
+            if(!k.startsWith('gsk_')) return alert('La API Key debe empezar con gsk_');
+            guardarAPIKey(k);
+            closeModal();
+            alert('✅ API Key guardada. Ya puedes usar la IA.');
+        });
+    if(actual) {
+        setTimeout(()=>{
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-danger';
+            btn.textContent = '🗑️ Eliminar Key';
+            btn.onclick = ()=>{ if(confirm('¿Eliminar la API Key guardada?')){eliminarAPIKey();closeModal();alert('Key eliminada');} };
+            const footer = document.querySelector('.modal-footer');
+            if(footer) footer.insertBefore(btn, footer.firstChild);
+        }, 100);
+    }
+}
+window.modalConfigurarAPIKey = modalConfigurarAPIKey;
+
+// ── PANEL FLOTANTE DE CHAT ──────────────────────────────────────────────────
+function ensureAIPanel() {
+    if(document.getElementById('aiPanel')) return;
+    const btnHtml = `<button id="aiToggleBtn" onclick="toggleAIPanel()" style="position:fixed;bottom:20px;right:20px;width:60px;height:60px;border-radius:50%;background:linear-gradient(135deg,#f97316,#ea580c);color:white;border:none;font-size:1.6rem;cursor:pointer;box-shadow:0 6px 20px rgba(249,115,22,0.5);z-index:9998;transition:transform 0.2s;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform=''" title="Asistente IA">✨</button>`;
+    document.body.insertAdjacentHTML('beforeend', btnHtml);
+
+    const panelHtml = `<div id="aiPanel" style="display:none;position:fixed;bottom:90px;right:20px;width:380px;max-width:calc(100vw - 30px);height:560px;max-height:calc(100vh - 120px);background:white;border-radius:14px;box-shadow:0 10px 40px rgba(0,0,0,0.25);z-index:9999;flex-direction:column;overflow:hidden;">
+        <div style="background:linear-gradient(135deg,#f97316,#ea580c);color:white;padding:14px;display:flex;justify-content:space-between;align-items:center;">
+            <div>
+                <h3 style="margin:0;font-size:1rem;">✨ Asistente IA</h3>
+                <p id="aiContextInfo" style="margin:2px 0 0;font-size:0.75rem;opacity:0.9;">Powered by Groq · Llama 3.3</p>
+            </div>
+            <div style="display:flex;gap:6px;">
+                <button onclick="modalConfigurarAPIKey()" style="background:rgba(255,255,255,0.2);border:none;color:white;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:0.9rem;" title="Configurar API Key">⚙️</button>
+                <button onclick="limpiarChatIA()" style="background:rgba(255,255,255,0.2);border:none;color:white;width:30px;height:30px;border-radius:50%;cursor:pointer;" title="Limpiar chat">🗑️</button>
+                <button onclick="toggleAIPanel()" style="background:rgba(255,255,255,0.2);border:none;color:white;width:30px;height:30px;border-radius:50%;cursor:pointer;">✕</button>
+            </div>
+        </div>
+        <div id="aiBody" style="flex:1;overflow-y:auto;padding:14px;background:#fafbfc;display:flex;flex-direction:column;gap:8px;"></div>
+        <div style="padding:10px;border-top:1px solid #e2e8f0;background:white;">
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+                <button onclick="hacerPreguntaRapida('¿Cuántos clientes tengo en total?')" style="font-size:0.72rem;padding:4px 8px;background:#fff7ed;border:1px solid #fed7aa;border-radius:14px;cursor:pointer;color:#9a3412;">👥 Clientes</button>
+                <button onclick="hacerPreguntaRapida('Resumen del inventario actual')" style="font-size:0.72rem;padding:4px 8px;background:#fff7ed;border:1px solid #fed7aa;border-radius:14px;cursor:pointer;color:#9a3412;">📦 Inventario</button>
+                <button onclick="hacerPreguntaRapida('¿Qué ventas se hicieron esta semana?')" style="font-size:0.72rem;padding:4px 8px;background:#fff7ed;border:1px solid #fed7aa;border-radius:14px;cursor:pointer;color:#9a3412;">💰 Ventas</button>
+                <button onclick="hacerPreguntaRapida('¿Hay alertas de stock bajo?')" style="font-size:0.72rem;padding:4px 8px;background:#fff7ed;border:1px solid #fed7aa;border-radius:14px;cursor:pointer;color:#9a3412;">⚠️ Alertas</button>
+            </div>
+            <div style="display:flex;gap:6px;">
+                <input id="aiInput" class="form-control" placeholder="Pregunta sobre tu inventario..." style="font-size:0.85rem;" onkeydown="if(event.key==='Enter')enviarPreguntaIA()">
+                <button id="aiSendBtn" onclick="enviarPreguntaIA()" style="background:linear-gradient(135deg,#f97316,#ea580c);color:white;border:none;border-radius:8px;padding:0 16px;cursor:pointer;font-weight:bold;">➤</button>
+            </div>
+        </div>
+    </div>`;
+    document.body.insertAdjacentHTML('beforeend', panelHtml);
+
+    // Mensaje de bienvenida
+    _aiMsg('👋 ¡Hola! Soy tu asistente IA. Puedo ayudarte con consultas sobre el inventario, clientes, ventas, cuadrillas y cualquier dato del sistema. ¿En qué te ayudo?','bot');
+}
+
+function toggleAIPanel() {
+    ensureAIPanel();
+    const p = document.getElementById('aiPanel');
+    if(!p) return;
+    p.style.display = p.style.display === 'none' ? 'flex' : 'none';
+    if(p.style.display === 'flex') {
+        setTimeout(()=>document.getElementById('aiInput')?.focus(), 100);
+    }
+}
+window.toggleAIPanel = toggleAIPanel;
+
+function _aiMsg(text, who) {
+    const body = document.getElementById('aiBody');
+    if(!body) return;
+    const isBot = who === 'bot';
+    const msg = document.createElement('div');
+    msg.style.cssText = `align-self:${isBot?'flex-start':'flex-end'};max-width:85%;background:${isBot?'white':'#f97316'};color:${isBot?'#1e293b':'white'};padding:10px 12px;border-radius:12px;font-size:0.88rem;box-shadow:0 1px 3px rgba(0,0,0,0.08);white-space:pre-wrap;line-height:1.45;`;
+    // Render markdown básico
+    let html = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+                   .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+                   .replace(/`(.+?)`/g,'<code style="background:rgba(0,0,0,0.08);padding:1px 4px;border-radius:3px;font-size:0.85em;">$1</code>');
+    msg.innerHTML = html;
+    body.appendChild(msg);
+    body.scrollTop = body.scrollHeight;
+}
+
+function hacerPreguntaRapida(q) {
+    const input = document.getElementById('aiInput');
+    if(input) input.value = q;
+    enviarPreguntaIA();
+}
+window.hacerPreguntaRapida = hacerPreguntaRapida;
+
+function limpiarChatIA() {
+    if(!confirm('¿Limpiar el chat?')) return;
+    AI_HISTORY.length = 0;
+    const body = document.getElementById('aiBody');
+    if(body) body.innerHTML = '';
+    _aiMsg('👋 Chat reiniciado. ¿En qué te ayudo?','bot');
+}
+window.limpiarChatIA = limpiarChatIA;
+
+// ── CONSTRUIR CONTEXTO DEL SISTEMA ──────────────────────────────────────────
+function construirContextoIA() {
+    const tab = document.querySelector('.nav-btn.active')?.dataset?.tab || 'dash';
+    const fecha = new Date().toLocaleDateString('es-CO');
+    let ctx = `Eres un asistente experto en el sistema de inventario PROYECTOVISION (empresa de internet en Colombia). Hoy es ${fecha}.\n\n`;
+    ctx += `Usuario actual: ${USER.role==='admin'?'Administrador (acceso total)':'Jefe de Bodega '+USER.nombre}\n`;
+    ctx += `Pantalla activa: ${tab}\n\n`;
+
+    // Filtrar datos por permisos
+    const bodegas = USER.role==='admin' ? DB.bodegas : DB.bodegas.filter(b=>b.id===USER.id);
+    const cuadrillas = USER.role==='admin' ? DB.cuadrillas : DB.cuadrillas.filter(c=>c.bodegaId===USER.id);
+    const clientes = USER.role==='admin' ? DB.clientes : DB.clientes.filter(c=>c.bodegaId===USER.id);
+    const ventas = USER.role==='admin' ? (DB.ventas||[]) : (DB.ventas||[]).filter(v=>v.bodegaId===USER.id);
+
+    // Resumen general
+    ctx += `RESUMEN GENERAL:\n`;
+    ctx += `- Bodegas: ${bodegas.length} (${bodegas.map(b=>b.nombre).join(', ')})\n`;
+    ctx += `- Cuadrillas: ${cuadrillas.length}\n`;
+    ctx += `- Clientes instalados: ${clientes.length}\n`;
+    ctx += `- Ventas registradas: ${ventas.length}\n`;
+    ctx += `- Instalaciones: ${(DB.instalaciones||[]).length}\n`;
+    ctx += `- Transferencias: ${(DB.transfers||[]).length}\n\n`;
+
+    // Inventario por bodega (resumido)
+    ctx += `INVENTARIO POR BODEGA:\n`;
+    bodegas.forEach(b => {
+        const totalMats = b.materiales.reduce((s,m)=>s+m.cantidad, 0);
+        const stockBajo = b.materiales.filter(m=>m.stockMin && m.cantidad<=m.stockMin);
+        ctx += `\n${b.nombre}: ${b.materiales.length} artículos, ${totalMats} unidades totales`;
+        if(stockBajo.length>0) ctx += ` | ⚠️ ${stockBajo.length} con stock bajo: ${stockBajo.map(m=>m.nombre+'('+m.cantidad+'/'+m.stockMin+')').join(', ')}`;
+        // Top 5 materiales
+        const top5 = [...b.materiales].sort((a,b)=>b.cantidad-a.cantidad).slice(0,5);
+        if(top5.length) ctx += `\n  Top stock: ${top5.map(m=>m.nombre+'('+m.cantidad+')').join(', ')}`;
+    });
+    ctx += '\n\n';
+
+    // Cuadrillas
+    if(cuadrillas.length > 0) {
+        ctx += `CUADRILLAS:\n`;
+        cuadrillas.forEach(c => {
+            const bod = DB.bodegas.find(b=>b.id===c.bodegaId);
+            ctx += `- ${c.nombre} (bodega: ${bod?.nombre||'?'}, ${c.tecnicos?.length||0} técnicos, ${c.materiales?.length||0} materiales)\n`;
+        });
+        ctx += '\n';
+    }
+
+    // Ventas recientes (últimas 5)
+    if(ventas.length > 0) {
+        const recientes = [...ventas].sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).slice(0,5);
+        const totalVentas = ventas.reduce((s,v)=>s+(v.total||0),0);
+        ctx += `VENTAS (total: $${totalVentas.toLocaleString()}):\n`;
+        recientes.forEach(v => {
+            ctx += `- ${v.fecha} | ${v.nombre} x${v.cantidad} | $${(v.total||0).toLocaleString()} | ${v.bodegaNombre}\n`;
+        });
+        ctx += '\n';
+    }
+
+    // Solicitudes pendientes
+    const pendientes = (DB.deleteRequests||[]).filter(r=>r.estado==='pendiente').length
+                      + (DB.editRequests||[]).filter(r=>r.estado==='pendiente').length;
+    if(pendientes>0) ctx += `⚠️ ${pendientes} solicitudes pendientes de aprobación\n\n`;
+
+    // Logs recientes
+    const recientes = (DB.logs||[]).slice(0,10);
+    if(recientes.length>0) {
+        ctx += `ACTIVIDAD RECIENTE:\n`;
+        recientes.forEach(l => {
+            ctx += `- [${l.fecha||''} ${l.hora||''}] ${l.usuario||'?'}: ${l.msg}\n`;
+        });
+    }
+
+    ctx += `\nINSTRUCCIONES:
+- Responde en español
+- Sé conciso pero útil
+- Si te preguntan algo que NO está en los datos, dilo claramente
+- Usa formato simple (sin headers grandes, sí puedes usar **negrita** y listas)
+- Cuando muestres números monetarios usa formato $X.XXX
+- Si detectas algún problema (stock bajo, solicitudes pendientes), menciónalo proactivamente
+- NO inventes datos que no aparezcan arriba`;
+
+    return ctx;
+}
+
+async function enviarPreguntaIA() {
+    const input = document.getElementById('aiInput');
+    const sendBtn = document.getElementById('aiSendBtn');
+    const pregunta = input?.value?.trim();
+    if(!pregunta) return;
+
+    const userKey = obtenerAPIKey();
+    if(!userKey) {
+        _aiMsg(pregunta,'user');
+        _aiMsg('🔑 Necesitas configurar tu API Key de Groq primero. Haz clic en el botón ⚙️ del chat.','bot');
+        return;
+    }
+
+    input.value = '';
+    if(sendBtn) sendBtn.disabled = true;
+    _aiMsg(pregunta,'user');
+
+    // Indicador "escribiendo..."
+    const body = document.getElementById('aiBody');
+    const typingEl = document.createElement('div');
+    typingEl.id = 'aiTyping';
+    typingEl.style.cssText = 'align-self:flex-start;background:white;padding:10px 12px;border-radius:12px;font-size:0.85rem;color:#94a3b8;font-style:italic;';
+    typingEl.textContent = '✨ Pensando...';
+    if(body) { body.appendChild(typingEl); body.scrollTop = body.scrollHeight; }
+
+    try {
+        const sysPrompt = construirContextoIA();
+        const messages = [{role:'system', content: sysPrompt}];
+        AI_HISTORY.forEach(h => messages.push({role: h.role, content: h.text}));
+        messages.push({role:'user', content: pregunta});
+
+        const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method:'POST',
+            headers:{
+                'Content-Type':'application/json',
+                'Authorization':'Bearer '+userKey
+            },
+            body: JSON.stringify({
+                model:'llama-3.3-70b-versatile',
+                messages,
+                temperature:0.4,
+                max_tokens:800
+            })
+        });
+
+        typingEl.remove();
+
+        if(resp.status === 401) {
+            _aiMsg('⚠️ API Key inválida. Haz clic en ⚙️ para configurarla.','bot');
+            return;
+        }
+        if(resp.status === 429) {
+            _aiMsg('⚠️ Cuota temporal excedida. Espera unos segundos y reintenta.','bot');
+            return;
+        }
+        if(!resp.ok) {
+            const txt = await resp.text();
+            _aiMsg('⚠️ Error: '+resp.status+' '+txt.substring(0,150),'bot');
+            return;
+        }
+
+        const data = await resp.json();
+        const respuesta = data?.choices?.[0]?.message?.content || '(sin respuesta)';
+
+        AI_HISTORY.push({role:'user', text: pregunta});
+        AI_HISTORY.push({role:'assistant', text: respuesta});
+        if(AI_HISTORY.length > 20) AI_HISTORY.splice(0, AI_HISTORY.length - 20);
+
+        _aiMsg(respuesta,'bot');
+    } catch(e) {
+        typingEl?.remove();
+        console.error(e);
+        _aiMsg('⚠️ Error de conexión: '+e.message,'bot');
+    } finally {
+        if(sendBtn) sendBtn.disabled = false;
+        input?.focus();
+    }
+}
+window.enviarPreguntaIA = enviarPreguntaIA;
+
+// Inicializar el botón flotante al iniciar la app
+const _origEnterApp = enterApp;
+enterApp = function() {
+    _origEnterApp.apply(this, arguments);
+    setTimeout(ensureAIPanel, 500);
+};
+
 init();
 </script>
 
