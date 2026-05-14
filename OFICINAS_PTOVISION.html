@@ -1482,6 +1482,7 @@ function renderRegistro(){
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button class="btn btn-outline btn-sm" onclick="verMovimientosMes('${oid}')">📅 Ver mes</button>
                 <button class="btn btn-outline btn-sm" onclick="modalCargaMasiva('${oid}')">📤 Carga masiva</button>
+                <button class="btn btn-outline btn-sm" onclick="modalRegistroComprobantes('${oid}')" style="background:rgba(249,115,22,0.1);color:#f97316;border-color:rgba(249,115,22,0.3);">✨ Comprobantes IA</button>
                 ${USER.role==='admin'?`<button class="btn btn-warning btn-sm" onclick="modalGestionarMovimientos('${oid}')">🗑️ Gestionar todos</button>`:''}
             </div>
         </div>
@@ -8069,6 +8070,308 @@ INSTRUCCIONES:
 
     if(sendBtn) sendBtn.disabled=false;
     inp.focus();
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// REGISTRO MASIVO DE COMPROBANTES CON IA
+// Cada comprobante se convierte en un movimiento individual
+// ═══════════════════════════════════════════════════════════════════════════
+
+let _comprobantesPendientes = []; // {id, file, base64, valor, concepto, forma, descripcion, fechaTrans, analizado, error}
+
+function modalRegistroComprobantes(oid){
+    _comprobantesPendientes = [];
+
+    const apiKey = obtenerAPIKey();
+    const sinKey = !apiKey;
+
+    const html = `
+    <div style="background:rgba(249,115,22,0.08);border:1px solid rgba(249,115,22,0.25);border-radius:10px;padding:14px;margin-bottom:14px;font-size:0.82rem;">
+        <p style="font-weight:700;color:#f97316;margin-bottom:6px;">✨ Registro masivo de comprobantes con IA</p>
+        <p style="color:var(--muted);margin-bottom:6px;">Sube todos tus comprobantes (transferencias, consignaciones, Nequi, etc). La IA extraerá el valor de cada uno y se registrarán como movimientos individuales.</p>
+        <p style="color:var(--muted);font-size:0.74rem;">📌 Procesamiento por lotes de 5. Puedes editar los valores antes de guardar.</p>
+    </div>
+
+    ${sinKey ? `<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px;font-size:0.82rem;color:#f59e0b;margin-bottom:14px;">
+        ⚠️ Necesitas configurar tu API Key de Groq primero. <button class="btn btn-primary btn-sm" onclick="modalConfigurarAPIKey()">⚙️ Configurar</button>
+    </div>` : ''}
+
+    <div class="form-row">
+        <div class="form-group-dark"><label>Tipo de movimiento *</label>
+            <select id="rc_tipo" class="form-control">
+                <option value="ingreso">📥 Ingreso</option>
+                <option value="egreso">📤 Egreso</option>
+            </select>
+        </div>
+        <div class="form-group-dark"><label>Forma de pago *</label>
+            <select id="rc_forma" class="form-control">
+                <option value="Cta Bancolombia">Cta Bancolombia</option>
+                <option value="Efecty">Efecty</option>
+                <option value="Cruce de Cuentas">Cruce de Cuentas</option>
+                <option value="Efectivo">Efectivo</option>
+            </select>
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Concepto por defecto *</label>
+            <select id="rc_concepto" class="form-control">
+                ${[...new Set([...CONCEPTOS_ING,...CONCEPTOS_EGR])].map(c=>`<option>${c}</option>`).join('')}
+            </select>
+        </div>
+        <div class="form-group-dark"><label>Fecha de los movimientos</label>
+            <input type="date" id="rc_fecha" class="form-control" value="${hoyLocal()}" max="${hoyLocal()}">
+        </div>
+    </div>
+
+    <div style="border:2px dashed var(--border);border-radius:10px;padding:18px;text-align:center;margin:14px 0;transition:0.2s;"
+        ondragover="event.preventDefault();this.style.borderColor='#f97316';this.style.background='rgba(249,115,22,0.05)'"
+        ondragleave="this.style.borderColor='var(--border)';this.style.background=''"
+        ondrop="event.preventDefault();this.style.borderColor='var(--border)';this.style.background='';_cargarComprobantesIA(event.dataTransfer.files,'${oid}')">
+        <div style="font-size:2.2rem;margin-bottom:6px;">📥</div>
+        <p style="font-size:0.85rem;color:var(--muted);margin-bottom:8px;">Arrastra los comprobantes aquí o haz click para seleccionar</p>
+        <input type="file" id="rc_file_input" accept="image/*" multiple style="display:none"
+            onchange="_cargarComprobantesIA(this.files,'${oid}')">
+        <button class="btn btn-primary btn-sm" onclick="document.getElementById('rc_file_input').click()" ${sinKey?'disabled':''}>
+            📤 Seleccionar comprobantes
+        </button>
+        <p style="font-size:0.72rem;color:var(--muted);margin-top:8px;">JPG, PNG. Cada imagen = 1 movimiento individual</p>
+    </div>
+
+    <div id="rc_lista_comprobantes"></div>
+    <div id="rc_total_resumen"></div>`;
+
+    const footer = `
+        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" id="btn_rc_guardar" onclick="guardarComprobantesRegistrados('${oid}')" disabled style="background:#f97316;">
+            💾 Registrar todos
+        </button>`;
+
+    openModal('✨ Registro masivo con IA', html, footer);
+}
+
+async function _cargarComprobantesIA(files, oid){
+    if(!files||!files.length) return;
+    const apiKey=obtenerAPIKey();
+    if(!apiKey){ alert('Configura tu API Key primero'); return; }
+
+    const concepto=document.getElementById('rc_concepto').value;
+    const forma=document.getElementById('rc_forma').value;
+
+    // Agregar archivos a la lista
+    for(const file of files){
+        if(!file.type.startsWith('image/')) continue;
+        const b64=await new Promise(res=>{
+            const r=new FileReader();
+            r.onload=e=>res(e.target.result);
+            r.readAsDataURL(file);
+        });
+        _comprobantesPendientes.push({
+            id:'comp_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+            file:file, base64:b64, nombre:file.name,
+            valor:0, concepto:concepto, forma:forma,
+            descripcion:'', fechaTrans:'',
+            analizado:false, analizando:true, error:null
+        });
+    }
+    _renderListaComprobantes();
+
+    // Analizar por lotes de 5
+    const pendientes=_comprobantesPendientes.filter(c=>!c.analizado&&!c.error);
+    const LOTE=5;
+    for(let i=0;i<pendientes.length;i+=LOTE){
+        const lote=pendientes.slice(i,i+LOTE);
+        await _analizarLoteIA(lote, apiKey);
+        _renderListaComprobantes();
+    }
+}
+
+async function _analizarLoteIA(lote, apiKey){
+    try{
+        const messageContent=[{
+            type:'text',
+            text:`Eres experto en comprobantes bancarios colombianos (Bancolombia, Nequi, Daviplata, etc).
+Te muestro ${lote.length} comprobante(s). Para CADA UNO extrae:
+- El VALOR exacto de la transacción en COP (solo el número)
+- Una DESCRIPCIÓN corta (origen/destino o nota)
+- La FECHA si aparece (formato YYYY-MM-DD, o null si no se ve)
+
+Responde EXCLUSIVAMENTE en JSON con este formato:
+{"comprobantes":[{"numero":1,"valor":50000,"descripcion":"Transferencia Nequi","fecha":"2025-12-01"},{"numero":2,"valor":30000,"descripcion":"PSE Bancolombia","fecha":null}]}`
+        }];
+
+        // Compress and add images
+        for(const c of lote){
+            try{
+                const compressed=await _comprimirImagenParaIA(c.base64);
+                messageContent.push({
+                    type:'image_url',
+                    image_url:{url:'data:image/jpeg;base64,'+compressed,detail:'low'}
+                });
+            }catch(e){
+                console.warn('Error comprimiendo:',e);
+                messageContent.push({type:'image_url',image_url:{url:c.base64,detail:'low'}});
+            }
+        }
+
+        const GROQ_URL='https://api.groq.com/openai/v1/chat/completions';
+        const response=await fetch(GROQ_URL,{
+            method:'POST',
+            headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
+            body:JSON.stringify({
+                model:'meta-llama/llama-4-scout-17b-16e-instruct',
+                messages:[{role:'user',content:messageContent}],
+                temperature:0.1, max_tokens:1500,
+                response_format:{type:'json_object'}
+            })
+        });
+
+        if(!response.ok){
+            const errTxt=await response.text();
+            throw new Error('HTTP '+response.status+': '+errTxt.substring(0,150));
+        }
+        const data=await response.json();
+        const rawText=data?.choices?.[0]?.message?.content||'';
+        const parsed=JSON.parse(rawText.match(/\{[\s\S]*\}/)[0]);
+
+        // Asignar resultados al lote
+        (parsed.comprobantes||[]).forEach((r,idx)=>{
+            if(lote[idx]){
+                lote[idx].valor=parseFloat(r.valor||0);
+                lote[idx].descripcion=r.descripcion||'';
+                lote[idx].fechaTrans=r.fecha||'';
+                lote[idx].analizado=true;
+                lote[idx].analizando=false;
+            }
+        });
+    }catch(err){
+        console.error('Error analizando lote:',err);
+        lote.forEach(c=>{
+            c.error=err.message;
+            c.analizando=false;
+        });
+    }
+}
+
+function _renderListaComprobantes(){
+    const cont=document.getElementById('rc_lista_comprobantes');
+    const resumen=document.getElementById('rc_total_resumen');
+    const btnGuardar=document.getElementById('btn_rc_guardar');
+    if(!cont) return;
+
+    if(_comprobantesPendientes.length===0){
+        cont.innerHTML='';
+        if(resumen) resumen.innerHTML='';
+        if(btnGuardar) btnGuardar.disabled=true;
+        return;
+    }
+
+    cont.innerHTML=`
+    <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px;">
+        <h3 style="font-size:0.92rem;font-weight:700;margin-bottom:10px;">📋 Comprobantes (${_comprobantesPendientes.length})</h3>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+        ${_comprobantesPendientes.map((c,i)=>{
+            const estado=c.error?'error':c.analizando?'cargando':c.analizado?'ok':'pendiente';
+            const colorBg=estado==='error'?'rgba(239,68,68,0.06)':estado==='ok'?'rgba(16,185,129,0.06)':'rgba(245,158,11,0.06)';
+            const colorBd=estado==='error'?'rgba(239,68,68,0.2)':estado==='ok'?'rgba(16,185,129,0.2)':'rgba(245,158,11,0.2)';
+            return `<div style="display:flex;align-items:center;gap:10px;background:${colorBg};border:1px solid ${colorBd};border-radius:8px;padding:8px;">
+                <img src="${c.base64}" style="width:54px;height:54px;object-fit:cover;border-radius:6px;flex-shrink:0;cursor:pointer;" onclick="window.open('${c.base64}','_blank')">
+                <div style="flex:1;min-width:0;">
+                    ${c.analizando?'<div style="font-size:0.78rem;color:#f59e0b;">⏳ Analizando con IA...</div>':
+                    c.error?`<div style="font-size:0.74rem;color:#ef4444;">❌ ${c.error.substring(0,60)}</div>`:
+                    `<input type="number" value="${c.valor}" onchange="_comprobantesPendientes[${i}].valor=parseFloat(this.value||0);_actualizarTotalCompros()" placeholder="Valor" class="form-control" style="font-size:0.85rem;font-weight:700;color:#10b981;padding:4px 8px;margin-bottom:3px;">
+                    <input type="text" value="${(c.descripcion||'').replace(/"/g,'&quot;')}" onchange="_comprobantesPendientes[${i}].descripcion=this.value" placeholder="Descripción" class="form-control" style="font-size:0.74rem;padding:3px 8px;">`}
+                </div>
+                <button class="btn btn-danger btn-sm" onclick="_comprobantesPendientes.splice(${i},1);_renderListaComprobantes();" style="padding:4px 8px;">🗑️</button>
+            </div>`;
+        }).join('')}
+        </div>
+    </div>`;
+
+    _actualizarTotalCompros();
+
+    // Habilitar botón guardar si hay al menos uno analizado
+    const validos=_comprobantesPendientes.filter(c=>c.analizado&&c.valor>0);
+    if(btnGuardar) btnGuardar.disabled=validos.length===0;
+}
+
+function _actualizarTotalCompros(){
+    const resumen=document.getElementById('rc_total_resumen');
+    if(!resumen) return;
+    const validos=_comprobantesPendientes.filter(c=>c.analizado&&c.valor>0);
+    const total=validos.reduce((s,c)=>s+parseFloat(c.valor||0),0);
+    const pendientes=_comprobantesPendientes.filter(c=>c.analizando).length;
+    resumen.innerHTML=`
+    <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:8px;padding:10px 14px;margin-top:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <div>
+            <p style="font-size:0.75rem;color:var(--muted);">${validos.length} comprobante(s) listos${pendientes>0?` · ${pendientes} pendientes`:''}</p>
+            <p style="font-size:1.1rem;font-weight:800;color:#10b981;">Total: ${fmtShort(total)}</p>
+        </div>
+    </div>`;
+}
+
+async function guardarComprobantesRegistrados(oid){
+    const validos=_comprobantesPendientes.filter(c=>c.analizado&&c.valor>0);
+    if(validos.length===0){ alert('No hay comprobantes válidos para registrar'); return; }
+
+    const tipo=document.getElementById('rc_tipo').value;
+    const concepto=document.getElementById('rc_concepto').value;
+    const forma=document.getElementById('rc_forma').value;
+    const fechaInputVal=document.getElementById('rc_fecha').value;
+    if(!fechaInputVal){ alert('Selecciona la fecha'); return; }
+
+    if(!confirm(`¿Registrar ${validos.length} movimientos por un total de ${fmtShort(validos.reduce((s,c)=>s+c.valor,0))}?`)) return;
+
+    const o=DB.oficinas.find(x=>x.id===oid)||getOficina(oid);
+    if(!o) return alert('Oficina no encontrada');
+    if(!o.movimientos) o.movimientos=[];
+
+    const esAdmin=USER.role==='admin';
+    const _hoyStr=hoyLocal();
+    const esDiaAnterior=fechaInputVal<_hoyStr;
+
+    // Si es día anterior y no admin → crear solicitudes
+    if(esDiaAnterior && !esAdmin){
+        if(!DB.solicitudes) DB.solicitudes=[];
+        validos.forEach((c,i)=>{
+            const _ah=new Date();
+            const fechaFinal=`${fechaInputVal}T${String(_ah.getHours()).padStart(2,'0')}:${String(_ah.getMinutes()).padStart(2,'0')}:${String(i).padStart(2,'0')}`;
+            DB.solicitudes.push({
+                id:uid(), tipo:'registro_pasado', oid,
+                movData:{tipo,concepto,forma,descripcion:c.descripcion||'Comprobante IA',valor:c.valor,fecha:fechaFinal},
+                descripcion:`${tipo} ${concepto} ${fmtShort(c.valor)} (${forma}) - ${c.descripcion||''}`,
+                oficina:o?.nombre||oid, estado:'pendiente', fecha:now()
+            });
+        });
+        await save();
+        closeModal();
+        alert(`📤 ${validos.length} solicitud(es) enviada(s) al administrador.`);
+        renderRegistro();
+        return;
+    }
+
+    // Registrar directamente
+    validos.forEach((c,i)=>{
+        const _ah=new Date();
+        const fechaFinal=`${fechaInputVal}T${String(_ah.getHours()).padStart(2,'0')}:${String(_ah.getMinutes()).padStart(2,'0')}:${String(i%60).padStart(2,'0')}`;
+        const movId=uid();
+        o.movimientos.push({
+            id:movId, tipo, concepto, forma,
+            descripcion:c.descripcion||'Comprobante IA',
+            valor:c.valor, fecha:fechaFinal,
+            comprobantes:[] // se subirá después si quiere
+        });
+        // Guardar en caché de imágenes para verificación posterior
+        if(!window._compImgCache) window._compImgCache={};
+        window._compImgCache[movId]=[{data:c.base64,type:c.file.type||'image/jpeg'}];
+    });
+
+    await save();
+    window._regFechaPreserve=fechaInputVal;
+    _comprobantesPendientes=[];
+    closeModal();
+    alert(`✅ ${validos.length} movimiento(s) registrado(s) exitosamente.`);
+    renderRegistro();
 }
 
 function openAdminPanel(){ navigate('administracion'); }
