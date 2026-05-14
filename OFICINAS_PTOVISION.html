@@ -7772,11 +7772,12 @@ function _aiMsg(texto, tipo){
 }
 
 function _construirContextoNegocio(){
-    // Contexto COMPLETO del negocio para la IA. Excluye contraseñas y datos sensibles.
+    // Contexto SMART del negocio para la IA. Modula la cantidad de datos según el contexto.
     const oficinas=currentOficinas();
     const _hoyStr=hoyLocal();
     const _mesActual=_hoyStr.slice(0,7);
     const esAdmin=USER?.role==='admin';
+    const tab=document.querySelector('.nav-btn.active')?.dataset?.tab||'dash';
 
     // Helper para sanitizar movimientos (eliminar campos pesados)
     const sanitizarMov=m=>({
@@ -7835,31 +7836,49 @@ function _construirContextoNegocio(){
             comisionPct:c.comisionPct, vendedorId:c.vendedorId
         }));
 
-        resumen.oficinas.push({
+        // Decidir cuántos movimientos enviar según el tab actual
+        const incluirMovsCompletos = ['registro','reportes','dash','pagos_admin'].includes(tab);
+        const incluirClientesCompletos = ['clientes','vendedores','ventas'].includes(tab);
+
+        const oficinaObj = {
             id:o.id,
             nombre:o.nombre,
-            // Resumen financiero
+            // Siempre incluir resumen financiero (compacto)
             ingresosMes:ing,
             egresosMes:egr,
             balanceMes:ing-egr,
             ingresosHoy:ingHoy,
             egresosHoy:egrHoy,
             balanceHoy:ingHoy-egrHoy,
-            // Detalle por forma de pago
             porFormaDePago:porForma,
-            // Conceptos
-            ingresosPorConcepto:Object.entries(concIng).sort((a,b)=>b[1]-a[1]).map(([k,v])=>({concepto:k,total:v})),
-            egresosPorConcepto:Object.entries(concEgr).sort((a,b)=>b[1]-a[1]).map(([k,v])=>({concepto:k,total:v})),
-            // Movimientos detallados del MES actual (limitados a últimos 50 para no saturar)
-            movimientosDelMes:movsMes.slice(-50).map(sanitizarMov),
-            // Movimientos de HOY (todos)
+            // Top conceptos siempre
+            ingresosPorConcepto:Object.entries(concIng).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([k,v])=>({concepto:k,total:v})),
+            egresosPorConcepto:Object.entries(concEgr).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([k,v])=>({concepto:k,total:v})),
+            // Movimientos solo si tab relevante
             movimientosDeHoy:movsHoy.map(sanitizarMov),
+            totalMovimientosMes:movsMes.length,
             totalMovimientosHistoricos:movs.length,
-            // Clientes
+            // Clientes: total y por estado siempre. Detalle solo si tab relevante.
             totalClientes:cli.length,
-            clientesPorEstado:clientesPorEstado,
-            clientes:clientesDetalle
-        });
+            clientesPorEstado:clientesPorEstado
+        };
+
+        // Incluir movimientos detallados del mes solo si el usuario está en sección financiera
+        if(incluirMovsCompletos){
+            oficinaObj.movimientosDelMes = movsMes.slice(-30).map(sanitizarMov);
+        }
+
+        // Incluir clientes detallados solo si está en tabs comerciales
+        if(incluirClientesCompletos){
+            oficinaObj.clientes = clientesDetalle;
+        } else {
+            // Solo top 10 morosos para que la IA tenga al menos algo de visibilidad
+            oficinaObj.clientesMorososMuestra = cli.filter(c=>c.estado==='Moroso').slice(0,10).map(c=>({
+                nombre:c.nombre, cedula:c.cedula, valor:c.valor, plan:c.plan
+            }));
+        }
+
+        resumen.oficinas.push(oficinaObj);
     });
 
     // ── DATOS GLOBALES (siempre visibles, sin importar rol) ─────────────
@@ -7871,7 +7890,7 @@ function _construirContextoNegocio(){
         activo:v.activo!==false
     }));
 
-    // Ventas del mes
+    // Ventas del mes - resumen siempre, detalle solo si tab relevante
     const ventas=DB.ventas||[];
     const ventasMes=ventas.filter(v=>(v.fecha||'').slice(0,7)===_mesActual);
     resumen.ventasResumen={
@@ -7880,12 +7899,13 @@ function _construirContextoNegocio(){
         ventasPagadasMes:ventasMes.filter(v=>v.estado==='pagado').length,
         ventasPendientesMes:ventasMes.filter(v=>v.estado!=='pagado').length
     };
-    // Ventas detalladas del mes (últimas 30)
-    resumen.ventasMes=ventasMes.slice(-30).map(v=>({
-        id:v.id, fecha:v.fecha, vendedorId:v.vendedorId,
-        cliente:v.cliente, plan:v.plan, valor:v.valor,
-        estado:v.estado, oficinaId:v.oficinaId, promocion:v.promocion
-    }));
+    if(['ventas','vendedores','clientes'].includes(tab)){
+        resumen.ventasMes=ventasMes.slice(-25).map(v=>({
+            fecha:v.fecha, vendedorId:v.vendedorId,
+            cliente:v.cliente, plan:v.plan, valor:v.valor,
+            estado:v.estado, oficinaId:v.oficinaId
+        }));
+    }
 
     // Bonus tiers
     resumen.bonusTiers=DB.bonusTiers||[];
@@ -7899,63 +7919,79 @@ function _construirContextoNegocio(){
 
     // ── DATOS SOLO PARA ADMIN ──────────────────────────────────────────
     if(esAdmin){
-        // RRHH - empleados con info completa (sin contraseñas)
+        // RRHH - solo si está en tab rrhh, sino solo resumen
         const emps=DB.rrhh_empleados||[];
-        resumen.empleados=emps.map(e=>({
-            id:e.id, nombre:e.nombre, cedula:e.cedula,
-            cargo:e.cargo, oficinaId:e.oficinaId,
-            salario:e.salario, fechaIngreso:e.fechaIngreso,
-            fechaNacimiento:e.fechaNacimiento, telefono:e.telefono,
-            email:e.email, estado:e.estado,
-            cuentaBancaria:e.cuentaBancaria,
-            tipoCuenta:e.tipoCuenta, banco:e.banco
-        }));
-
-        // Transacciones RRHH del mes
-        const trans=DB.rrhh_transacciones||[];
-        const transMes=trans.filter(t=>(t.fecha||'').slice(0,7)===_mesActual);
-        resumen.transaccionesRRHHMes=transMes.map(t=>({
-            empleadoId:t.empleadoId, fecha:t.fecha, tipo:t.tipo,
-            concepto:t.concepto, valor:t.valor, descripcion:t.descripcion
-        }));
-
-        // Préstamos
-        const prest=DB.prestamos||[];
-        resumen.prestamos=prest.map(p=>{
-            const abonado=(p.abonos||[]).reduce((x,a)=>x+parseFloat(a.valor||0),0);
-            return {
-                id:p.id, beneficiario:p.beneficiario, tipo:p.tipo,
-                monto:p.monto, abonado:abonado, saldo:parseFloat(p.monto||0)-abonado,
-                fecha:p.fecha, estado:p.estado, descripcion:p.descripcion,
-                numAbonos:(p.abonos||[]).length
+        if(tab==='rrhh'){
+            resumen.empleados=emps.map(e=>({
+                id:e.id, nombre:e.nombre, cedula:e.cedula,
+                cargo:e.cargo, oficinaId:e.oficinaId,
+                salario:e.salario, fechaIngreso:e.fechaIngreso,
+                fechaNacimiento:e.fechaNacimiento, telefono:e.telefono,
+                estado:e.estado, banco:e.banco
+            }));
+            const trans=DB.rrhh_transacciones||[];
+            const transMes=trans.filter(t=>(t.fecha||'').slice(0,7)===_mesActual);
+            resumen.transaccionesRRHHMes=transMes.slice(-30).map(t=>({
+                empleadoId:t.empleadoId, fecha:t.fecha, tipo:t.tipo,
+                concepto:t.concepto, valor:t.valor
+            }));
+            resumen.configuracionRRHH=DB.rrhh_config||{};
+        } else {
+            resumen.empleadosResumen={
+                total:emps.length,
+                activos:emps.filter(e=>e.estado==='Activo').length,
+                totalNomina:emps.filter(e=>e.estado==='Activo').reduce((s,e)=>s+parseFloat(e.salario||0),0)
             };
-        });
+        }
 
-        // Pagos Admin del mes
+        // Préstamos - completo si tab préstamos
+        const prest=DB.prestamos||[];
+        if(tab==='prestamos'){
+            resumen.prestamos=prest.map(p=>{
+                const abonado=(p.abonos||[]).reduce((x,a)=>x+parseFloat(a.valor||0),0);
+                return {
+                    id:p.id, beneficiario:p.beneficiario, tipo:p.tipo,
+                    monto:p.monto, abonado:abonado, saldo:parseFloat(p.monto||0)-abonado,
+                    fecha:p.fecha, estado:p.estado, descripcion:p.descripcion
+                };
+            });
+        } else {
+            const prestActivos=prest.filter(p=>p.estado==='activo');
+            resumen.prestamosResumen={
+                totalActivos:prestActivos.length,
+                saldoTotal:prestActivos.reduce((s,p)=>{
+                    const abonado=(p.abonos||[]).reduce((x,a)=>x+parseFloat(a.valor||0),0);
+                    return s+(parseFloat(p.monto||0)-abonado);
+                },0)
+            };
+        }
+
+        // Pagos Admin del mes - completo si tab pagos_admin
         const pagosAdm=DB.pagosAdmin||[];
         const pagosMes=pagosAdm.filter(p=>(p.fecha||'').slice(0,7)===_mesActual);
-        resumen.pagosAdminMes=pagosMes.map(p=>({
-            fecha:p.fecha, oficinaId:p.oficinaId, concepto:p.concepto,
-            forma:p.forma, valor:p.valor, descripcion:p.descripcion
-        }));
+        if(tab==='pagos_admin'){
+            resumen.pagosAdminMes=pagosMes.map(p=>({
+                fecha:p.fecha, oficinaId:p.oficinaId, concepto:p.concepto,
+                forma:p.forma, valor:p.valor, descripcion:p.descripcion
+            }));
+        }
         resumen.pagosAdminTotalMes=pagosMes.reduce((s,p)=>s+parseFloat(p.valor||0),0);
 
-        // Solicitudes pendientes (todas)
+        // Solicitudes pendientes - completo si tab admin
         const solic=DB.solicitudes||[];
-        resumen.solicitudes={
-            pendientes:solic.filter(s=>s.estado==='pendiente').length,
-            aprobadas:solic.filter(s=>s.estado==='aprobado').length,
-            rechazadas:solic.filter(s=>s.estado==='rechazado').length,
-            listaPendientes:solic.filter(s=>s.estado==='pendiente').map(s=>({
-                id:s.id, tipo:s.tipo, oficina:s.oficina,
-                descripcion:s.descripcion, fecha:s.fecha
-            }))
-        };
+        const solicPend=solic.filter(s=>s.estado==='pendiente');
+        if(tab==='administracion'){
+            resumen.solicitudes={
+                pendientes:solicPend.length,
+                listaPendientes:solicPend.map(s=>({
+                    tipo:s.tipo, oficina:s.oficina, descripcion:s.descripcion, fecha:s.fecha
+                }))
+            };
+        } else {
+            resumen.solicitudesPendientesCount=solicPend.length;
+        }
 
-        // Configuración RRHH
-        resumen.configuracionRRHH=DB.rrhh_config||{};
-
-        // Metas
+        // Metas siempre (es poco)
         resumen.metas=DB.metas||[];
     }
 
