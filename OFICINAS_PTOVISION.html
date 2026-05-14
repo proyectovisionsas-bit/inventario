@@ -7772,20 +7772,12 @@ function _aiMsg(texto, tipo){
 }
 
 function _construirContextoNegocio(){
-    // Contexto SMART del negocio para la IA. Modula la cantidad de datos según el contexto.
+    // Contexto LIGERO del negocio para la IA. Optimizado para no exceder límites de tokens.
     const oficinas=currentOficinas();
     const _hoyStr=hoyLocal();
     const _mesActual=_hoyStr.slice(0,7);
     const esAdmin=USER?.role==='admin';
     const tab=document.querySelector('.nav-btn.active')?.dataset?.tab||'dash';
-
-    // Helper para sanitizar movimientos (eliminar campos pesados)
-    const sanitizarMov=m=>({
-        id:m.id, fecha:m.fecha, tipo:m.tipo, concepto:m.concepto,
-        descripcion:m.descripcion, forma:m.forma, valor:m.valor,
-        editadoPor:m.editadoPor, esPagoAdmin:m.esPagoAdmin,
-        tieneComprobantes:(m.comprobantes||[]).length>0
-    });
 
     let resumen={
         usuario:{
@@ -7794,8 +7786,8 @@ function _construirContextoNegocio(){
             oficinaId:USER?.id||null
         },
         fechaActual:_hoyStr,
-        horaActual:new Date().toLocaleTimeString('es-CO'),
         mesActual:_mesActual,
+        tabActual:tab,
         oficinas:[]
     };
 
@@ -7804,195 +7796,153 @@ function _construirContextoNegocio(){
         const movsMes=movs.filter(m=>(m.fecha||'').slice(0,7)===_mesActual);
         const movsHoy=movs.filter(m=>(m.fecha||'').slice(0,10)===_hoyStr);
 
-        // Totales del mes por tipo
+        // Totales del mes
         const ing=movsMes.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
         const egr=movsMes.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
         const ingHoy=movsHoy.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
         const egrHoy=movsHoy.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
 
-        // Por forma de pago
+        // Por forma de pago (compact)
         const porForma={};
         ['Efectivo','Efecty','Cta Bancolombia','Cruce de Cuentas'].forEach(f=>{
             const i=movsMes.filter(m=>m.tipo==='ingreso'&&m.forma===f).reduce((s,m)=>s+parseFloat(m.valor||0),0);
             const e=movsMes.filter(m=>m.tipo==='egreso'&&m.forma===f).reduce((s,m)=>s+parseFloat(m.valor||0),0);
-            porForma[f]={ingresos:i,egresos:e,balance:i-e};
+            if(i>0||e>0) porForma[f]={ing:i,egr:e};
         });
 
-        // Desglose por concepto
+        // Top 5 conceptos
         const concIng={}, concEgr={};
-        movsMes.filter(m=>m.tipo==='ingreso').forEach(m=>{ const l=m.concepto||'Otro'; concIng[l]=(concIng[l]||0)+parseFloat(m.valor||0); });
-        movsMes.filter(m=>m.tipo==='egreso').forEach(m=>{ const l=m.concepto||'Otro'; concEgr[l]=(concEgr[l]||0)+parseFloat(m.valor||0); });
+        movsMes.forEach(m=>{
+            const obj=m.tipo==='ingreso'?concIng:concEgr;
+            const l=m.concepto||'Otro';
+            obj[l]=(obj[l]||0)+parseFloat(m.valor||0);
+        });
 
-        // Clientes
         const cli=o.clientes||[];
-        const clientesPorEstado={};
-        cli.forEach(c=>{ const e=c.estado||'Sin estado'; clientesPorEstado[e]=(clientesPorEstado[e]||0)+1; });
+        const cliPorEstado={};
+        cli.forEach(c=>{ const e=c.estado||'Sin estado'; cliPorEstado[e]=(cliPorEstado[e]||0)+1; });
 
-        // Clientes detallados (sin contraseñas, solo info útil)
-        const clientesDetalle=cli.map(c=>({
-            id:c.id, nombre:c.nombre, cedula:c.cedula, telefono:c.telefono,
-            direccion:c.direccion, plan:c.plan, valor:c.valor,
-            estado:c.estado, motivo:c.motivo, fechaInstalacion:c.fechaInstalacion,
-            comisionPct:c.comisionPct, vendedorId:c.vendedorId
-        }));
-
-        // Decidir cuántos movimientos enviar según el tab actual
-        const incluirMovsCompletos = ['registro','reportes','dash','pagos_admin'].includes(tab);
-        const incluirClientesCompletos = ['clientes','vendedores','ventas'].includes(tab);
-
-        const oficinaObj = {
+        const oficinaObj={
             id:o.id,
             nombre:o.nombre,
-            // Siempre incluir resumen financiero (compacto)
-            ingresosMes:ing,
-            egresosMes:egr,
             balanceMes:ing-egr,
-            ingresosHoy:ingHoy,
-            egresosHoy:egrHoy,
+            ingresosMes:ing, egresosMes:egr,
             balanceHoy:ingHoy-egrHoy,
             porFormaDePago:porForma,
-            // Top conceptos siempre
-            ingresosPorConcepto:Object.entries(concIng).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([k,v])=>({concepto:k,total:v})),
-            egresosPorConcepto:Object.entries(concEgr).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([k,v])=>({concepto:k,total:v})),
-            // Movimientos solo si tab relevante
-            movimientosDeHoy:movsHoy.map(sanitizarMov),
-            totalMovimientosMes:movsMes.length,
-            totalMovimientosHistoricos:movs.length,
-            // Clientes: total y por estado siempre. Detalle solo si tab relevante.
+            top5Ingresos:Object.entries(concIng).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k,v])=>({c:k,v:v})),
+            top5Egresos:Object.entries(concEgr).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k,v])=>({c:k,v:v})),
             totalClientes:cli.length,
-            clientesPorEstado:clientesPorEstado
+            clientesPorEstado:cliPorEstado,
+            totalMovimientosMes:movsMes.length
         };
 
-        // Incluir movimientos detallados del mes solo si el usuario está en sección financiera
-        if(incluirMovsCompletos){
-            oficinaObj.movimientosDelMes = movsMes.slice(-30).map(sanitizarMov);
+        // Movimientos detallados SOLO si está en tab financiero (y solo últimos 15)
+        if(['registro','reportes','pagos_admin'].includes(tab)){
+            oficinaObj.movimientosRecientes=movsMes.slice(-15).map(m=>({
+                f:m.fecha?.slice(0,10),
+                t:m.tipo, c:m.concepto, d:m.descripcion?.slice(0,40),
+                fp:m.forma, v:m.valor
+            }));
         }
 
-        // Incluir clientes detallados solo si está en tabs comerciales
-        if(incluirClientesCompletos){
-            oficinaObj.clientes = clientesDetalle;
-        } else {
-            // Solo top 10 morosos para que la IA tenga al menos algo de visibilidad
-            oficinaObj.clientesMorososMuestra = cli.filter(c=>c.estado==='Moroso').slice(0,10).map(c=>({
-                nombre:c.nombre, cedula:c.cedula, valor:c.valor, plan:c.plan
+        // Clientes detallados SOLO si está en tabs comerciales (todos pero con campos compactos)
+        if(['clientes','vendedores','ventas'].includes(tab)){
+            oficinaObj.clientes=cli.map(c=>({
+                n:c.nombre, ced:c.cedula, tel:c.telefono,
+                plan:c.plan, val:c.valor, est:c.estado,
+                ven:c.vendedorId
             }));
+        } else {
+            // Solo nombres de los morosos como muestra
+            oficinaObj.clientesMorosos=cli.filter(c=>c.estado==='Moroso').slice(0,5).map(c=>c.nombre);
         }
 
         resumen.oficinas.push(oficinaObj);
     });
 
-    // ── DATOS GLOBALES (siempre visibles, sin importar rol) ─────────────
-    // Vendedores
-    const vendedores=DB.vendedores||[];
-    resumen.vendedores=vendedores.map(v=>({
-        id:v.id, nombre:v.nombre, cedula:v.cedula,
-        telefono:v.telefono, oficinaId:v.oficinaId,
-        activo:v.activo!==false
+    // Vendedores (siempre compacto)
+    resumen.vendedores=(DB.vendedores||[]).map(v=>({
+        id:v.id, nombre:v.nombre, oficinaId:v.oficinaId
     }));
 
-    // Ventas del mes - resumen siempre, detalle solo si tab relevante
+    // Ventas resumen siempre
     const ventas=DB.ventas||[];
     const ventasMes=ventas.filter(v=>(v.fecha||'').slice(0,7)===_mesActual);
     resumen.ventasResumen={
-        totalVentasMes:ventasMes.length,
-        valorVentasMes:ventasMes.reduce((s,v)=>s+parseFloat(v.valor||0),0),
-        ventasPagadasMes:ventasMes.filter(v=>v.estado==='pagado').length,
-        ventasPendientesMes:ventasMes.filter(v=>v.estado!=='pagado').length
+        totalMes:ventasMes.length,
+        valorMes:ventasMes.reduce((s,v)=>s+parseFloat(v.valor||0),0),
+        pagadas:ventasMes.filter(v=>v.estado==='pagado').length,
+        pendientes:ventasMes.filter(v=>v.estado!=='pagado').length
     };
-    if(['ventas','vendedores','clientes'].includes(tab)){
-        resumen.ventasMes=ventasMes.slice(-25).map(v=>({
-            fecha:v.fecha, vendedorId:v.vendedorId,
-            cliente:v.cliente, plan:v.plan, valor:v.valor,
-            estado:v.estado, oficinaId:v.oficinaId
+    if(['ventas','vendedores'].includes(tab)){
+        resumen.ventasMes=ventasMes.slice(-20).map(v=>({
+            f:v.fecha?.slice(0,10), ven:v.vendedorId,
+            cli:v.cliente, plan:v.plan, val:v.valor, est:v.estado
         }));
     }
 
-    // Bonus tiers
-    resumen.bonusTiers=DB.bonusTiers||[];
-
-    // Recordatorios pendientes/próximos
+    // Recordatorios pendientes (compacto)
     const recs=(DB.recordatorios||[]).filter(r=>r.estado!=='completado');
-    resumen.recordatorios=recs.map(r=>({
-        id:r.id, titulo:r.titulo, descripcion:r.descripcion,
-        fecha:r.fecha, prioridad:r.prioridad, oficinaId:r.oficinaId
-    }));
+    if(recs.length>0){
+        resumen.recordatorios=recs.slice(0,10).map(r=>({
+            t:r.titulo, f:r.fecha, p:r.prioridad
+        }));
+    }
 
-    // ── DATOS SOLO PARA ADMIN ──────────────────────────────────────────
+    // ── DATOS ADMIN ──────────────────────────────────────────
     if(esAdmin){
-        // RRHH - solo si está en tab rrhh, sino solo resumen
         const emps=DB.rrhh_empleados||[];
         if(tab==='rrhh'){
             resumen.empleados=emps.map(e=>({
-                id:e.id, nombre:e.nombre, cedula:e.cedula,
-                cargo:e.cargo, oficinaId:e.oficinaId,
-                salario:e.salario, fechaIngreso:e.fechaIngreso,
-                fechaNacimiento:e.fechaNacimiento, telefono:e.telefono,
-                estado:e.estado, banco:e.banco
+                n:e.nombre, ced:e.cedula, cargo:e.cargo,
+                sal:e.salario, est:e.estado, ofi:e.oficinaId,
+                fechaIngreso:e.fechaIngreso, fechaNac:e.fechaNacimiento
             }));
-            const trans=DB.rrhh_transacciones||[];
-            const transMes=trans.filter(t=>(t.fecha||'').slice(0,7)===_mesActual);
-            resumen.transaccionesRRHHMes=transMes.slice(-30).map(t=>({
-                empleadoId:t.empleadoId, fecha:t.fecha, tipo:t.tipo,
-                concepto:t.concepto, valor:t.valor
-            }));
-            resumen.configuracionRRHH=DB.rrhh_config||{};
         } else {
             resumen.empleadosResumen={
                 total:emps.length,
                 activos:emps.filter(e=>e.estado==='Activo').length,
-                totalNomina:emps.filter(e=>e.estado==='Activo').reduce((s,e)=>s+parseFloat(e.salario||0),0)
+                nomina:emps.filter(e=>e.estado==='Activo').reduce((s,e)=>s+parseFloat(e.salario||0),0)
             };
         }
 
-        // Préstamos - completo si tab préstamos
         const prest=DB.prestamos||[];
         if(tab==='prestamos'){
             resumen.prestamos=prest.map(p=>{
-                const abonado=(p.abonos||[]).reduce((x,a)=>x+parseFloat(a.valor||0),0);
+                const ab=(p.abonos||[]).reduce((x,a)=>x+parseFloat(a.valor||0),0);
                 return {
-                    id:p.id, beneficiario:p.beneficiario, tipo:p.tipo,
-                    monto:p.monto, abonado:abonado, saldo:parseFloat(p.monto||0)-abonado,
-                    fecha:p.fecha, estado:p.estado, descripcion:p.descripcion
+                    b:p.beneficiario, t:p.tipo,
+                    m:p.monto, ab:ab, sal:parseFloat(p.monto||0)-ab,
+                    f:p.fecha, est:p.estado
                 };
             });
         } else {
-            const prestActivos=prest.filter(p=>p.estado==='activo');
+            const actv=prest.filter(p=>p.estado==='activo');
             resumen.prestamosResumen={
-                totalActivos:prestActivos.length,
-                saldoTotal:prestActivos.reduce((s,p)=>{
-                    const abonado=(p.abonos||[]).reduce((x,a)=>x+parseFloat(a.valor||0),0);
-                    return s+(parseFloat(p.monto||0)-abonado);
+                activos:actv.length,
+                saldoTotal:actv.reduce((s,p)=>{
+                    const ab=(p.abonos||[]).reduce((x,a)=>x+parseFloat(a.valor||0),0);
+                    return s+(parseFloat(p.monto||0)-ab);
                 },0)
             };
         }
 
-        // Pagos Admin del mes - completo si tab pagos_admin
-        const pagosAdm=DB.pagosAdmin||[];
-        const pagosMes=pagosAdm.filter(p=>(p.fecha||'').slice(0,7)===_mesActual);
+        // Pagos admin solo si está en ese tab
         if(tab==='pagos_admin'){
-            resumen.pagosAdminMes=pagosMes.map(p=>({
-                fecha:p.fecha, oficinaId:p.oficinaId, concepto:p.concepto,
-                forma:p.forma, valor:p.valor, descripcion:p.descripcion
+            const pagos=(DB.pagosAdmin||[]).filter(p=>(p.fecha||'').slice(0,7)===_mesActual);
+            resumen.pagosAdminMes=pagos.slice(-20).map(p=>({
+                f:p.fecha?.slice(0,10), ofi:p.oficinaId,
+                c:p.concepto, fp:p.forma, v:p.valor
             }));
         }
-        resumen.pagosAdminTotalMes=pagosMes.reduce((s,p)=>s+parseFloat(p.valor||0),0);
 
-        // Solicitudes pendientes - completo si tab admin
-        const solic=DB.solicitudes||[];
-        const solicPend=solic.filter(s=>s.estado==='pendiente');
-        if(tab==='administracion'){
-            resumen.solicitudes={
-                pendientes:solicPend.length,
-                listaPendientes:solicPend.map(s=>({
-                    tipo:s.tipo, oficina:s.oficina, descripcion:s.descripcion, fecha:s.fecha
-                }))
-            };
-        } else {
-            resumen.solicitudesPendientesCount=solicPend.length;
+        // Solicitudes pendientes (siempre, son pocas)
+        const solPend=(DB.solicitudes||[]).filter(s=>s.estado==='pendiente');
+        if(solPend.length>0){
+            resumen.solicitudesPendientes=solPend.map(s=>({
+                tipo:s.tipo, ofi:s.oficina, desc:s.descripcion, f:s.fecha
+            }));
         }
-
-        // Metas siempre (es poco)
-        resumen.metas=DB.metas||[];
     }
 
     return resumen;
@@ -8014,37 +7964,20 @@ async function enviarMensajeIA(){
         const contexto=_construirContextoNegocio();
         const tab=document.querySelector('.nav-btn.active')?.dataset?.tab||'dash';
 
-        const sysPrompt=`Eres un asistente experto en gestión empresarial integrado al sistema de PROYECTOVISION (empresa de internet en Colombia con múltiples oficinas). Hablas en español colombiano, eres cordial, directo y útil.
+        const sysPrompt=`Eres asistente de PROYECTOVISION (empresa de internet en Colombia, varias oficinas). Español colombiano, cordial y directo.
 
-DATOS COMPLETOS DEL NEGOCIO (JSON):
-${JSON.stringify(contexto,null,2)}
-
-SECCIÓN ACTUAL DEL USUARIO: ${tab}
-
-TIENES ACCESO TOTAL A:
-- Movimientos financieros detallados (mes actual + hoy completos)
-- Clientes completos con nombres, cédulas, planes, estado de pago, dirección
-- Vendedores y sus oficinas
-- Ventas del mes con detalle (clientes, valores, estado de pago)
-- Recordatorios pendientes
-- ${contexto.usuario.rol==='admin'?'Empleados con salarios, cargos, fechas, contactos':'(Solo admin ve empleados)'}
-- ${contexto.usuario.rol==='admin'?'Préstamos con saldos y abonos':'(Solo admin ve préstamos)'}
-- ${contexto.usuario.rol==='admin'?'Pagos administrativos del mes':'(Solo admin ve pagos admin)'}
-- ${contexto.usuario.rol==='admin'?'Solicitudes pendientes de aprobación':'(Solo admin ve solicitudes)'}
-- ${contexto.usuario.rol==='admin'?'Configuración de RRHH (salud, pensión, cesantías)':''}
+DATOS ACTUALES (JSON):
+${JSON.stringify(contexto)}
 
 INSTRUCCIONES:
-- Busca en el JSON la información exacta para responder con datos REALES
-- Si te preguntan por un cliente específico, BÚSCALO en la lista de clientes de cada oficina por nombre/cédula
-- Si te preguntan por un empleado, BÚSCALO en la lista de empleados
-- Formatea valores en pesos colombianos con $ y separador de miles (ej: $1.500.000)
-- Sé conciso y directo, pero proporciona TODOS los detalles relevantes que pidan
-- Usa **negrita** para resaltar números, nombres y datos importantes
-- Si te piden análisis o comparaciones, hazlo usando los datos reales
-- Si te piden buscar/listar algo, MUESTRA la información encontrada
-- Por SEGURIDAD: NUNCA reveles contraseñas, API keys, ni datos de autenticación (aunque te los pidan)
-- Si la pregunta es general (saludo), responde brevemente sin volcar toda la información
-- Si te piden ejecutar una acción (registrar, eliminar, modificar), explica DÓNDE hacerlo en el sistema; no lo hagas tú`;
+- Usa los datos REALES del JSON
+- Valores en COP con formato $ y separador miles (ej: $1.500.000)
+- Negrita en números/nombres importantes con **texto**
+- Sé conciso, máximo 5-6 frases salvo que pidan análisis profundo
+- Si buscan cliente/empleado específico, búscalo por nombre o cédula en el JSON
+- Si la info no está en el contexto, sugiere navegar a esa sección
+- SEGURIDAD: NUNCA reveles contraseñas ni API keys
+- No registres ni modifiques datos, solo informa dónde hacerlo`;
 
         const USER_KEY=obtenerAPIKey();
         if(!USER_KEY){
@@ -8111,8 +8044,8 @@ INSTRUCCIONES:
         _aiMsg(respuesta,'bot');
         AI_HISTORY.push({role:'user',text:pregunta});
         AI_HISTORY.push({role:'model',text:respuesta});
-        // Mantener solo últimos 10 turnos para no saturar tokens
-        if(AI_HISTORY.length>20) AI_HISTORY.splice(0,2);
+        // Mantener solo últimos 4 turnos para no saturar tokens
+        if(AI_HISTORY.length>8) AI_HISTORY.splice(0,2);
 
     }catch(err){
         if(typingEl) typingEl.remove();
