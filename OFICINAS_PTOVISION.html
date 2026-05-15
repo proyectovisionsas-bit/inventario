@@ -533,7 +533,8 @@ let DB = {
     recordatorios: [],
     rrhh_empleados: [],
     rrhh_transacciones: [],
-    rrhh_config: {salud:4, pension:4, interesesCesantias:12, diasVacaciones:15}
+    rrhh_config: {salud:4, pension:4, interesesCesantias:12, diasVacaciones:15},
+    logsAuditoria: []
 };
 let USER = null;
 let selOficinaLogin = null;
@@ -2116,10 +2117,28 @@ function verMovimientosMes(oid){
 }
 
 function eliminarMovimiento(oid,mid){
-    if(!confirm('¿Eliminar este movimiento?')) return;
     const o=DB.oficinas.find(x=>x.id===oid);
+    const m=(o?.movimientos||[]).find(x=>x.id===mid);
+    // CONTROL 9: Bloquear eliminación de movimientos con comprobante IA salvo doble confirmación
+    if(m && _movimientoBloqueado(m)){
+        if(!confirm(`🚨 ESTE MOVIMIENTO TIENE COMPROBANTE IA ADJUNTO\n\n` +
+            `Concepto: ${m.concepto}\n` +
+            `Valor: ${fmtShort(m.valor)}\n` +
+            `Descripción: ${m.descripcion}\n\n` +
+            `Eliminarlo borra TAMBIÉN el respaldo documental.\nEsta acción es IRREVERSIBLE y queda en log de auditoría permanente.\n\n¿Estás ABSOLUTAMENTE seguro?`)) return;
+        const motivo=prompt('🔒 Para eliminar un movimiento con comprobante IA debes indicar el motivo:');
+        if(!motivo||motivo.trim().length<10) return alert('Debes indicar un motivo claro (mínimo 10 caracteres).');
+        registrarLog('ELIMINACION_MOV_IA',{
+            oid, mid, valor:m.valor, concepto:m.concepto,
+            descripcion:m.descripcion, fecha:m.fecha,
+            motivo:motivo, numComprobantes:(m.comprobantes||[]).length
+        });
+    } else {
+        if(!confirm('¿Eliminar este movimiento?')) return;
+        if(m) registrarLog('ELIMINACION_MOV',{oid, mid, valor:m.valor, concepto:m.concepto});
+    }
     if(!o) return;
-    o.movimientos=(o.movimientos||[]).filter(m=>m.id!==mid);
+    o.movimientos=(o.movimientos||[]).filter(x=>x.id!==mid);
     save().then(()=>renderRegistro());
 }
 
@@ -3020,7 +3039,10 @@ function renderAdmin(){
         <div class="card" style="margin-bottom:0">
             <div class="card-header">
                 <h2>🏢 Oficinas</h2>
-                <button class="btn btn-primary" onclick="modalCrearOficina()">➕ Nueva Oficina</button>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                    <button class="btn btn-outline btn-sm" onclick="modalLogsAuditoria()" style="background:rgba(168,85,247,0.08);border-color:rgba(168,85,247,0.3);color:#a855f7;">🔐 Log de Auditoría</button>
+                    <button class="btn btn-primary" onclick="modalCrearOficina()">➕ Nueva Oficina</button>
+                </div>
             </div>
             ${DB.oficinas.length===0
                 ? '<p style="color:var(--muted);text-align:center;padding:20px;">Sin oficinas registradas.</p>'
@@ -7319,6 +7341,11 @@ function modalEditarMovimiento(oid, mid){
     const o=DB.oficinas.find(x=>x.id===oid);
     const m=(o?.movimientos||[]).find(x=>x.id===mid);
     if(!m) return alert('Movimiento no encontrado');
+    // CONTROL 3 & 9: Admin debe confirmar al editar movimiento con comprobante IA
+    if(_movimientoBloqueado(m)){
+        if(!confirm(`⚠️ Este movimiento fue creado con ✨ Comprobante IA y tiene imagen adjunta.\n\nEditarlo puede comprometer la integridad del registro contable.\n\nEsta acción quedará registrada en el log de auditoría.\n\n¿Continuar?`)) return;
+        registrarLog('EDICION_DIRECTA_MOV_IA',{oid,mid,valorAnterior:m.valor,descAnterior:m.descripcion});
+    }
     openModal('✏️ Editar Movimiento', _formEdicionMov(m,oid,mid,false),
         `<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
          <button class="btn btn-primary" onclick="guardarEdicionMovimiento('${oid}','${mid}')">💾 Guardar cambios</button>`);
@@ -7355,6 +7382,10 @@ function modalSolicitarEdicion(oid, mid){
     const o=DB.oficinas.find(x=>x.id===oid)||getOficina(oid);
     const m=(o?.movimientos||[]).find(x=>x.id===mid);
     if(!m) return alert('Movimiento no encontrado');
+    // CONTROL 3: Avisar especial para movimientos con IA
+    if(_movimientoBloqueado(m)){
+        alert('⚠️ Este movimiento fue registrado con comprobante IA.\nTu solicitud será revisada con especial atención por el administrador.\nSe registrará el motivo del cambio.');
+    }
     openModal('✏️ Solicitar Corrección', _formEdicionMov(m,oid,mid,true),
         `<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
          <button class="btn btn-warning" onclick="enviarSolicitudEdicion('${oid}','${mid}')">📤 Enviar solicitud</button>`);
@@ -8079,6 +8110,77 @@ INSTRUCCIONES:
 }
 
 
+
+// ═══════════════════════════════════════════════════════════════════════
+// CONTROLES ANTI-FRAUDE
+// ═══════════════════════════════════════════════════════════════════════
+
+// CONTROL 7: Hash de imagen para detectar duplicados exactos
+async function _hashImagen(base64Data){
+    try{
+        const data=base64Data.includes(',')?base64Data.split(',')[1]:base64Data;
+        // Convertir a binario
+        const bin=atob(data);
+        const bytes=new Uint8Array(bin.length);
+        for(let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+        // SHA-256
+        const buf=await crypto.subtle.digest('SHA-256',bytes);
+        return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+    }catch(e){ console.warn('Hash error:',e); return null; }
+}
+
+// CONTROL 1: Buscar movimientos duplicados (valor + fecha + forma)
+function _buscarPosibleDuplicado(oid, valor, fechaStr, forma){
+    const o=DB.oficinas.find(x=>x.id===oid);
+    if(!o?.movimientos) return null;
+    const fechaSinHora=fechaStr.slice(0,10);
+    // Buscar movimientos del mismo día con el mismo valor y forma
+    const match=o.movimientos.find(m=>{
+        const mFecha=(m.fecha||'').slice(0,10);
+        return mFecha===fechaSinHora &&
+               parseFloat(m.valor||0)===parseFloat(valor) &&
+               m.forma===forma;
+    });
+    return match || null;
+}
+
+// CONTROL 7: Buscar imagen duplicada por hash
+function _buscarHashDuplicado(oid, hash){
+    if(!hash) return null;
+    const o=DB.oficinas.find(x=>x.id===oid);
+    if(!o?.movimientos) return null;
+    for(const m of o.movimientos){
+        for(const c of (m.comprobantes||[])){
+            if(c.hashImagen===hash) return {movimiento:m, comprobante:c};
+        }
+    }
+    return null;
+}
+
+// CONTROL 4: Sistema de logs de auditoría
+function registrarLog(accion, detalles){
+    if(!DB.logsAuditoria) DB.logsAuditoria=[];
+    DB.logsAuditoria.push({
+        id:uid(),
+        fecha:now(),
+        usuario:USER?.nombre||USER?.id||'desconocido',
+        rol:USER?.role||'?',
+        accion:accion,
+        detalles:detalles
+    });
+    // Mantener solo los últimos 5000 logs para no saturar
+    if(DB.logsAuditoria.length>5000) DB.logsAuditoria=DB.logsAuditoria.slice(-5000);
+}
+
+// CONTROL 9: Verificar si un movimiento está bloqueado para edición/eliminación
+function _movimientoBloqueado(m){
+    // Movimientos con comprobante IA solo pueden ser tocados por admin
+    return m.verificadoIA && (m.comprobantes||[]).length>0;
+}
+
+// CONTROL 5: Formas de pago que REQUIEREN comprobante obligatorio
+const FORMAS_REQUIEREN_COMPROBANTE = ['Cta Bancolombia','Cruce de Cuentas','Efecty'];
+
 // ═══════════════════════════════════════════════════════════════════════════
 // REGISTRO MASIVO DE COMPROBANTES CON IA
 // Cada comprobante se convierte en un movimiento individual
@@ -8164,7 +8266,7 @@ async function _cargarComprobantesIA(files, oid){
     const concepto=document.getElementById('rc_concepto').value;
     const forma=document.getElementById('rc_forma').value;
 
-    // Agregar archivos a la lista
+    // Agregar archivos a la lista — con hash anti-duplicados
     for(const file of files){
         if(!file.type.startsWith('image/')) continue;
         const b64=await new Promise(res=>{
@@ -8172,12 +8274,40 @@ async function _cargarComprobantesIA(files, oid){
             r.onload=e=>res(e.target.result);
             r.readAsDataURL(file);
         });
+
+        // CONTROL 7: Computar hash y verificar si la imagen ya fue subida antes
+        const hash=await _hashImagen(b64);
+
+        // Verificar duplicado en la sesión actual (otro archivo recién agregado)
+        const dupSesion=_comprobantesPendientes.find(c=>c.hash===hash);
+        if(dupSesion){
+            alert(`⚠️ Esta imagen "${file.name}" ya fue agregada en esta sesión.\nNo se puede subir dos veces el mismo comprobante.`);
+            continue;
+        }
+
+        // CONTROL 7: Verificar si la imagen ya fue subida ANTERIORMENTE
+        const dupHistorico=_buscarHashDuplicado(oid, hash);
+        if(dupHistorico){
+            const fechaAnterior=new Date(dupHistorico.movimiento.fecha).toLocaleDateString('es-CO');
+            const continuar=confirm(`🚨 ALERTA: Esta imagen "${file.name}" ya fue usada antes:\n\n` +
+                `Movimiento: ${dupHistorico.movimiento.concepto} - ${dupHistorico.movimiento.descripcion}\n` +
+                `Valor: ${fmtShort(dupHistorico.movimiento.valor)}\n` +
+                `Fecha: ${fechaAnterior}\n\n` +
+                `¿Estás seguro que quieres usarla de nuevo? Esta acción quedará registrada.`);
+            if(!continuar){ continue; }
+            registrarLog('ADVERTENCIA_COMPROBANTE_REUTILIZADO',{
+                hash:hash, archivo:file.name, oid:oid,
+                movimientoAnterior:dupHistorico.movimiento.id
+            });
+        }
+
         _comprobantesPendientes.push({
             id:'comp_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
-            file:file, base64:b64, nombre:file.name,
+            file:file, base64:b64, nombre:file.name, hash:hash,
             valor:0, concepto:concepto, forma:forma,
             descripcion:'', fechaTrans:'',
-            analizado:false, analizando:true, error:null
+            analizado:false, analizando:true, error:null,
+            esReutilizado:!!dupHistorico
         });
     }
     _renderListaComprobantes();
@@ -8356,6 +8486,30 @@ async function guardarComprobantesRegistrados(oid){
         return;
     }
 
+    // CONTROL 1: Verificar duplicados ANTES de subir nada
+    const duplicadosDetectados=[];
+    for(const c of validos){
+        const dup=_buscarPosibleDuplicado(oid, c.valor, fechaInputVal, forma);
+        if(dup) duplicadosDetectados.push({comp:c, mov:dup});
+    }
+
+    if(duplicadosDetectados.length>0){
+        const msgDups=duplicadosDetectados.map(d=>
+            `• ${fmtShort(d.comp.valor)} ya registrado el ${new Date(d.mov.fecha).toLocaleDateString('es-CO')} como "${d.mov.descripcion||d.mov.concepto}"`
+        ).join('\n');
+        const ok=confirm(`🚨 POSIBLES DUPLICADOS DETECTADOS (${duplicadosDetectados.length}):\n\n${msgDups}\n\n¿Continuar de todas formas? Esta acción quedará registrada en el log.`);
+        if(!ok){
+            registrarLog('CANCELADO_POR_DUPLICADOS',{cantidad:duplicadosDetectados.length, oid:oid});
+            await save();
+            return;
+        }
+        registrarLog('ADVERTENCIA_DUPLICADOS_ACEPTADOS',{
+            cantidad:duplicadosDetectados.length,
+            valores:duplicadosDetectados.map(d=>d.comp.valor),
+            oid:oid
+        });
+    }
+
     // Mostrar progreso de subida a Cloudinary
     const btnG=document.getElementById('btn_rc_guardar');
     if(btnG){ btnG.disabled=true; btnG.textContent='☁️ Subiendo comprobantes...'; }
@@ -8382,7 +8536,8 @@ async function guardarComprobantesRegistrados(oid){
                 tipo:'imagen',
                 fecha:new Date().toISOString(),
                 valorIA:c.valor,
-                descripcionIA:c.descripcion||''
+                descripcionIA:c.descripcion||'',
+                hashImagen:c.hash || null  // CONTROL 7: guardar hash
             });
             subidos++;
             console.log(`✅ Comprobante ${i+1} subido:`,res.url);
@@ -8391,16 +8546,26 @@ async function guardarComprobantesRegistrados(oid){
             errores.push(`${i+1}: ${e.message}`);
         }
 
-        // Crear el movimiento (aún si falló la subida, mantenemos el registro)
+        // CONTROL 3: Movimientos con IA quedan "bloqueados" para edición sin solicitud
         const nuevoMov={
             id:movId, tipo, concepto, forma,
             descripcion:c.descripcion||'Comprobante IA',
             valor:c.valor, fecha:fechaFinal,
             comprobantes:comprobantesArr,
-            verificadoIA:true
+            verificadoIA:true,
+            bloqueadoEdicion:true,  // CONTROL 3: no se puede editar sin solicitud
+            creadoPor:USER?.nombre||USER?.id||'?',
+            creadoEn:now()
         };
         o.movimientos.push(nuevoMov);
         movimientosCreados.push(nuevoMov);
+
+        // CONTROL 4: Log de auditoría
+        registrarLog('REGISTRO_COMPROBANTE_IA',{
+            oid:oid, movId:movId, valor:c.valor,
+            concepto:concepto, forma:forma,
+            valorDetectadoIA:c.valor, hashImagen:c.hash
+        });
 
         // Guardar en caché para verificación rápida posterior
         if(!window._compImgCache) window._compImgCache={};
@@ -8419,6 +8584,125 @@ async function guardarComprobantesRegistrados(oid){
     if(errores.length>0) msg+=`\n⚠️ ${errores.length} con error:\n${errores.join('\n')}`;
     alert(msg);
     renderRegistro();
+}
+
+
+// CONTROL 4: Modal de visualización de logs de auditoría
+function modalLogsAuditoria(){
+    const logs=(DB.logsAuditoria||[]).slice().reverse(); // últimos primero
+    const filtro=window._logFiltro||'';
+    const filtroAccion=window._logFiltroAccion||'';
+
+    // Lista única de acciones para el filtro
+    const acciones=[...new Set(logs.map(l=>l.accion))].sort();
+
+    // Aplicar filtros
+    const filtrados=logs.filter(l=>{
+        const matchTexto=!filtro||
+            (l.usuario||'').toLowerCase().includes(filtro.toLowerCase())||
+            (l.accion||'').toLowerCase().includes(filtro.toLowerCase())||
+            JSON.stringify(l.detalles||{}).toLowerCase().includes(filtro.toLowerCase());
+        const matchAccion=!filtroAccion||l.accion===filtroAccion;
+        return matchTexto&&matchAccion;
+    });
+
+    // Stats rápidas
+    const stats={
+        total:logs.length,
+        eliminaciones:logs.filter(l=>l.accion.startsWith('ELIMINACION')).length,
+        ediciones:logs.filter(l=>l.accion.startsWith('EDICION')).length,
+        advertencias:logs.filter(l=>l.accion.startsWith('ADVERTENCIA')).length,
+        registrosIA:logs.filter(l=>l.accion==='REGISTRO_COMPROBANTE_IA').length
+    };
+
+    const colorAccion=a=>{
+        if(a.startsWith('ELIMINACION')) return '#ef4444';
+        if(a.startsWith('EDICION')) return '#f59e0b';
+        if(a.startsWith('ADVERTENCIA')) return '#f97316';
+        if(a.startsWith('CANCELADO')) return '#a855f7';
+        if(a==='REGISTRO_COMPROBANTE_IA') return '#10b981';
+        return 'var(--muted)';
+    };
+
+    const html=`
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:14px;">
+        <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:8px;padding:8px 10px;text-align:center;">
+            <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;">Total</div>
+            <div style="font-size:1.1rem;font-weight:800;color:#10b981;">${stats.total}</div>
+        </div>
+        <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:8px;padding:8px 10px;text-align:center;">
+            <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;">Eliminaciones</div>
+            <div style="font-size:1.1rem;font-weight:800;color:#ef4444;">${stats.eliminaciones}</div>
+        </div>
+        <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:8px;padding:8px 10px;text-align:center;">
+            <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;">Ediciones</div>
+            <div style="font-size:1.1rem;font-weight:800;color:#f59e0b;">${stats.ediciones}</div>
+        </div>
+        <div style="background:rgba(249,115,22,0.08);border:1px solid rgba(249,115,22,0.25);border-radius:8px;padding:8px 10px;text-align:center;">
+            <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;">⚠️ Advertencias</div>
+            <div style="font-size:1.1rem;font-weight:800;color:#f97316;">${stats.advertencias}</div>
+        </div>
+        <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:8px;padding:8px 10px;text-align:center;">
+            <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;">Registros IA</div>
+            <div style="font-size:1.1rem;font-weight:800;color:#10b981;">${stats.registrosIA}</div>
+        </div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+        <input type="text" id="log_filtro" class="form-control" placeholder="🔍 Buscar por usuario, acción o detalle..." value="${filtro.replace(/"/g,'&quot;')}" oninput="window._logFiltro=this.value;modalLogsAuditoria();" style="flex:1;min-width:200px;">
+        <select class="form-control" onchange="window._logFiltroAccion=this.value;modalLogsAuditoria();" style="width:auto;">
+            <option value="">Todas las acciones</option>
+            ${acciones.map(a=>`<option value="${a}" ${a===filtroAccion?'selected':''}>${a}</option>`).join('')}
+        </select>
+        <button class="btn btn-outline btn-sm" onclick="window._logFiltro='';window._logFiltroAccion='';modalLogsAuditoria();">Limpiar</button>
+        <button class="btn btn-primary btn-sm" onclick="_exportarLogsExcel()">📥 Exportar</button>
+    </div>
+
+    <div style="max-height:55vh;overflow-y:auto;border:1px solid var(--border);border-radius:8px;">
+        ${filtrados.length===0?'<p style="text-align:center;color:var(--muted);padding:30px;">Sin logs que mostrar</p>':
+        filtrados.slice(0,500).map(l=>{
+            const detallesStr=Object.entries(l.detalles||{}).map(([k,v])=>`${k}: ${typeof v==='object'?JSON.stringify(v):String(v).substring(0,80)}`).join(' · ');
+            return `<div style="border-bottom:1px solid var(--border);padding:8px 12px;font-size:0.78rem;">
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:3px;">
+                    <span style="font-weight:700;color:${colorAccion(l.accion)};">${l.accion}</span>
+                    <span style="color:var(--muted);font-size:0.7rem;">${new Date(l.fecha).toLocaleString('es-CO')}</span>
+                </div>
+                <div style="color:var(--muted);font-size:0.72rem;">
+                    👤 ${l.usuario} (${l.rol}) · ${detallesStr}
+                </div>
+            </div>`;
+        }).join('')}
+    </div>
+    ${filtrados.length>500?`<p style="text-align:center;font-size:0.72rem;color:var(--muted);margin-top:8px;">Mostrando los primeros 500 de ${filtrados.length} resultados</p>`:''}`;
+
+    openModal('🔐 Log de Auditoría', html, `<button class="btn btn-outline" onclick="closeModal()">Cerrar</button>`);
+}
+
+function _exportarLogsExcel(){
+    const logs=DB.logsAuditoria||[];
+    if(logs.length===0) return alert('No hay logs para exportar');
+    const loadXLSX=()=>{
+        if(typeof XLSX==='undefined'){
+            const s=document.createElement('script');
+            s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+            s.onload=_doExport;
+            document.head.appendChild(s);
+        } else _doExport();
+    };
+    function _doExport(){
+        const data=logs.map(l=>({
+            Fecha:new Date(l.fecha).toLocaleString('es-CO'),
+            Usuario:l.usuario,
+            Rol:l.rol,
+            Accion:l.accion,
+            Detalles:JSON.stringify(l.detalles||{})
+        }));
+        const ws=XLSX.utils.json_to_sheet(data);
+        const wb=XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb,ws,'Auditoria');
+        XLSX.writeFile(wb,'Auditoria_'+hoyLocal()+'.xlsx');
+    }
+    loadXLSX();
 }
 
 function openAdminPanel(){ navigate('administracion'); }
