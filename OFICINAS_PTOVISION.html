@@ -8267,7 +8267,9 @@ async function _cargarComprobantesIA(files, oid){
     const forma=document.getElementById('rc_forma').value;
 
     // Agregar archivos a la lista — con hash anti-duplicados
-    for(const file of files){
+    let bloqueadosSesion=0, bloqueadosHistoricos=0;
+    for(let fIdx=0;fIdx<files.length;fIdx++){
+        const file=files[fIdx];
         if(!file.type.startsWith('image/')) continue;
         const b64=await new Promise(res=>{
             const r=new FileReader();
@@ -8275,29 +8277,71 @@ async function _cargarComprobantesIA(files, oid){
             r.readAsDataURL(file);
         });
 
-        // CONTROL 7: Computar hash y verificar si la imagen ya fue subida antes
+        // CONTROL 7: Computar hash SHA-256 de la imagen
         const hash=await _hashImagen(b64);
+        console.log(`📸 Archivo "${file.name}" hash: ${hash?hash.slice(0,16)+'...':'NULL'}`);
 
-        // Verificar duplicado en la sesión actual (otro archivo recién agregado)
-        const dupSesion=_comprobantesPendientes.find(c=>c.hash===hash);
-        if(dupSesion){
-            alert(`⚠️ Esta imagen "${file.name}" ya fue agregada en esta sesión.\nNo se puede subir dos veces el mismo comprobante.`);
+        if(!hash){
+            alert(`⚠️ No se pudo procesar "${file.name}". Hash no calculable.`);
             continue;
         }
 
-        // CONTROL 7: Verificar si la imagen ya fue subida ANTERIORMENTE
-        const dupHistorico=_buscarHashDuplicado(oid, hash);
+        // CONTROL 7a: Verificar duplicado dentro de la SESIÓN actual de carga
+        const dupSesion=_comprobantesPendientes.find(c=>c.hash&&c.hash===hash);
+        if(dupSesion){
+            bloqueadosSesion++;
+            alert(`🚫 BLOQUEADO\n\nLa imagen "${file.name}" es idéntica a "${dupSesion.nombre}" que ya seleccionaste.\n\nNo puedes subir el mismo comprobante dos veces.`);
+            registrarLog('BLOQUEADO_DUPLICADO_SESION',{
+                archivoIntentado:file.name,
+                archivoOriginal:dupSesion.nombre,
+                hash:hash, oid:oid
+            });
+            continue; // siguiente archivo
+        }
+
+        // CONTROL 7b: Verificar si la imagen ya fue subida HISTÓRICAMENTE en CUALQUIER oficina
+        let dupHistorico=_buscarHashDuplicado(oid, hash);
+        // También verificar en TODAS las oficinas para detección global
+        if(!dupHistorico){
+            for(const ofi of (DB.oficinas||[])){
+                if(ofi.id===oid) continue;
+                for(const m of (ofi.movimientos||[])){
+                    for(const c of (m.comprobantes||[])){
+                        if(c.hashImagen===hash){
+                            dupHistorico={movimiento:m,comprobante:c,oficinaOrigen:ofi.nombre};
+                            break;
+                        }
+                    }
+                    if(dupHistorico) break;
+                }
+                if(dupHistorico) break;
+            }
+        }
+
         if(dupHistorico){
+            bloqueadosHistoricos++;
             const fechaAnterior=new Date(dupHistorico.movimiento.fecha).toLocaleDateString('es-CO');
-            const continuar=confirm(`🚨 ALERTA: Esta imagen "${file.name}" ya fue usada antes:\n\n` +
-                `Movimiento: ${dupHistorico.movimiento.concepto} - ${dupHistorico.movimiento.descripcion}\n` +
-                `Valor: ${fmtShort(dupHistorico.movimiento.valor)}\n` +
-                `Fecha: ${fechaAnterior}\n\n` +
-                `¿Estás seguro que quieres usarla de nuevo? Esta acción quedará registrada.`);
-            if(!continuar){ continue; }
-            registrarLog('ADVERTENCIA_COMPROBANTE_REUTILIZADO',{
-                hash:hash, archivo:file.name, oid:oid,
-                movimientoAnterior:dupHistorico.movimiento.id
+            const oficinaOrigen=dupHistorico.oficinaOrigen?` (Oficina: ${dupHistorico.oficinaOrigen})`:'';
+            const continuar=confirm(`🚨🚨 ALERTA DE FRAUDE 🚨🚨\n\n` +
+                `La imagen "${file.name}" YA FUE USADA antes${oficinaOrigen}:\n\n` +
+                `📋 Movimiento: ${dupHistorico.movimiento.concepto}\n` +
+                `💰 Valor: ${fmtShort(dupHistorico.movimiento.valor)}\n` +
+                `📅 Fecha: ${fechaAnterior}\n` +
+                `📝 Descripción: ${dupHistorico.movimiento.descripcion}\n\n` +
+                `⚠️ Esta imagen es IDÉNTICA bit a bit a la usada antes.\n` +
+                `Si continúas, quedará registrado en el log de auditoría como uso sospechoso.\n\n` +
+                `¿REALMENTE quieres usarla de nuevo?`);
+            if(!continuar){
+                registrarLog('BLOQUEADO_COMPROBANTE_REUTILIZADO',{
+                    archivo:file.name, hash:hash, oid:oid,
+                    movimientoAnterior:dupHistorico.movimiento.id
+                });
+                continue;
+            }
+            registrarLog('ADVERTENCIA_COMPROBANTE_REUTILIZADO_ACEPTADO',{
+                archivo:file.name, hash:hash, oid:oid,
+                movimientoAnterior:dupHistorico.movimiento.id,
+                valorAnterior:dupHistorico.movimiento.valor
             });
         }
 
@@ -8310,6 +8354,8 @@ async function _cargarComprobantesIA(files, oid){
             esReutilizado:!!dupHistorico
         });
     }
+    if(bloqueadosSesion>0) console.warn(`Bloqueados por duplicado en sesión: ${bloqueadosSesion}`);
+    if(bloqueadosHistoricos>0) console.warn(`Bloqueados/Advertidos por duplicado histórico: ${bloqueadosHistoricos}`);
     _renderListaComprobantes();
 
     // Analizar por lotes de 5
@@ -8486,7 +8532,24 @@ async function guardarComprobantesRegistrados(oid){
         return;
     }
 
-    // CONTROL 1: Verificar duplicados ANTES de subir nada
+    // CONTROL 1a: Verificar valores REPETIDOS en el mismo lote
+    const valoresContados={};
+    validos.forEach(c=>{
+        const key=c.valor.toString();
+        valoresContados[key]=(valoresContados[key]||0)+1;
+    });
+    const valoresRepetidos=Object.entries(valoresContados).filter(([k,v])=>v>1);
+    if(valoresRepetidos.length>0){
+        const msgs=valoresRepetidos.map(([v,n])=>`• ${fmtShort(parseFloat(v))} aparece ${n} veces en este lote`).join('\n');
+        const ok=confirm(`⚠️ VALORES IDÉNTICOS DETECTADOS:\n\n${msgs}\n\n¿Es correcto que haya varios pagos exactamente iguales el mismo día?\nEsta acción quedará registrada.`);
+        if(!ok){
+            registrarLog('CANCELADO_VALORES_REPETIDOS',{repetidos:valoresRepetidos, oid:oid});
+            return;
+        }
+        registrarLog('ADVERTENCIA_VALORES_REPETIDOS_ACEPTADOS',{repetidos:valoresRepetidos, oid:oid});
+    }
+
+    // CONTROL 1b: Verificar duplicados con movimientos EXISTENTES
     const duplicadosDetectados=[];
     for(const c of validos){
         const dup=_buscarPosibleDuplicado(oid, c.valor, fechaInputVal, forma);
@@ -8500,7 +8563,6 @@ async function guardarComprobantesRegistrados(oid){
         const ok=confirm(`🚨 POSIBLES DUPLICADOS DETECTADOS (${duplicadosDetectados.length}):\n\n${msgDups}\n\n¿Continuar de todas formas? Esta acción quedará registrada en el log.`);
         if(!ok){
             registrarLog('CANCELADO_POR_DUPLICADOS',{cantidad:duplicadosDetectados.length, oid:oid});
-            await save();
             return;
         }
         registrarLog('ADVERTENCIA_DUPLICADOS_ACEPTADOS',{
@@ -8508,6 +8570,21 @@ async function guardarComprobantesRegistrados(oid){
             valores:duplicadosDetectados.map(d=>d.comp.valor),
             oid:oid
         });
+    }
+
+    // CONTROL 7c: Verificar hashes repetidos en el lote actual (segunda red de protección)
+    const hashesUsados=new Set();
+    const hashesRepetidos=[];
+    validos.forEach(c=>{
+        if(c.hash){
+            if(hashesUsados.has(c.hash)) hashesRepetidos.push(c.nombre);
+            else hashesUsados.add(c.hash);
+        }
+    });
+    if(hashesRepetidos.length>0){
+        alert(`🚫 NO SE PUEDE CONTINUAR\n\nHay ${hashesRepetidos.length} imagen(es) duplicada(s) en el lote:\n${hashesRepetidos.join(', ')}\n\nElimínalas antes de continuar.`);
+        registrarLog('BLOQUEADO_HASHES_DUPLICADOS_EN_LOTE',{nombres:hashesRepetidos, oid:oid});
+        return;
     }
 
     // Mostrar progreso de subida a Cloudinary
