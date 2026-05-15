@@ -2187,6 +2187,7 @@ function renderClientes(){
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button class="btn btn-outline btn-sm" onclick="descargarPlantillaExcel()">📥 Plantilla Excel</button>
                 <button class="btn btn-outline btn-sm" onclick="modalImportarExcel('${oid}')">📤 Importar Excel</button>
+                <button class="btn btn-outline btn-sm" onclick="modalGenerarContrato('${oid}')" style="background:rgba(168,85,247,0.1);color:#a855f7;border-color:rgba(168,85,247,0.3);">📄 Generar Contrato</button>
                 <button class="btn btn-primary" onclick="modalAgregarCliente('${oid}')">➕ Nuevo Cliente</button>
             </div>
         </div>
@@ -9258,6 +9259,392 @@ function _exportarLogsExcel(){
         XLSX.writeFile(wb,'Auditoria_'+hoyLocal()+'.xlsx');
     }
     loadXLSX();
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CONTRATO DIGITAL — Diligenciar e imprimir
+// ═══════════════════════════════════════════════════════════════════════════
+
+function modalGenerarContrato(oid){
+    const o=DB.oficinas.find(x=>x.id===oid)||getOficina(oid);
+    const hoy=hoyLocal();
+    const html=`
+    <div style="background:rgba(168,85,247,0.08);border:1px solid rgba(168,85,247,0.25);border-radius:10px;padding:12px;margin-bottom:14px;font-size:0.82rem;">
+        <p style="font-weight:700;color:#a855f7;margin-bottom:4px;">📄 Generar Contrato de Servicio</p>
+        <p style="color:var(--muted);">Diligencia los datos y genera un PDF imprimible idéntico al contrato físico, listo para que el cliente firme.</p>
+    </div>
+
+    <h3 style="font-size:0.92rem;font-weight:700;color:#ef4444;background:rgba(239,68,68,0.08);padding:6px 10px;border-radius:6px;margin-bottom:10px;">📌 EL SERVICIO</h3>
+    <div class="form-row">
+        <div class="form-group-dark">
+            <label>N° de Contrato *</label>
+            <input id="ctr_numero" class="form-control" placeholder="0094" value="">
+        </div>
+        <div class="form-group-dark">
+            <label>Vigencia (meses)</label>
+            <input id="ctr_vigencia" class="form-control" type="number" value="12">
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark">
+            <label>Valor mensual mínimo</label>
+            <input id="ctr_valor_min" class="form-control" type="number" placeholder="30000" value="">
+        </div>
+        <div class="form-group-dark">
+            <label>Fecha activación servicio</label>
+            <input id="ctr_fecha_activacion" type="date" class="form-control" value="${hoy}">
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark">
+            <label>Servicios contratados</label>
+            <div style="display:flex;gap:14px;padding:6px 0;">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.85rem;font-weight:500;">
+                    <input type="checkbox" id="ctr_internet" checked> Internet fijo
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.85rem;font-weight:500;">
+                    <input type="checkbox" id="ctr_television"> Televisión
+                </label>
+            </div>
+        </div>
+        <div class="form-group-dark">
+            <label>Servicios adicionales</label>
+            <input id="ctr_adicionales" class="form-control" placeholder="(opcional)">
+        </div>
+    </div>
+
+    <h3 style="font-size:0.92rem;font-weight:700;color:#ef4444;background:rgba(239,68,68,0.08);padding:6px 10px;border-radius:6px;margin:14px 0 10px;">👤 INFORMACIÓN DEL SUSCRIPTOR</h3>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Nombres *</label><input id="ctr_nombres" class="form-control" placeholder="JUAN ANDRÉS"></div>
+        <div class="form-group-dark"><label>Apellidos *</label><input id="ctr_apellidos" class="form-control" placeholder="PÉREZ GÓMEZ"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Razón social</label><input id="ctr_razon_social" class="form-control" placeholder="(si aplica)"></div>
+        <div class="form-group-dark">
+            <label>Tipo de documento *</label>
+            <select id="ctr_tipo_doc" class="form-control">
+                <option value="CC" selected>CC</option>
+                <option value="CE">CE</option>
+                <option value="NIT">NIT</option>
+            </select>
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Número documento *</label><input id="ctr_num_doc" class="form-control" placeholder="1234567890"></div>
+        <div class="form-group-dark"><label>Celular *</label><input id="ctr_celular" class="form-control" placeholder="3001234567"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Dirección *</label><input id="ctr_direccion" class="form-control" placeholder="Cr 12 # 34-56"></div>
+        <div class="form-group-dark"><label>Email</label><input id="ctr_email" type="email" class="form-control" placeholder="cliente@email.com"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Zona</label><input id="ctr_zona" class="form-control" placeholder="Urbana"></div>
+        <div class="form-group-dark"><label>Barrio</label><input id="ctr_barrio" class="form-control" placeholder="Centro"></div>
+        <div class="form-group-dark"><label>Estrato</label><input id="ctr_estrato" class="form-control" type="number" min="1" max="6" placeholder="3"></div>
+    </div>
+
+    <h3 style="font-size:0.92rem;font-weight:700;color:#ef4444;background:rgba(239,68,68,0.08);padding:6px 10px;border-radius:6px;margin:14px 0 10px;">💰 CONDICIONES COMERCIALES</h3>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Televisión Básica $</label><input id="ctr_tv_basica" type="number" class="form-control" placeholder="0"></div>
+        <div class="form-group-dark"><label>Televisor Premium $</label><input id="ctr_tv_premium" type="number" class="form-control" placeholder="0"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Arriendo TVBox $</label><input id="ctr_arr_tvbox" type="number" class="form-control" placeholder="0"></div>
+        <div class="form-group-dark"><label>Total Mensual $ *</label><input id="ctr_total_mensual" type="number" class="form-control" placeholder="30000"></div>
+    </div>
+
+    <h4 style="font-size:0.82rem;font-weight:600;color:var(--muted);margin:10px 0 6px;">Cargos por instalación / equipos especiales</h4>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Instalación Internet $</label><input id="ctr_inst_internet" type="number" class="form-control" placeholder="0"></div>
+        <div class="form-group-dark"><label>Instalación TVBox $</label><input id="ctr_inst_tvbox" type="number" class="form-control" placeholder="0"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Puntos adicionales $</label><input id="ctr_pts_adic" type="number" class="form-control" placeholder="0"></div>
+        <div class="form-group-dark"><label>Otros $</label><input id="ctr_otros" type="number" class="form-control" placeholder="0"></div>
+    </div>
+    <div class="form-group-dark"><label>Total a pagar 1 vez $</label><input id="ctr_total_unico" type="number" class="form-control" placeholder="0"></div>
+
+    <h3 style="font-size:0.92rem;font-weight:700;color:#ef4444;background:rgba(239,68,68,0.08);padding:6px 10px;border-radius:6px;margin:14px 0 10px;">🌐 INTERNET</h3>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Plan</label><input id="ctr_plan" class="form-control" placeholder="Hogar 50 Mbps"></div>
+        <div class="form-group-dark"><label>Velocidad (Mbps)</label><input id="ctr_velocidad" type="number" class="form-control" placeholder="50"></div>
+    </div>
+    <div class="form-group-dark"><label>Total Internet $</label><input id="ctr_total_internet" type="number" class="form-control" placeholder="0"></div>
+
+    <h3 style="font-size:0.92rem;font-weight:700;color:#ef4444;background:rgba(239,68,68,0.08);padding:6px 10px;border-radius:6px;margin:14px 0 10px;">📦 EQUIPOS EN COMODATO</h3>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Cable módem (ONT) - Serial/MAC</label><input id="ctr_ont_serial" class="form-control" placeholder="ABC123456"></div>
+        <div class="form-group-dark"><label>ONT - Valor Comercial $</label><input id="ctr_ont_valor" type="number" class="form-control" placeholder="0"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>TVBox - Serial/MAC</label><input id="ctr_tvbox_serial" class="form-control" placeholder="XYZ789012"></div>
+        <div class="form-group-dark"><label>TVBox - Valor Comercial $</label><input id="ctr_tvbox_valor" type="number" class="form-control" placeholder="0"></div>
+    </div>
+    <div class="form-group-dark"><label>Total Equipos $</label><input id="ctr_total_equipos" type="number" class="form-control" placeholder="0"></div>
+
+    <h3 style="font-size:0.92rem;font-weight:700;color:#ef4444;background:rgba(239,68,68,0.08);padding:6px 10px;border-radius:6px;margin:14px 0 10px;">📅 PERMANENCIA</h3>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Costo total por conexión $</label><input id="ctr_costo_conexion" type="number" class="form-control" placeholder="360000" value="360000"></div>
+        <div class="form-group-dark"><label>Valor de descuento $</label><input id="ctr_descuento" type="number" class="form-control" placeholder="360000" value="360000"></div>
+    </div>`;
+
+    const footer=`
+        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="_imprimirContrato('${oid}')" style="background:#a855f7;">🖨️ Generar e imprimir</button>`;
+
+    openModal('📄 Generar Contrato', html, footer);
+}
+
+function _imprimirContrato(oid){
+    // Recoger todos los datos del formulario
+    const get=(id)=>document.getElementById(id)?.value?.trim()||'';
+    const getN=(id)=>parseFloat(document.getElementById(id)?.value||0);
+
+    const data={
+        numero:get('ctr_numero'),
+        vigencia:get('ctr_vigencia')||'12',
+        valorMin:getN('ctr_valor_min'),
+        fechaActivacion:get('ctr_fecha_activacion'),
+        internet:document.getElementById('ctr_internet')?.checked,
+        television:document.getElementById('ctr_television')?.checked,
+        adicionales:get('ctr_adicionales'),
+        nombres:get('ctr_nombres'),
+        apellidos:get('ctr_apellidos'),
+        razonSocial:get('ctr_razon_social'),
+        tipoDoc:get('ctr_tipo_doc'),
+        numDoc:get('ctr_num_doc'),
+        celular:get('ctr_celular'),
+        direccion:get('ctr_direccion'),
+        email:get('ctr_email'),
+        zona:get('ctr_zona'),
+        barrio:get('ctr_barrio'),
+        estrato:get('ctr_estrato'),
+        tvBasica:getN('ctr_tv_basica'),
+        tvPremium:getN('ctr_tv_premium'),
+        arrTvbox:getN('ctr_arr_tvbox'),
+        totalMensual:getN('ctr_total_mensual'),
+        instInternet:getN('ctr_inst_internet'),
+        instTvbox:getN('ctr_inst_tvbox'),
+        ptsAdic:getN('ctr_pts_adic'),
+        otros:getN('ctr_otros'),
+        totalUnico:getN('ctr_total_unico'),
+        plan:get('ctr_plan'),
+        velocidad:get('ctr_velocidad'),
+        totalInternet:getN('ctr_total_internet'),
+        ontSerial:get('ctr_ont_serial'),
+        ontValor:getN('ctr_ont_valor'),
+        tvboxSerial:get('ctr_tvbox_serial'),
+        tvboxValor:getN('ctr_tvbox_valor'),
+        totalEquipos:getN('ctr_total_equipos'),
+        costoConexion:getN('ctr_costo_conexion')||360000,
+        descuento:getN('ctr_descuento')||360000
+    };
+
+    // Validaciones mínimas
+    if(!data.numero) return alert('⚠️ El número de contrato es obligatorio');
+    if(!data.nombres||!data.apellidos) return alert('⚠️ Nombres y apellidos son obligatorios');
+    if(!data.numDoc) return alert('⚠️ El número de documento es obligatorio');
+    if(!data.direccion) return alert('⚠️ La dirección es obligatoria');
+    if(!data.celular) return alert('⚠️ El celular es obligatorio');
+    if(!data.totalMensual) return alert('⚠️ El total mensual es obligatorio');
+
+    // Parsear fecha de activación
+    let fechaAct={d:'',m:'',a:''};
+    if(data.fechaActivacion){
+        const [y,m,d]=data.fechaActivacion.split('-');
+        fechaAct={d, m, a:y};
+    }
+
+    // Generar tabla de permanencia (cuotas mensuales = costoConexion / 12)
+    const cuotaBase=Math.round(data.descuento/12);
+    const tablaPermanencia=Array.from({length:12},(_,i)=>({
+        mes:i+1, valor:cuotaBase*(12-i)
+    }));
+
+    // Fmt para PDF
+    const fmt=n=>n?'$'+Number(n).toLocaleString('es-CO'):'';
+    const chk=v=>v?'☑':'☐';
+
+    // HTML del contrato (estilo similar al original)
+    const html=`<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Contrato N° ${data.numero}</title>
+<style>
+@page { size: letter; margin: 0.4cm; }
+* { box-sizing:border-box; margin:0; padding:0; }
+body { font-family: Arial, sans-serif; font-size:8.5px; line-height:1.25; color:#000; padding:6px; }
+.two-col { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
+.header { text-align:center; margin-bottom:6px; }
+.header h1 { color:#0066cc; font-size:18px; font-weight:bold; }
+.header .badges { font-size:9px; margin-top:2px; color:#1a4c8b; }
+.header .info { font-size:8px; margin-top:4px; }
+.section-title { background:#cc0000; color:#fff; font-weight:bold; padding:2px 6px; font-size:9px; margin:5px 0 3px; text-transform:uppercase; }
+.field { margin:2px 0; font-size:8.5px; }
+.field label { font-weight:bold; }
+.field .val { display:inline-block; border-bottom:1px solid #000; min-width:60px; padding:0 4px; }
+table { width:100%; border-collapse:collapse; margin:3px 0; font-size:8px; }
+table th, table td { border:1px solid #000; padding:2px 4px; text-align:left; }
+table th { background:#eee; font-weight:bold; }
+.checkbox { font-size:11px; }
+p { margin:3px 0; font-size:8px; text-align:justify; line-height:1.3; }
+.permanencia-grid { display:grid; grid-template-columns:repeat(6,1fr); gap:2px; margin-top:3px; }
+.permanencia-grid div { border:1px solid #000; padding:2px; text-align:center; font-size:7.5px; }
+.permanencia-grid .mes { font-weight:bold; background:#eee; }
+.firma-box { border:1px solid #000; padding:4px; margin-top:5px; }
+.btn-print { position:fixed; top:10px; right:10px; padding:8px 14px; background:#a855f7; color:#fff; border:none; border-radius:5px; cursor:pointer; font-weight:bold; }
+@media print { .btn-print { display:none; } }
+</style>
+</head>
+<body>
+<button class="btn-print" onclick="window.print()">🖨️ Imprimir</button>
+
+<div class="header">
+    <h1>Proyectovisión</h1>
+    <div class="badges">📶 &nbsp; HD &nbsp; CLICK HD</div>
+    <div class="info">
+        <strong>PROYECTOVISION CLICK ZOMAC S.A.S</strong><br>
+        NIT. 901162494-8<br>
+        Registro de TIC No: 96004100
+    </div>
+</div>
+
+<div class="two-col">
+<!-- COLUMNA IZQUIERDA -->
+<div>
+    <p style="text-align:justify;">Este contrato explica las condiciones para la prestación de los servicios entre usted y PROYECTOVISION CLICK ZOMAC S.A.S. por el que pagara mínimo mensualmente <strong>${fmt(data.valorMin)}</strong>. Este contrato tendrá vigencia de <strong>${data.vigencia}</strong> meses, contados a partir del <strong>${fechaAct.d}/${fechaAct.m}/${fechaAct.a}</strong>. El plazo máximo de instalación es de 5 días hábiles. Acepto que mi contrato se renueve sucesiva y automáticamente por un plazo igual a la inicial.</p>
+
+    <div class="section-title">EL SERVICIO</div>
+    <p>Con este contrato nos comprometemos a prestarles los servicios que usted elija: <strong>N° ${data.numero}</strong></p>
+    <p class="checkbox">${chk(data.internet)} Internet fijo &nbsp;&nbsp; ${chk(data.television)} Televisión</p>
+    <div class="field"><label>Servicios adicionales:</label> <span class="val">${data.adicionales||''}</span></div>
+    <p>Usted se compromete a pagar oportunamente el precio acordado.</p>
+    <div class="field"><label>El servicio se activara a mas tardar el día:</label> <span class="val">${fechaAct.d}/${fechaAct.m}/${fechaAct.a}</span></div>
+
+    <div class="section-title">INFORMACION DEL SUSCRIPTOR</div>
+    <div class="field"><label>Contrato No:</label> <span class="val">${data.numero}</span></div>
+    <div class="field"><label>Nombres:</label> <span class="val">${data.nombres}</span></div>
+    <div class="field"><label>Apellidos:</label> <span class="val">${data.apellidos}</span></div>
+    <div class="field"><label>Razón social:</label> <span class="val">${data.razonSocial}</span></div>
+    <div class="field"><label>Documento de identidad:</label>
+        ${data.tipoDoc==='CC'?'☑':'☐'} CC
+        ${data.tipoDoc==='CE'?'☑':'☐'} CE
+        ${data.tipoDoc==='NIT'?'☑':'☐'} NIT
+    </div>
+    <div class="field"><label>Numero:</label> <span class="val">${data.numDoc}</span></div>
+    <div class="field"><label>Dirección:</label> <span class="val">${data.direccion}</span></div>
+    <div class="field">
+        <label>Zona:</label> <span class="val">${data.zona}</span>
+        <label style="margin-left:4px;">Barrio:</label> <span class="val">${data.barrio}</span>
+        <label style="margin-left:4px;">Estrato:</label> <span class="val">${data.estrato}</span>
+    </div>
+    <div class="field"><label>Celular:</label> <span class="val">${data.celular}</span></div>
+    <div class="field"><label>Email:</label> <span class="val">${data.email}</span></div>
+
+    <div class="section-title">CONDICIONES COMERCIALES — CARACTERÍSTICAS DEL PLAN</div>
+    <table>
+        <tr><th>SERVICIOS CONTRATADOS</th><th>$</th><th>CARGOS POR INSTALACIÓN/EQUIPOS</th><th>$</th></tr>
+        <tr><td>Televisión Básica ${chk(data.tvBasica>0)}</td><td>${fmt(data.tvBasica)}</td><td>Instalación Internet</td><td>${fmt(data.instInternet)}</td></tr>
+        <tr><td>Televisor Premium ${chk(data.tvPremium>0)}</td><td>${fmt(data.tvPremium)}</td><td>Instalación TVBox</td><td>${fmt(data.instTvbox)}</td></tr>
+        <tr><td>Arriendo TVBox ${chk(data.arrTvbox>0)}</td><td>${fmt(data.arrTvbox)}</td><td>Puntos adicionales</td><td>${fmt(data.ptsAdic)}</td></tr>
+        <tr><td><strong>Total Mensuales</strong></td><td><strong>${fmt(data.totalMensual)}</strong></td><td>Otros</td><td>${fmt(data.otros)}</td></tr>
+        <tr><td></td><td></td><td><strong>TOTAL A PAGAR 1 VEZ</strong></td><td><strong>${fmt(data.totalUnico)}</strong></td></tr>
+    </table>
+
+    <table>
+        <tr><th colspan="2">INTERNET</th></tr>
+        <tr><td>Plan</td><td>${data.plan}</td></tr>
+        <tr><td>Velocidad ${chk(!!data.velocidad)} Mbps</td><td>${data.velocidad}</td></tr>
+        <tr><td><strong>Total internet</strong></td><td><strong>${fmt(data.totalInternet)}</strong></td></tr>
+    </table>
+
+    <table>
+        <tr><th colspan="3">EQUIPOS ENTREGADOS EN COMODATO</th></tr>
+        <tr><th>Equipo</th><th>Serial/Mac</th><th>Valor Comercial</th></tr>
+        <tr><td>Cable modem(ONT):</td><td>${data.ontSerial}</td><td>${fmt(data.ontValor)}</td></tr>
+        <tr><td>TVBox</td><td>${data.tvboxSerial}</td><td>${fmt(data.tvboxValor)}</td></tr>
+        <tr><td colspan="2" style="text-align:right;"><strong>Total:</strong></td><td><strong>${fmt(data.totalEquipos)}</strong></td></tr>
+    </table>
+
+    <div class="firma-box" style="margin-top:8px;">
+        <p style="text-align:center;font-weight:bold;font-size:8.5px;">Aceptación contrato mediante firma o cualquier otro medio válido</p>
+        <br><br>
+        <div style="display:flex;justify-content:space-between;border-top:1px solid #000;padding-top:2px;">
+            <span>C.C. ${data.numDoc}</span>
+            <span>Fecha: ${fechaAct.d}/${fechaAct.m}/${fechaAct.a}</span>
+        </div>
+    </div>
+</div>
+
+<!-- COLUMNA DERECHA -->
+<div>
+    <div class="section-title">PRINCIPALES OBLIGACIONES DEL USUARIO</div>
+    <p>1) Pagar oportunamente los servicios prestados, incluyendo los intereses de mora cuando haya incumplimiento;<br>
+    2) Suministrar información verdadera;<br>
+    3) Hacer uso adecuado de los equipos y los servicios;<br>
+    4) No divulgar ni acceder a pornografía infantil (consultar anexo);<br>
+    5) Avisar a las autoridades cualquier evento de robo o hurto de elementos de la red, como el cable;<br>
+    6) No cometer o ser participe de actividades de fraude.</p>
+
+    <div class="section-title">CALIDAD Y COMPENSACIÓN</div>
+    <p>Cuando se presente indisponibilidad del servicio o este se suspenda a pesar de su pago oportuno, lo compensaremos en su próxima factura. Debemos cumplir con las condiciones de calidad definidas por la CRC.</p>
+
+    <div class="section-title">CESIÓN</div>
+    <p>Si quiere ceder este contrato a otra persona, debe presentar una solicitud por escrito a través de nuestros Medios de Atención, acompañada de la aceptación por escrito de la persona a la que se hara la cesión. Dentro de los 15 días hábiles siguientes, analizaremos su solicitud y le daremos una respuesta. Si se acepta la cesión queda liberado de cualquier responsabilidad con nosotros.</p>
+
+    <div class="section-title">MODIFICACIÓN</div>
+    <p>Nosotros no podemos modificar el contrato sin su autorización. Esto incluye que no podemos cobrarle servicios que no haya aceptado expresamente. Si esto ocurre tiene derecho a terminar el contrato, incluso estando vigente la cláusula de permanencia mínima, sin la obligación de pagar suma alguna por este concepto. No obstante, usted puede en cualquier momento modificar los servicios contratados. Dicha modificación se hará efectiva en el periodo de facturación siguiente, para lo cual deberá presentar la solicitud de modificación por lo menos con 3 días hábiles de anterioridad al corte de facturación.</p>
+
+    <div class="section-title">SUSPENSIÓN</div>
+    <p>Usted tiene derecho a solicitar la suspensión del servicio por un máximo de 2 meses al año. Para esto debe presentar la solicitud antes del inicio del ciclo de facturación que desea suspender. Si existe una cláusula de permanencia mínima, su vigencia se prorrogara por el tiempo que dure la suspensión.</p>
+
+    <div class="section-title">TERMINACIÓN</div>
+    <p>Usted puede terminar el contrato en cualquier momento después de cumplida la permanencia mínima aceptada por usted en el anexo al presente contrato. Para esto debe realizar una solicitud a través de cualquiera de nuestros Medios de Atención mínimo 3 días hábiles antes del corte de facturación (su corte de facturación es el día 30 de cada mes). Si presenta la solicitud con una anticipación menor, la terminación del servicio se dará en el siguiente periodo de facturación. Así mismo, usted puede cancelar cualquiera de los servicios contratados, para lo que le informaremos las condiciones en las que serán prestados los servicios no cancelados y actualizaremos el contrato.</p>
+
+    <div class="section-title">PAGO Y FACTURACIÓN</div>
+    <p>La factura le debe llegar como mínimo 5 días hábiles antes de la fecha de pago. Si no llega, puede solicitarla a través de nuestros Medios de Atención y debe pagarla oportunamente. Si no paga a tiempo, previo aviso, suspenderemos su servicio hasta que pague sus saldos pendientes. Contamos con 3 días hábiles luego de su pago para reconectarle el servicio.</p>
+
+    <div class="section-title">CAMBIO DE DOMICILIO</div>
+    <p>Usted puede cambiar de domicilio y continuar con el servicio siempre que sea técnicamente posible. Si desde el punto de vista técnico no es viable el traslado del servicio, usted puede ceder su contrato a un tercero o terminarlo pagando el valor de la cláusula de permanencia mínima si está vigente.</p>
+
+    <div class="section-title">COBRO POR RECONEXIÓN DEL SERVICIO</div>
+    <p>En caso de suspensión del servicio por mora en el pago, podremos cobrarle un valor por reconexión que corresponderá estrictamente a los costos asociados a la operación de reconexión. <strong>Costo reconexión: $ 20.000</strong></p>
+
+    <div class="section-title">MEDIOS DE ATENCIÓN</div>
+    <p style="font-size:7.5px;">
+    Cr 6# 12-24 B/ Raicero - Florencia, CEL: 322 847 6612<br>
+    Cr 5# 5-56 - B/ Recreo - El Doncello, CEL: 315 7033416<br>
+    Cr 5 cl 5 esquina B/ centro - El paujil, CEL: 318 6219451<br>
+    Cra. 2 #2-45 -13/ Centro - Cartagena del Chaira, CEL: 311 545 7323<br>
+    CORREO: <strong>proyectovisions.a.s@gmail.com</strong></p>
+
+    <div class="section-title">ACEPTO LA CLÁUSULA DE PERMANENCIA</div>
+    <p>En consideración a que le estamos otorgando un descuento respecto del valor del cargo por conexión, o le diferimos el pago del mismo, se incluye la presente cláusula de permanencia mínima. En la factura encontrará el valor a pagar si decide terminar el contrato anticipadamente.</p>
+
+    <table>
+        <tr><td><strong>Costo total del cargo por conexión:</strong></td><td><strong>${fmt(data.costoConexion)}</strong></td></tr>
+        <tr><td><strong>Valor de descuento:</strong></td><td><strong>${fmt(data.descuento)}</strong></td></tr>
+    </table>
+
+    <div class="permanencia-grid">
+        ${tablaPermanencia.map(t=>`
+            <div class="mes">Mes ${t.mes}</div>
+        `).join('')}
+        ${tablaPermanencia.map(t=>`
+            <div>${fmt(t.valor)}</div>
+        `).join('')}
+    </div>
+</div>
+</div>
+
+</body>
+</html>`;
+
+    // Abrir en nueva pestaña
+    const w=window.open('','_blank');
+    if(!w){ alert('⚠️ Permite ventanas emergentes para imprimir el contrato'); return; }
+    w.document.write(html);
+    w.document.close();
+    closeModal();
 }
 
 function openAdminPanel(){ navigate('administracion'); }
