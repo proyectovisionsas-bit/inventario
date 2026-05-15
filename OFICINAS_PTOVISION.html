@@ -483,6 +483,7 @@
                 <div class="nav-group-label">Clientes y ventas</div>
                 <button class="nav-btn" data-tab="clientes">👥 Clientes</button>
                 <button class="nav-btn" data-tab="ventas">📋 Ventas</button>
+                <button class="nav-btn" data-tab="especiales">⭐ Clientes Especiales</button>
                 <div class="nav-group-label">Equipo comercial</div>
                 <button class="nav-btn" data-tab="vendedores">🧑‍💼 Vendedores</button>
             </div>
@@ -534,7 +535,10 @@ let DB = {
     rrhh_empleados: [],
     rrhh_transacciones: [],
     rrhh_config: {salud:4, pension:4, interesesCesantias:12, diasVacaciones:15},
-    logsAuditoria: []
+    logsAuditoria: [],
+    clientesEspeciales: [],
+    facturasEspeciales: [],
+    abonosEspeciales: []
 };
 let USER = null;
 let selOficinaLogin = null;
@@ -830,7 +834,7 @@ function navigate(tab){
     if(document.getElementById('aiPanel')?.classList.contains('open')){
         setTimeout(()=>{actualizarContextoIA();actualizarSugerenciasIA();},100);
     }
-    const renders = { dash:renderDash, registro:renderRegistro, clientes:renderClientes, reportes:renderReportes, vendedores:renderVendedores, incentivos:renderIncentivos, ventas:renderVentas2, pagos_admin:renderPagosAdmin, prestamos:renderPrestamos, rrhh:renderRRHH, administracion:renderAdmin };
+    const renders = { dash:renderDash, registro:renderRegistro, clientes:renderClientes, reportes:renderReportes, vendedores:renderVendedores, incentivos:renderIncentivos, ventas:renderVentas2, pagos_admin:renderPagosAdmin, prestamos:renderPrestamos, rrhh:renderRRHH, administracion:renderAdmin, especiales:renderClientesEspeciales };
     if(renders[tab]) renders[tab]();
 }
 
@@ -7835,6 +7839,7 @@ function actualizarContextoIA(){
         clientes:'👥 Clientes',
         reportes:'📈 Reportes',
         vendedores:'🧑‍💼 Vendedores',
+        especiales:'⭐ Clientes Especiales',
         ventas:'📋 Ventas',
         pagos_admin:'💳 Pagos Admin',
         prestamos:'💵 Préstamos',
@@ -9854,6 +9859,777 @@ p { margin:4px 0; font-size:8px; text-align:justify; line-height:1.35; }
     // Abrir en nueva pestaña
     const w=window.open('','_blank');
     if(!w){ alert('⚠️ Permite ventanas emergentes para imprimir el contrato'); return; }
+    w.document.write(html);
+    w.document.close();
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ⭐ CLIENTES ESPECIALES — Cartera con facturas mensuales y abonos parciales
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Helper: calcular saldo de un cliente especial
+function _saldoClienteEspecial(cliId){
+    const facturas=(DB.facturasEspeciales||[]).filter(f=>f.clienteId===cliId);
+    const abonos=(DB.abonosEspeciales||[]).filter(a=>a.clienteId===cliId);
+    const totalFacturas=facturas.reduce((s,f)=>s+parseFloat(f.valor||0),0);
+    const totalAbonos=abonos.reduce((s,a)=>s+parseFloat(a.valor||0),0);
+    return {totalFacturas, totalAbonos, saldo:totalFacturas-totalAbonos, facturas, abonos};
+}
+
+// Helper: calcular cuánto se ha abonado a una factura específica
+function _abonadoFactura(facturaId){
+    return (DB.abonosEspeciales||[])
+        .filter(a=>(a.aplicaciones||[]).some(ap=>ap.facturaId===facturaId))
+        .reduce((s,a)=>{
+            const apl=a.aplicaciones.find(ap=>ap.facturaId===facturaId);
+            return s+parseFloat(apl?.valor||0);
+        },0);
+}
+
+// Helper: días desde la fecha de emisión
+function _diasDesde(fechaStr){
+    if(!fechaStr) return 0;
+    const f=new Date(fechaStr);
+    return Math.floor((new Date()-f)/(1000*60*60*24));
+}
+
+function renderClientesEspeciales(){
+    const cont=document.getElementById('contenido');
+    const esAdmin=USER.role==='admin';
+    const clientes=DB.clientesEspeciales||[];
+    const filtro=window._qCliEsp||'';
+    const filtroOfi=window._filCliEspOfi||(esAdmin?'todos':USER.id);
+
+    let filtrados=clientes;
+    if(filtroOfi&&filtroOfi!=='todos') filtrados=filtrados.filter(c=>c.oficinaId===filtroOfi);
+    if(!esAdmin) filtrados=filtrados.filter(c=>c.oficinaId===USER.id);
+    if(filtro) filtrados=filtrados.filter(c=>
+        (c.nombre||'').toLowerCase().includes(filtro.toLowerCase()) ||
+        (c.documento||'').toLowerCase().includes(filtro.toLowerCase()) ||
+        (c.telefono||'').includes(filtro)
+    );
+
+    // Calcular saldos y stats globales
+    const conSaldo=filtrados.map(c=>({...c, ...(_saldoClienteEspecial(c.id))}));
+    const totalCartera=conSaldo.reduce((s,c)=>s+c.saldo,0);
+    const conDeuda=conSaldo.filter(c=>c.saldo>0).length;
+
+    cont.innerHTML=`
+    <div class="card">
+        <div class="card-header">
+            <h2>⭐ Clientes Especiales <span>${filtrados.length} registrados</span></h2>
+            <button class="btn btn-primary" onclick="modalAgregarClienteEspecial()">➕ Nuevo Cliente</button>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px;">
+            <div style="background:rgba(168,85,247,0.08);border:1px solid rgba(168,85,247,0.25);border-radius:10px;padding:12px;">
+                <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;">Total Clientes</div>
+                <div style="font-size:1.5rem;font-weight:800;color:#a855f7;">${filtrados.length}</div>
+            </div>
+            <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:10px;padding:12px;">
+                <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;">Cartera Pendiente</div>
+                <div style="font-size:1.5rem;font-weight:800;color:#ef4444;">${fmtShort(totalCartera)}</div>
+            </div>
+            <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:10px;padding:12px;">
+                <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;">Con Deuda</div>
+                <div style="font-size:1.5rem;font-weight:800;color:#f59e0b;">${conDeuda}</div>
+            </div>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+            <input type="text" class="form-control" placeholder="🔍 Buscar por nombre, documento o teléfono..."
+                value="${filtro.replace(/"/g,'&quot;')}"
+                oninput="window._qCliEsp=this.value;renderClientesEspeciales()" style="flex:1;min-width:200px;">
+            ${esAdmin?`<select class="form-control" style="width:auto;" onchange="window._filCliEspOfi=this.value;renderClientesEspeciales()">
+                <option value="todos">Todas las oficinas</option>
+                ${DB.oficinas.map(o=>`<option value="${o.id}" ${filtroOfi===o.id?'selected':''}>${o.nombre}</option>`).join('')}
+            </select>`:''}
+        </div>
+
+        ${filtrados.length===0?'<p style="text-align:center;color:var(--muted);padding:30px;">No hay clientes especiales todavía. Click en "Nuevo Cliente" para agregar el primero.</p>':`
+        <div style="display:flex;flex-direction:column;gap:10px;">
+        ${conSaldo.sort((a,b)=>b.saldo-a.saldo).map(c=>{
+            const ofi=DB.oficinas.find(o=>o.id===c.oficinaId);
+            const facturasPend=c.facturas.filter(f=>{
+                const ab=_abonadoFactura(f.id);
+                return ab<parseFloat(f.valor);
+            });
+            const ultimaFact=c.facturas.length>0?c.facturas.slice(-1)[0]:null;
+            const diasUltima=ultimaFact?_diasDesde(ultimaFact.fecha):0;
+            const colorSaldo=c.saldo===0?'#10b981':c.saldo<100000?'#f59e0b':'#ef4444';
+            return `
+            <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:14px;cursor:pointer;" onclick="modalDetalleClienteEspecial('${c.id}')">
+                <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;flex-wrap:wrap;">
+                    <div style="flex:1;min-width:200px;">
+                        <div style="font-size:0.95rem;font-weight:700;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                            ⭐ ${c.nombre}
+                            ${c.tipo?`<span style="font-size:0.62rem;background:rgba(168,85,247,0.15);color:#a855f7;padding:2px 6px;border-radius:8px;">${c.tipo}</span>`:''}
+                            ${c.saldo===0?'<span style="font-size:0.62rem;background:rgba(16,185,129,0.15);color:#10b981;padding:2px 6px;border-radius:8px;">✅ Al día</span>':''}
+                            ${diasUltima>60&&c.saldo>0?`<span style="font-size:0.62rem;background:rgba(239,68,68,0.15);color:#ef4444;padding:2px 6px;border-radius:8px;">⚠️ Moroso ${diasUltima}d</span>`:''}
+                        </div>
+                        <div style="font-size:0.75rem;color:var(--muted);margin-top:3px;">
+                            ${c.documento?`🆔 ${c.documento}`:''}
+                            ${c.telefono?` · 📞 ${c.telefono}`:''}
+                            ${ofi?` · 📍 ${ofi.nombre}`:''}
+                        </div>
+                        <div style="font-size:0.75rem;color:var(--muted);margin-top:3px;">
+                            📅 ${c.facturas.length} factura(s) · 💵 ${c.abonos.length} abono(s) ${facturasPend.length>0?` · ⚠️ ${facturasPend.length} pendiente(s)`:''}
+                        </div>
+                    </div>
+                    <div style="text-align:right;">
+                        <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;">Saldo</div>
+                        <div style="font-size:1.25rem;font-weight:800;color:${colorSaldo};">${fmtShort(c.saldo)}</div>
+                    </div>
+                </div>
+            </div>`;
+        }).join('')}
+        </div>`}
+    </div>`;
+}
+
+function modalAgregarClienteEspecial(){
+    const esAdmin=USER.role==='admin';
+    const html=`
+    <div style="background:rgba(168,85,247,0.08);border:1px solid rgba(168,85,247,0.25);border-radius:10px;padding:12px;margin-bottom:14px;font-size:0.82rem;">
+        <p style="font-weight:700;color:#a855f7;margin-bottom:4px;">⭐ Nuevo Cliente Especial</p>
+        <p style="color:var(--muted);">Clientes con manejo de cartera, facturas mensuales variables y abonos parciales.</p>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Nombre / Razón social *</label><input id="ce_nombre" class="form-control" placeholder="EMPRESA ABC S.A.S"></div>
+        <div class="form-group-dark"><label>Tipo</label>
+            <select id="ce_tipo" class="form-control">
+                <option value="">Sin categoría</option>
+                <option value="Empresa">Empresa / Corporativo</option>
+                <option value="Variable">Plan variable</option>
+                <option value="Abonos">Abonos parciales</option>
+                <option value="Especial">Especial</option>
+            </select>
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Documento / NIT</label><input id="ce_documento" class="form-control" placeholder="900123456-7"></div>
+        <div class="form-group-dark"><label>Teléfono</label><input id="ce_telefono" class="form-control" placeholder="3001234567"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Dirección</label><input id="ce_direccion" class="form-control" placeholder="Cr 5 # 12-34"></div>
+        <div class="form-group-dark"><label>Email</label><input id="ce_email" type="email" class="form-control" placeholder="contacto@empresa.com"></div>
+    </div>
+    ${esAdmin?`<div class="form-group-dark"><label>Oficina asignada *</label>
+        <select id="ce_oficina" class="form-control">
+            ${DB.oficinas.map(o=>`<option value="${o.id}">${o.nombre}</option>`).join('')}
+        </select>
+    </div>`:`<input type="hidden" id="ce_oficina" value="${USER.id}">`}
+    <div class="form-group-dark"><label>Notas</label><textarea id="ce_notas" class="form-control" rows="2" placeholder="Información adicional sobre el cliente..."></textarea></div>`;
+
+    openModal('⭐ Nuevo Cliente Especial', html, `
+        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="guardarClienteEspecial()" style="background:#a855f7;">💾 Guardar</button>`);
+}
+
+function guardarClienteEspecial(){
+    const nombre=document.getElementById('ce_nombre').value.trim();
+    if(!nombre) return alert('El nombre es obligatorio');
+    const cliente={
+        id:uid(),
+        nombre:nombre,
+        tipo:document.getElementById('ce_tipo').value,
+        documento:document.getElementById('ce_documento').value.trim(),
+        telefono:document.getElementById('ce_telefono').value.trim(),
+        direccion:document.getElementById('ce_direccion').value.trim(),
+        email:document.getElementById('ce_email').value.trim(),
+        oficinaId:document.getElementById('ce_oficina').value,
+        notas:document.getElementById('ce_notas').value.trim(),
+        creadoPor:USER?.nombre||USER?.id,
+        creadoEn:now()
+    };
+    if(!DB.clientesEspeciales) DB.clientesEspeciales=[];
+    DB.clientesEspeciales.push(cliente);
+    registrarLog('CLIENTE_ESPECIAL_CREADO',{id:cliente.id, nombre:cliente.nombre, oficinaId:cliente.oficinaId});
+    save().then(()=>{
+        closeModal();
+        renderClientesEspeciales();
+        alert('✅ Cliente especial creado');
+    });
+}
+
+function modalDetalleClienteEspecial(cliId){
+    const c=DB.clientesEspeciales?.find(x=>x.id===cliId);
+    if(!c) return alert('Cliente no encontrado');
+    const ofi=DB.oficinas.find(o=>o.id===c.oficinaId);
+    const stats=_saldoClienteEspecial(cliId);
+
+    // Construir lista de facturas con su estado
+    const facturasConEstado=stats.facturas.map(f=>{
+        const abonado=_abonadoFactura(f.id);
+        const pendiente=parseFloat(f.valor)-abonado;
+        let estado='pendiente';
+        if(abonado>=parseFloat(f.valor)) estado='pagada';
+        else if(abonado>0) estado='parcial';
+        return {...f, abonado, pendiente, estado};
+    }).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+
+    const colorSaldo=stats.saldo===0?'#10b981':'#ef4444';
+
+    const html=`
+    <div style="background:rgba(168,85,247,0.08);border:1px solid rgba(168,85,247,0.25);border-radius:10px;padding:14px;margin-bottom:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;flex-wrap:wrap;">
+            <div>
+                <h3 style="font-size:1.05rem;font-weight:700;color:var(--text);margin-bottom:4px;">⭐ ${c.nombre}</h3>
+                <div style="font-size:0.78rem;color:var(--muted);">
+                    ${c.documento?`🆔 ${c.documento}`:''}
+                    ${c.telefono?` · 📞 ${c.telefono}`:''}<br>
+                    ${ofi?`📍 ${ofi.nombre}`:''}
+                    ${c.email?` · ✉️ ${c.email}`:''}
+                </div>
+                ${c.notas?`<div style="font-size:0.75rem;color:var(--muted);margin-top:6px;font-style:italic;">📝 ${c.notas}</div>`:''}
+            </div>
+            <div style="text-align:right;">
+                <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;">Saldo pendiente</div>
+                <div style="font-size:1.6rem;font-weight:800;color:${colorSaldo};">${fmtShort(stats.saldo)}</div>
+            </div>
+        </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:14px;">
+        <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;text-align:center;">
+            <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;">Facturas</div>
+            <div style="font-size:1.1rem;font-weight:800;">${stats.facturas.length}</div>
+        </div>
+        <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;text-align:center;">
+            <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;">Total facturado</div>
+            <div style="font-size:1rem;font-weight:800;color:#a855f7;">${fmtShort(stats.totalFacturas)}</div>
+        </div>
+        <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;text-align:center;">
+            <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;">Total abonado</div>
+            <div style="font-size:1rem;font-weight:800;color:#10b981;">${fmtShort(stats.totalAbonos)}</div>
+        </div>
+    </div>
+
+    <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;">
+        <button class="btn btn-primary btn-sm" onclick="modalNuevaFacturaEspecial('${cliId}')" style="background:#a855f7;">➕ Nueva Factura</button>
+        <button class="btn btn-primary btn-sm" onclick="modalNuevoAbonoEspecial('${cliId}')" style="background:#10b981;" ${stats.saldo<=0?'disabled':''}>💵 Registrar Abono</button>
+        <button class="btn btn-outline btn-sm" onclick="imprimirEstadoCuenta('${cliId}')">📄 Estado de cuenta</button>
+        ${USER.role==='admin'?`<button class="btn btn-outline btn-sm" onclick="modalEditarClienteEspecial('${cliId}')">✏️ Editar</button>`:''}
+    </div>
+
+    <h3 style="font-size:0.92rem;font-weight:700;margin-bottom:8px;">📅 Facturas (${stats.facturas.length})</h3>
+    ${facturasConEstado.length===0?'<p style="text-align:center;color:var(--muted);padding:20px;">Sin facturas registradas. Crea la primera con "Nueva Factura".</p>':`
+    <div style="display:flex;flex-direction:column;gap:6px;max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px;">
+    ${facturasConEstado.map(f=>{
+        const bgCol=f.estado==='pagada'?'rgba(16,185,129,0.06)':f.estado==='parcial'?'rgba(245,158,11,0.06)':'rgba(239,68,68,0.05)';
+        const bdCol=f.estado==='pagada'?'rgba(16,185,129,0.2)':f.estado==='parcial'?'rgba(245,158,11,0.2)':'rgba(239,68,68,0.15)';
+        const lbl=f.estado==='pagada'?'<span style="color:#10b981;font-weight:700;">✅ PAGADA</span>':
+                  f.estado==='parcial'?`<span style="color:#f59e0b;font-weight:700;">⚠️ PARCIAL (${fmtShort(f.abonado)}/${fmtShort(f.valor)})</span>`:
+                  '<span style="color:#ef4444;font-weight:700;">❌ PENDIENTE</span>';
+        return `<div style="background:${bgCol};border:1px solid ${bdCol};border-radius:8px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:200px;">
+                <div style="font-size:0.82rem;font-weight:700;">${f.periodo||new Date(f.fecha).toLocaleDateString('es-CO',{year:'numeric',month:'long'})}</div>
+                <div style="font-size:0.7rem;color:var(--muted);">📅 ${new Date(f.fecha).toLocaleDateString('es-CO')} ${f.descripcion?` · ${f.descripcion}`:''}</div>
+                <div style="font-size:0.72rem;margin-top:3px;">${lbl}</div>
+            </div>
+            <div style="text-align:right;">
+                <div style="font-size:0.95rem;font-weight:700;color:#a855f7;">${fmtShort(f.valor)}</div>
+                ${f.pendiente>0?`<div style="font-size:0.68rem;color:#ef4444;">Falta: ${fmtShort(f.pendiente)}</div>`:''}
+            </div>
+            ${USER.role==='admin'?`<button class="btn btn-danger btn-sm" style="padding:3px 8px;" onclick="event.stopPropagation();eliminarFacturaEspecial('${f.id}','${cliId}')">🗑️</button>`:''}
+        </div>`;
+    }).join('')}
+    </div>`}
+
+    <h3 style="font-size:0.92rem;font-weight:700;margin:14px 0 8px;">💵 Abonos (${stats.abonos.length})</h3>
+    ${stats.abonos.length===0?'<p style="text-align:center;color:var(--muted);padding:20px;">Sin abonos registrados.</p>':`
+    <div style="display:flex;flex-direction:column;gap:6px;max-height:240px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px;">
+    ${stats.abonos.slice().sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).map(a=>{
+        return `<div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:200px;">
+                <div style="font-size:0.82rem;font-weight:700;">💵 Abono ${a.forma||'Efectivo'}</div>
+                <div style="font-size:0.7rem;color:var(--muted);">📅 ${new Date(a.fecha).toLocaleDateString('es-CO')} ${a.descripcion?` · ${a.descripcion}`:''}</div>
+                ${a.aplicaciones?.length>0?`<div style="font-size:0.65rem;color:var(--muted);margin-top:2px;">Aplicado a: ${a.aplicaciones.map(ap=>{
+                    const fact=stats.facturas.find(f=>f.id===ap.facturaId);
+                    return `${fact?fact.periodo||new Date(fact.fecha).toLocaleDateString('es-CO',{month:'short',year:'numeric'}):'?'} (${fmtShort(ap.valor)})`;
+                }).join(', ')}</div>`:''}
+            </div>
+            <div style="text-align:right;">
+                <div style="font-size:0.95rem;font-weight:700;color:#10b981;">+${fmtShort(a.valor)}</div>
+            </div>
+            ${USER.role==='admin'?`<button class="btn btn-danger btn-sm" style="padding:3px 8px;" onclick="event.stopPropagation();eliminarAbonoEspecial('${a.id}','${cliId}')">🗑️</button>`:''}
+        </div>`;
+    }).join('')}
+    </div>`}`;
+
+    openModal('⭐ ' + c.nombre, html, `<button class="btn btn-outline" onclick="closeModal()">Cerrar</button>`);
+}
+
+function modalNuevaFacturaEspecial(cliId){
+    const c=DB.clientesEspeciales?.find(x=>x.id===cliId);
+    if(!c) return;
+    const hoy=hoyLocal();
+    const meses=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    const hoyD=new Date();
+    const mesActual=meses[hoyD.getMonth()];
+    const anioActual=hoyD.getFullYear();
+
+    const html=`
+    <p style="margin-bottom:12px;color:var(--muted);font-size:0.82rem;">Registrar factura del mes para <strong style="color:var(--text);">${c.nombre}</strong></p>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Período *</label>
+            <input id="fe_periodo" class="form-control" placeholder="Ej: Mayo 2026" value="${mesActual} ${anioActual}">
+        </div>
+        <div class="form-group-dark"><label>Fecha de emisión *</label>
+            <input id="fe_fecha" type="date" class="form-control" value="${hoy}">
+        </div>
+    </div>
+    <div class="form-group-dark"><label>Valor de la factura *</label>
+        <input id="fe_valor" type="number" class="form-control" placeholder="200000" min="0">
+    </div>
+    <div class="form-group-dark"><label>Descripción (opcional)</label>
+        <textarea id="fe_descripcion" class="form-control" rows="2" placeholder="Servicios prestados, observaciones..."></textarea>
+    </div>`;
+
+    openModal('➕ Nueva Factura — ' + c.nombre, html, `
+        <button class="btn btn-outline" onclick="modalDetalleClienteEspecial('${cliId}')">Cancelar</button>
+        <button class="btn btn-primary" onclick="guardarFacturaEspecial('${cliId}')" style="background:#a855f7;">💾 Crear Factura</button>`);
+}
+
+function guardarFacturaEspecial(cliId){
+    const periodo=document.getElementById('fe_periodo').value.trim();
+    const fecha=document.getElementById('fe_fecha').value;
+    const valor=parseFloat(document.getElementById('fe_valor').value||0);
+    const descripcion=document.getElementById('fe_descripcion').value.trim();
+    if(!periodo) return alert('El período es obligatorio');
+    if(!fecha) return alert('La fecha es obligatoria');
+    if(valor<=0) return alert('El valor debe ser mayor a 0');
+
+    const factura={
+        id:uid(), clienteId:cliId,
+        periodo:periodo, fecha:fecha, valor:valor,
+        descripcion:descripcion,
+        creadoPor:USER?.nombre||USER?.id, creadoEn:now()
+    };
+    if(!DB.facturasEspeciales) DB.facturasEspeciales=[];
+    DB.facturasEspeciales.push(factura);
+    registrarLog('FACTURA_ESPECIAL_CREADA',{cliId, facturaId:factura.id, valor, periodo});
+    save().then(()=>{
+        closeModal();
+        modalDetalleClienteEspecial(cliId);
+        alert('✅ Factura creada');
+    });
+}
+
+function modalNuevoAbonoEspecial(cliId){
+    const c=DB.clientesEspeciales?.find(x=>x.id===cliId);
+    if(!c) return;
+    const stats=_saldoClienteEspecial(cliId);
+
+    // Calcular facturas pendientes con saldo
+    const pendientes=stats.facturas.map(f=>{
+        const abonado=_abonadoFactura(f.id);
+        const pendiente=parseFloat(f.valor)-abonado;
+        return {...f, abonado, pendiente};
+    }).filter(f=>f.pendiente>0).sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
+
+    if(pendientes.length===0){ alert('Este cliente no tiene saldo pendiente'); return; }
+
+    const hoy=hoyLocal();
+    const html=`
+    <div style="background:rgba(168,85,247,0.08);border:1px solid rgba(168,85,247,0.25);border-radius:10px;padding:12px;margin-bottom:14px;">
+        <p style="font-size:0.82rem;color:var(--muted);margin-bottom:4px;">Cliente:</p>
+        <p style="font-weight:700;color:var(--text);">${c.nombre}</p>
+        <p style="font-size:0.82rem;color:var(--muted);margin-top:6px;">Saldo total pendiente: <strong style="color:#ef4444;">${fmtShort(stats.saldo)}</strong></p>
+    </div>
+
+    <div class="form-row">
+        <div class="form-group-dark"><label>Valor del abono *</label>
+            <input id="ab_valor" type="number" class="form-control" placeholder="100000" min="1" max="${stats.saldo}" oninput="_recalcularAplicaciones()">
+        </div>
+        <div class="form-group-dark"><label>Forma de pago *</label>
+            <select id="ab_forma" class="form-control">
+                <option>Efectivo</option>
+                <option>Cta Bancolombia</option>
+                <option>Efecty</option>
+                <option>Cruce de Cuentas</option>
+            </select>
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Fecha *</label>
+            <input id="ab_fecha" type="date" class="form-control" value="${hoy}">
+        </div>
+        <div class="form-group-dark"><label>Modo de aplicación</label>
+            <select id="ab_modo" class="form-control" onchange="_toggleModoAplicacion()">
+                <option value="auto">🤖 Automático (factura más antigua primero)</option>
+                <option value="especifica">📌 Factura específica</option>
+            </select>
+        </div>
+    </div>
+    <div class="form-group-dark"><label>Descripción / Concepto</label>
+        <input id="ab_descripcion" class="form-control" placeholder="Pago parcial, comprobante PSE, etc.">
+    </div>
+
+    <div id="ab_seleccion_factura" style="display:none;" class="form-group-dark">
+        <label>Aplicar a factura</label>
+        <select id="ab_factura_id" class="form-control" onchange="_recalcularAplicaciones()">
+            ${pendientes.map(f=>`<option value="${f.id}">${f.periodo} - Pendiente ${fmtShort(f.pendiente)}</option>`).join('')}
+        </select>
+    </div>
+
+    <div id="ab_distribucion" style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:10px;margin-top:10px;">
+        <p style="font-size:0.78rem;color:#10b981;font-weight:700;margin-bottom:6px;">🤖 Aplicación propuesta:</p>
+        <div id="ab_distribucion_detalle" style="font-size:0.75rem;color:var(--muted);">Ingresa un valor para calcular...</div>
+    </div>
+
+`;
+
+    // Setear estado para los cálculos
+    window._pendientesAbono=pendientes;
+    window._cliIdAbono=cliId;
+    window._saldoTotalAbono=stats.saldo;
+
+    openModal('💵 Registrar Abono — ' + c.nombre, html, `
+        <button class="btn btn-outline" onclick="modalDetalleClienteEspecial('${cliId}')">Cancelar</button>
+        <button class="btn btn-primary" id="btn_guardar_abono" onclick="guardarAbonoEspecial('${cliId}')" style="background:#10b981;">💾 Registrar Abono</button>`);
+
+    // Calcular distribución inicial cuando el modal esté listo
+    setTimeout(()=>{ if(typeof _recalcularAplicaciones==='function') _recalcularAplicaciones(); }, 100);
+}
+
+function _toggleModoAplicacion(){
+    const modo=document.getElementById('ab_modo')?.value;
+    const sel=document.getElementById('ab_seleccion_factura');
+    if(sel) sel.style.display=modo==='especifica'?'block':'none';
+    _recalcularAplicaciones();
+}
+
+function _recalcularAplicaciones(){
+    const valor=parseFloat(document.getElementById('ab_valor')?.value||0);
+    const modo=document.getElementById('ab_modo')?.value||'auto';
+    const detalle=document.getElementById('ab_distribucion_detalle');
+    if(!detalle) return;
+    if(valor<=0){
+        detalle.innerHTML='Ingresa un valor para calcular...';
+        return;
+    }
+    if(valor>window._saldoTotalAbono){
+        detalle.innerHTML=`<span style="color:#ef4444;">⚠️ El abono excede el saldo pendiente (${fmtShort(window._saldoTotalAbono)})</span>`;
+        return;
+    }
+
+    const aplicaciones=[];
+    if(modo==='especifica'){
+        const fId=document.getElementById('ab_factura_id')?.value;
+        const f=window._pendientesAbono.find(x=>x.id===fId);
+        if(f){
+            const aplicar=Math.min(valor, f.pendiente);
+            aplicaciones.push({facturaId:fId, periodo:f.periodo, valor:aplicar, pendiente:f.pendiente});
+            if(valor>f.pendiente){
+                detalle.innerHTML=`<span style="color:#f59e0b;">⚠️ El abono ($${valor.toLocaleString('es-CO')}) excede el pendiente de esta factura (${fmtShort(f.pendiente)}). Solo se aplicará ${fmtShort(aplicar)}.</span>`;
+                return;
+            }
+        }
+    } else {
+        let restante=valor;
+        for(const f of window._pendientesAbono){
+            if(restante<=0) break;
+            const aplicar=Math.min(restante, f.pendiente);
+            aplicaciones.push({facturaId:f.id, periodo:f.periodo, valor:aplicar, pendiente:f.pendiente});
+            restante-=aplicar;
+        }
+    }
+
+    detalle.innerHTML=aplicaciones.map(a=>{
+        const queda=a.pendiente-a.valor;
+        return `• ${a.periodo}: <strong>${fmtShort(a.valor)}</strong> ${queda>0?`<span style="color:#f59e0b;">(queda ${fmtShort(queda)})</span>`:'<span style="color:#10b981;">✅ completa</span>'}`;
+    }).join('<br>');
+    window._aplicacionesPropuestas=aplicaciones;
+}
+
+function guardarAbonoEspecial(cliId){
+    const valor=parseFloat(document.getElementById('ab_valor').value||0);
+    const forma=document.getElementById('ab_forma').value;
+    const fecha=document.getElementById('ab_fecha').value;
+    const descripcion=document.getElementById('ab_descripcion').value.trim();
+    const aplicaciones=window._aplicacionesPropuestas||[];
+    if(valor<=0) return alert('El valor debe ser mayor a 0');
+    if(!fecha) return alert('La fecha es obligatoria');
+    if(aplicaciones.length===0) return alert('No se pudo calcular la distribución del abono');
+
+    const totalAplicado=aplicaciones.reduce((s,a)=>s+a.valor,0);
+    if(totalAplicado<valor){
+        const sobrante=valor-totalAplicado;
+        if(!confirm(`⚠️ Solo se aplicarán ${fmtShort(totalAplicado)} a facturas. Sobran ${fmtShort(sobrante)}.\n\n¿Quieres registrar solo lo que se aplica (${fmtShort(totalAplicado)})?`)) return;
+    }
+
+    const abono={
+        id:uid(), clienteId:cliId,
+        valor:valor, forma:forma, fecha:fecha,
+        descripcion:descripcion,
+        aplicaciones:aplicaciones.map(a=>({facturaId:a.facturaId, periodo:a.periodo, valor:a.valor})),
+        creadoPor:USER?.nombre||USER?.id, creadoEn:now()
+    };
+    if(!DB.abonosEspeciales) DB.abonosEspeciales=[];
+    DB.abonosEspeciales.push(abono);
+
+    // ⭐ También crear un movimiento de ingreso en la oficina del cliente
+    const cliente=DB.clientesEspeciales?.find(x=>x.id===cliId);
+    if(cliente){
+        const ofi=DB.oficinas.find(o=>o.id===cliente.oficinaId);
+        if(ofi){
+            if(!ofi.movimientos) ofi.movimientos=[];
+            const _ah=new Date();
+            const fechaFinal=`${fecha}T${String(_ah.getHours()).padStart(2,'0')}:${String(_ah.getMinutes()).padStart(2,'0')}:${String(_ah.getSeconds()).padStart(2,'0')}`;
+            ofi.movimientos.push({
+                id:uid(), tipo:'ingreso',
+                concepto:'Pago Servicio Internet + TV',
+                forma:forma,
+                descripcion:`Abono ⭐ ${cliente.nombre}${descripcion?' - '+descripcion:''}`,
+                valor:valor, fecha:fechaFinal,
+                vinculadoCliEspecial:cliId,
+                vinculadoAbono:abono.id
+            });
+        }
+    }
+
+    registrarLog('ABONO_ESPECIAL_REGISTRADO',{cliId, abonoId:abono.id, valor, forma, aplicaciones:aplicaciones.length});
+    save().then(()=>{
+        closeModal();
+        modalDetalleClienteEspecial(cliId);
+        alert('✅ Abono registrado y movimiento de ingreso creado en la oficina');
+    });
+}
+
+function eliminarFacturaEspecial(facturaId, cliId){
+    if(USER.role!=='admin') return alert('Solo admin puede eliminar');
+    const f=DB.facturasEspeciales?.find(x=>x.id===facturaId);
+    if(!f) return;
+    const abonado=_abonadoFactura(facturaId);
+    if(abonado>0){
+        if(!confirm(`⚠️ Esta factura tiene abonos por ${fmtShort(abonado)}.\n\nSi eliminas la factura, esos abonos seguirán registrados pero sin aplicación.\n\n¿Continuar?`)) return;
+    } else {
+        if(!confirm(`¿Eliminar factura de ${f.periodo} por ${fmtShort(f.valor)}?`)) return;
+    }
+    DB.facturasEspeciales=DB.facturasEspeciales.filter(x=>x.id!==facturaId);
+    registrarLog('FACTURA_ESPECIAL_ELIMINADA',{cliId, facturaId, valor:f.valor, periodo:f.periodo});
+    save().then(()=>modalDetalleClienteEspecial(cliId));
+}
+
+function eliminarAbonoEspecial(abonoId, cliId){
+    if(USER.role!=='admin') return alert('Solo admin puede eliminar');
+    const a=DB.abonosEspeciales?.find(x=>x.id===abonoId);
+    if(!a) return;
+    if(!confirm(`⚠️ Eliminar abono de ${fmtShort(a.valor)}?\n\nNOTA: El movimiento de ingreso asociado en la oficina NO se elimina automáticamente.`)) return;
+    DB.abonosEspeciales=DB.abonosEspeciales.filter(x=>x.id!==abonoId);
+    registrarLog('ABONO_ESPECIAL_ELIMINADO',{cliId, abonoId, valor:a.valor});
+    save().then(()=>modalDetalleClienteEspecial(cliId));
+}
+
+function modalEditarClienteEspecial(cliId){
+    const c=DB.clientesEspeciales?.find(x=>x.id===cliId);
+    if(!c) return;
+    const esAdmin=USER.role==='admin';
+    const html=`
+    <div class="form-row">
+        <div class="form-group-dark"><label>Nombre / Razón social *</label><input id="ce_nombre" class="form-control" value="${(c.nombre||'').replace(/"/g,'&quot;')}"></div>
+        <div class="form-group-dark"><label>Tipo</label>
+            <select id="ce_tipo" class="form-control">
+                <option value="">Sin categoría</option>
+                <option value="Empresa" ${c.tipo==='Empresa'?'selected':''}>Empresa / Corporativo</option>
+                <option value="Variable" ${c.tipo==='Variable'?'selected':''}>Plan variable</option>
+                <option value="Abonos" ${c.tipo==='Abonos'?'selected':''}>Abonos parciales</option>
+                <option value="Especial" ${c.tipo==='Especial'?'selected':''}>Especial</option>
+            </select>
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Documento / NIT</label><input id="ce_documento" class="form-control" value="${(c.documento||'').replace(/"/g,'&quot;')}"></div>
+        <div class="form-group-dark"><label>Teléfono</label><input id="ce_telefono" class="form-control" value="${(c.telefono||'').replace(/"/g,'&quot;')}"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group-dark"><label>Dirección</label><input id="ce_direccion" class="form-control" value="${(c.direccion||'').replace(/"/g,'&quot;')}"></div>
+        <div class="form-group-dark"><label>Email</label><input id="ce_email" type="email" class="form-control" value="${(c.email||'').replace(/"/g,'&quot;')}"></div>
+    </div>
+    ${esAdmin?`<div class="form-group-dark"><label>Oficina</label>
+        <select id="ce_oficina" class="form-control">
+            ${DB.oficinas.map(o=>`<option value="${o.id}" ${o.id===c.oficinaId?'selected':''}>${o.nombre}</option>`).join('')}
+        </select>
+    </div>`:''}
+    <div class="form-group-dark"><label>Notas</label><textarea id="ce_notas" class="form-control" rows="2">${(c.notas||'').replace(/</g,'&lt;')}</textarea></div>`;
+
+    openModal('✏️ Editar Cliente — ' + c.nombre, html, `
+        <button class="btn btn-outline" onclick="modalDetalleClienteEspecial('${cliId}')">Cancelar</button>
+        <button class="btn btn-danger" onclick="if(confirm('¿Eliminar cliente y TODAS sus facturas y abonos?')){eliminarClienteEspecial('${cliId}')}">🗑️ Eliminar</button>
+        <button class="btn btn-primary" onclick="actualizarClienteEspecial('${cliId}')" style="background:#a855f7;">💾 Guardar</button>`);
+}
+
+function actualizarClienteEspecial(cliId){
+    const c=DB.clientesEspeciales.find(x=>x.id===cliId);
+    if(!c) return;
+    c.nombre=document.getElementById('ce_nombre').value.trim();
+    c.tipo=document.getElementById('ce_tipo').value;
+    c.documento=document.getElementById('ce_documento').value.trim();
+    c.telefono=document.getElementById('ce_telefono').value.trim();
+    c.direccion=document.getElementById('ce_direccion').value.trim();
+    c.email=document.getElementById('ce_email').value.trim();
+    if(USER.role==='admin'&&document.getElementById('ce_oficina')) c.oficinaId=document.getElementById('ce_oficina').value;
+    c.notas=document.getElementById('ce_notas').value.trim();
+    registrarLog('CLIENTE_ESPECIAL_EDITADO',{cliId});
+    save().then(()=>modalDetalleClienteEspecial(cliId));
+}
+
+function eliminarClienteEspecial(cliId){
+    if(USER.role!=='admin') return alert('Solo admin puede eliminar');
+    DB.clientesEspeciales=DB.clientesEspeciales.filter(c=>c.id!==cliId);
+    DB.facturasEspeciales=(DB.facturasEspeciales||[]).filter(f=>f.clienteId!==cliId);
+    DB.abonosEspeciales=(DB.abonosEspeciales||[]).filter(a=>a.clienteId!==cliId);
+    registrarLog('CLIENTE_ESPECIAL_ELIMINADO',{cliId});
+    save().then(()=>{
+        closeModal();
+        renderClientesEspeciales();
+    });
+}
+
+function imprimirEstadoCuenta(cliId){
+    const c=DB.clientesEspeciales?.find(x=>x.id===cliId);
+    if(!c) return;
+    const ofi=DB.oficinas.find(o=>o.id===c.oficinaId);
+    const stats=_saldoClienteEspecial(cliId);
+    const facturas=stats.facturas.map(f=>({...f, abonado:_abonadoFactura(f.id), pendiente:parseFloat(f.valor)-_abonadoFactura(f.id)}));
+
+    const html=`<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Estado de Cuenta - ${c.nombre}</title>
+<style>
+@page { size: letter; margin: 1cm; }
+* { box-sizing:border-box; margin:0; padding:0; }
+body { font-family: Arial, sans-serif; font-size:11px; color:#000; padding:14px; }
+h1 { font-size:18px; color:#a855f7; margin-bottom:8px; }
+h2 { font-size:13px; color:#a855f7; margin:14px 0 6px; border-bottom:2px solid #a855f7; padding-bottom:3px; }
+.header { display:flex; justify-content:space-between; align-items:start; margin-bottom:14px; padding-bottom:10px; border-bottom:1px solid #ccc; }
+.info-cliente { margin-bottom:8px; font-size:11px; }
+.info-cliente strong { color:#555; }
+table { width:100%; border-collapse:collapse; margin-top:6px; font-size:10px; }
+th, td { border:1px solid #999; padding:5px 7px; text-align:left; }
+th { background:#a855f7; color:#fff; font-weight:bold; }
+tr:nth-child(even) { background:#f9f9f9; }
+.total-row { background:#fef3c7 !important; font-weight:bold; }
+.saldo-box { background:#fee2e2; border:2px solid #ef4444; border-radius:8px; padding:10px; text-align:center; margin:14px 0; }
+.saldo-box .label { font-size:11px; color:#7f1d1d; text-transform:uppercase; }
+.saldo-box .value { font-size:22px; font-weight:bold; color:#dc2626; margin-top:2px; }
+.estado-pagada { color:#10b981; font-weight:bold; }
+.estado-parcial { color:#f59e0b; font-weight:bold; }
+.estado-pendiente { color:#ef4444; font-weight:bold; }
+.btn-print { position:fixed; top:10px; right:10px; padding:10px 16px; background:#a855f7; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:bold; }
+@media print { .btn-print { display:none; } }
+.footer { margin-top:20px; padding-top:10px; border-top:1px solid #ccc; font-size:9px; color:#666; text-align:center; }
+</style>
+</head><body>
+
+<button class="btn-print" onclick="window.print()">🖨️ Imprimir</button>
+
+<div class="header">
+    <div>
+        <h1>⭐ ESTADO DE CUENTA</h1>
+        <div style="font-size:11px;color:#666;">PROYECTOVISION CLICK ZOMAC S.A.S — NIT 901162494-8</div>
+    </div>
+    <div style="text-align:right;font-size:10px;">
+        <strong>Fecha emisión:</strong> ${new Date().toLocaleDateString('es-CO')}<br>
+        <strong>Oficina:</strong> ${ofi?.nombre||'-'}
+    </div>
+</div>
+
+<h2>👤 Información del Cliente</h2>
+<div class="info-cliente">
+    <strong>Cliente:</strong> ${c.nombre}<br>
+    ${c.documento?`<strong>Documento:</strong> ${c.documento}<br>`:''}
+    ${c.telefono?`<strong>Teléfono:</strong> ${c.telefono}<br>`:''}
+    ${c.email?`<strong>Email:</strong> ${c.email}<br>`:''}
+    ${c.direccion?`<strong>Dirección:</strong> ${c.direccion}<br>`:''}
+    ${c.tipo?`<strong>Tipo:</strong> ${c.tipo}<br>`:''}
+</div>
+
+<div class="saldo-box">
+    <div class="label">Saldo total pendiente</div>
+    <div class="value">$${stats.saldo.toLocaleString('es-CO')}</div>
+</div>
+
+<h2>📅 Detalle de Facturas (${facturas.length})</h2>
+${facturas.length===0?'<p style="font-style:italic;color:#666;">Sin facturas registradas.</p>':`
+<table>
+    <thead>
+        <tr>
+            <th>Período</th>
+            <th>Fecha emisión</th>
+            <th>Descripción</th>
+            <th style="text-align:right;">Valor</th>
+            <th style="text-align:right;">Abonado</th>
+            <th style="text-align:right;">Pendiente</th>
+            <th>Estado</th>
+        </tr>
+    </thead>
+    <tbody>
+    ${facturas.sort((a,b)=>new Date(a.fecha)-new Date(b.fecha)).map(f=>{
+        const estado=f.pendiente<=0?'PAGADA':f.abonado>0?'PARCIAL':'PENDIENTE';
+        const cls=f.pendiente<=0?'estado-pagada':f.abonado>0?'estado-parcial':'estado-pendiente';
+        return `<tr>
+            <td>${f.periodo||'-'}</td>
+            <td>${new Date(f.fecha).toLocaleDateString('es-CO')}</td>
+            <td>${f.descripcion||'-'}</td>
+            <td style="text-align:right;">$${parseFloat(f.valor).toLocaleString('es-CO')}</td>
+            <td style="text-align:right;">$${f.abonado.toLocaleString('es-CO')}</td>
+            <td style="text-align:right;">$${f.pendiente.toLocaleString('es-CO')}</td>
+            <td><span class="${cls}">${estado}</span></td>
+        </tr>`;
+    }).join('')}
+    <tr class="total-row">
+        <td colspan="3" style="text-align:right;">TOTALES:</td>
+        <td style="text-align:right;">$${stats.totalFacturas.toLocaleString('es-CO')}</td>
+        <td style="text-align:right;">$${stats.totalAbonos.toLocaleString('es-CO')}</td>
+        <td style="text-align:right;">$${stats.saldo.toLocaleString('es-CO')}</td>
+        <td></td>
+    </tr>
+    </tbody>
+</table>`}
+
+<h2>💵 Historial de Abonos (${stats.abonos.length})</h2>
+${stats.abonos.length===0?'<p style="font-style:italic;color:#666;">Sin abonos registrados.</p>':`
+<table>
+    <thead>
+        <tr>
+            <th>Fecha</th>
+            <th>Forma de pago</th>
+            <th>Descripción</th>
+            <th>Aplicado a</th>
+            <th style="text-align:right;">Valor</th>
+        </tr>
+    </thead>
+    <tbody>
+    ${stats.abonos.sort((a,b)=>new Date(a.fecha)-new Date(b.fecha)).map(a=>{
+        const aplicado=(a.aplicaciones||[]).map(ap=>{
+            const fact=stats.facturas.find(f=>f.id===ap.facturaId);
+            return `${fact?.periodo||'?'}: $${ap.valor.toLocaleString('es-CO')}`;
+        }).join('; ');
+        return `<tr>
+            <td>${new Date(a.fecha).toLocaleDateString('es-CO')}</td>
+            <td>${a.forma||'Efectivo'}</td>
+            <td>${a.descripcion||'-'}</td>
+            <td>${aplicado||'-'}</td>
+            <td style="text-align:right;">$${parseFloat(a.valor).toLocaleString('es-CO')}</td>
+        </tr>`;
+    }).join('')}
+    <tr class="total-row">
+        <td colspan="4" style="text-align:right;">TOTAL ABONADO:</td>
+        <td style="text-align:right;">$${stats.totalAbonos.toLocaleString('es-CO')}</td>
+    </tr>
+    </tbody>
+</table>`}
+
+<div class="footer">
+    Estado de cuenta generado el ${new Date().toLocaleString('es-CO')} · Sistema PROYECTOVISION
+</div>
+
+</body></html>`;
+
+    const w=window.open('','_blank');
+    if(!w) return alert('⚠️ Permite ventanas emergentes para imprimir');
     w.document.write(html);
     w.document.close();
 }
