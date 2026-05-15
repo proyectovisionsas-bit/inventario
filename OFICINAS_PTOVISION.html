@@ -7044,6 +7044,59 @@ function modalComprobantes(oid, mid){
     const m=getMovimiento(oid,mid);
     if(!m){ alert('Movimiento no encontrado'); return; }
     const comps=m.comprobantes||[];
+
+    // ── Detalle especial Efecty (si aplica) ──
+    let efectyHTML='';
+    if(m.esReporteEfecty && m.pagosEfecty?.length>0){
+        const totalDetalle=m.pagosEfecty.reduce((s,p)=>s+parseFloat(p.valor||0),0);
+        const totalCoincide=Math.abs(totalDetalle-m.valor)<1;
+        efectyHTML=`
+        <div style="background:rgba(234,88,12,0.08);border:1px solid rgba(234,88,12,0.25);border-radius:10px;padding:12px;margin-bottom:12px;">
+            <h3 style="font-size:0.92rem;font-weight:700;color:#ea580c;margin-bottom:8px;">📄 Reporte Efecty</h3>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;margin-bottom:10px;">
+                <div style="background:var(--surface2);border-radius:6px;padding:6px 10px;text-align:center;">
+                    <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;">Pagos</div>
+                    <div style="font-size:1rem;font-weight:800;">${m.pagosEfecty.length}</div>
+                </div>
+                <div style="background:var(--surface2);border-radius:6px;padding:6px 10px;text-align:center;">
+                    <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;">Fecha reporte</div>
+                    <div style="font-size:0.85rem;font-weight:700;">${m.fechaReporte||'-'}</div>
+                </div>
+                <div style="background:var(--surface2);border-radius:6px;padding:6px 10px;text-align:center;">
+                    <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;">Total</div>
+                    <div style="font-size:1rem;font-weight:800;color:#10b981;">${fmtShort(totalDetalle)}</div>
+                </div>
+            </div>
+            ${totalCoincide?'<div style="background:rgba(16,185,129,0.08);border-radius:6px;padding:6px;font-size:0.74rem;color:#10b981;font-weight:600;text-align:center;">✅ Suma coincide con el movimiento</div>':'<div style="background:rgba(239,68,68,0.1);border-radius:6px;padding:6px;font-size:0.74rem;color:#ef4444;font-weight:600;text-align:center;">⚠️ Suma NO coincide con el movimiento</div>'}
+
+            <details style="margin-top:10px;">
+                <summary style="cursor:pointer;font-weight:600;font-size:0.82rem;color:var(--text);padding:4px;">📋 Ver detalle de los ${m.pagosEfecty.length} pagos</summary>
+                <div style="max-height:280px;overflow-y:auto;margin-top:8px;border:1px solid var(--border);border-radius:6px;">
+                    <table style="width:100%;font-size:0.72rem;border-collapse:collapse;">
+                        <thead style="position:sticky;top:0;background:var(--surface);">
+                            <tr style="border-bottom:1px solid var(--border);">
+                                <th style="text-align:left;padding:5px 6px;">Cédula</th>
+                                <th style="text-align:left;padding:5px 6px;">Nombre</th>
+                                <th style="text-align:right;padding:5px 6px;">Valor</th>
+                                <th style="text-align:left;padding:5px 6px;">Hora</th>
+                                <th style="text-align:left;padding:5px 6px;">Ref</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        ${m.pagosEfecty.map(p=>`<tr style="border-bottom:1px solid var(--border);">
+                            <td style="padding:4px 6px;">${p.cedula||''}</td>
+                            <td style="padding:4px 6px;">${p.nombre||''}</td>
+                            <td style="padding:4px 6px;text-align:right;color:#10b981;font-weight:700;">${fmtShort(p.valor)}</td>
+                            <td style="padding:4px 6px;color:var(--muted);">${p.hora||''}</td>
+                            <td style="padding:4px 6px;color:var(--muted);">${p.referencia||''}</td>
+                        </tr>`).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </details>
+        </div>`;
+    }
+
     const infoHTML=`
     <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:14px;">
         <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;font-size:0.85rem;">
@@ -8665,11 +8718,20 @@ async function _cargarComprobantesIA(files, oid){
             });
         }
 
+        // Limpiar nombre de archivo para usarlo como descripción inicial
+        // Ej: "ELKIN ONIAS LOPEZ GUEVARA.jpg" → "ELKIN ONIAS LOPEZ GUEVARA"
+        const nombreLimpio = file.name
+            .replace(/\.(jpg|jpeg|png|gif|webp|bmp)$/i, '') // quitar extensión
+            .replace(/[_-]+/g, ' ') // guiones bajos y medios a espacios
+            .replace(/\s+/g, ' ') // espacios múltiples a uno
+            .trim();
+
         _comprobantesPendientes.push({
             id:'comp_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
             file:file, base64:b64, nombre:file.name, hash:hash,
             valor:0, concepto:concepto, forma:forma,
-            descripcion:'', fechaTrans:'',
+            descripcion:nombreLimpio, fechaTrans:'',
+            descripcionDeArchivo:nombreLimpio, // guardar referencia del nombre original
             analizado:false, analizando:true, error:null,
             esReutilizado:!!dupHistorico
         });
@@ -8742,8 +8804,11 @@ Responde EXCLUSIVAMENTE en JSON con este formato:
                 const valorDetectado=parseFloat(r.valor||0);
                 lote[idx].valor=valorDetectado;
                 lote[idx].valorOriginalIA=valorDetectado; // ⭐ INMUTABLE
-                lote[idx].descripcion=r.descripcion||'';
-                lote[idx].descripcionOriginalIA=r.descripcion||''; // ⭐ INMUTABLE
+                // PRIORIDAD: usar el nombre del archivo si existe, sino lo detectado por IA
+                const descArchivo=lote[idx].descripcionDeArchivo;
+                const descFinal=descArchivo && descArchivo.length>2 ? descArchivo : (r.descripcion||'');
+                lote[idx].descripcion=descFinal;
+                lote[idx].descripcionOriginalIA=r.descripcion||''; // ⭐ INMUTABLE (lo que IA leyó)
                 lote[idx].fechaTrans=r.fecha||'';
                 lote[idx].analizado=true;
                 lote[idx].analizando=false;
