@@ -8742,13 +8742,25 @@ async function _cargarComprobantesIA(files, oid){
     if(bloqueadosHistoricos>0) console.warn(`Bloqueados/Advertidos por duplicado histórico: ${bloqueadosHistoricos}`);
     _renderListaComprobantes();
 
-    // Analizar por lotes de 5
+    // Analizar por lotes de 5, con espera entre lotes para evitar rate limit
     const pendientes=_comprobantesPendientes.filter(c=>!c.analizado&&!c.error);
     const LOTE=5;
     for(let i=0;i<pendientes.length;i+=LOTE){
         const lote=pendientes.slice(i,i+LOTE);
         await _analizarLoteIA(lote, apiKey);
         _renderListaComprobantes();
+        // Esperar 15 segundos entre lotes para no exceder rate limit (excepto último)
+        if(i+LOTE<pendientes.length){
+            console.log('⏳ Esperando 15s entre lotes para evitar rate limit de Groq...');
+            // Mostrar mensaje en pantalla
+            const resumen=document.getElementById('rc_total_resumen');
+            if(resumen){
+                resumen.insertAdjacentHTML('afterbegin', '<div id="rc_espera_msg" style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);color:#f59e0b;padding:8px 12px;border-radius:8px;margin-bottom:8px;font-size:0.78rem;text-align:center;font-weight:600;">⏳ Esperando 15s para procesar siguiente lote (evitar rate limit)...</div>');
+            }
+            await new Promise(r=>setTimeout(r,15000));
+            const msg=document.getElementById('rc_espera_msg');
+            if(msg) msg.remove();
+        }
     }
 }
 
@@ -8791,6 +8803,53 @@ Responde EXCLUSIVAMENTE en JSON con este formato:
                 response_format:{type:'json_object'}
             })
         });
+
+        // Manejo de rate limit: reintentar 1 vez con espera de 30s
+        if(response.status===429){
+            console.warn('⏳ Rate limit (429) — esperando 30s antes de reintentar...');
+            const resumen=document.getElementById('rc_total_resumen');
+            if(resumen){
+                resumen.insertAdjacentHTML('afterbegin', '<div id="rc_retry_msg" style="background:rgba(249,115,22,0.1);border:1px solid rgba(249,115,22,0.3);color:#f97316;padding:8px 12px;border-radius:8px;margin-bottom:8px;font-size:0.78rem;text-align:center;font-weight:600;">⏳ Groq rate limit alcanzado — esperando 30s y reintentando...</div>');
+            }
+            await new Promise(r=>setTimeout(r,30000));
+            const msg=document.getElementById('rc_retry_msg');
+            if(msg) msg.remove();
+
+            // Reintentar
+            const retryResponse=await fetch(GROQ_URL,{
+                method:'POST',
+                headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
+                body:JSON.stringify({
+                    model:'meta-llama/llama-4-scout-17b-16e-instruct',
+                    messages:[{role:'user',content:messageContent}],
+                    temperature:0.1, max_tokens:1500,
+                    response_format:{type:'json_object'}
+                })
+            });
+            if(!retryResponse.ok){
+                const errTxt=await retryResponse.text();
+                throw new Error('Rate limit persistente. Espera 1 minuto y reintenta manualmente. ('+errTxt.substring(0,100)+')');
+            }
+            const data=await retryResponse.json();
+            const rawText=data?.choices?.[0]?.message?.content||'';
+            const parsed=JSON.parse(rawText.match(/\{[\s\S]*\}/)[0]);
+            // Asignar resultados al lote — guardar valor ORIGINAL detectado por IA (inmutable)
+            (parsed.comprobantes||[]).forEach((r,idx)=>{
+                if(lote[idx]){
+                    const valorDetectado=parseFloat(r.valor||0);
+                    lote[idx].valor=valorDetectado;
+                    lote[idx].valorOriginalIA=valorDetectado;
+                    const descArchivo=lote[idx].descripcionDeArchivo;
+                    const descFinal=descArchivo && descArchivo.length>2 ? descArchivo : (r.descripcion||'');
+                    lote[idx].descripcion=descFinal;
+                    lote[idx].descripcionOriginalIA=r.descripcion||'';
+                    lote[idx].fechaTrans=r.fecha||'';
+                    lote[idx].analizado=true;
+                    lote[idx].analizando=false;
+                }
+            });
+            return;
+        }
 
         if(!response.ok){
             const errTxt=await response.text();
