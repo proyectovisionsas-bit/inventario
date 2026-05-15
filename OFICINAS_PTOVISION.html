@@ -658,21 +658,48 @@ async function save(){
     _saveInProgress = true;
     _lastSaveTime = Date.now();
 
-    // Contar lo que vamos a guardar para diagnóstico
-    const totalMovs = (DB.oficinas||[]).reduce((s,o)=>s+(o.movimientos||[]).length, 0);
-    const totalClis = (DB.oficinas||[]).reduce((s,o)=>s+(o.clientes||[]).length, 0);
-    console.log(`💾 save() iniciando: ${DB.oficinas?.length||0} oficinas, ${totalMovs} movimientos totales, ${totalClis} clientes, ${(DB.clientesEspeciales||[]).length} cli.especiales`);
+    // Contar lo que vamos a guardar para diagnóstico — POR OFICINA
+    console.log('💾 ═══════════ save() iniciando ═══════════');
+    (DB.oficinas||[]).forEach(o=>{
+        console.log(`   📁 ${o.nombre} (${o.id}): ${(o.movimientos||[]).length} movs, ${(o.clientes||[]).length} cli`);
+    });
+    console.log(`   ⭐ Cli.Especiales: ${(DB.clientesEspeciales||[]).length}`);
 
     try{
-        const datosLimpios=JSON.parse(JSON.stringify(DB));
+        // LIMPIEZA AGRESIVA: serializar y deserializar para limpiar undefined, funciones, etc
+        let datosLimpios;
+        try {
+            datosLimpios=JSON.parse(JSON.stringify(DB));
+        } catch(serError){
+            console.error('❌ Error serializando DB:', serError);
+            // Intentar identificar qué oficina causa el problema
+            (DB.oficinas||[]).forEach(o=>{
+                try { JSON.stringify(o); }
+                catch(e){ console.error(`❌ OFICINA CORRUPTA: ${o.nombre}`, e); }
+            });
+            throw new Error('Datos corruptos: '+serError.message);
+        }
+
+        // Validar antes de enviar
+        const sizeMB = JSON.stringify(datosLimpios).length / 1024 / 1024;
+        console.log(`   📦 Tamaño total: ${sizeMB.toFixed(2)} MB`);
+        if(sizeMB > 1){
+            console.warn('⚠️ Documento de más de 1MB — Firestore tiene límite de 1MB por documento');
+        }
+
         await db.collection('oficinas_sistema').doc(DOC_ID).set(datosLimpios);
         showSync('ok','Guardado ✓');
         console.log('✅ save() exitoso');
+        console.log('💾 ═══════════════════════════════════════════');
         setTimeout(()=>{ _saveInProgress = false; }, 2000);
     }catch(e){
         showSync('err','Error al guardar: '+e.message);
-        console.error('❌ save() error:', e);
+        console.error('❌ save() ERROR DETALLADO:', e);
+        console.error('   Mensaje:', e.message);
+        console.error('   Código:', e.code);
+        console.error('   Stack:', e.stack);
         _saveInProgress = false;
+        alert('⚠️ ERROR DE GUARDADO: ' + e.message + '\n\nCódigo: ' + (e.code||'desconocido') + '\n\nMira la consola (F12) para más detalles.');
     }
 }
 
