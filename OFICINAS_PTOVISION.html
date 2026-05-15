@@ -653,20 +653,25 @@ let _saveInProgress = false;
 let _lastSaveTime = 0;
 
 async function save(){
-    if(!db){ showSync('err','Sin conexión Firebase'); return; }
+    if(!db){ showSync('err','Sin conexión Firebase'); console.error('❌ save() sin db'); return; }
     showSync('saving','Guardando...');
     _saveInProgress = true;
     _lastSaveTime = Date.now();
+
+    // Contar lo que vamos a guardar para diagnóstico
+    const totalMovs = (DB.oficinas||[]).reduce((s,o)=>s+(o.movimientos||[]).length, 0);
+    const totalClis = (DB.oficinas||[]).reduce((s,o)=>s+(o.clientes||[]).length, 0);
+    console.log(`💾 save() iniciando: ${DB.oficinas?.length||0} oficinas, ${totalMovs} movimientos totales, ${totalClis} clientes, ${(DB.clientesEspeciales||[]).length} cli.especiales`);
+
     try{
-        // Limpiar undefined antes de guardar (Firebase no acepta undefined)
         const datosLimpios=JSON.parse(JSON.stringify(DB));
         await db.collection('oficinas_sistema').doc(DOC_ID).set(datosLimpios);
         showSync('ok','Guardado ✓');
-        // Esperar 2 segundos antes de aceptar snapshots externos para evitar sobreescritura
+        console.log('✅ save() exitoso');
         setTimeout(()=>{ _saveInProgress = false; }, 2000);
     }catch(e){
         showSync('err','Error al guardar: '+e.message);
-        console.error(e);
+        console.error('❌ save() error:', e);
         _saveInProgress = false;
     }
 }
@@ -747,9 +752,13 @@ async function load(){
         const snap = await db.collection('oficinas_sistema').doc(DOC_ID).get();
         if(snap.exists){
             const datos=snap.data();
+            const totalMovs = (datos.oficinas||[]).reduce((s,o)=>s+(o.movimientos||[]).length, 0);
+            console.log(`📥 load() recibido: ${datos.oficinas?.length||0} oficinas, ${totalMovs} movimientos, ${(datos.clientesEspeciales||[]).length} cli.especiales`);
             Object.keys(datos).forEach(k=>{ if(datos[k]!==undefined) DB[k]=datos[k]; });
+        } else {
+            console.warn('⚠️ load(): documento no existe en Firebase');
         }
-    }catch(e){ console.error('Error cargando:', e); }
+    }catch(e){ console.error('❌ Error cargando:', e); }
 }
 
 // ─── LOGIN ──────────────────────────────────────────────────────────────────
