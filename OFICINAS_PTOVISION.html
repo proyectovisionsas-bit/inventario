@@ -666,25 +666,45 @@ async function save(){
     console.log(`   ⭐ Cli.Especiales: ${(DB.clientesEspeciales||[]).length}`);
 
     try{
-        // LIMPIEZA AGRESIVA: serializar y deserializar para limpiar undefined, funciones, etc
         let datosLimpios;
         try {
             datosLimpios=JSON.parse(JSON.stringify(DB));
         } catch(serError){
             console.error('❌ Error serializando DB:', serError);
-            // Intentar identificar qué oficina causa el problema
-            (DB.oficinas||[]).forEach(o=>{
-                try { JSON.stringify(o); }
-                catch(e){ console.error(`❌ OFICINA CORRUPTA: ${o.nombre}`, e); }
-            });
             throw new Error('Datos corruptos: '+serError.message);
         }
 
-        // Validar antes de enviar
+        // ⚠️ CRÍTICO: Firebase NO acepta arrays anidados. Sanitizar TODOS los arrays anidados
+        // convirtiéndolos en objetos {0:x, 1:y, ...}
+        function sanitizarFirebase(obj, ruta=''){
+            if(obj===null||obj===undefined) return obj;
+            if(Array.isArray(obj)){
+                return obj.map((item,i)=>{
+                    if(Array.isArray(item)){
+                        // Array dentro de array → convertir a objeto {0:..., 1:...}
+                        console.warn(`⚠️ Array anidado convertido en ${ruta}[${i}]`);
+                        const o={};
+                        item.forEach((v,k)=>{ o[k]=sanitizarFirebase(v, ruta+`[${i}][${k}]`); });
+                        return o;
+                    }
+                    return sanitizarFirebase(item, ruta+`[${i}]`);
+                });
+            }
+            if(typeof obj==='object'){
+                const r={};
+                for(const k of Object.keys(obj)){
+                    r[k]=sanitizarFirebase(obj[k], ruta?ruta+'.'+k:k);
+                }
+                return r;
+            }
+            return obj;
+        }
+        datosLimpios = sanitizarFirebase(datosLimpios);
+
         const sizeMB = JSON.stringify(datosLimpios).length / 1024 / 1024;
         console.log(`   📦 Tamaño total: ${sizeMB.toFixed(2)} MB`);
         if(sizeMB > 1){
-            console.warn('⚠️ Documento de más de 1MB — Firestore tiene límite de 1MB por documento');
+            console.warn('⚠️ Documento de más de 1MB');
         }
 
         await db.collection('oficinas_sistema').doc(DOC_ID).set(datosLimpios);
@@ -697,9 +717,8 @@ async function save(){
         console.error('❌ save() ERROR DETALLADO:', e);
         console.error('   Mensaje:', e.message);
         console.error('   Código:', e.code);
-        console.error('   Stack:', e.stack);
         _saveInProgress = false;
-        alert('⚠️ ERROR DE GUARDADO: ' + e.message + '\n\nCódigo: ' + (e.code||'desconocido') + '\n\nMira la consola (F12) para más detalles.');
+        alert('⚠️ ERROR DE GUARDADO: ' + e.message + '\n\nMira la consola (F12) para más detalles.');
     }
 }
 
