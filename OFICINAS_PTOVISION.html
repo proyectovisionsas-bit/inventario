@@ -8356,27 +8356,68 @@ async function guardarComprobantesRegistrados(oid){
         return;
     }
 
-    // Registrar directamente
-    validos.forEach((c,i)=>{
+    // Mostrar progreso de subida a Cloudinary
+    const btnG=document.getElementById('btn_rc_guardar');
+    if(btnG){ btnG.disabled=true; btnG.textContent='☁️ Subiendo comprobantes...'; }
+
+    // Subir cada comprobante a Cloudinary y crear el movimiento
+    let subidos=0, errores=[];
+    const movimientosCreados=[];
+
+    for(let i=0;i<validos.length;i++){
+        const c=validos[i];
+        if(btnG) btnG.textContent=`☁️ Subiendo ${i+1} de ${validos.length}...`;
+
         const _ah=new Date();
         const fechaFinal=`${fechaInputVal}T${String(_ah.getHours()).padStart(2,'0')}:${String(_ah.getMinutes()).padStart(2,'0')}:${String(i%60).padStart(2,'0')}`;
         const movId=uid();
-        o.movimientos.push({
+        const comprobantesArr=[];
+
+        // Subir la imagen original a Cloudinary
+        try{
+            const res=await subirArchivoCloudinary(c.file, movId);
+            comprobantesArr.push({
+                url:res.url,
+                nombre:c.nombre||`comprobante_${i+1}.jpg`,
+                tipo:'imagen',
+                fecha:new Date().toISOString(),
+                valorIA:c.valor,
+                descripcionIA:c.descripcion||''
+            });
+            subidos++;
+            console.log(`✅ Comprobante ${i+1} subido:`,res.url);
+        }catch(e){
+            console.error(`❌ Error subiendo comprobante ${i+1}:`,e);
+            errores.push(`${i+1}: ${e.message}`);
+        }
+
+        // Crear el movimiento (aún si falló la subida, mantenemos el registro)
+        const nuevoMov={
             id:movId, tipo, concepto, forma,
             descripcion:c.descripcion||'Comprobante IA',
             valor:c.valor, fecha:fechaFinal,
-            comprobantes:[] // se subirá después si quiere
-        });
-        // Guardar en caché de imágenes para verificación posterior
+            comprobantes:comprobantesArr,
+            verificadoIA:true
+        };
+        o.movimientos.push(nuevoMov);
+        movimientosCreados.push(nuevoMov);
+
+        // Guardar en caché para verificación rápida posterior
         if(!window._compImgCache) window._compImgCache={};
         window._compImgCache[movId]=[{data:c.base64,type:c.file.type||'image/jpeg'}];
-    });
+    }
 
+    if(btnG) btnG.textContent='💾 Guardando en base de datos...';
     await save();
+
     window._regFechaPreserve=fechaInputVal;
     _comprobantesPendientes=[];
     closeModal();
-    alert(`✅ ${validos.length} movimiento(s) registrado(s) exitosamente.`);
+
+    let msg=`✅ ${validos.length} movimiento(s) registrado(s).`;
+    if(subidos>0) msg+=`\n☁️ ${subidos} comprobante(s) subido(s) a Cloudinary.`;
+    if(errores.length>0) msg+=`\n⚠️ ${errores.length} con error:\n${errores.join('\n')}`;
+    alert(msg);
     renderRegistro();
 }
 
