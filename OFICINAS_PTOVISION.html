@@ -1484,6 +1484,7 @@ function renderRegistro(){
                 <button class="btn btn-outline btn-sm" onclick="verMovimientosMes('${oid}')">📅 Ver mes</button>
                 <button class="btn btn-outline btn-sm" onclick="modalCargaMasiva('${oid}')">📤 Carga masiva</button>
                 <button class="btn btn-outline btn-sm" onclick="modalRegistroComprobantes('${oid}')" style="background:rgba(249,115,22,0.1);color:#f97316;border-color:rgba(249,115,22,0.3);">✨ Comprobantes IA</button>
+                <button class="btn btn-outline btn-sm" onclick="modalReporteEfecty('${oid}')" style="background:rgba(234,88,12,0.1);color:#ea580c;border-color:rgba(234,88,12,0.3);">📄 Reporte Efecty</button>
                 ${USER.role==='admin'?`<button class="btn btn-warning btn-sm" onclick="modalGestionarMovimientos('${oid}')">🗑️ Gestionar todos</button>`:''}
             </div>
         </div>
@@ -1502,6 +1503,7 @@ function renderRegistro(){
                             ${m.esPagoAdmin?'<span class="tag tag-admin" style="flex-shrink:0;font-size:0.6rem;">👑</span>':''}
                             <span style="font-size:0.82rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${m.descripcion||'<span style="color:var(--muted);font-style:italic;">Sin descripción</span>'}</span>
                             ${m.verificadoIA?'<span style="font-size:0.62rem;background:rgba(249,115,22,0.15);color:#f97316;padding:1px 6px;border-radius:8px;flex-shrink:0;" title="Registrado con IA">✨ IA</span>':''}
+                            ${m.esReporteEfecty?`<span style="font-size:0.62rem;background:rgba(234,88,12,0.15);color:#ea580c;padding:1px 6px;border-radius:8px;flex-shrink:0;" title="Reporte Efecty con ${m.cantidadPagos||0} pagos">📄 Efecty (${m.cantidadPagos||0})</span>`:''}
                         </div>
                         <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
                             <button class="btn btn-outline btn-sm" onclick="modalComprobantes('${oid}','${m.id}')" style="padding:3px 8px;font-size:0.72rem;" title="Ver/subir comprobantes">
@@ -1523,7 +1525,7 @@ function renderRegistro(){
                         ${m.esPagoAdmin?'<span class="tag tag-admin" style="margin-left:4px;">👑 Admin</span>':''}
                     </td>
                     <td>${m.concepto}</td>
-                    <td style="color:var(--muted);font-size:0.78rem;">${m.descripcion||'-'}${m.verificadoIA?' <span style="font-size:0.62rem;background:rgba(249,115,22,0.15);color:#f97316;padding:1px 6px;border-radius:8px;" title="Registrado con IA">✨</span>':''}</td>
+                    <td style="color:var(--muted);font-size:0.78rem;">${m.descripcion||'-'}${m.verificadoIA?' <span style="font-size:0.62rem;background:rgba(249,115,22,0.15);color:#f97316;padding:1px 6px;border-radius:8px;" title="Registrado con IA">✨</span>':''}${m.esReporteEfecty?` <span style="font-size:0.62rem;background:rgba(234,88,12,0.15);color:#ea580c;padding:1px 6px;border-radius:8px;" title="Reporte Efecty con ${m.cantidadPagos||0} pagos">📄${m.cantidadPagos||0}</span>`:''}</td>
                     <td><span class="tag ${m.forma==='Efectivo'?'tag-ef':m.forma==='Efecty'?'tag-efty':'tag-banc'}">${m.forma}</span></td>
                     <td class="money ${m.tipo==='ingreso'?'pos':'neg'}">${m.tipo==='ingreso'?'+':'-'}${fmtShort(m.valor)}</td>
                     <td style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
@@ -7116,7 +7118,7 @@ function modalComprobantes(oid, mid){
         <div id="ia_verif_result"></div>
     </div>`:'';
 
-    openModal('📎 Comprobantes ('+comps.length+')', infoHTML+verPanel+zonaSubida+listaHTML,
+    openModal('📎 Comprobantes ('+comps.length+')', efectyHTML+infoHTML+verPanel+zonaSubida+listaHTML,
         `<button class="btn btn-outline" onclick="closeModal()">Cerrar</button>`);
 }
 
@@ -8182,6 +8184,323 @@ function _movimientoBloqueado(m){
 // CONTROL 5: Formas de pago que REQUIEREN comprobante obligatorio
 const FORMAS_REQUIEREN_COMPROBANTE = ['Cta Bancolombia','Cruce de Cuentas','Efecty'];
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// REPORTE EFECTY — Procesamiento de archivos de pagos diarios
+// ═══════════════════════════════════════════════════════════════════════════
+
+let _efectyPagos = [];
+let _efectyResumen = null;
+let _efectyArchivo = null;
+
+function modalReporteEfecty(oid){
+    _efectyPagos = [];
+    _efectyResumen = null;
+    _efectyArchivo = null;
+
+    const html = `
+    <div style="background:rgba(234,88,12,0.08);border:1px solid rgba(234,88,12,0.25);border-radius:10px;padding:14px;margin-bottom:14px;font-size:0.82rem;">
+        <p style="font-weight:700;color:#ea580c;margin-bottom:6px;">📄 Reporte de pagos Efecty</p>
+        <p style="color:var(--muted);margin-bottom:6px;">Carga el archivo .txt que envía Efecty diariamente con el detalle de los pagos. El sistema analizará automáticamente los pagos, validará el total y creará un solo movimiento con todo el detalle.</p>
+        <p style="color:var(--muted);font-size:0.74rem;">📌 Formato esperado: archivo separado por pipe (|) con líneas tipo 02 para pagos y línea 03 para totales.</p>
+    </div>
+
+    <div style="border:2px dashed var(--border);border-radius:10px;padding:18px;text-align:center;margin:14px 0;transition:0.2s;"
+        ondragover="event.preventDefault();this.style.borderColor='#ea580c';this.style.background='rgba(234,88,12,0.05)'"
+        ondragleave="this.style.borderColor='var(--border)';this.style.background=''"
+        ondrop="event.preventDefault();this.style.borderColor='var(--border)';this.style.background='';_procesarArchivoEfecty(event.dataTransfer.files[0])">
+        <div style="font-size:2.2rem;margin-bottom:6px;">📄</div>
+        <p style="font-size:0.85rem;color:var(--muted);margin-bottom:8px;">Arrastra el archivo .txt aquí o haz click para seleccionar</p>
+        <input type="file" id="efecty_file_input" accept=".txt,.csv" style="display:none"
+            onchange="_procesarArchivoEfecty(this.files[0])">
+        <button class="btn btn-primary btn-sm" onclick="document.getElementById('efecty_file_input').click()" style="background:#ea580c;">
+            📤 Seleccionar archivo
+        </button>
+        <p style="font-size:0.72rem;color:var(--muted);margin-top:8px;">Solo archivos .txt o .csv</p>
+    </div>
+
+    <div id="efecty_resumen"></div>
+    <div id="efecty_detalle"></div>`;
+
+    const footer = `
+        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" id="btn_efecty_guardar" onclick="guardarReporteEfecty('${oid}')" disabled style="background:#ea580c;">
+            💾 Registrar pagos
+        </button>`;
+
+    openModal('📄 Carga de Reporte Efecty', html, footer);
+}
+
+async function _procesarArchivoEfecty(file){
+    if(!file){ return; }
+    if(!file.name.match(/\.(txt|csv)$/i)){
+        alert('⚠️ Solo se aceptan archivos .txt o .csv');
+        return;
+    }
+    _efectyArchivo = file;
+
+    try{
+        const texto = await file.text();
+        const lineas = texto.split(/\r?\n/).filter(l=>l.trim());
+
+        const pagos = [];
+        let totalArchivo = 0;
+        let cantidadArchivo = 0;
+        let fechaReporte = '';
+
+        for(const linea of lineas){
+            const campos = linea.split('|').map(c=>c.replace(/^"|"$/g,'').trim());
+            if(campos.length<2) continue;
+
+            // Línea 02 = pago individual
+            if(campos[0]==='02'){
+                const cedula = campos[1] || '';
+                const valor = parseFloat(campos[2]||0);
+                const fechaPago = campos[3] || '';
+                const nombre1 = campos[4] || '';
+                const apellido1 = campos[5] || '';
+                const apellido2 = campos[6] || '';
+                const referencia = campos[8] || '';
+
+                if(valor>0){
+                    pagos.push({
+                        cedula:cedula,
+                        valor:valor,
+                        fechaPago:fechaPago,
+                        nombre:`${nombre1} ${apellido1} ${apellido2}`.trim().replace(/\s+/g,' '),
+                        referencia:referencia
+                    });
+                    if(!fechaReporte && fechaPago) fechaReporte = fechaPago.slice(0,10);
+                }
+            }
+            // Línea 03 = resumen del archivo
+            else if(campos[0]==='03'){
+                cantidadArchivo = parseInt(campos[1]||0);
+                totalArchivo = parseFloat(campos[2]||0);
+            }
+        }
+
+        if(pagos.length===0){
+            alert('⚠️ No se encontraron pagos válidos en el archivo. Verifica el formato.');
+            return;
+        }
+
+        // Cálculos
+        const totalCalculado = pagos.reduce((s,p)=>s+p.valor,0);
+        const totalDifiere = Math.abs(totalCalculado-totalArchivo) > 1;
+        const cantidadDifiere = cantidadArchivo>0 && cantidadArchivo!==pagos.length;
+
+        _efectyPagos = pagos;
+        _efectyResumen = {
+            totalArchivo, totalCalculado, totalDifiere,
+            cantidadArchivo, cantidadEncontrados:pagos.length, cantidadDifiere,
+            fechaReporte:fechaReporte||hoyLocal()
+        };
+
+        _renderResumenEfecty();
+    }catch(err){
+        console.error('Error procesando archivo Efecty:',err);
+        alert('❌ Error al leer el archivo: '+err.message);
+    }
+}
+
+function _renderResumenEfecty(){
+    const resumen = document.getElementById('efecty_resumen');
+    const detalle = document.getElementById('efecty_detalle');
+    const btn = document.getElementById('btn_efecty_guardar');
+    if(!resumen||!_efectyResumen) return;
+
+    const r = _efectyResumen;
+
+    // Resumen del análisis
+    resumen.innerHTML = `
+    <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:10px;padding:12px;margin-bottom:12px;">
+        <h3 style="font-size:0.95rem;font-weight:700;color:#10b981;margin-bottom:10px;">📊 Análisis del reporte</h3>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;">
+            <div style="background:var(--surface2);border-radius:6px;padding:8px;text-align:center;">
+                <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;">Pagos</div>
+                <div style="font-size:1.2rem;font-weight:800;color:#10b981;">${r.cantidadEncontrados}</div>
+            </div>
+            <div style="background:var(--surface2);border-radius:6px;padding:8px;text-align:center;">
+                <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;">Total calculado</div>
+                <div style="font-size:1.1rem;font-weight:800;color:#10b981;">${fmtShort(r.totalCalculado)}</div>
+            </div>
+            <div style="background:var(--surface2);border-radius:6px;padding:8px;text-align:center;">
+                <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;">Total archivo</div>
+                <div style="font-size:1.1rem;font-weight:800;color:#10b981;">${fmtShort(r.totalArchivo)}</div>
+            </div>
+            <div style="background:var(--surface2);border-radius:6px;padding:8px;text-align:center;">
+                <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;">Fecha</div>
+                <div style="font-size:0.95rem;font-weight:700;">${r.fechaReporte}</div>
+            </div>
+        </div>
+
+        ${r.totalDifiere?`<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:8px;margin-top:10px;font-size:0.78rem;color:#ef4444;font-weight:600;">
+            ⚠️ INCONSISTENCIA: La suma de pagos (${fmtShort(r.totalCalculado)}) no coincide con el total declarado en el archivo (${fmtShort(r.totalArchivo)}). Diferencia: ${fmtShort(Math.abs(r.totalCalculado-r.totalArchivo))}
+        </div>`:`<div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:6px;padding:6px;margin-top:10px;font-size:0.78rem;color:#10b981;font-weight:600;">
+            ✅ Validación correcta: La suma coincide con el total del archivo.
+        </div>`}
+
+        ${r.cantidadDifiere?`<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:6px;padding:6px;margin-top:8px;font-size:0.78rem;color:#f59e0b;font-weight:600;">
+            ⚠️ El archivo declara ${r.cantidadArchivo} pagos pero se encontraron ${r.cantidadEncontrados}.
+        </div>`:''}
+    </div>`;
+
+    // Detalle expandible de cada pago
+    detalle.innerHTML = `
+    <details style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:10px;">
+        <summary style="padding:10px 14px;cursor:pointer;font-weight:700;font-size:0.88rem;">
+            📋 Ver detalle de los ${_efectyPagos.length} pagos
+        </summary>
+        <div style="max-height:300px;overflow-y:auto;padding:0 10px 10px;">
+            <table style="width:100%;font-size:0.74rem;border-collapse:collapse;">
+                <thead style="position:sticky;top:0;background:var(--surface);">
+                    <tr style="border-bottom:1px solid var(--border);">
+                        <th style="text-align:left;padding:6px;">Cédula</th>
+                        <th style="text-align:left;padding:6px;">Nombre</th>
+                        <th style="text-align:right;padding:6px;">Valor</th>
+                        <th style="text-align:left;padding:6px;">Hora</th>
+                        <th style="text-align:left;padding:6px;">Ref</th>
+                    </tr>
+                </thead>
+                <tbody>
+                ${_efectyPagos.map(p=>`<tr style="border-bottom:1px solid var(--border);">
+                    <td style="padding:5px 6px;">${p.cedula}</td>
+                    <td style="padding:5px 6px;">${p.nombre}</td>
+                    <td style="padding:5px 6px;text-align:right;color:#10b981;font-weight:700;">${fmtShort(p.valor)}</td>
+                    <td style="padding:5px 6px;color:var(--muted);">${(p.fechaPago||'').slice(11,16)}</td>
+                    <td style="padding:5px 6px;color:var(--muted);">${p.referencia}</td>
+                </tr>`).join('')}
+                </tbody>
+            </table>
+        </div>
+    </details>
+
+    <div class="form-row">
+        <div class="form-group-dark">
+            <label>Concepto</label>
+            <select id="efecty_concepto" class="form-control">
+                ${CONCEPTOS_ING.map(c=>`<option ${c==='Pago Servicio Internet + TV'?'selected':''}>${c}</option>`).join('')}
+            </select>
+        </div>
+        <div class="form-group-dark">
+            <label>Fecha del registro</label>
+            <input type="date" id="efecty_fecha" class="form-control" value="${r.fechaReporte}" max="${hoyLocal()}">
+        </div>
+    </div>`;
+
+    if(btn) btn.disabled = false;
+}
+
+async function guardarReporteEfecty(oid){
+    if(!_efectyPagos.length){ return alert('Carga primero un archivo'); }
+    const r = _efectyResumen;
+    const concepto = document.getElementById('efecty_concepto').value;
+    const fechaInput = document.getElementById('efecty_fecha').value;
+    if(!fechaInput){ return alert('Selecciona la fecha'); }
+
+    // CONTROL: Si hay inconsistencia en el total, pedir confirmación
+    if(r.totalDifiere){
+        const ok = confirm(`⚠️ INCONSISTENCIA DETECTADA:\n\n` +
+            `Total calculado: ${fmtShort(r.totalCalculado)}\n` +
+            `Total archivo: ${fmtShort(r.totalArchivo)}\n` +
+            `Diferencia: ${fmtShort(Math.abs(r.totalCalculado-r.totalArchivo))}\n\n` +
+            `¿Continuar de todas formas? Esta acción quedará registrada.`);
+        if(!ok){
+            registrarLog('CANCELADO_EFECTY_TOTAL_NO_COINCIDE',{
+                totalCalc:r.totalCalculado, totalArchivo:r.totalArchivo, oid
+            });
+            return;
+        }
+        registrarLog('ADVERTENCIA_EFECTY_TOTAL_NO_COINCIDE',{
+            totalCalc:r.totalCalculado, totalArchivo:r.totalArchivo, oid
+        });
+    }
+
+    if(!confirm(`¿Registrar el ingreso por ${fmtShort(r.totalCalculado)} con el detalle de ${_efectyPagos.length} pagos?`)) return;
+
+    const o = DB.oficinas.find(x=>x.id===oid)||getOficina(oid);
+    if(!o) return alert('Oficina no encontrada');
+    if(!o.movimientos) o.movimientos = [];
+
+    // CONTROL 1: Buscar duplicado (ingreso Efecty del mismo valor en la misma fecha)
+    const dup = _buscarPosibleDuplicado(oid, r.totalCalculado, fechaInput, 'Efecty');
+    if(dup){
+        const continuar = confirm(`🚨 POSIBLE DUPLICADO:\n\n` +
+            `Ya existe un movimiento por Efecty de ${fmtShort(dup.valor)} el ${new Date(dup.fecha).toLocaleDateString('es-CO')}.\n` +
+            `Descripción: "${dup.descripcion||dup.concepto}"\n\n` +
+            `¿Continuar de todas formas?`);
+        if(!continuar){
+            registrarLog('CANCELADO_EFECTY_DUPLICADO',{oid,valor:r.totalCalculado});
+            return;
+        }
+        registrarLog('ADVERTENCIA_EFECTY_DUPLICADO_ACEPTADO',{oid,valor:r.totalCalculado});
+    }
+
+    const btnG = document.getElementById('btn_efecty_guardar');
+    if(btnG){ btnG.disabled=true; btnG.textContent='☁️ Subiendo archivo...'; }
+
+    // Subir el archivo .txt a Cloudinary para tener respaldo
+    const movId = uid();
+    let comprobantesArr = [];
+    try{
+        const res = await subirArchivoCloudinary(_efectyArchivo, movId);
+        comprobantesArr.push({
+            url:res.url,
+            nombre:_efectyArchivo.name,
+            tipo:'archivo_efecty',
+            fecha:new Date().toISOString(),
+            valorIA:r.totalCalculado,
+            descripcionIA:`Reporte Efecty - ${_efectyPagos.length} pagos`
+        });
+    }catch(e){
+        console.warn('Error subiendo archivo Efecty:',e);
+    }
+
+    // Crear el movimiento total con detalle de pagos embebido
+    const _ah = new Date();
+    const fechaFinal = `${fechaInput}T${String(_ah.getHours()).padStart(2,'0')}:${String(_ah.getMinutes()).padStart(2,'0')}:${String(_ah.getSeconds()).padStart(2,'0')}`;
+
+    const nuevoMov = {
+        id:movId,
+        tipo:'ingreso',
+        concepto:concepto,
+        forma:'Efecty',
+        descripcion:`Reporte Efecty - ${_efectyPagos.length} pagos del ${r.fechaReporte}`,
+        valor:r.totalCalculado,
+        fecha:fechaFinal,
+        comprobantes:comprobantesArr,
+        verificadoIA:true,
+        bloqueadoEdicion:true,
+        creadoPor:USER?.nombre||USER?.id||'?',
+        creadoEn:now(),
+        // ⭐ Detalle de pagos Efecty embebido en el movimiento
+        esReporteEfecty:true,
+        pagosEfecty:_efectyPagos.map(p=>({
+            cedula:p.cedula, nombre:p.nombre,
+            valor:p.valor, hora:(p.fechaPago||'').slice(11,16),
+            referencia:p.referencia
+        })),
+        totalArchivoOriginal:r.totalArchivo,
+        cantidadPagos:_efectyPagos.length,
+        fechaReporte:r.fechaReporte
+    };
+
+    o.movimientos.push(nuevoMov);
+
+    registrarLog('REGISTRO_REPORTE_EFECTY',{
+        oid:oid, movId:movId, valor:r.totalCalculado,
+        cantidadPagos:_efectyPagos.length, fechaReporte:r.fechaReporte
+    });
+
+    await save();
+    window._regFechaPreserve = fechaInput;
+    _efectyPagos = []; _efectyResumen = null; _efectyArchivo = null;
+    closeModal();
+    alert(`✅ Reporte Efecty registrado.\n\n💰 Total: ${fmtShort(r.totalCalculado)}\n📋 ${nuevoMov.cantidadPagos} pagos en el detalle.`);
+    renderRegistro();
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // REGISTRO MASIVO DE COMPROBANTES CON IA
 // Cada comprobante se convierte en un movimiento individual
@@ -8593,11 +8912,14 @@ async function guardarComprobantesRegistrados(oid){
 
     // CONTROL 2: Validación cruzada IA vs manual
     // Si el usuario modificó el valor que la IA detectó, requerir justificación
+    console.log('🔍 CONTROL 2: Verificando diferencias IA vs manual...');
     const cambiosSignificativos=[];
     for(const c of validos){
+        console.log(`  - "${c.nombre}": IA=${c.valorOriginalIA}, Manual=${c.valor}`);
         if(c.valorOriginalIA && c.valorOriginalIA>0){
             const diff=Math.abs(c.valor-c.valorOriginalIA);
             const pctDiff=(diff/c.valorOriginalIA)*100;
+            console.log(`    Diferencia: $${diff} (${pctDiff.toFixed(1)}%)`);
             // Si la diferencia es mayor al 5% O mayor a $1.000 (lo que sea mayor)
             if(pctDiff>5 || diff>1000){
                 cambiosSignificativos.push({
@@ -8608,8 +8930,11 @@ async function guardarComprobantesRegistrados(oid){
                     porcentaje:pctDiff
                 });
             }
+        } else {
+            console.warn(`    ⚠️ Sin valorOriginalIA registrado para "${c.nombre}"`);
         }
     }
+    console.log(`  Total cambios significativos: ${cambiosSignificativos.length}`);
 
     if(cambiosSignificativos.length>0){
         const msgs=cambiosSignificativos.map(d=>
