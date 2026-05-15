@@ -7088,6 +7088,7 @@ function modalComprobantes(oid, mid){
                     <div style="font-size:0.68rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.nombre||'Comprobante '+(i+1)}</div>
                     <div style="font-size:0.65rem;color:var(--muted);">${new Date(c.fecha).toLocaleDateString('es-CO')}</div>
                     ${c.valorIA?`<div style="font-size:0.68rem;color:#f97316;background:rgba(249,115,22,0.12);border:1px solid rgba(249,115,22,0.25);border-radius:4px;padding:2px 5px;margin-top:3px;text-align:center;font-weight:700;">✨ IA: ${fmtShort(c.valorIA)}</div>`:''}
+                    ${c.valorOriginalIA && c.valorOriginalIA!==c.valorIA ? `<div style="font-size:0.62rem;color:#ef4444;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);border-radius:4px;padding:2px 5px;margin-top:2px;text-align:center;font-weight:700;" title="Valor modificado">⚠️ IA Original: ${fmtShort(c.valorOriginalIA)}</div>${c.motivoCambio?`<div style="font-size:0.6rem;color:var(--muted);margin-top:2px;font-style:italic;" title="${c.motivoCambio.replace(/"/g,'&quot;')}">📝 ${c.motivoCambio.substring(0,40)}${c.motivoCambio.length>40?'...':''}</div>`:''}`:''}
                     ${c.descripcionIA?`<div style="font-size:0.62rem;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${c.descripcionIA.replace(/"/g,'&quot;')}">${c.descripcionIA}</div>`:''}
                 </div>
                 <div style="display:flex;gap:4px;padding:0 6px 6px;">
@@ -8416,11 +8417,14 @@ Responde EXCLUSIVAMENTE en JSON con este formato:
         const rawText=data?.choices?.[0]?.message?.content||'';
         const parsed=JSON.parse(rawText.match(/\{[\s\S]*\}/)[0]);
 
-        // Asignar resultados al lote
+        // Asignar resultados al lote — guardar valor ORIGINAL detectado por IA (inmutable)
         (parsed.comprobantes||[]).forEach((r,idx)=>{
             if(lote[idx]){
-                lote[idx].valor=parseFloat(r.valor||0);
+                const valorDetectado=parseFloat(r.valor||0);
+                lote[idx].valor=valorDetectado;
+                lote[idx].valorOriginalIA=valorDetectado; // ⭐ INMUTABLE
                 lote[idx].descripcion=r.descripcion||'';
+                lote[idx].descripcionOriginalIA=r.descripcion||''; // ⭐ INMUTABLE
                 lote[idx].fechaTrans=r.fecha||'';
                 lote[idx].analizado=true;
                 lote[idx].analizando=false;
@@ -8587,6 +8591,83 @@ async function guardarComprobantesRegistrados(oid){
         return;
     }
 
+    // CONTROL 2: Validación cruzada IA vs manual
+    // Si el usuario modificó el valor que la IA detectó, requerir justificación
+    const cambiosSignificativos=[];
+    for(const c of validos){
+        if(c.valorOriginalIA && c.valorOriginalIA>0){
+            const diff=Math.abs(c.valor-c.valorOriginalIA);
+            const pctDiff=(diff/c.valorOriginalIA)*100;
+            // Si la diferencia es mayor al 5% O mayor a $1.000 (lo que sea mayor)
+            if(pctDiff>5 || diff>1000){
+                cambiosSignificativos.push({
+                    comp:c,
+                    valorIA:c.valorOriginalIA,
+                    valorManual:c.valor,
+                    diferencia:diff,
+                    porcentaje:pctDiff
+                });
+            }
+        }
+    }
+
+    if(cambiosSignificativos.length>0){
+        const msgs=cambiosSignificativos.map(d=>
+            `• "${d.comp.nombre}":\n  IA detectó: ${fmtShort(d.valorIA)}\n  Tú escribiste: ${fmtShort(d.valorManual)}\n  Diferencia: ${fmtShort(d.diferencia)} (${d.porcentaje.toFixed(1)}%)`
+        ).join('\n\n');
+
+        const ok=confirm(`🚨 ALERTA: VALORES MODIFICADOS RESPECTO A LA IA 🚨\n\n` +
+            `Se detectaron ${cambiosSignificativos.length} comprobante(s) donde el valor que escribiste es MUY DIFERENTE al que la IA leyó:\n\n` +
+            `${msgs}\n\n` +
+            `⚠️ Esto puede indicar:\n` +
+            `  - Error tipográfico\n` +
+            `  - El comprobante tiene varios valores\n` +
+            `  - Manipulación intencional\n\n` +
+            `Esta acción quedará REGISTRADA en el log de auditoría.\n\n` +
+            `¿Continuar de todas formas?`);
+
+        if(!ok){
+            registrarLog('CANCELADO_DIFERENCIA_IA_MANUAL',{
+                cantidad:cambiosSignificativos.length,
+                detalles:cambiosSignificativos.map(d=>({
+                    archivo:d.comp.nombre,
+                    valorIA:d.valorIA,
+                    valorManual:d.valorManual,
+                    diferencia:d.diferencia
+                })),
+                oid:oid
+            });
+            return;
+        }
+
+        // Si continúa, pedir motivo OBLIGATORIO
+        const motivo=prompt(`🔒 Para registrar con valores diferentes a los detectados por la IA debes indicar EL MOTIVO:\n\n` +
+            `(Mínimo 15 caracteres. Esta justificación quedará en el log permanente)`);
+        if(!motivo || motivo.trim().length<15){
+            alert('Debes indicar un motivo claro de mínimo 15 caracteres. Operación cancelada.');
+            registrarLog('CANCELADO_SIN_MOTIVO_DIFERENCIA_IA',{
+                cantidad:cambiosSignificativos.length, oid:oid
+            });
+            return;
+        }
+        registrarLog('VALORES_MODIFICADOS_VS_IA',{
+            motivo:motivo.trim(),
+            cantidad:cambiosSignificativos.length,
+            detalles:cambiosSignificativos.map(d=>({
+                archivo:d.comp.nombre,
+                valorIA:d.valorIA,
+                valorManual:d.valorManual,
+                diferencia:d.diferencia,
+                porcentaje:d.porcentaje.toFixed(1)+'%'
+            })),
+            oid:oid
+        });
+        // Adjuntar el motivo a cada comprobante modificado para guardar con el movimiento
+        cambiosSignificativos.forEach(d=>{
+            d.comp.motivoCambioIA=motivo.trim();
+        });
+    }
+
     // Mostrar progreso de subida a Cloudinary
     const btnG=document.getElementById('btn_rc_guardar');
     if(btnG){ btnG.disabled=true; btnG.textContent='☁️ Subiendo comprobantes...'; }
@@ -8612,9 +8693,13 @@ async function guardarComprobantesRegistrados(oid){
                 nombre:c.nombre||`comprobante_${i+1}.jpg`,
                 tipo:'imagen',
                 fecha:new Date().toISOString(),
-                valorIA:c.valor,
+                valorIA:c.valor, // valor actual (puede haber sido editado)
+                valorOriginalIA:c.valorOriginalIA || c.valor, // ⭐ valor INMUTABLE detectado originalmente
                 descripcionIA:c.descripcion||'',
-                hashImagen:c.hash || null  // CONTROL 7: guardar hash
+                descripcionOriginalIA:c.descripcionOriginalIA||c.descripcion||'',
+                hashImagen:c.hash || null,
+                fueModificado:c.motivoCambioIA ? true : false,
+                motivoCambio:c.motivoCambioIA || null
             });
             subidos++;
             console.log(`✅ Comprobante ${i+1} subido:`,res.url);
@@ -8630,9 +8715,12 @@ async function guardarComprobantesRegistrados(oid){
             valor:c.valor, fecha:fechaFinal,
             comprobantes:comprobantesArr,
             verificadoIA:true,
-            bloqueadoEdicion:true,  // CONTROL 3: no se puede editar sin solicitud
+            bloqueadoEdicion:true,
             creadoPor:USER?.nombre||USER?.id||'?',
-            creadoEn:now()
+            creadoEn:now(),
+            valorOriginalIA:c.valorOriginalIA || c.valor, // ⭐ valor inmutable a nivel movimiento
+            fueModificadoVsIA: c.valorOriginalIA && Math.abs(c.valor-c.valorOriginalIA)>1000,
+            motivoModificacionIA:c.motivoCambioIA||null
         };
         o.movimientos.push(nuevoMov);
         movimientosCreados.push(nuevoMov);
