@@ -686,31 +686,48 @@ function iniciarEscuchaRealtime(){
     if(_unsubscribeRT) _unsubscribeRT(); // cancelar anterior si existe
 
     _unsubscribeRT = db.collection('oficinas_sistema').doc(DOC_ID)
-        .onSnapshot({includeMetadataChanges:false}, snap=>{
+        .onSnapshot({includeMetadataChanges:true}, snap=>{
             if(!snap.exists) return;
 
-            // ⚠️ CRÍTICO: Ignorar actualizaciones de Firebase mientras hacemos save
-            // Esto previene que un snapshot viejo sobrescriba datos recién guardados
-            if(_saveInProgress){
-                console.log('🔒 Snapshot ignorado: guardado local en progreso');
+            const meta = snap.metadata;
+            const hasPending = meta.hasPendingWrites;
+            const fromCache = meta.fromCache;
+
+            console.log(`📡 Snapshot recibido: hasPendingWrites=${hasPending}, fromCache=${fromCache}, _saveInProgress=${_saveInProgress}`);
+
+            // ⚠️ CRÍTICO: Si hay escrituras pendientes locales o estamos guardando, IGNORAR
+            // hasPendingWrites=true significa que nuestro navegador tiene escrituras
+            // que aún no se confirmaron en el servidor — ese snapshot puede ser viejo
+            if(hasPending){
+                console.log('🔒 Snapshot ignorado: hay escrituras pendientes locales');
                 return;
             }
-            // También ignorar si fue hace menos de 2 segundos (eco de nuestro propio guardado)
-            if(Date.now() - _lastSaveTime < 2000){
-                console.log('🔒 Snapshot ignorado: eco de guardado reciente');
+            if(_saveInProgress){
+                console.log('🔒 Snapshot ignorado: save en progreso');
+                return;
+            }
+            // Ignorar snapshots que vienen del cache local (no del servidor)
+            if(fromCache){
+                console.log('🔒 Snapshot ignorado: viene del cache local');
+                return;
+            }
+            // Eco de nuestro propio guardado reciente (3 segundos)
+            if(Date.now() - _lastSaveTime < 3000){
+                console.log('🔒 Snapshot ignorado: eco de guardado reciente (<3s)');
                 return;
             }
 
             const datos = snap.data();
-            const desdeServidor = !snap.metadata.fromCache;
+            const totalMovs = (datos.oficinas||[]).reduce((s,o)=>s+(o.movimientos||[]).length, 0);
+            console.log(`✅ Snapshot aceptado del SERVIDOR: ${totalMovs} movs totales`);
 
             // Actualizar DB con los datos confirmados del servidor
             Object.keys(datos).forEach(k=>{
                 if(datos[k]!==undefined) DB[k]=datos[k];
             });
 
-            // Solo re-renderizar si los datos vienen del servidor
-            if(desdeServidor && _rtActivo && USER && USER.role){
+            // Re-renderizar
+            if(_rtActivo && USER && USER.role){
                 _recargarVistaSilenciosa();
             }
         }, err=>{
@@ -10694,6 +10711,10 @@ const firebaseConfig = {
     try{
         firebase.initializeApp(firebaseConfig);
         db = firebase.firestore();
+        // Deshabilitar persistencia offline para evitar caché vieja sobreescribiendo datos nuevos
+        try {
+            db.settings({ experimentalForceLongPolling: false });
+        } catch(e){ console.warn('No se pudo configurar Firestore settings:', e); }
         showSync("saving","Conectando...");
         await load();
         showSync("ok","Conectado ✓");
