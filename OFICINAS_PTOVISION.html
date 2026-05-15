@@ -649,15 +649,26 @@ function showSync(t,msg){
 let db = null;
 const DOC_ID = 'main'; // documento único en colección "oficinas_sistema"
 
+let _saveInProgress = false;
+let _lastSaveTime = 0;
+
 async function save(){
     if(!db){ showSync('err','Sin conexión Firebase'); return; }
     showSync('saving','Guardando...');
+    _saveInProgress = true;
+    _lastSaveTime = Date.now();
     try{
         // Limpiar undefined antes de guardar (Firebase no acepta undefined)
         const datosLimpios=JSON.parse(JSON.stringify(DB));
         await db.collection('oficinas_sistema').doc(DOC_ID).set(datosLimpios);
         showSync('ok','Guardado ✓');
-    }catch(e){ showSync('err','Error al guardar: '+e.message); console.error(e); }
+        // Esperar 2 segundos antes de aceptar snapshots externos para evitar sobreescritura
+        setTimeout(()=>{ _saveInProgress = false; }, 2000);
+    }catch(e){
+        showSync('err','Error al guardar: '+e.message);
+        console.error(e);
+        _saveInProgress = false;
+    }
 }
 
 // ── Escucha en tiempo real — todos los dispositivos se sincronizan automáticamente ──
@@ -672,17 +683,28 @@ function iniciarEscuchaRealtime(){
     _unsubscribeRT = db.collection('oficinas_sistema').doc(DOC_ID)
         .onSnapshot({includeMetadataChanges:false}, snap=>{
             if(!snap.exists) return;
-            // Solo procesar cambios desde el SERVIDOR (no pending writes locales)
-            // Cuando es un cambio local optimista, fromCache=true
+
+            // ⚠️ CRÍTICO: Ignorar actualizaciones de Firebase mientras hacemos save
+            // Esto previene que un snapshot viejo sobrescriba datos recién guardados
+            if(_saveInProgress){
+                console.log('🔒 Snapshot ignorado: guardado local en progreso');
+                return;
+            }
+            // También ignorar si fue hace menos de 2 segundos (eco de nuestro propio guardado)
+            if(Date.now() - _lastSaveTime < 2000){
+                console.log('🔒 Snapshot ignorado: eco de guardado reciente');
+                return;
+            }
+
             const datos = snap.data();
             const desdeServidor = !snap.metadata.fromCache;
 
-            // Actualizar DB siempre con los datos confirmados del servidor
+            // Actualizar DB con los datos confirmados del servidor
             Object.keys(datos).forEach(k=>{
                 if(datos[k]!==undefined) DB[k]=datos[k];
             });
 
-            // Solo re-renderizar si los datos vienen del servidor y no son nuestra propia escritura local
+            // Solo re-renderizar si los datos vienen del servidor
             if(desdeServidor && _rtActivo && USER && USER.role){
                 _recargarVistaSilenciosa();
             }
@@ -705,7 +727,8 @@ function _recargarVistaSilenciosa(){
         pagos_admin: renderPagosAdmin,
         prestamos: renderPrestamos,
         rrhh: renderRRHH,
-        administracion: renderAdmin
+        administracion: renderAdmin,
+        especiales: renderClientesEspeciales
     };
     // Mostrar indicador discreto
     const syncEl = document.getElementById('syncStatus');
@@ -9895,13 +9918,11 @@ function _diasDesde(fechaStr){
 }
 
 function renderClientesEspeciales(){
-    console.log('🔍 renderClientesEspeciales llamado');
     const cont=document.getElementById('appContent');
     if(!cont){ console.error('No se encontró #appContent'); return; }
     if(!USER){ console.error('No hay USER definido'); return; }
     const esAdmin=USER.role==='admin';
     const clientes=DB.clientesEspeciales||[];
-    console.log('Clientes especiales encontrados:', clientes.length);
     const filtro=window._qCliEsp||'';
     const filtroOfi=window._filCliEspOfi||(esAdmin?'todos':USER.id);
 
