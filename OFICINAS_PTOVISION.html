@@ -649,6 +649,31 @@ function showSync(t,msg){
 let db = null;
 const DOC_ID = 'main'; // documento único en colección "oficinas_sistema"
 
+
+// Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
+function reconvertirArrays(obj){
+    if(obj===null||obj===undefined||typeof obj!=='object') return obj;
+    if(Array.isArray(obj)){
+        return obj.map(reconvertirArrays);
+    }
+    // Si es un objeto con claves que son TODAS números consecutivos desde 0, era un array
+    const keys=Object.keys(obj);
+    if(keys.length>0 && keys.every((k,i)=>k===String(i))){
+        // Es un objeto-array, convertir
+        const arr=[];
+        for(let i=0;i<keys.length;i++){
+            arr.push(reconvertirArrays(obj[i]));
+        }
+        return arr;
+    }
+    // Es un objeto normal, recorrer recursivamente
+    const r={};
+    for(const k of keys){
+        r[k]=reconvertirArrays(obj[k]);
+    }
+    return r;
+}
+
 let _saveInProgress = false;
 let _lastSaveTime = 0;
 
@@ -763,7 +788,9 @@ function iniciarEscuchaRealtime(){
                 return;
             }
 
-            const datos = snap.data();
+            const datosRaw = snap.data();
+            // Reconvertir objetos-array (datos antiguos)
+            const datos = reconvertirArrays(datosRaw);
             const totalMovs = (datos.oficinas||[]).reduce((s,o)=>s+(o.movimientos||[]).length, 0);
             console.log(`✅ Snapshot aceptado del SERVIDOR: ${totalMovs} movs totales`);
 
@@ -817,7 +844,9 @@ async function load(){
             const datos=snap.data();
             const totalMovs = (datos.oficinas||[]).reduce((s,o)=>s+(o.movimientos||[]).length, 0);
             console.log(`📥 load() recibido: ${datos.oficinas?.length||0} oficinas, ${totalMovs} movimientos, ${(datos.clientesEspeciales||[]).length} cli.especiales`);
-            Object.keys(datos).forEach(k=>{ if(datos[k]!==undefined) DB[k]=datos[k]; });
+            // Reconvertir objetos-array de Firebase (datos antiguos corrompidos)
+            const datosReconv = reconvertirArrays(datos);
+            Object.keys(datosReconv).forEach(k=>{ if(datosReconv[k]!==undefined) DB[k]=datosReconv[k]; });
         } else {
             console.warn('⚠️ load(): documento no existe en Firebase');
         }
