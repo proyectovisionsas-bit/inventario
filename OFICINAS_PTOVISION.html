@@ -10758,6 +10758,8 @@ function guardarFacturaEspecial(cliId){
 function modalNuevoAbonoEspecial(cliId){
     const c=DB.clientesEspeciales?.find(x=>x.id===cliId);
     if(!c) return;
+    // Limpiar comprobantes pendientes de intentos anteriores
+    _abonoComprobantesPendientes = [];
     const stats=_saldoClienteEspecial(cliId);
 
     // Calcular facturas pendientes con saldo
@@ -10898,12 +10900,27 @@ function _recalcularAplicaciones(){
 let _abonoComprobantesPendientes=[];
 
 function _handleAbonoCompFiles(files){
-    if(!files||!files.length) return;
+    console.log('📎 _handleAbonoCompFiles llamado con', files?.length, 'archivos');
+    if(!files||!files.length){ console.warn('Sin archivos'); return; }
+    let agregados=0;
     for(const f of files){
-        if(!f.type.startsWith('image/')&&f.type!=='application/pdf') continue;
+        console.log('   Archivo:', f.name, 'tipo:', f.type, 'tamaño:', f.size);
+        if(!f.type.startsWith('image/')&&f.type!=='application/pdf'){
+            console.warn('   ❌ Tipo no aceptado:', f.type);
+            continue;
+        }
+        if(f.size > 10*1024*1024){
+            alert('⚠️ El archivo "'+f.name+'" supera los 10MB');
+            continue;
+        }
         _abonoComprobantesPendientes.push({file:f, nombre:f.name, tipo:f.type==='application/pdf'?'pdf':'imagen'});
+        agregados++;
     }
+    console.log('   ✅ Total agregados:', agregados, '— Total pendientes:', _abonoComprobantesPendientes.length);
     _renderAbonoComprobantesPreview();
+    if(agregados===0&&files.length>0){
+        alert('⚠️ Ningún archivo fue aceptado. Solo se permiten imágenes (JPG, PNG, etc.) o PDF.');
+    }
 }
 
 function _renderAbonoComprobantesPreview(){
@@ -10938,18 +10955,35 @@ async function guardarAbonoEspecial(cliId){
     // Subir comprobantes a Cloudinary si los hay
     const comprobantesArr=[];
     if(_abonoComprobantesPendientes.length>0){
+        console.log('📎 Subiendo', _abonoComprobantesPendientes.length, 'comprobantes a Cloudinary...');
         const btnG=document.getElementById('btn_guardar_abono');
         if(btnG){ btnG.disabled=true; btnG.textContent='☁️ Subiendo comprobantes...'; }
+        let erroresSubida=0;
         for(let i=0;i<_abonoComprobantesPendientes.length;i++){
             const c=_abonoComprobantesPendientes[i];
             if(btnG) btnG.textContent=`☁️ Subiendo ${i+1}/${_abonoComprobantesPendientes.length}...`;
             try{
                 const res=await subirArchivoCloudinary(c.file, abonoId);
-                comprobantesArr.push({
-                    url:res.url, nombre:c.nombre, tipo:c.tipo,
-                    fecha:new Date().toISOString()
-                });
-            }catch(e){ console.error('Error subiendo comprobante abono:',e); }
+                if(res && res.url){
+                    comprobantesArr.push({
+                        url:res.url, nombre:c.nombre, tipo:c.tipo,
+                        fecha:new Date().toISOString()
+                    });
+                    console.log('   ✅ Subido:', c.nombre, '→', res.url);
+                } else {
+                    console.error('   ❌ Respuesta sin URL:', res);
+                    erroresSubida++;
+                }
+            }catch(e){
+                console.error('   ❌ Error subiendo', c.nombre, ':', e);
+                erroresSubida++;
+            }
+        }
+        if(btnG){ btnG.disabled=false; btnG.textContent='💾 Registrar Abono'; }
+        if(erroresSubida>0){
+            if(!confirm(`⚠️ ${erroresSubida} comprobante(s) no se pudieron subir.\n\n¿Continuar registrando el abono sin esos comprobantes? (${comprobantesArr.length} sí se subieron)`)){
+                return;
+            }
         }
     }
 
