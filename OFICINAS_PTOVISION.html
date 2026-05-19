@@ -10289,6 +10289,7 @@ function modalDetalleClienteEspecial(cliId){
             </div>
             <div style="display:flex;flex-direction:column;gap:3px;">
                 ${(a.comprobantes||[]).length>0?`<button class="btn btn-outline btn-sm" style="padding:3px 7px;font-size:0.7rem;" onclick="event.stopPropagation();modalVerComprobantesAbono('${a.id}')" title="Ver comprobantes">📎 ${(a.comprobantes||[]).length}</button>`:''}
+                <button class="btn btn-outline btn-sm" style="padding:3px 7px;font-size:0.7rem;background:rgba(16,185,129,0.1);color:#10b981;border-color:rgba(16,185,129,0.3);" onclick="event.stopPropagation();modalAgregarCompAbono('${a.id}','${cliId}')" title="Agregar comprobante">📤</button>
                 ${USER.role==='admin'
                     ? `<button class="btn btn-outline btn-sm" style="padding:3px 7px;font-size:0.7rem;" onclick="event.stopPropagation();modalEditarAbonoEspecial('${a.id}','${cliId}')" title="Editar">✏️</button>
                        <button class="btn btn-danger btn-sm" style="padding:3px 7px;font-size:0.7rem;" onclick="event.stopPropagation();eliminarAbonoEspecial('${a.id}','${cliId}')" title="Eliminar">🗑️</button>`
@@ -10338,6 +10339,85 @@ function modalVerComprobantesAbono(abonoId){
     </div>`;
 
     openModal('📎 Comprobantes del Abono', html, `<button class="btn btn-outline" onclick="modalDetalleClienteEspecial('${a.clienteId}')">Volver</button>`);
+}
+
+
+// Agregar comprobantes a un abono ya existente
+function modalAgregarCompAbono(abonoId, cliId){
+    const a=(DB.abonosEspeciales||[]).find(x=>x.id===abonoId);
+    if(!a) return alert('Abono no encontrado');
+    const cli=DB.clientesEspeciales?.find(x=>x.id===cliId);
+    const existentes=(a.comprobantes||[]).length;
+
+    // Resetear lista
+    _abonoComprobantesPendientes = [];
+
+    const html=`
+    <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:10px;padding:12px;margin-bottom:14px;font-size:0.82rem;">
+        <p style="font-weight:700;color:#10b981;margin-bottom:4px;">📤 Agregar comprobantes a abono existente</p>
+        <p style="color:var(--muted);">Cliente: <strong style="color:var(--text);">${cli?.nombre||'?'}</strong></p>
+        <p style="color:var(--muted);">Abono: <strong style="color:#10b981;">${fmtShort(a.valor)}</strong> · ${a.forma} · ${new Date(a.fecha).toLocaleDateString('es-CO')}</p>
+        <p style="color:var(--muted);margin-top:4px;">Comprobantes existentes: <strong>${existentes}</strong></p>
+    </div>
+
+    <div class="form-group-dark">
+        <label>📎 Selecciona los comprobantes a agregar</label>
+        <div style="border:2px dashed var(--border);border-radius:8px;padding:16px;text-align:center;transition:0.2s;"
+            ondragover="event.preventDefault();this.style.borderColor='#10b981';this.style.background='rgba(16,185,129,0.05)'"
+            ondragleave="this.style.borderColor='var(--border)';this.style.background=''"
+            ondrop="event.preventDefault();this.style.borderColor='var(--border)';this.style.background='';_handleAbonoCompFiles(event.dataTransfer.files)">
+            <input type="file" id="add_comp_file" accept="image/*,application/pdf" multiple style="display:none" onchange="_handleAbonoCompFiles(this.files)">
+            <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('add_comp_file').click()">📤 Seleccionar archivos</button>
+            <p style="font-size:0.7rem;color:var(--muted);margin-top:6px;">O arrastra archivos aquí · JPG, PNG o PDF</p>
+        </div>
+        <div id="ab_comprobantes_preview" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;"></div>
+    </div>`;
+
+    openModal('📤 Agregar comprobantes', html, `
+        <button class="btn btn-outline" onclick="modalDetalleClienteEspecial('${cliId}')">Cancelar</button>
+        <button class="btn btn-primary" id="btn_subir_comps" onclick="subirCompsAbonoExistente('${abonoId}','${cliId}')" style="background:#10b981;">☁️ Subir comprobantes</button>`);
+}
+
+async function subirCompsAbonoExistente(abonoId, cliId){
+    if(_abonoComprobantesPendientes.length===0){
+        return alert('⚠️ Selecciona al menos un archivo para subir');
+    }
+
+    const a=DB.abonosEspeciales.find(x=>x.id===abonoId);
+    if(!a) return alert('Abono no encontrado');
+    if(!a.comprobantes) a.comprobantes=[];
+
+    const btnG=document.getElementById('btn_subir_comps');
+    if(btnG){ btnG.disabled=true; btnG.textContent='☁️ Subiendo...'; }
+
+    let exitos=0, errores=0;
+    for(let i=0;i<_abonoComprobantesPendientes.length;i++){
+        const c=_abonoComprobantesPendientes[i];
+        if(btnG) btnG.textContent=`☁️ Subiendo ${i+1}/${_abonoComprobantesPendientes.length}...`;
+        try{
+            const res=await subirArchivoCloudinary(c.file, abonoId);
+            if(res && res.url){
+                a.comprobantes.push({
+                    url:res.url, nombre:c.nombre, tipo:c.tipo,
+                    fecha:new Date().toISOString(),
+                    agregadoDespues:true,
+                    agregadoPor:USER?.nombre||USER?.id
+                });
+                exitos++;
+            } else { errores++; }
+        }catch(e){
+            console.error('Error subiendo:',e);
+            errores++;
+        }
+    }
+
+    registrarLog('COMPROBANTES_ABONO_AGREGADOS',{cliId, abonoId, cantidad:exitos});
+    _abonoComprobantesPendientes=[];
+
+    await save();
+    closeModal();
+    modalDetalleClienteEspecial(cliId);
+    alert(`✅ ${exitos} comprobante(s) agregado(s) correctamente${errores>0?'\n⚠️ '+errores+' fallaron':''}`);
 }
 
 // Editar abono (solo admin)
