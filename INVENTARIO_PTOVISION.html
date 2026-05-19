@@ -853,10 +853,17 @@ function saveCliente(editId) {
 function modalAgregarEquipoCliente(cliId) {
     const cl = DB.clientes.find(x=>x.id===cliId);
     if(!cl) return;
+    TempLists.aeItems = []; // lista temporal de equipos a agregar
+
     const bodegas = USER.role==='admin' ? DB.bodegas : DB.bodegas.filter(b=>b.id===USER.id);
     const bodOpts = bodegas.map(b=>`<option value="${b.id}">${b.nombre}</option>`).join('');
-    openModal(`➕ Agregar Equipo — ${cl.nombre}`,
-        `<div class="form-row">
+
+    openModal(`➕ Agregar Equipos — ${cl.nombre}`,
+        `<div style="background:#f0fdfa;padding:10px;border-radius:8px;margin-bottom:12px;font-size:0.85rem;border-left:3px solid #16a085;">
+            💡 Agrega uno o varios equipos al cliente. Todos compartirán el mismo motivo.
+        </div>
+        <h4 style="margin-bottom:8px;">📦 Selección de Equipo</h4>
+        <div class="form-row">
             <div class="form-group"><label>Fuente</label>
                 <select id="aeOrigen" class="form-control" onchange="loadAeOpts()">
                     <option value="bodega">🏭 Bodega</option>
@@ -876,73 +883,83 @@ function modalAgregarEquipoCliente(cliId) {
             </div>
         </div>
         <div id="aeSnArea"></div>
+        <button type="button" class="btn btn-outline btn-sm" onclick="addAeItem()" style="margin-top:6px;">➕ Agregar a la lista</button>
+
+        <hr style="margin:14px 0;">
+        <h4 style="margin-bottom:8px;">📋 Equipos a agregar al cliente</h4>
+        <div id="aeList" style="margin-bottom:10px;"></div>
+
+        <hr style="margin:14px 0;">
         <div class="form-group">
-            <label>📝 Motivo / Nota *</label>
-            <textarea id="aeNota" class="form-control" rows="2" placeholder="Ej: Cliente solicitó equipo adicional para segundo punto / Reposición por daño / Ampliación del servicio..."></textarea>
-            <small class="text-muted">Indica por qué se le agrega este equipo al cliente.</small>
+            <label>📝 Motivo / Nota (aplica a todos los equipos) *</label>
+            <textarea id="aeNota" class="form-control" rows="2" placeholder="Ej: Cliente solicitó equipos adicionales / Reposición por daños / Ampliación del servicio..."></textarea>
+            <small class="text-muted">Indica por qué se agregan estos equipos al cliente.</small>
         </div>`,
         () => {
-            const origenTipo = id('aeOrigen').value;
-            const fuenteId   = id('aeFuente').value;
-            const matIdx     = parseInt(id('aeMat').value);
-            const cant       = parseInt(id('aeCant').value)||1;
-            const nota       = id('aeNota').value.trim();
-            if(isNaN(matIdx)) return alert('Seleccione un material');
-            if(!nota) return alert('Indica el motivo / nota para agregar el equipo');
+            const nota = id('aeNota').value.trim();
+            if(!TempLists.aeItems.length) return alert('Agrega al menos un equipo a la lista.');
+            if(!nota) return alert('Indica el motivo / nota para agregar los equipos.');
 
-            const fuente = origenTipo==='bodega'
-                ? DB.bodegas.find(x=>x.id===fuenteId)
-                : DB.cuadrillas.find(x=>x.id===fuenteId);
-            const mat = fuente?.materiales[matIdx];
-            if(!mat) return alert('Material no encontrado');
-            if(mat.cantidad < cant) return alert(`Stock insuficiente. Disponible: ${mat.cantidad} ${mat.unidad}`);
-
-            const snsChecked = [...document.querySelectorAll('.aeSnCheck:checked')].map(cb=>cb.value);
-            if((mat.snes||[]).length>0 && snsChecked.length!==cant) return alert(`Selecciona exactamente ${cant} serial(es)`);
-
-            // Descontar de fuente
-            mat.cantidad -= cant;
-            snsChecked.forEach(sn => { mat.snes = mat.snes.filter(s=>s!==sn); });
-
-            // Crear registro histórico
             const fechaAhora = new Date();
-            const eventoHistorial = {
-                fecha: fechaAhora.toISOString().split('T')[0],
-                hora:  fechaAhora.toLocaleTimeString('es-CO', {hour:'2-digit',minute:'2-digit'}),
-                tipo:  'agregar_equipo',
-                origenTipo, // 'bodega' o 'cuadrilla'
-                origenNombre: fuente.nombre,
-                equipoNombre: mat.nombre,
-                cantidad: cant,
-                snes: [...snsChecked],
-                nota,
-                usuario: USER.role==='admin' ? 'Admin' : (USER.nombre||'Bodega')
-            };
+            const usuario = USER.role==='admin' ? 'Admin' : (USER.nombre||'Bodega');
+            const fechaStr = fechaAhora.toISOString().split('T')[0];
+            const horaStr  = fechaAhora.toLocaleTimeString('es-CO', {hour:'2-digit',minute:'2-digit'});
+
             if(!cl.historialEquipos) cl.historialEquipos = [];
-            cl.historialEquipos.push(eventoHistorial);
 
-            // Agregar al cliente (con motivo de origen guardado en el equipo también)
-            const ex = cl.equipos.find(e=>e.nombre===mat.nombre&&e.tipo===mat.tipo);
-            if(ex) {
-                ex.cantidad += cant;
-                ex.snes.push(...snsChecked);
-                // Acumular notas si ya existían
-                ex.notaOrigen = (ex.notaOrigen ? ex.notaOrigen + ' | ' : '')
-                              + `[${eventoHistorial.fecha}] ${nota} (desde ${origenTipo}: ${fuente.nombre})`;
-            } else {
-                cl.equipos.push({
-                    nombre:mat.nombre,
-                    cantidad:cant,
-                    unidad:mat.unidad,
-                    tipo:mat.tipo,
-                    snes:snsChecked,
-                    estado:'Activo',
-                    notaOrigen: `[${eventoHistorial.fecha}] ${nota} (desde ${origenTipo}: ${fuente.nombre})`,
-                    fechaAgregado: eventoHistorial.fecha
+            // Procesar cada item de la lista
+            TempLists.aeItems.forEach(it => {
+                const fuente = it.origenTipo==='bodega'
+                    ? DB.bodegas.find(x=>x.id===it.fuenteId)
+                    : DB.cuadrillas.find(x=>x.id===it.fuenteId);
+                if(!fuente) return;
+                // Buscar material por nombre/tipo (no por índice, porque al descontar uno previo cambian)
+                const mat = fuente.materiales.find(m => m.nombre===it.nombre && (m.tipo||'')===(it.tipo||''));
+                if(!mat || mat.cantidad < it.cantidad) {
+                    alert(`Stock insuficiente para ${it.nombre} en ${fuente.nombre}. Se omite este equipo.`);
+                    return;
+                }
+                // Descontar de fuente
+                mat.cantidad -= it.cantidad;
+                it.snes.forEach(sn => { mat.snes = mat.snes.filter(s=>s!==sn); });
+
+                // Registrar historial
+                cl.historialEquipos.push({
+                    fecha: fechaStr,
+                    hora: horaStr,
+                    tipo: 'agregar_equipo',
+                    origenTipo: it.origenTipo,
+                    origenNombre: fuente.nombre,
+                    equipoNombre: it.nombre,
+                    cantidad: it.cantidad,
+                    snes: [...it.snes],
+                    nota,
+                    usuario
                 });
-            }
 
-            logMsg(`Equipo "${mat.nombre}" x${cant} agregado a "${cl.nombre}" — Motivo: ${nota}`);
+                // Agregar al cliente
+                const ex = cl.equipos.find(e=>e.nombre===it.nombre && e.tipo===it.tipo);
+                if(ex) {
+                    ex.cantidad += it.cantidad;
+                    ex.snes.push(...it.snes);
+                    ex.notaOrigen = (ex.notaOrigen ? ex.notaOrigen + ' | ' : '')
+                                  + `[${fechaStr}] ${nota} (desde ${it.origenTipo}: ${fuente.nombre})`;
+                } else {
+                    cl.equipos.push({
+                        nombre: it.nombre,
+                        cantidad: it.cantidad,
+                        unidad: it.unidad,
+                        tipo: it.tipo,
+                        snes: [...it.snes],
+                        estado: 'Activo',
+                        notaOrigen: `[${fechaStr}] ${nota} (desde ${it.origenTipo}: ${fuente.nombre})`,
+                        fechaAgregado: fechaStr
+                    });
+                }
+            });
+
+            const resumen = TempLists.aeItems.map(it=>`${it.nombre} x${it.cantidad}`).join(', ');
+            logMsg(`${TempLists.aeItems.length} equipo(s) agregado(s) a "${cl.nombre}": ${resumen} — Motivo: ${nota}`);
 
             if(window._fbSaveImmediate) {
                 window._fbSaveImmediate().then(()=>{ closeModal(); renderClientes(document.getElementById('main-content')); });
@@ -953,8 +970,82 @@ function modalAgregarEquipoCliente(cliId) {
         });
     // Initialize
     loadAeMats();
+    renderAeList();
 }
 window.modalAgregarEquipoCliente = modalAgregarEquipoCliente;
+
+function addAeItem() {
+    const origenTipo = id('aeOrigen').value;
+    const fuenteId   = id('aeFuente').value;
+    const matIdx     = parseInt(id('aeMat').value);
+    const cant       = parseInt(id('aeCant').value)||1;
+    if(isNaN(matIdx)) return alert('Seleccione un material');
+
+    const fuente = origenTipo==='bodega'
+        ? DB.bodegas.find(x=>x.id===fuenteId)
+        : DB.cuadrillas.find(x=>x.id===fuenteId);
+    const mat = fuente?.materiales[matIdx];
+    if(!mat) return alert('Material no encontrado');
+
+    // Calcular stock disponible considerando lo ya en la lista
+    const yaEnLista = TempLists.aeItems
+        .filter(it => it.fuenteId===fuenteId && it.origenTipo===origenTipo && it.nombre===mat.nombre && (it.tipo||'')===(mat.tipo||''))
+        .reduce((s,it)=>s+it.cantidad,0);
+    if(mat.cantidad - yaEnLista < cant) {
+        return alert(`Stock insuficiente. Disponible: ${mat.cantidad - yaEnLista} (ya en lista: ${yaEnLista})`);
+    }
+
+    const snsChecked = [...document.querySelectorAll('.aeSnCheck:checked')].map(cb=>cb.value);
+    if((mat.snes||[]).length>0 && snsChecked.length!==cant) return alert(`Selecciona exactamente ${cant} serial(es)`);
+
+    // No usar seriales que ya estén en otros items de la lista
+    const snsUsados = TempLists.aeItems.flatMap(it=>it.snes||[]);
+    const conflicto = snsChecked.find(sn => snsUsados.includes(sn));
+    if(conflicto) return alert(`El serial "${conflicto}" ya está en otro equipo de la lista.`);
+
+    TempLists.aeItems.push({
+        origenTipo,
+        fuenteId,
+        fuenteNombre: fuente.nombre,
+        nombre: mat.nombre,
+        tipo: mat.tipo,
+        unidad: mat.unidad,
+        cantidad: cant,
+        snes: [...snsChecked]
+    });
+
+    // Reset
+    id('aeCant').value = '1';
+    id('aeSnArea').innerHTML = '';
+    renderAeList();
+}
+window.addAeItem = addAeItem;
+
+function renderAeList() {
+    const el = id('aeList');
+    if(!el) return;
+    if(!TempLists.aeItems || !TempLists.aeItems.length) {
+        el.innerHTML = '<p class="text-muted" style="padding:10px;background:#fafbfc;border-radius:6px;text-align:center;font-size:0.85rem;">Sin equipos agregados. Selecciona arriba y haz clic en "➕ Agregar a la lista".</p>';
+        return;
+    }
+    el.innerHTML = TempLists.aeItems.map((it,i)=>`
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#f8fafc;border-radius:6px;margin-bottom:4px;font-size:0.85rem;border-left:3px solid #16a085;">
+            <div style="flex:1;">
+                <strong>${it.nombre}</strong> x${it.cantidad} ${it.unidad}
+                <span class="badge ${it.tipo==='nuevo'?'badge-new':'badge-used'}">${it.tipo||'-'}</span>
+                <br><small class="text-muted">${it.origenTipo==='bodega'?'🏭':'👷'} ${it.fuenteNombre}${it.snes.length?` · SN: ${it.snes.join(', ')}`:''}</small>
+            </div>
+            <button type="button" class="btn btn-danger btn-sm" onclick="removeAeItem(${i})">✕</button>
+        </div>
+    `).join('');
+}
+window.renderAeList = renderAeList;
+
+function removeAeItem(i) {
+    TempLists.aeItems.splice(i,1);
+    renderAeList();
+}
+window.removeAeItem = removeAeItem;
 
 function loadAeOpts() {
     const origenTipo = id('aeOrigen')?.value;
@@ -1401,7 +1492,9 @@ function modalRetiroParcial(cliId, eqIdx) {
     const eq = cl.equipos[eqIdx];
     if(!eq) return;
     const bodegas_rp = USER.role==='admin' ? DB.bodegas : DB.bodegas.filter(b=>b.id===USER.id);
+    const cuadrillas_rp = USER.role==='admin' ? DB.cuadrillas : DB.cuadrillas.filter(c=>c.bodegaId===USER.id);
     const bodegaOpts = bodegas_rp.map(b=>`<option value="${b.id}">${b.nombre}</option>`).join('');
+    const cuadrillaOpts = cuadrillas_rp.map(c=>`<option value="${c.id}">${c.nombre}</option>`).join('');
     const estados = ['Bueno','Regular','Dañado','Pérdida total'];
 
     openModal(`↩️ Retiro Parcial — ${eq.nombre}`,
@@ -1424,8 +1517,20 @@ function modalRetiroParcial(cliId, eqIdx) {
                 ${eq.snes.map((sn,i)=>`<label class="sn-check"><input type="checkbox" id="rpSN_${i}" value="${sn}"> <span class="sn-label">${sn}</span></label>`).join('')}
             </div>
         </div>` : ''}
-        <div class="form-group"><label>Bodega destino *</label>
+        <div class="form-group"><label>Destino del equipo *</label>
+            <select id="rpDestinoTipo" class="form-control" onchange="
+                document.getElementById('rpBodegaWrap').style.display = this.value==='bodega' ? 'block' : 'none';
+                document.getElementById('rpCuadrillaWrap').style.display = this.value==='cuadrilla' ? 'block' : 'none';
+            ">
+                <option value="bodega">🏭 Bodega</option>
+                <option value="cuadrilla">👷 Cuadrilla</option>
+            </select>
+        </div>
+        <div class="form-group" id="rpBodegaWrap"><label>Bodega destino *</label>
             <select id="rpBodega" class="form-control"><option value="">-- Seleccione --</option>${bodegaOpts}</select>
+        </div>
+        <div class="form-group" id="rpCuadrillaWrap" style="display:none;"><label>Cuadrilla destino *</label>
+            <select id="rpCuadrilla" class="form-control"><option value="">-- Seleccione --</option>${cuadrillaOpts}</select>
         </div>
         <div class="form-group"><label>Motivo *</label>
             <input id="rpMotivo" class="form-control" placeholder="Ej: Fin de contrato parcial, Actualización de equipo...">
@@ -1433,11 +1538,14 @@ function modalRetiroParcial(cliId, eqIdx) {
         () => {
             const cant = parseInt(id('rpCant').value)||0;
             const estado = id('rpEstado').value;
+            const destinoTipo = id('rpDestinoTipo').value;
             const bodegaId = id('rpBodega').value;
+            const cuadrillaId = id('rpCuadrilla').value;
             const motivo = id('rpMotivo').value.trim();
 
             if(!cant || cant > eq.cantidad) return alert(`Cantidad inválida (máx: ${eq.cantidad})`);
-            if(!bodegaId) return alert('Seleccione la bodega destino');
+            if(destinoTipo === 'bodega' && !bodegaId) return alert('Seleccione la bodega destino');
+            if(destinoTipo === 'cuadrilla' && !cuadrillaId) return alert('Seleccione la cuadrilla destino');
             if(!motivo) return alert('El motivo es obligatorio');
 
             // Get selected SNs
@@ -1447,35 +1555,56 @@ function modalRetiroParcial(cliId, eqIdx) {
                 if(cb && cb.checked) snsRetirar.push(sn);
             });
 
-            const bodega = DB.bodegas.find(x=>x.id===bodegaId);
             const tipoRec = estado === 'Bueno' ? 'nuevo' : 'usado';
+            let destinoNombre = '';
 
-            // Add to bodega inventory
-            const ex = bodega.materiales.find(m=>m.nombre===eq.nombre&&m.tipo===tipoRec);
-            if(ex) {
-                ex.cantidad += cant;
-                if(snsRetirar.length) ex.snes.push(...snsRetirar.filter(s=>!ex.snes.includes(s)));
-            } else {
-                bodega.materiales.push({
-                    id: Date.now().toString()+Math.random().toString(36).substr(2,4),
-                    nombre: eq.nombre, cantidad: cant, tipo: tipoRec,
-                    unidad: eq.unidad, snes: [...snsRetirar], stockMin: 0,
-                    categoria: eq.categoria||'equipo',
-                    observaciones: `Retiro parcial de ${cl.nombre} — ${estado}`,
-                    fotos: eq.fotos||[], fecha: new Date().toLocaleDateString()
+            if(destinoTipo === 'bodega') {
+                const bodega = DB.bodegas.find(x=>x.id===bodegaId);
+                destinoNombre = bodega.nombre;
+                // Add to bodega inventory
+                const ex = bodega.materiales.find(m=>m.nombre===eq.nombre&&m.tipo===tipoRec);
+                if(ex) {
+                    ex.cantidad += cant;
+                    if(snsRetirar.length) ex.snes.push(...snsRetirar.filter(s=>!ex.snes.includes(s)));
+                } else {
+                    bodega.materiales.push({
+                        id: Date.now().toString()+Math.random().toString(36).substr(2,4),
+                        nombre: eq.nombre, cantidad: cant, tipo: tipoRec,
+                        unidad: eq.unidad, snes: [...snsRetirar], stockMin: 0,
+                        categoria: eq.categoria||'equipo',
+                        observaciones: `Retiro parcial de ${cl.nombre} — ${estado}`,
+                        fotos: eq.fotos||[], fecha: new Date().toLocaleDateString()
+                    });
+                }
+                // Register in recuperados (only for bodega)
+                DB.recuperados.push({
+                    id: Date.now().toString(),
+                    bodegaId, bodegaNombre: bodega.nombre,
+                    nom: eq.nombre, cant, tipo: tipoRec, unidad: eq.unidad,
+                    origen: `Cliente: ${cl.nombre} (retiro parcial)`,
+                    snes: [...snsRetirar], estado: 'integrado',
+                    fecha: new Date().toLocaleDateString(),
+                    obs: `Retiro parcial — ${motivo} — Estado: ${estado}`
                 });
+            } else {
+                // Destino: cuadrilla
+                const cuad = DB.cuadrillas.find(x=>x.id===cuadrillaId);
+                destinoNombre = cuad.nombre;
+                if(!cuad.materiales) cuad.materiales = [];
+                const ex = cuad.materiales.find(m=>m.nombre===eq.nombre&&m.tipo===tipoRec);
+                if(ex) {
+                    ex.cantidad += cant;
+                    if(snsRetirar.length) ex.snes.push(...snsRetirar.filter(s=>!ex.snes.includes(s)));
+                } else {
+                    cuad.materiales.push({
+                        id: Date.now().toString()+Math.random().toString(36).substr(2,4),
+                        nombre: eq.nombre, cantidad: cant, tipo: tipoRec,
+                        unidad: eq.unidad, snes: [...snsRetirar],
+                        categoria: eq.categoria||'equipo',
+                        fecha: new Date().toLocaleDateString()
+                    });
+                }
             }
-
-            // Register in recuperados
-            DB.recuperados.push({
-                id: Date.now().toString(),
-                bodegaId, bodegaNombre: bodega.nombre,
-                nom: eq.nombre, cant, tipo: tipoRec, unidad: eq.unidad,
-                origen: `Cliente: ${cl.nombre} (retiro parcial)`,
-                snes: [...snsRetirar], estado: 'integrado',
-                fecha: new Date().toLocaleDateString(),
-                obs: `Retiro parcial — ${motivo} — Estado: ${estado}`
-            });
 
             // Update client equipment
             eq.cantidad -= cant;
@@ -1484,9 +1613,10 @@ function modalRetiroParcial(cliId, eqIdx) {
             // Remove equipment if quantity reaches 0
             if(eq.cantidad <= 0) cl.equipos.splice(eqIdx, 1);
 
-            logMsg(`Retiro parcial: ${cant} "${eq.nombre}" de "${cl.nombre}" → "${bodega.nombre}" (${estado})`);
+            const iconoDestino = destinoTipo==='bodega' ? '🏭' : '👷';
+            logMsg(`Retiro parcial: ${cant} "${eq.nombre}" de "${cl.nombre}" → ${iconoDestino} "${destinoNombre}" (${estado}) — ${motivo}`);
             save(); closeModal();
-            alert(`✅ ${cant} unidad(es) de "${eq.nombre}" devueltas a "${bodega.nombre}"`);
+            alert(`✅ ${cant} unidad(es) de "${eq.nombre}" devueltas a ${destinoTipo==='bodega'?'bodega':'cuadrilla'} "${destinoNombre}"`);
             renderClientes(document.getElementById('main-content') || document.getElementById('adminInvContent'));
         });
 }
