@@ -543,6 +543,7 @@
                 <button class="nav-btn" data-tab="clientes">👥 Clientes</button>
                 <button class="nav-btn" data-tab="ventas">📋 Ventas</button>
                 <button class="nav-btn" data-tab="especiales">⭐ Clientes Especiales</button>
+                <button class="nav-btn" data-tab="recogidas">📦 Recogida de Equipos</button>
                 <div class="nav-group-label">Equipo comercial</div>
                 <button class="nav-btn" data-tab="vendedores">🧑‍💼 Vendedores</button>
             </div>
@@ -597,7 +598,9 @@ let DB = {
     logsAuditoria: [],
     clientesEspeciales: [],
     facturasEspeciales: [],
-    abonosEspeciales: []
+    abonosEspeciales: [],
+    recogidas: [],
+    recogidasConfig: {minFacturas:2, minDias:0, soloSuspendidos:false, zonasMapeo:{}}
 };
 let USER = null;
 let selOficinaLogin = null;
@@ -914,7 +917,8 @@ function _recargarVistaSilenciosa(){
         prestamos: renderPrestamos,
         rrhh: renderRRHH,
         administracion: renderAdmin,
-        especiales: renderClientesEspeciales
+        especiales: renderClientesEspeciales,
+        recogidas: renderRecogidas
     };
     // Mostrar indicador discreto
     const syncEl = document.getElementById('syncStatus');
@@ -1049,7 +1053,7 @@ function navigate(tab){
     if(document.getElementById('aiPanel')?.classList.contains('open')){
         setTimeout(()=>{actualizarContextoIA();actualizarSugerenciasIA();},100);
     }
-    const renders = { dash:renderDash, registro:renderRegistro, clientes:renderClientes, reportes:renderReportes, vendedores:renderVendedores, incentivos:renderIncentivos, ventas:renderVentas2, pagos_admin:renderPagosAdmin, prestamos:renderPrestamos, rrhh:renderRRHH, administracion:renderAdmin, especiales:renderClientesEspeciales };
+    const renders = { dash:renderDash, registro:renderRegistro, clientes:renderClientes, reportes:renderReportes, vendedores:renderVendedores, incentivos:renderIncentivos, ventas:renderVentas2, pagos_admin:renderPagosAdmin, prestamos:renderPrestamos, rrhh:renderRRHH, administracion:renderAdmin, especiales:renderClientesEspeciales, recogidas:renderRecogidas };
     if(renders[tab]) renders[tab]();
 }
 
@@ -8055,6 +8059,7 @@ function actualizarContextoIA(){
         reportes:'📈 Reportes',
         vendedores:'🧑‍💼 Vendedores',
         especiales:'⭐ Clientes Especiales',
+        recogidas:'📦 Recogida de Equipos',
         ventas:'📋 Ventas',
         pagos_admin:'💳 Pagos Admin',
         prestamos:'💵 Préstamos',
@@ -11518,6 +11523,660 @@ ${stats.abonos.length===0?'<p style="font-style:italic;color:#666;">Sin abonos r
     w.document.write(html);
     w.document.close();
 }
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 📦 RECOGIDA DE EQUIPOS — Control de morosos y recuperación de equipos
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Helper: parsear fecha DD/MM/YYYY a objeto comparable
+function _parseFechaWisphub(str){
+    if(!str) return null;
+    const s=String(str).trim().split(' ')[0]; // quitar hora si la hay
+    const p=s.split('/');
+    if(p.length!==3) return null;
+    // DD/MM/YYYY
+    return new Date(parseInt(p[2]), parseInt(p[1])-1, parseInt(p[0]));
+}
+
+// Helper: días de mora desde una fecha DD/MM/YYYY
+function _diasMora(fechaVencStr){
+    const f=_parseFechaWisphub(fechaVencStr);
+    if(!f) return 0;
+    const hoy=new Date(); hoy.setHours(0,0,0,0);
+    return Math.floor((hoy-f)/(1000*60*60*24));
+}
+
+// Helper: extraer ID de servicio y estado del campo "Estado Servicio"
+function _parseEstadoServicio(str){
+    if(!str) return {id:'', estado:''};
+    const partes=String(str).split(' : ');
+    return {
+        id:(partes[0]||'').trim(),
+        estado:(partes[partes.length-1]||'').trim()
+    };
+}
+
+function renderRecogidas(){
+    const cont=document.getElementById('appContent');
+    if(!cont){ console.error('No #appContent'); return; }
+    if(!USER){ console.error('No USER'); return; }
+    const esAdmin=USER.role==='admin';
+    const recogidas=DB.recogidas||[];
+    const filtroEstado=window._filRecEstado||'activas';
+    const filtroOfi=window._filRecOfi||(esAdmin?'todas':USER.id);
+    const filtroBusqueda=window._qRecogida||'';
+
+    // Filtrar
+    let items=recogidas.slice();
+    if(!esAdmin) items=items.filter(r=>r.oficinaId===USER.id);
+    else if(filtroOfi&&filtroOfi!=='todas') items=items.filter(r=>r.oficinaId===filtroOfi);
+
+    if(filtroEstado==='activas') items=items.filter(r=>!['recogido','pago','cerrado'].includes(r.estado));
+    else if(filtroEstado!=='todas') items=items.filter(r=>r.estado===filtroEstado);
+
+    if(filtroBusqueda){
+        const q=filtroBusqueda.toLowerCase();
+        items=items.filter(r=>
+            (r.cliente||'').toLowerCase().includes(q) ||
+            (r.cedula||'').toLowerCase().includes(q) ||
+            (r.servicioId||'').toLowerCase().includes(q) ||
+            (r.direccion||'').toLowerCase().includes(q)
+        );
+    }
+
+    // Stats
+    const totalActivas=recogidas.filter(r=>!['recogido','pago','cerrado'].includes(r.estado)).length;
+    const totalRecogidos=recogidas.filter(r=>r.estado==='recogido').length;
+    const valorEnRiesgo=recogidas.filter(r=>!['recogido','pago','cerrado'].includes(r.estado)).reduce((s,r)=>s+(r.montoTotal||0),0);
+
+    // Agrupar por cédula (mostrar servicios juntos)
+    const porCedula={};
+    items.forEach(r=>{
+        const ced=r.cedula||'sin-cedula';
+        if(!porCedula[ced]) porCedula[ced]=[];
+        porCedula[ced].push(r);
+    });
+
+    const estadoBadge=(e)=>{
+        const map={
+            pendiente:{t:'⏳ Pendiente',c:'#f59e0b',bg:'rgba(245,158,11,0.15)'},
+            agendado:{t:'📅 Agendado',c:'#3b82f6',bg:'rgba(59,130,246,0.15)'},
+            en_ruta:{t:'🚚 En ruta',c:'#8b5cf6',bg:'rgba(139,92,246,0.15)'},
+            recogido:{t:'✅ Recogido',c:'#10b981',bg:'rgba(16,185,129,0.15)'},
+            no_pudo:{t:'❌ No se pudo',c:'#ef4444',bg:'rgba(239,68,68,0.15)'},
+            pago:{t:'💰 Pagó',c:'#10b981',bg:'rgba(16,185,129,0.15)'},
+            cerrado:{t:'🔒 Cerrado',c:'#6b7280',bg:'rgba(107,114,128,0.15)'}
+        };
+        const m=map[e]||map.pendiente;
+        return `<span style="font-size:0.65rem;background:${m.bg};color:${m.c};padding:2px 8px;border-radius:8px;font-weight:700;">${m.t}</span>`;
+    };
+
+    cont.innerHTML=`
+    <div class="card">
+        <div class="card-header">
+            <h2>📦 Recogida de Equipos <span>${totalActivas} pendientes</span></h2>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                <button class="btn btn-primary" onclick="modalImportarMorosos()" style="background:#ea580c;">📥 Importar de WispHub</button>
+                ${esAdmin?`<button class="btn btn-outline btn-sm" onclick="modalConfigRecogidas()">⚙️ Reglas</button>`:''}
+            </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px;">
+            <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:10px;padding:12px;">
+                <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;">Por recoger</div>
+                <div style="font-size:1.5rem;font-weight:800;color:#f59e0b;">${totalActivas}</div>
+            </div>
+            <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:10px;padding:12px;">
+                <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;">Recuperados</div>
+                <div style="font-size:1.5rem;font-weight:800;color:#10b981;">${totalRecogidos}</div>
+            </div>
+            <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:10px;padding:12px;">
+                <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;">Valor en riesgo</div>
+                <div style="font-size:1.3rem;font-weight:800;color:#ef4444;">${fmtShort(valorEnRiesgo)}</div>
+            </div>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+            <input type="text" class="form-control" placeholder="🔍 Buscar por nombre, cédula, servicio o dirección..."
+                value="${filtroBusqueda.replace(/"/g,'&quot;')}"
+                oninput="window._qRecogida=this.value;renderRecogidas()" style="flex:1;min-width:200px;">
+            <select class="form-control" style="width:auto;" onchange="window._filRecEstado=this.value;renderRecogidas()">
+                <option value="activas" ${filtroEstado==='activas'?'selected':''}>Activas (por recoger)</option>
+                <option value="todas" ${filtroEstado==='todas'?'selected':''}>Todas</option>
+                <option value="pendiente" ${filtroEstado==='pendiente'?'selected':''}>⏳ Pendientes</option>
+                <option value="agendado" ${filtroEstado==='agendado'?'selected':''}>📅 Agendadas</option>
+                <option value="en_ruta" ${filtroEstado==='en_ruta'?'selected':''}>🚚 En ruta</option>
+                <option value="recogido" ${filtroEstado==='recogido'?'selected':''}>✅ Recogidos</option>
+                <option value="no_pudo" ${filtroEstado==='no_pudo'?'selected':''}>❌ No se pudo</option>
+                <option value="pago" ${filtroEstado==='pago'?'selected':''}>💰 Pagaron</option>
+            </select>
+            ${esAdmin?`<select class="form-control" style="width:auto;" onchange="window._filRecOfi=this.value;renderRecogidas()">
+                <option value="todas">Todas las oficinas</option>
+                ${DB.oficinas.map(o=>`<option value="${o.id}" ${filtroOfi===o.id?'selected':''}>${o.nombre}</option>`).join('')}
+            </select>`:''}
+        </div>
+
+        ${Object.keys(porCedula).length===0?'<p style="text-align:center;color:var(--muted);padding:30px;">No hay órdenes de recogida. Importa el Excel de morosos de WispHub para empezar.</p>':`
+        <div style="display:flex;flex-direction:column;gap:12px;">
+        ${Object.entries(porCedula).map(([ced,servicios])=>{
+            const cliente=servicios[0].cliente;
+            const multiServicio=servicios.length>1;
+            const ofi=DB.oficinas.find(o=>o.id===servicios[0].oficinaId);
+            return `
+            <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:14px;">
+                <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;flex-wrap:wrap;margin-bottom:${multiServicio?'10px':'0'};">
+                    <div style="flex:1;min-width:200px;">
+                        <div style="font-size:0.95rem;font-weight:700;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                            👤 ${cliente}
+                            ${multiServicio?`<span style="font-size:0.62rem;background:rgba(234,88,12,0.15);color:#ea580c;padding:2px 6px;border-radius:8px;">${servicios.length} servicios</span>`:''}
+                        </div>
+                        <div style="font-size:0.75rem;color:var(--muted);margin-top:3px;">
+                            🆔 ${ced} ${ofi?` · 📍 ${ofi.nombre}`:''}
+                        </div>
+                    </div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                ${servicios.map(r=>`
+                    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px;${multiServicio?'margin-left:8px;border-left:3px solid #ea580c;':''}">
+                        <div style="display:flex;justify-content:space-between;align-items:start;gap:8px;flex-wrap:wrap;">
+                            <div style="flex:1;min-width:180px;">
+                                <div style="font-size:0.8rem;font-weight:600;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                                    📡 ${r.servicioId||'(sin ID)'}
+                                    ${estadoBadge(r.estado)}
+                                    ${r.servicioEstado==='Suspendido'?'<span style="font-size:0.6rem;background:rgba(239,68,68,0.15);color:#ef4444;padding:1px 6px;border-radius:6px;">⛔ Suspendido</span>':''}
+                                </div>
+                                <div style="font-size:0.72rem;color:var(--muted);margin-top:3px;">
+                                    ⚠️ ${r.numFacturas} factura(s) · ${fmtShort(r.montoTotal)} ${r.diasMora>0?` · 🕐 ${r.diasMora}d mora`:''}
+                                </div>
+                                ${r.direccion?`<div style="font-size:0.72rem;color:var(--muted);margin-top:2px;">📍 ${r.direccion}${r.barrio?', '+r.barrio:''}</div>`:''}
+                                ${r.telefono?`<div style="font-size:0.72rem;color:var(--muted);">📞 ${r.telefono}</div>`:''}
+                                ${r.tecnico?`<div style="font-size:0.72rem;color:#3b82f6;margin-top:2px;">👷 ${r.tecnico}</div>`:''}
+                                ${r.equipoRecuperado?`<div style="font-size:0.72rem;color:#10b981;margin-top:2px;">📦 ${r.equipoRecuperado}</div>`:''}
+                            </div>
+                            <button class="btn btn-outline btn-sm" style="font-size:0.72rem;padding:4px 10px;" onclick="modalGestionarRecogida('${r.id}')">Gestionar ▾</button>
+                        </div>
+                    </div>
+                `).join('')}
+                </div>
+            </div>`;
+        }).join('')}
+        </div>`}
+    </div>`;
+}
+
+
+// ─── IMPORTAR MOROSOS DESDE EXCEL DE WISPHUB ───
+function modalImportarMorosos(){
+    const esAdmin=USER.role==='admin';
+    const cfg=DB.recogidasConfig||{minFacturas:2,minDias:0,soloSuspendidos:false};
+    const html=`
+    <div style="background:rgba(234,88,12,0.08);border:1px solid rgba(234,88,12,0.25);border-radius:10px;padding:12px;margin-bottom:14px;font-size:0.82rem;">
+        <p style="font-weight:700;color:#ea580c;margin-bottom:4px;">📥 Importar morosos de WispHub</p>
+        <p style="color:var(--muted);">Exporta el Excel de facturas desde WispHub (con las columnas estándar) y súbelo aquí. El sistema identificará los morosos según las reglas configuradas.</p>
+    </div>
+
+    <div class="form-group-dark">
+        <label>¿De qué oficina es este Excel? *</label>
+        <select id="imp_oficina" class="form-control">
+            ${esAdmin?DB.oficinas.map(o=>`<option value="${o.id}">${o.nombre}</option>`).join(''):`<option value="${USER.id}">${(DB.oficinas.find(o=>o.id===USER.id)||{}).nombre||'Mi oficina'}</option>`}
+        </select>
+    </div>
+
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;margin:10px 0;font-size:0.78rem;">
+        <p style="font-weight:600;margin-bottom:6px;">📋 Reglas activas para marcar como "por recoger":</p>
+        <div style="color:var(--muted);">
+            • Mínimo <strong>${cfg.minFacturas}</strong> factura(s) pendiente(s)<br>
+            ${cfg.minDias>0?`• Y/O más de <strong>${cfg.minDias}</strong> días de mora<br>`:''}
+            ${cfg.soloSuspendidos?'• Solo servicios <strong>Suspendidos</strong><br>':''}
+        </div>
+        ${esAdmin?'<p style="font-size:0.72rem;color:var(--muted);margin-top:6px;">Cambia las reglas con el botón ⚙️ Reglas</p>':''}
+    </div>
+
+    <div class="form-group-dark">
+        <label>Archivo Excel de WispHub *</label>
+        <div style="border:2px dashed var(--border);border-radius:8px;padding:20px;text-align:center;"
+            ondragover="event.preventDefault();this.style.borderColor='#ea580c'"
+            ondragleave="this.style.borderColor='var(--border)'"
+            ondrop="event.preventDefault();this.style.borderColor='var(--border)';_procesarExcelMorosos(event.dataTransfer.files[0])">
+            <input type="file" id="imp_file" accept=".xlsx,.xls" style="display:none" onchange="_procesarExcelMorosos(this.files[0])">
+            <button type="button" class="btn btn-outline" onclick="document.getElementById('imp_file').click()">📂 Seleccionar Excel</button>
+            <p style="font-size:0.72rem;color:var(--muted);margin-top:6px;">O arrastra el archivo .xlsx aquí</p>
+        </div>
+    </div>
+
+    <div id="imp_resultado" style="margin-top:12px;"></div>`;
+
+    openModal('📥 Importar Morosos', html, `
+        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" id="btn_confirmar_imp" onclick="_confirmarImportacion()" style="background:#ea580c;display:none;">✅ Confirmar importación</button>`);
+}
+
+let _morososProcesados=null;
+
+async function _procesarExcelMorosos(file){
+    if(!file) return;
+    const resultado=document.getElementById('imp_resultado');
+    resultado.innerHTML='<p style="text-align:center;color:var(--muted);padding:20px;">⏳ Procesando Excel...</p>';
+
+    // Cargar SheetJS si no está
+    if(typeof XLSX==='undefined'){
+        await new Promise((res,rej)=>{
+            const s=document.createElement('script');
+            s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+            s.onload=res; s.onerror=rej;
+            document.head.appendChild(s);
+        });
+    }
+
+    try{
+        const data=await file.arrayBuffer();
+        const wb=XLSX.read(data,{type:'array'});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+
+        // Buscar la fila de encabezados (donde está "#Factura" o "Cliente")
+        let headerRow=-1;
+        for(let i=0;i<Math.min(10,rows.length);i++){
+            const fila=rows[i].map(c=>String(c).trim());
+            if(fila.includes('#Factura')||fila.includes('Cliente')||fila.includes('DNI/C.I./C.C./IFE')){
+                headerRow=i; break;
+            }
+        }
+        if(headerRow<0){
+            resultado.innerHTML='<p style="color:#ef4444;padding:12px;">❌ No se encontraron las columnas esperadas. Verifica que el Excel tenga las columnas de WispHub (#Factura, Cliente, etc.)</p>';
+            return;
+        }
+
+        const headers=rows[headerRow].map(c=>String(c).trim());
+        const idx=(nombre)=>headers.indexOf(nombre);
+        const col={
+            factura:idx('#Factura'),
+            cliente:idx('Cliente'),
+            cedula:idx('DNI/C.I./C.C./IFE'),
+            fechaVenc:idx('Fecha Vencimiento'),
+            fechaEmision:idx('Fecha Emisión'),
+            estado:idx('Estado'),
+            zona:idx('Zona'),
+            total:idx('Total'),
+            direccion:idx('Dirección'),
+            barrio:idx('Barrio/Localidad'),
+            telefono:idx('Telefono'),
+            estadoServicio:idx('Estado Servicio'),
+            ipServicio:idx('IP Servicio')
+        };
+
+        // Procesar filas de datos
+        const facturas=[];
+        for(let i=headerRow+1;i<rows.length;i++){
+            const f=rows[i];
+            if(!f||f.length===0) continue;
+            const estado=String(f[col.estado]||'').trim().toLowerCase();
+            // Solo pendientes
+            if(!estado.includes('pendiente')) continue;
+
+            const es=_parseEstadoServicio(f[col.estadoServicio]);
+            facturas.push({
+                factura:String(f[col.factura]||'').trim(),
+                cliente:String(f[col.cliente]||'').trim(),
+                cedula:String(f[col.cedula]||'').trim(),
+                fechaVenc:String(f[col.fechaVenc]||'').trim(),
+                zona:String(f[col.zona]||'').trim(),
+                total:parseFloat(String(f[col.total]||'0').replace(/[^0-9.-]/g,''))||0,
+                direccion:String(f[col.direccion]||'').trim(),
+                barrio:String(f[col.barrio]||'').trim(),
+                telefono:String(f[col.telefono]||'').trim(),
+                servicioId:es.id,
+                servicioEstado:es.estado,
+                ipServicio:String(f[col.ipServicio]||'').trim()
+            });
+        }
+
+        // Agrupar por servicio (servicioId, o cédula+zona si no hay id)
+        const cfg=DB.recogidasConfig||{minFacturas:2,minDias:0,soloSuspendidos:false};
+        const porServicio={};
+        facturas.forEach(f=>{
+            const key=f.servicioId||(f.cedula+'_'+f.zona);
+            if(!porServicio[key]){
+                porServicio[key]={
+                    servicioId:f.servicioId, cedula:f.cedula, cliente:f.cliente,
+                    zona:f.zona, direccion:f.direccion, barrio:f.barrio,
+                    telefono:f.telefono, servicioEstado:f.servicioEstado,
+                    ipServicio:f.ipServicio,
+                    facturas:[], montoTotal:0, fechaVencAntigua:null
+                };
+            }
+            const s=porServicio[key];
+            s.facturas.push(f.factura);
+            s.montoTotal+=f.total;
+            const fv=_parseFechaWisphub(f.fechaVenc);
+            if(fv&&(!s.fechaVencAntigua||fv<s.fechaVencAntigua)) s.fechaVencAntigua=fv;
+        });
+
+        // Aplicar reglas
+        const candidatos=Object.values(porServicio).filter(s=>{
+            const numFact=s.facturas.length;
+            const dias=s.fechaVencAntigua?Math.floor((new Date()-s.fechaVencAntigua)/(1000*60*60*24)):0;
+            let cumple=false;
+            if(numFact>=cfg.minFacturas) cumple=true;
+            if(cfg.minDias>0&&dias>=cfg.minDias) cumple=true;
+            if(cfg.soloSuspendidos&&s.servicioEstado!=='Suspendido') cumple=false;
+            return cumple;
+        }).map(s=>({
+            ...s,
+            numFacturas:s.facturas.length,
+            diasMora:s.fechaVencAntigua?Math.floor((new Date()-s.fechaVencAntigua)/(1000*60*60*24)):0
+        }));
+
+        _morososProcesados={candidatos, totalFacturasPend:facturas.length, totalServicios:Object.keys(porServicio).length};
+
+        // Mostrar resumen
+        resultado.innerHTML=`
+        <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:8px;padding:12px;">
+            <p style="font-weight:700;color:#10b981;margin-bottom:8px;">✅ Excel procesado</p>
+            <div style="font-size:0.82rem;color:var(--muted);line-height:1.6;">
+                • Facturas pendientes encontradas: <strong style="color:var(--text);">${facturas.length}</strong><br>
+                • Servicios distintos: <strong style="color:var(--text);">${Object.keys(porServicio).length}</strong><br>
+                • <strong style="color:#ea580c;">Cumplen reglas para recoger: ${candidatos.length}</strong>
+            </div>
+        </div>
+        ${candidatos.length>0?`
+        <div style="max-height:200px;overflow-y:auto;margin-top:8px;border:1px solid var(--border);border-radius:8px;padding:8px;">
+            ${candidatos.slice(0,50).map(c=>`
+                <div style="font-size:0.74rem;padding:4px 0;border-bottom:1px solid var(--border);">
+                    📡 ${c.cliente} — ${c.numFacturas} fact · ${fmtShort(c.montoTotal)} ${c.servicioEstado==='Suspendido'?'⛔':''}
+                </div>
+            `).join('')}
+            ${candidatos.length>50?`<p style="font-size:0.72rem;color:var(--muted);text-align:center;padding:6px;">...y ${candidatos.length-50} más</p>`:''}
+        </div>`:'<p style="color:#f59e0b;padding:10px;font-size:0.82rem;">⚠️ Ningún servicio cumple las reglas configuradas.</p>'}`;
+
+        if(candidatos.length>0){
+            document.getElementById('btn_confirmar_imp').style.display='inline-flex';
+        }
+
+    }catch(e){
+        console.error('Error procesando Excel:',e);
+        resultado.innerHTML=`<p style="color:#ef4444;padding:12px;">❌ Error al procesar: ${e.message}</p>`;
+    }
+}
+
+function _confirmarImportacion(){
+    if(!_morososProcesados||!_morososProcesados.candidatos.length) return;
+    const oficinaId=document.getElementById('imp_oficina').value;
+    if(!DB.recogidas) DB.recogidas=[];
+
+    let nuevas=0, actualizadas=0, resueltas=0;
+    const candidatos=_morososProcesados.candidatos;
+
+    // IDs de servicio que vienen en este Excel (para esta oficina)
+    const serviciosEnExcel=new Set(candidatos.map(c=>c.servicioId||c.cedula));
+
+    // MODO ACTUALIZAR: las recogidas activas de esta oficina que YA NO están en el Excel = pagaron
+    DB.recogidas.forEach(r=>{
+        if(r.oficinaId===oficinaId && !['recogido','pago','cerrado'].includes(r.estado)){
+            const key=r.servicioId||r.cedula;
+            if(!serviciosEnExcel.has(key)){
+                r.estado='pago';
+                r.fechaPago=now();
+                r.notaAuto='Marcado como pagado: ya no aparece en el Excel';
+                resueltas++;
+            }
+        }
+    });
+
+    // Crear o actualizar
+    candidatos.forEach(c=>{
+        const key=c.servicioId||c.cedula;
+        const existente=DB.recogidas.find(r=>r.oficinaId===oficinaId && (r.servicioId||r.cedula)===key && !['recogido','pago','cerrado'].includes(r.estado));
+        if(existente){
+            // Actualizar datos pero MANTENER el estado de gestión
+            existente.numFacturas=c.numFacturas;
+            existente.montoTotal=c.montoTotal;
+            existente.diasMora=c.diasMora;
+            existente.servicioEstado=c.servicioEstado;
+            existente.facturas=c.facturas;
+            actualizadas++;
+        } else {
+            DB.recogidas.push({
+                id:uid(),
+                oficinaId:oficinaId,
+                servicioId:c.servicioId,
+                cedula:c.cedula,
+                cliente:c.cliente,
+                zona:c.zona,
+                direccion:c.direccion,
+                barrio:c.barrio,
+                telefono:c.telefono,
+                servicioEstado:c.servicioEstado,
+                ipServicio:c.ipServicio,
+                numFacturas:c.numFacturas,
+                montoTotal:c.montoTotal,
+                diasMora:c.diasMora,
+                facturas:c.facturas,
+                estado:'pendiente',
+                tecnico:'',
+                equipoRecuperado:'',
+                observaciones:'',
+                comprobantes:[],
+                creadoEn:now(),
+                creadoPor:USER?.nombre||USER?.id
+            });
+            nuevas++;
+        }
+    });
+
+    registrarLog('MOROSOS_IMPORTADOS',{oficinaId, nuevas, actualizadas, resueltas});
+    _morososProcesados=null;
+    save().then(()=>{
+        closeModal();
+        renderRecogidas();
+        alert(`✅ Importación completada:\n\n• ${nuevas} nuevas órdenes\n• ${actualizadas} actualizadas\n• ${resueltas} marcadas como pagadas (ya no aparecen)`);
+    });
+}
+
+
+// ─── GESTIONAR UNA ORDEN DE RECOGIDA ───
+function modalGestionarRecogida(recId){
+    const r=(DB.recogidas||[]).find(x=>x.id===recId);
+    if(!r) return alert('Orden no encontrada');
+    const esAdmin=USER.role==='admin';
+    const ofi=DB.oficinas.find(o=>o.id===r.oficinaId);
+
+    const html=`
+    <div style="background:rgba(234,88,12,0.08);border:1px solid rgba(234,88,12,0.25);border-radius:10px;padding:12px;margin-bottom:14px;">
+        <div style="font-size:0.95rem;font-weight:700;">👤 ${r.cliente}</div>
+        <div style="font-size:0.78rem;color:var(--muted);margin-top:4px;">
+            🆔 ${r.cedula} · 📡 ${r.servicioId||'(sin ID)'}<br>
+            ${r.direccion?`📍 ${r.direccion}${r.barrio?', '+r.barrio:''}<br>`:''}
+            ${r.telefono?`📞 ${r.telefono}<br>`:''}
+            ⚠️ ${r.numFacturas} factura(s) · ${fmtShort(r.montoTotal)} ${r.diasMora>0?`· 🕐 ${r.diasMora} días mora`:''}<br>
+            ${r.servicioEstado?`Estado servicio: <strong>${r.servicioEstado}</strong>`:''}
+            ${r.ipServicio?` · IP: ${r.ipServicio}`:''}
+        </div>
+    </div>
+
+    <div class="form-group-dark">
+        <label>Estado de la recogida *</label>
+        <select id="rec_estado" class="form-control" onchange="_toggleCamposRecogida()">
+            <option value="pendiente" ${r.estado==='pendiente'?'selected':''}>⏳ Pendiente</option>
+            <option value="agendado" ${r.estado==='agendado'?'selected':''}>📅 Agendado</option>
+            <option value="en_ruta" ${r.estado==='en_ruta'?'selected':''}>🚚 En ruta</option>
+            <option value="recogido" ${r.estado==='recogido'?'selected':''}>✅ Recogido</option>
+            <option value="no_pudo" ${r.estado==='no_pudo'?'selected':''}>❌ No se pudo</option>
+            <option value="pago" ${r.estado==='pago'?'selected':''}>💰 Pagó (cancelar recogida)</option>
+        </select>
+    </div>
+
+    <div class="form-row">
+        <div class="form-group-dark"><label>Técnico asignado</label>
+            <input id="rec_tecnico" class="form-control" value="${(r.tecnico||'').replace(/"/g,'&quot;')}" placeholder="Nombre del técnico">
+        </div>
+        <div class="form-group-dark" id="rec_fecha_visita_box">
+            <label>Fecha de visita</label>
+            <input id="rec_fecha_visita" type="date" class="form-control" value="${r.fechaVisita?r.fechaVisita.slice(0,10):''}">
+        </div>
+    </div>
+
+    <div id="rec_equipo_box" class="form-group-dark" style="display:${r.estado==='recogido'?'block':'none'};">
+        <label>Equipo recuperado (tipo + serial)</label>
+        <input id="rec_equipo" class="form-control" value="${(r.equipoRecuperado||'').replace(/"/g,'&quot;')}" placeholder="Ej: ONT Huawei SN:ABC123">
+    </div>
+
+    <div class="form-group-dark">
+        <label>Observaciones</label>
+        <textarea id="rec_obs" class="form-control" rows="2" placeholder="Notas sobre la visita, el cliente, etc.">${(r.observaciones||'').replace(/</g,'&lt;')}</textarea>
+    </div>
+
+    <div class="form-group-dark">
+        <label>📎 Foto del equipo / comprobante</label>
+        <div style="border:2px dashed var(--border);border-radius:8px;padding:12px;text-align:center;"
+            ondragover="event.preventDefault();this.style.borderColor='#ea580c'"
+            ondragleave="this.style.borderColor='var(--border)'"
+            ondrop="event.preventDefault();this.style.borderColor='var(--border)';_handleRecogidaFiles(event.dataTransfer.files)">
+            <input type="file" id="rec_file" accept="image/*,application/pdf" multiple style="display:none" onchange="_handleRecogidaFiles(this.files)">
+            <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('rec_file').click()">📤 Agregar foto</button>
+        </div>
+        <div id="rec_comprobantes_preview" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;"></div>
+        ${(r.comprobantes||[]).length>0?`
+        <div style="margin-top:8px;display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:6px;">
+            ${r.comprobantes.map(c=>`
+                <a href="${c.url}" target="_blank" rel="noopener noreferrer" style="display:block;">
+                    ${c.tipo==='pdf'?'<div style="height:60px;display:flex;align-items:center;justify-content:center;background:rgba(239,68,68,0.1);border-radius:6px;font-size:1.5rem;">📄</div>':`<img src="${c.url}" style="width:100%;height:60px;object-fit:cover;border-radius:6px;">`}
+                </a>
+            `).join('')}
+        </div>`:''}
+    </div>`;
+
+    const footerBtns=`
+        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        ${esAdmin?`<button class="btn btn-danger btn-sm" onclick="_eliminarRecogida('${recId}')">🗑️ Eliminar</button>`:''}
+        <button class="btn btn-primary" id="btn_guardar_rec" onclick="_guardarGestionRecogida('${recId}')" style="background:#ea580c;">💾 Guardar</button>`;
+
+    openModal('📦 Gestionar Recogida', html, footerBtns);
+    _recogidaComprobantesPendientes=[];
+}
+
+function _toggleCamposRecogida(){
+    const estado=document.getElementById('rec_estado')?.value;
+    const equipoBox=document.getElementById('rec_equipo_box');
+    if(equipoBox) equipoBox.style.display=estado==='recogido'?'block':'none';
+}
+
+let _recogidaComprobantesPendientes=[];
+function _handleRecogidaFiles(files){
+    if(!files||!files.length) return;
+    for(const f of files){
+        if(!f.type.startsWith('image/')&&f.type!=='application/pdf') continue;
+        _recogidaComprobantesPendientes.push({file:f, nombre:f.name, tipo:f.type==='application/pdf'?'pdf':'imagen'});
+    }
+    _renderRecogidaCompPreview();
+}
+
+function _renderRecogidaCompPreview(){
+    const cont=document.getElementById('rec_comprobantes_preview');
+    if(!cont) return;
+    cont.innerHTML=_recogidaComprobantesPendientes.map((c,i)=>`
+        <div style="display:flex;align-items:center;justify-content:space-between;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:0.78rem;">
+            <span>📎 ${c.tipo==='pdf'?'📄':'🖼️'} ${c.nombre}</span>
+            <button class="btn btn-danger btn-sm" style="padding:2px 8px;" onclick="_recogidaComprobantesPendientes.splice(${i},1);_renderRecogidaCompPreview()">🗑️</button>
+        </div>
+    `).join('');
+}
+
+async function _guardarGestionRecogida(recId){
+    const r=DB.recogidas.find(x=>x.id===recId);
+    if(!r) return;
+    const estadoAnterior=r.estado;
+
+    r.estado=document.getElementById('rec_estado').value;
+    r.tecnico=document.getElementById('rec_tecnico').value.trim();
+    const fv=document.getElementById('rec_fecha_visita').value;
+    r.fechaVisita=fv||'';
+    r.equipoRecuperado=document.getElementById('rec_equipo').value.trim();
+    r.observaciones=document.getElementById('rec_obs').value.trim();
+    r.actualizadoEn=now();
+    r.actualizadoPor=USER?.nombre||USER?.id;
+
+    // Subir comprobantes/fotos
+    if(_recogidaComprobantesPendientes.length>0){
+        if(!r.comprobantes) r.comprobantes=[];
+        const btnG=document.getElementById('btn_guardar_rec');
+        if(btnG){ btnG.disabled=true; btnG.textContent='☁️ Subiendo...'; }
+        for(let i=0;i<_recogidaComprobantesPendientes.length;i++){
+            const c=_recogidaComprobantesPendientes[i];
+            if(btnG) btnG.textContent=`☁️ Subiendo ${i+1}/${_recogidaComprobantesPendientes.length}...`;
+            try{
+                const res=await subirArchivoCloudinary(c.file, recId);
+                if(res&&res.url) r.comprobantes.push({url:res.url,nombre:c.nombre,tipo:c.tipo,fecha:new Date().toISOString()});
+            }catch(e){ console.error('Error subiendo:',e); }
+        }
+    }
+
+    registrarLog('RECOGIDA_GESTIONADA',{recId, cliente:r.cliente, estadoAnterior, estadoNuevo:r.estado});
+    _recogidaComprobantesPendientes=[];
+    save().then(()=>{
+        closeModal();
+        renderRecogidas();
+    });
+}
+
+function _eliminarRecogida(recId){
+    if(USER.role!=='admin') return alert('Solo admin');
+    const r=DB.recogidas.find(x=>x.id===recId);
+    if(!r) return;
+    if(!confirm(`¿Eliminar la orden de recogida de ${r.cliente}?`)) return;
+    DB.recogidas=DB.recogidas.filter(x=>x.id!==recId);
+    registrarLog('RECOGIDA_ELIMINADA',{recId, cliente:r.cliente});
+    save().then(()=>{ closeModal(); renderRecogidas(); });
+}
+
+// ─── CONFIGURAR REGLAS ───
+function modalConfigRecogidas(){
+    if(USER.role!=='admin') return alert('Solo admin puede configurar reglas');
+    const cfg=DB.recogidasConfig||{minFacturas:2,minDias:0,soloSuspendidos:false};
+    const html=`
+    <div style="background:rgba(234,88,12,0.08);border:1px solid rgba(234,88,12,0.25);border-radius:10px;padding:12px;margin-bottom:14px;font-size:0.82rem;">
+        <p style="font-weight:700;color:#ea580c;margin-bottom:4px;">⚙️ Reglas de activación</p>
+        <p style="color:var(--muted);">Define cuándo un cliente moroso entra a la lista de recogida de equipos al importar el Excel.</p>
+    </div>
+
+    <div class="form-group-dark">
+        <label>Mínimo de facturas pendientes</label>
+        <input id="cfg_min_facturas" type="number" class="form-control" min="1" value="${cfg.minFacturas}">
+        <p style="font-size:0.7rem;color:var(--muted);margin-top:3px;">El cliente entra si debe esta cantidad o más de facturas</p>
+    </div>
+
+    <div class="form-group-dark">
+        <label>Mínimo de días de mora (0 = ignorar)</label>
+        <input id="cfg_min_dias" type="number" class="form-control" min="0" value="${cfg.minDias}">
+        <p style="font-size:0.7rem;color:var(--muted);margin-top:3px;">Si es mayor a 0, también entra quien supere estos días desde el vencimiento</p>
+    </div>
+
+    <div class="form-group-dark">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="cfg_solo_susp" ${cfg.soloSuspendidos?'checked':''}>
+            Solo incluir servicios <strong>Suspendidos</strong>
+        </label>
+        <p style="font-size:0.7rem;color:var(--muted);margin-top:3px;">Si está activo, ignora los servicios que aún están Activos</p>
+    </div>`;
+
+    openModal('⚙️ Reglas de Recogida', html, `
+        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="_guardarConfigRecogidas()" style="background:#ea580c;">💾 Guardar reglas</button>`);
+}
+
+function _guardarConfigRecogidas(){
+    if(USER.role!=='admin') return;
+    DB.recogidasConfig={
+        minFacturas:parseInt(document.getElementById('cfg_min_facturas').value)||2,
+        minDias:parseInt(document.getElementById('cfg_min_dias').value)||0,
+        soloSuspendidos:document.getElementById('cfg_solo_susp').checked,
+        zonasMapeo:(DB.recogidasConfig||{}).zonasMapeo||{}
+    };
+    registrarLog('CONFIG_RECOGIDAS_ACTUALIZADA', DB.recogidasConfig);
+    save().then(()=>{ closeModal(); alert('✅ Reglas actualizadas'); });
+}
+
 
 function openAdminPanel(){ navigate('administracion'); }
 
