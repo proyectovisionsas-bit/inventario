@@ -133,6 +133,45 @@
         .sync-ok { background:#10b981; box-shadow:0 0 6px #10b981; } .sync-saving { background:#f59e0b; animation:pulse 0.8s infinite; } .sync-err { background:#ef4444; box-shadow:0 0 6px #ef4444; }
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 
+        /* === SAVE OVERLAY ANIMADO === */
+        #saveOverlay {
+            position:fixed; inset:0; background:rgba(15,23,42,0.55);
+            backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
+            z-index:99999; display:flex; align-items:center; justify-content:center;
+            animation:overlayFadeIn 0.25s ease;
+        }
+        @keyframes overlayFadeIn { from{opacity:0} to{opacity:1} }
+        @keyframes overlayCardIn { from{opacity:0;transform:scale(0.85) translateY(10px)} to{opacity:1;transform:scale(1) translateY(0)} }
+        .save-overlay-card {
+            background:white; border-radius:20px; padding:34px 44px;
+            box-shadow:0 20px 60px rgba(0,0,0,0.3);
+            display:flex; flex-direction:column; align-items:center; gap:6px;
+            animation:overlayCardIn 0.35s cubic-bezier(0.34,1.56,0.64,1);
+            min-width:240px;
+        }
+        .save-spinner { position:relative; width:56px; height:56px; margin-bottom:8px; }
+        .save-spinner svg { transform:rotate(-90deg); }
+        .save-spinner-track { stroke:#e2e8f0; }
+        .save-spinner-fill {
+            stroke:url(#saveGrad); stroke:#7c3aed; stroke-linecap:round;
+            stroke-dasharray:126; stroke-dashoffset:90;
+            animation:spinnerRotate 0.9s linear infinite;
+            transform-origin:center;
+        }
+        @keyframes spinnerRotate { 100%{ transform:rotate(360deg); } }
+        .save-check {
+            position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+            font-size:1.8rem; color:#10b981; font-weight:bold; opacity:0; transform:scale(0);
+        }
+        #saveOverlay.done .save-spinner-fill { animation:none; stroke:#10b981; stroke-dashoffset:0; opacity:0; }
+        #saveOverlay.done .save-spinner-track { opacity:0; }
+        #saveOverlay.done .save-check { animation:checkPop 0.4s cubic-bezier(0.34,1.56,0.64,1) forwards; }
+        @keyframes checkPop { to{opacity:1;transform:scale(1)} }
+        .save-overlay-text { font-size:1.05rem; font-weight:700; color:#1e293b; }
+        .save-overlay-sub { font-size:0.82rem; color:#94a3b8; }
+        #saveOverlay.done .save-overlay-text { color:#10b981; }
+
+
         /* === MEJORAS V2 === */
         .cat-badge-mat { background:#dbeafe; color:#1e40af; padding:2px 7px; border-radius:10px; font-size:0.72rem; font-weight:bold; }
         .cat-badge-eq  { background:#d1fae5; color:#065f46; padding:2px 7px; border-radius:10px; font-size:0.72rem; font-weight:bold; }
@@ -194,6 +233,19 @@
 </div>
 <div id="loading-screen"><div class="spinner"></div><p style="color:var(--gray);">Conectando con Firebase...</p></div>
 <div id="syncStatus" style="display:none;"><div class="sync-dot sync-ok" id="syncDot"></div><span id="syncText">Sincronizado</span></div>
+<div id="saveOverlay" style="display:none;">
+    <div class="save-overlay-card">
+        <div class="save-spinner">
+            <svg viewBox="0 0 50 50" width="56" height="56">
+                <circle class="save-spinner-track" cx="25" cy="25" r="20" fill="none" stroke-width="4"/>
+                <circle class="save-spinner-fill" cx="25" cy="25" r="20" fill="none" stroke-width="4"/>
+            </svg>
+            <div class="save-check" id="saveCheck">✓</div>
+        </div>
+        <div class="save-overlay-text" id="saveOverlayText">Guardando...</div>
+        <div class="save-overlay-sub" id="saveOverlaySub">Sincronizando con la nube</div>
+    </div>
+</div>
 
 <div id="login-screen" style="display:none;">
     <div class="login-card">
@@ -6256,6 +6308,38 @@ function showSync(state, text) {
 }
 window.showSync = showSync;
 
+// ── OVERLAY ANIMADO DE GUARDADO ──────────────────────────────────────────────
+let _saveOverlayTimer = null;
+function mostrarOverlayGuardado(texto) {
+    const ov = document.getElementById('saveOverlay');
+    if(!ov) return;
+    clearTimeout(_saveOverlayTimer);
+    ov.classList.remove('done');
+    const t = document.getElementById('saveOverlayText');
+    const s = document.getElementById('saveOverlaySub');
+    if(t) t.textContent = texto || 'Guardando...';
+    if(s) s.textContent = 'Sincronizando con la nube';
+    ov.style.display = 'flex';
+}
+window.mostrarOverlayGuardado = mostrarOverlayGuardado;
+
+function ocultarOverlayGuardado(exito=true) {
+    const ov = document.getElementById('saveOverlay');
+    if(!ov || ov.style.display==='none') return;
+    if(exito) {
+        ov.classList.add('done');
+        const t = document.getElementById('saveOverlayText');
+        const s = document.getElementById('saveOverlaySub');
+        if(t) t.textContent = '¡Guardado!';
+        if(s) s.textContent = 'Cambios sincronizados';
+        _saveOverlayTimer = setTimeout(()=>{ ov.style.display='none'; ov.classList.remove('done'); }, 900);
+    } else {
+        ov.style.display = 'none';
+        ov.classList.remove('done');
+    }
+}
+window.ocultarOverlayGuardado = ocultarOverlayGuardado;
+
 function fixDB() {
     if(!DB.bodegas) DB.bodegas=[];
     if(!DB.cuadrillas) DB.cuadrillas=[];
@@ -6318,12 +6402,19 @@ window._fbSave = function() {
 window._fbSaveImmediate = async function() {
     clearTimeout(saveTO);
     showSync('saving','Guardando...');
+    if(window.mostrarOverlayGuardado) window.mostrarOverlayGuardado('Guardando...');
     window._pendingClienteSave = 'active';
     try {
         const { dbCopy, clientes } = await prepareDbCopy();
         await setDoc(doc(fsDB, DB_DOC), dbCopy);
         await saveClienteChunks(clientes);
         showSync('ok','Guardado ✓');
+        if(window.ocultarOverlayGuardado) window.ocultarOverlayGuardado(true);
+    } catch(e) {
+        console.error(e);
+        showSync('err','Error al guardar');
+        if(window.ocultarOverlayGuardado) window.ocultarOverlayGuardado(false);
+        throw e;
     } finally {
         setTimeout(()=>{ window._pendingClienteSave = false; }, 800);
     }
