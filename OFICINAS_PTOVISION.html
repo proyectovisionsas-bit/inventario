@@ -3289,18 +3289,32 @@ function renderAdmin(){
             <div class="card-header"><h2>📋 Solicitudes Pendientes <span>(${pendSol.length})</span></h2></div>
             ${pendSol.length===0
                 ? '<p style="color:var(--muted);text-align:center;padding:20px;">Sin solicitudes pendientes. ✅</p>'
-                : pendSol.map(s=>`
+                : pendSol.map(s=>{
+                    const tipoLabel={
+                        eliminar_mov:'🗑️ Eliminar movimiento',
+                        editar_mov:'✏️ Editar movimiento',
+                        registro_pasado:'📅 Registro de día pasado',
+                        editar_cliente:'✏️ Editar cliente',
+                        corregir_abono_especial:'⭐ Corregir abono especial',
+                        eliminar_abono_especial:'⭐🗑️ Eliminar abono especial'
+                    }[s.tipo]||s.tipo;
+                    return `
                 <div class="notif-item">
-                    <div>
-                        <div style="font-weight:600;font-size:0.85rem;">${s.oficina}</div>
-                        <div style="font-size:0.78rem;color:var(--muted);">${s.descripcion}</div>
+                    <div style="flex:1;">
+                        <div style="font-weight:600;font-size:0.85rem;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                            ${s.oficina}
+                            <span style="font-size:0.62rem;background:rgba(168,85,247,0.15);color:#a855f7;padding:1px 6px;border-radius:6px;">${tipoLabel}</span>
+                        </div>
+                        <div style="font-size:0.78rem;color:var(--muted);margin-top:2px;">${s.descripcion}</div>
+                        ${s.motivo?`<div style="font-size:0.74rem;color:#f59e0b;margin-top:3px;background:rgba(245,158,11,0.08);padding:4px 8px;border-radius:5px;">💬 ${s.motivo}</div>`:''}
+                        ${s.solicitadoPor?`<div style="font-size:0.7rem;color:var(--muted);margin-top:2px;">Por: ${s.solicitadoPor}</div>`:''}
                         <div style="font-size:0.72rem;color:var(--muted);margin-top:2px;">${new Date(s.fecha).toLocaleString('es-CO')}</div>
                     </div>
-                    <div style="display:flex;gap:6px;">
-                        <button class="btn btn-primary btn-sm" onclick="aprobarSolicitud('${s.id}')">✅</button>
-                        <button class="btn btn-danger btn-sm" onclick="rechazarSolicitud('${s.id}')">❌</button>
+                    <div style="display:flex;gap:6px;align-items:flex-start;">
+                        <button class="btn btn-primary btn-sm" onclick="aprobarSolicitud('${s.id}')" title="Aprobar">✅</button>
+                        <button class="btn btn-danger btn-sm" onclick="rechazarSolicitud('${s.id}')" title="Rechazar">❌</button>
                     </div>
-                </div>`).join('')}
+                </div>`;}).join('')}
         </div>
     </div>
 
@@ -3401,6 +3415,30 @@ function aprobarSolicitud(sid){
             if(!o.movimientos) o.movimientos=[];
             o.movimientos.push({id:uid(),...s.movData, aprobadoPorAdmin:true});
         }
+    } else if(s.tipo==='corregir_abono_especial'){
+        const a=(DB.abonosEspeciales||[]).find(x=>x.id===s.abonoId);
+        if(a&&s.datos){
+            const valorAnt=a.valor;
+            if(s.datos.nuevoValor) a.valor=s.datos.nuevoValor;
+            if(s.datos.nuevaForma) a.forma=s.datos.nuevaForma;
+            if(s.datos.nuevaFecha) a.fecha=s.datos.nuevaFecha;
+            a.editadoPor='admin (sol. '+(s.solicitadoPor||'oficina')+')';
+            a.editadoEn=now();
+            // Redistribuir aplicaciones si cambió el valor
+            if(s.datos.nuevoValor && s.datos.nuevoValor!==valorAnt && a.clienteId){
+                const stats=_saldoClienteEspecial(a.clienteId);
+                const pendientes=stats.facturas.map(f=>{
+                    const abonadoTotal=_abonadoFactura(f.id);
+                    const aplicadoEste=(a.aplicaciones||[]).filter(ap=>ap.facturaId===f.id).reduce((su,ap)=>su+parseFloat(ap.valor||0),0);
+                    return {...f, pendienteSinEste:parseFloat(f.valor)-(abonadoTotal-aplicadoEste)};
+                }).filter(f=>f.pendienteSinEste>0).sort((x,y)=>_fechaTimestamp(x.fecha)-_fechaTimestamp(y.fecha));
+                const nuevasApl=[]; let rest=a.valor;
+                for(const f of pendientes){ if(rest<=0) break; const ap=Math.min(rest,f.pendienteSinEste); nuevasApl.push({facturaId:f.id,periodo:f.periodo,valor:ap}); rest-=ap; }
+                a.aplicaciones=nuevasApl;
+            }
+        }
+    } else if(s.tipo==='eliminar_abono_especial'){
+        DB.abonosEspeciales=(DB.abonosEspeciales||[]).filter(x=>x.id!==s.abonoId);
     }
     s.estado='aprobado';
     save().then(()=>{
@@ -6347,6 +6385,25 @@ function renderPagosAdmin(){
     const totalMes=pagosMes.reduce((s,p)=>s+parseFloat(p.valor||0),0);
     const oficinas=DB.oficinas||[];
 
+    // Filtro de mes para el historial (formato YYYY-MM, o 'todos')
+    const filtroMes=window._filPagosMes||'todos';
+    let pagosHistorial=pagosAdmin;
+    if(filtroMes!=='todos'){
+        pagosHistorial=pagosAdmin.filter(p=>{
+            const fStr=String(p.fecha).slice(0,7); // YYYY-MM
+            return fStr===filtroMes;
+        });
+    }
+    // Construir lista de meses disponibles
+    const mesesDisponibles=[...new Set(pagosAdmin.map(p=>String(p.fecha).slice(0,7)))].sort().reverse();
+    const totalHistorial=pagosHistorial.reduce((s,p)=>s+(p.tipo==='ingreso'?1:-1)*parseFloat(p.valor||0),0);
+    const nombreMes=(ym)=>{
+        if(ym==='todos') return 'todos los meses';
+        const [y,m]=ym.split('-');
+        const meses=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+        return `${meses[parseInt(m)-1]} ${y}`;
+    };
+
     content.innerHTML=`
     <div class="stats-grid" style="margin-bottom:16px;">
         <div class="stat-card yellow"><div class="label">💳 Pagos del mes</div><div class="value">${pagosMes.length}</div></div>
@@ -6431,11 +6488,21 @@ function renderPagosAdmin(){
         <!-- HISTORIAL -->
         <div class="card" style="margin-bottom:0">
             <div class="card-header">
-                <h2>📋 Historial de Pagos Admin <span>todos los meses</span></h2>
+                <h2>📋 Historial de Pagos Admin <span>${nombreMes(filtroMes)}</span></h2>
             </div>
-            ${pagosAdmin.length===0
-                ?'<p style="color:var(--muted);text-align:center;padding:30px;">Sin pagos registrados aún.</p>'
-                :pagosAdmin.map(p=>{
+            <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">
+                <select class="form-control" style="width:auto;flex:1;min-width:160px;" onchange="window._filPagosMes=this.value;renderPagosAdmin()">
+                    <option value="todos" ${filtroMes==='todos'?'selected':''}>📅 Todos los meses</option>
+                    ${mesesDisponibles.map(ym=>`<option value="${ym}" ${filtroMes===ym?'selected':''}>${nombreMes(ym)}</option>`).join('')}
+                </select>
+                <button class="btn btn-outline btn-sm" onclick="exportarPagosAdminExcel()" style="background:rgba(16,185,129,0.1);color:#10b981;border-color:rgba(16,185,129,0.3);">📊 Exportar Excel</button>
+            </div>
+            <div style="background:var(--surface2);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:0.82rem;">
+                Mostrando <strong>${pagosHistorial.length}</strong> pago(s) · Balance: <strong style="color:${totalHistorial>=0?'#10b981':'#ef4444'};">${fmtShort(totalHistorial)}</strong>
+            </div>
+            ${pagosHistorial.length===0
+                ?'<p style="color:var(--muted);text-align:center;padding:30px;">Sin pagos en este período.</p>'
+                :pagosHistorial.map(p=>{
                     const oNombres=(p.oficinas||[]).map(oid=>(DB.oficinas||[]).find(o=>o.id===oid)?.nombre||oid).join(', ')||'-';
                     const d=new Date(p.fecha);
                     return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:8px;">
@@ -12447,6 +12514,61 @@ ${r.servicioEstado==='Suspendido'?'<div class="alerta">⛔ <strong>SERVICIO SUSP
     const w=window.open('','_blank');
     if(!w){ alert('Permite ventanas emergentes para imprimir'); return; }
     w.document.write(html); w.document.close();
+}
+
+
+function exportarPagosAdminExcel(){
+    if(USER.role!=='admin') return alert('Solo admin');
+    const filtroMes=window._filPagosMes||'todos';
+    let pagos=(DB.pagosAdmin||[]).slice();
+    if(filtroMes!=='todos'){
+        pagos=pagos.filter(p=>String(p.fecha).slice(0,7)===filtroMes);
+    }
+    if(pagos.length===0) return alert('No hay pagos para exportar en este período');
+
+    // Ordenar por fecha
+    pagos.sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
+
+    const cargarYExportar=()=>{
+        const datos=[['Fecha','Tipo','Concepto','Descripción','Forma de Pago','Oficina(s)','Valor']];
+        pagos.forEach(p=>{
+            const oNombres=(p.oficinas||[]).map(oid=>(DB.oficinas||[]).find(o=>o.id===oid)?.nombre||oid).join(', ')||'-';
+            datos.push([
+                _fmtFechaLocal(p.fecha),
+                p.tipo==='ingreso'?'Ingreso':'Egreso',
+                p.concepto||'',
+                p.descripcion||'',
+                p.forma||'',
+                oNombres,
+                (p.tipo==='ingreso'?1:-1)*parseFloat(p.valor||0)
+            ]);
+        });
+        // Fila de total
+        const total=pagos.reduce((s,p)=>s+(p.tipo==='ingreso'?1:-1)*parseFloat(p.valor||0),0);
+        datos.push([]);
+        datos.push(['','','','','','TOTAL:',total]);
+
+        const wb=XLSX.utils.book_new();
+        const ws=XLSX.utils.aoa_to_sheet(datos);
+        ws['!cols']=[{wch:12},{wch:10},{wch:25},{wch:30},{wch:16},{wch:25},{wch:14}];
+        XLSX.utils.book_append_sheet(wb,ws,'Pagos Admin');
+
+        const meses=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+        let nombreArchivo='Pagos_Admin_';
+        if(filtroMes==='todos'){ nombreArchivo+='Todos'; }
+        else { const [y,m]=filtroMes.split('-'); nombreArchivo+=meses[parseInt(m)-1]+'_'+y; }
+        XLSX.writeFile(wb, nombreArchivo+'.xlsx');
+    };
+
+    if(typeof XLSX==='undefined'){
+        const s=document.createElement('script');
+        s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+        s.onload=cargarYExportar;
+        s.onerror=()=>alert('No se pudo cargar la librería de Excel');
+        document.head.appendChild(s);
+    } else {
+        cargarYExportar();
+    }
 }
 
 function openAdminPanel(){ navigate('administracion'); }
