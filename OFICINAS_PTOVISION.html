@@ -11569,12 +11569,6 @@ function renderRecogidas(){
 
     // Filtrar
     let items=recogidas.slice();
-    // DEBUG: mostrar IDs para diagnóstico
-    if(esAdmin && filtroOfi!=='todas'){
-        console.log('🔍 Filtro oficina:', filtroOfi);
-        console.log('🔍 oficinaIds en recogidas:', [...new Set(recogidas.map(r=>r.oficinaId))]);
-        console.log('🔍 oficinas disponibles:', DB.oficinas.map(o=>({id:o.id, nombre:o.nombre})));
-    }
     if(!esAdmin) items=items.filter(r=>r.oficinaId===USER.id);
     else if(filtroOfi&&filtroOfi!=='todas') items=items.filter(r=>r.oficinaId===filtroOfi);
 
@@ -11624,7 +11618,9 @@ function renderRecogidas(){
             <h2>📦 Recogida de Equipos <span>${totalActivas} pendientes</span></h2>
             <div style="display:flex;gap:6px;flex-wrap:wrap;">
                 <button class="btn btn-primary" onclick="modalImportarMorosos()" style="background:#ea580c;">📥 Importar de WispHub</button>
+                <button class="btn btn-outline btn-sm" onclick="exportarPDFRecogidas()" style="background:rgba(59,130,246,0.1);color:#3b82f6;border-color:rgba(59,130,246,0.3);">📄 PDF para técnico</button>
                 ${esAdmin?`<button class="btn btn-outline btn-sm" onclick="modalConfigRecogidas()">⚙️ Reglas</button>`:''}
+                ${esAdmin?`<button class="btn btn-outline btn-sm" onclick="modalLimpiarRecogidas()" style="background:rgba(239,68,68,0.1);color:#ef4444;border-color:rgba(239,68,68,0.3);">🗑️ Limpiar</button>`:''}
             </div>
         </div>
 
@@ -11700,7 +11696,10 @@ function renderRecogidas(){
                                 ${r.tecnico?`<div style="font-size:0.72rem;color:#3b82f6;margin-top:2px;">👷 ${r.tecnico}</div>`:''}
                                 ${r.equipoRecuperado?`<div style="font-size:0.72rem;color:#10b981;margin-top:2px;">📦 ${r.equipoRecuperado}</div>`:''}
                             </div>
-                            <button class="btn btn-outline btn-sm" style="font-size:0.72rem;padding:4px 10px;" onclick="modalGestionarRecogida('${r.id}')">Gestionar ▾</button>
+                            <div style="display:flex;flex-direction:column;gap:4px;">
+                                <button class="btn btn-outline btn-sm" style="font-size:0.72rem;padding:4px 10px;" onclick="modalGestionarRecogida('${r.id}')">Gestionar ▾</button>
+                                <button class="btn btn-outline btn-sm" style="font-size:0.68rem;padding:3px 8px;background:rgba(59,130,246,0.1);color:#3b82f6;border-color:rgba(59,130,246,0.3);" onclick="exportarPDFRecogidaIndividual('${r.id}')">📄 Orden</button>
+                            </div>
                         </div>
                     </div>
                 `).join('')}
@@ -12183,6 +12182,272 @@ function _guardarConfigRecogidas(){
     save().then(()=>{ closeModal(); alert('✅ Reglas actualizadas'); });
 }
 
+
+
+// ─── LIMPIAR RECOGIDAS POR OFICINA ───
+function modalLimpiarRecogidas(){
+    if(USER.role!=='admin') return alert('Solo admin');
+    const recogidas=DB.recogidas||[];
+    // Contar por oficina
+    const porOfi={};
+    recogidas.forEach(r=>{
+        if(!porOfi[r.oficinaId]) porOfi[r.oficinaId]=0;
+        porOfi[r.oficinaId]++;
+    });
+
+    const html=`
+    <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:10px;padding:12px;margin-bottom:14px;font-size:0.82rem;">
+        <p style="font-weight:700;color:#ef4444;margin-bottom:4px;">🗑️ Limpiar órdenes de recogida</p>
+        <p style="color:var(--muted);">Elimina las órdenes de una oficina para volver a cargar el Excel desde cero. Esta acción no se puede deshacer.</p>
+    </div>
+
+    <div class="form-group-dark">
+        <label>¿Qué quieres limpiar?</label>
+        <select id="limp_oficina" class="form-control">
+            <option value="">— Selecciona —</option>
+            ${DB.oficinas.map(o=>{
+                const cant=porOfi[o.id]||0;
+                return `<option value="${o.id}">${o.nombre} (${cant} órdenes)</option>`;
+            }).join('')}
+            <option value="__TODAS__">⚠️ TODAS las oficinas (${recogidas.length} órdenes)</option>
+        </select>
+    </div>
+
+    <div class="form-group-dark">
+        <label>¿Qué órdenes eliminar?</label>
+        <select id="limp_tipo" class="form-control">
+            <option value="todas">Todas las órdenes</option>
+            <option value="resueltas">Solo resueltas (recogido/pagó/cerrado)</option>
+            <option value="activas">Solo activas (pendiente/agendado/en ruta)</option>
+        </select>
+        <p style="font-size:0.7rem;color:var(--muted);margin-top:3px;">Tip: "Solo resueltas" limpia las que ya gestionaste, dejando las pendientes</p>
+    </div>`;
+
+    openModal('🗑️ Limpiar Recogidas', html, `
+        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-danger" onclick="_confirmarLimpiarRecogidas()">🗑️ Eliminar</button>`);
+}
+
+function _confirmarLimpiarRecogidas(){
+    if(USER.role!=='admin') return;
+    const oficinaId=document.getElementById('limp_oficina').value;
+    const tipo=document.getElementById('limp_tipo').value;
+    if(!oficinaId) return alert('Selecciona una oficina');
+
+    const resueltos=['recogido','pago','cerrado'];
+    const antes=(DB.recogidas||[]).length;
+
+    DB.recogidas=(DB.recogidas||[]).filter(r=>{
+        // ¿Pertenece a la oficina objetivo?
+        const esDeOficina = oficinaId==='__TODAS__' || r.oficinaId===oficinaId;
+        if(!esDeOficina) return true; // conservar
+
+        // ¿Coincide con el tipo a eliminar?
+        let eliminar=false;
+        if(tipo==='todas') eliminar=true;
+        else if(tipo==='resueltas') eliminar=resueltos.includes(r.estado);
+        else if(tipo==='activas') eliminar=!resueltos.includes(r.estado);
+
+        return !eliminar; // conservar si NO se elimina
+    });
+
+    const eliminadas=antes-(DB.recogidas.length);
+    const nombreOfi=oficinaId==='__TODAS__'?'TODAS':((DB.oficinas.find(o=>o.id===oficinaId)||{}).nombre||oficinaId);
+    registrarLog('RECOGIDAS_LIMPIADAS',{oficinaId, tipo, eliminadas});
+    save().then(()=>{
+        closeModal();
+        renderRecogidas();
+        alert(`✅ Se eliminaron ${eliminadas} órdenes de ${nombreOfi}`);
+    });
+}
+
+// ─── EXPORTAR PDF GENERAL PARA EL TÉCNICO ───
+function exportarPDFRecogidas(){
+    const esAdmin=USER.role==='admin';
+    const filtroOfi=window._filRecOfi||(esAdmin?'todas':USER.id);
+    const filtroEstado=window._filRecEstado||'activas';
+
+    let items=(DB.recogidas||[]).slice();
+    if(!esAdmin) items=items.filter(r=>r.oficinaId===USER.id);
+    else if(filtroOfi&&filtroOfi!=='todas') items=items.filter(r=>r.oficinaId===filtroOfi);
+
+    // Para PDF: solo las que están por recoger (activas)
+    const resueltos=['recogido','pago','cerrado'];
+    if(filtroEstado==='activas') items=items.filter(r=>!resueltos.includes(r.estado));
+    else if(filtroEstado!=='todas') items=items.filter(r=>r.estado===filtroEstado);
+
+    if(items.length===0){ alert('No hay órdenes para exportar con el filtro actual'); return; }
+
+    // Ordenar por zona y luego cliente
+    items.sort((a,b)=>(a.zona||'').localeCompare(b.zona||'')||(a.cliente||'').localeCompare(b.cliente||''));
+
+    const ofiNombre = filtroOfi==='todas'?'Todas las oficinas':((DB.oficinas.find(o=>o.id===filtroOfi)||{}).nombre||'');
+    const hoy=new Date().toLocaleDateString('es-CO',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+
+    const estadoTxt={pendiente:'⏳ Pendiente',agendado:'📅 Agendado',en_ruta:'🚚 En ruta',recogido:'✅ Recogido',no_pudo:'❌ No se pudo',pago:'💰 Pagó'};
+
+    const html=`<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Órdenes de Recogida</title>
+<style>
+@page { size: letter; margin: 1cm; }
+* { box-sizing:border-box; margin:0; padding:0; }
+body { font-family: Arial, sans-serif; font-size:10px; color:#000; padding:12px; }
+h1 { font-size:18px; color:#ea580c; margin-bottom:4px; }
+.header { border-bottom:2px solid #ea580c; padding-bottom:8px; margin-bottom:12px; }
+.header .sub { font-size:10px; color:#666; }
+table { width:100%; border-collapse:collapse; margin-top:8px; font-size:9px; }
+th, td { border:1px solid #999; padding:4px 6px; text-align:left; vertical-align:top; }
+th { background:#ea580c; color:#fff; font-weight:bold; }
+tr:nth-child(even) { background:#fef5ef; }
+.check { width:24px; height:24px; border:2px solid #333; display:inline-block; }
+.btn-print { position:fixed; top:10px; right:10px; padding:10px 16px; background:#ea580c; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:bold; }
+@media print { .btn-print { display:none; } }
+.footer { margin-top:16px; font-size:9px; color:#666; }
+.firma { margin-top:30px; display:flex; justify-content:space-between; }
+.firma div { border-top:1px solid #333; padding-top:4px; width:45%; text-align:center; font-size:9px; }
+</style></head><body>
+<button class="btn-print" onclick="window.print()">🖨️ Imprimir</button>
+
+<div class="header">
+    <h1>📦 ÓRDENES DE RECOGIDA DE EQUIPOS</h1>
+    <div class="sub">
+        <strong>PROYECTOVISION CLICK ZOMAC S.A.S</strong><br>
+        Oficina: ${ofiNombre} · Fecha: ${hoy}<br>
+        Total de equipos por recoger: <strong>${items.length}</strong>
+    </div>
+</div>
+
+<table>
+    <thead>
+        <tr>
+            <th style="width:20px;">✓</th>
+            <th>Cliente</th>
+            <th>Cédula</th>
+            <th>Servicio</th>
+            <th>Dirección</th>
+            <th>Teléfono</th>
+            <th style="width:50px;">Facturas</th>
+            <th>Monto</th>
+            <th>Zona</th>
+            <th>Estado</th>
+        </tr>
+    </thead>
+    <tbody>
+    ${items.map(r=>`<tr>
+        <td style="text-align:center;"><span class="check"></span></td>
+        <td><strong>${r.cliente||''}</strong>${r.servicioEstado==='Suspendido'?'<br><span style="color:#ef4444;font-size:8px;">⛔ Suspendido</span>':''}</td>
+        <td>${r.cedula||''}</td>
+        <td>${r.servicioId||''}</td>
+        <td>${r.direccion||''}${r.barrio?'<br>'+r.barrio:''}</td>
+        <td>${r.telefono||''}</td>
+        <td style="text-align:center;">${r.numFacturas||0}</td>
+        <td>$${(r.montoTotal||0).toLocaleString('es-CO')}</td>
+        <td>${r.zona||''}</td>
+        <td style="font-size:8px;">${estadoTxt[r.estado]||r.estado}</td>
+    </tr>`).join('')}
+    </tbody>
+</table>
+
+<div class="footer">
+    <p><strong>Instrucciones para el técnico:</strong> Marque ✓ cuando recoja el equipo. Anote el serial del equipo recuperado y cualquier observación al respaldo.</p>
+</div>
+
+<div class="firma">
+    <div>Técnico responsable</div>
+    <div>Supervisor</div>
+</div>
+
+</body></html>`;
+
+    const w=window.open('','_blank');
+    if(!w){ alert('Permite ventanas emergentes para imprimir'); return; }
+    w.document.write(html); w.document.close();
+}
+
+// ─── EXPORTAR PDF INDIVIDUAL (UNA ORDEN) ───
+function exportarPDFRecogidaIndividual(recId){
+    const r=(DB.recogidas||[]).find(x=>x.id===recId);
+    if(!r) return alert('Orden no encontrada');
+    const ofi=DB.oficinas.find(o=>o.id===r.oficinaId);
+    const hoy=new Date().toLocaleDateString('es-CO',{year:'numeric',month:'long',day:'numeric'});
+    const estadoTxt={pendiente:'Pendiente',agendado:'Agendado',en_ruta:'En ruta',recogido:'Recogido',no_pudo:'No se pudo',pago:'Pagó'};
+
+    const html=`<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Orden de Recogida - ${r.cliente}</title>
+<style>
+@page { size: letter; margin: 1.5cm; }
+* { box-sizing:border-box; margin:0; padding:0; }
+body { font-family: Arial, sans-serif; font-size:12px; color:#000; padding:16px; }
+h1 { font-size:20px; color:#ea580c; margin-bottom:4px; }
+.header { border-bottom:3px solid #ea580c; padding-bottom:10px; margin-bottom:16px; }
+.box { border:1px solid #ccc; border-radius:8px; padding:14px; margin-bottom:12px; }
+.box h2 { font-size:13px; color:#ea580c; margin-bottom:8px; border-bottom:1px solid #eee; padding-bottom:4px; }
+.row { display:flex; margin-bottom:6px; }
+.row .label { font-weight:bold; width:140px; color:#555; }
+.row .val { flex:1; }
+.alerta { background:#fee2e2; border:1px solid #ef4444; border-radius:6px; padding:10px; color:#991b1b; margin-bottom:12px; }
+.campo-llenar { border-bottom:1px solid #333; min-height:24px; display:block; margin-top:4px; }
+.btn-print { position:fixed; top:10px; right:10px; padding:10px 16px; background:#ea580c; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:bold; }
+@media print { .btn-print { display:none; } }
+.firma { margin-top:40px; display:flex; justify-content:space-between; }
+.firma div { border-top:1px solid #333; padding-top:6px; width:45%; text-align:center; }
+</style></head><body>
+<button class="btn-print" onclick="window.print()">🖨️ Imprimir</button>
+
+<div class="header">
+    <h1>📦 ORDEN DE RECOGIDA DE EQUIPO</h1>
+    <div style="font-size:11px;color:#666;">
+        PROYECTOVISION CLICK ZOMAC S.A.S · ${ofi?.nombre||''} · ${hoy}
+    </div>
+</div>
+
+${r.servicioEstado==='Suspendido'?'<div class="alerta">⛔ <strong>SERVICIO SUSPENDIDO</strong> — Cliente cortado por mora</div>':''}
+
+<div class="box">
+    <h2>👤 Datos del Cliente</h2>
+    <div class="row"><span class="label">Cliente:</span><span class="val">${r.cliente||''}</span></div>
+    <div class="row"><span class="label">Cédula:</span><span class="val">${r.cedula||''}</span></div>
+    <div class="row"><span class="label">ID Servicio:</span><span class="val">${r.servicioId||''}</span></div>
+    <div class="row"><span class="label">Dirección:</span><span class="val">${r.direccion||''}</span></div>
+    <div class="row"><span class="label">Barrio:</span><span class="val">${r.barrio||''}</span></div>
+    <div class="row"><span class="label">Zona:</span><span class="val">${r.zona||''}</span></div>
+    <div class="row"><span class="label">Teléfono:</span><span class="val">${r.telefono||''}</span></div>
+    ${r.ipServicio?`<div class="row"><span class="label">IP Servicio:</span><span class="val">${r.ipServicio}</span></div>`:''}
+</div>
+
+<div class="box">
+    <h2>💰 Información de Mora</h2>
+    <div class="row"><span class="label">Facturas pendientes:</span><span class="val">${r.numFacturas||0}</span></div>
+    <div class="row"><span class="label">Monto adeudado:</span><span class="val"><strong>$${(r.montoTotal||0).toLocaleString('es-CO')}</strong></span></div>
+    <div class="row"><span class="label">Días de mora:</span><span class="val">${r.diasMora||0} días</span></div>
+    <div class="row"><span class="label">Estado servicio:</span><span class="val">${r.servicioEstado||''}</span></div>
+</div>
+
+<div class="box">
+    <h2>📝 Para llenar por el técnico</h2>
+    <div class="row"><span class="label">Equipo recuperado:</span></div>
+    <span class="campo-llenar"></span>
+    <div class="row" style="margin-top:10px;"><span class="label">Serial / MAC:</span></div>
+    <span class="campo-llenar"></span>
+    <div class="row" style="margin-top:10px;"><span class="label">Estado del equipo:</span></div>
+    <span class="campo-llenar"></span>
+    <div class="row" style="margin-top:10px;"><span class="label">Observaciones:</span></div>
+    <span class="campo-llenar"></span>
+    <span class="campo-llenar"></span>
+    <div class="row" style="margin-top:10px;"><span class="label">Fecha de recogida:</span><span class="val">_____ / _____ / _________</span></div>
+</div>
+
+<div class="firma">
+    <div>Firma del técnico</div>
+    <div>Firma del cliente (si aplica)</div>
+</div>
+
+</body></html>`;
+
+    const w=window.open('','_blank');
+    if(!w){ alert('Permite ventanas emergentes para imprimir'); return; }
+    w.document.write(html); w.document.close();
+}
 
 function openAdminPanel(){ navigate('administracion'); }
 
