@@ -1859,23 +1859,41 @@ window.solicitarEliminarVenta = solicitarEliminarVenta;
 // ═════════════════════════════════════════════════════════════════════════════
 function renderCuartos(c) {
     if(!DB.cuartos) DB.cuartos=[];
-    // Filtrar por bodega si no es admin
-    const cuartos = USER.role==='admin' ? DB.cuartos : DB.cuartos.filter(q=>q.bodegaId===USER.id);
-    // Si no existe el cuarto de la bodega del usuario, sugerir crearlo
+    // Filtrar por bodega
+    let cuartos = USER.role==='admin' ? DB.cuartos : DB.cuartos.filter(q=>q.bodegaId===USER.id);
+
+    // Filtro por bodega (solo admin)
+    const filtroBodega = window._cuartoFiltroBodega || '';
+    if(USER.role==='admin' && filtroBodega) {
+        cuartos = cuartos.filter(q=>q.bodegaId===filtroBodega);
+    }
+
     const sugerirCrear = USER.role==='bodega' && !cuartos.length;
+
+    // Selector de bodega para admin
+    const bodegaSelector = USER.role==='admin' ? `
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:15px;background:#f8fafc;padding:10px;border-radius:8px;">
+            <label style="font-weight:600;font-size:0.85rem;">🏭 Ver bodega:</label>
+            <select class="form-control" style="max-width:240px;" onchange="window._cuartoFiltroBodega=this.value; renderTab('cuartos');">
+                <option value="">Todas las bodegas</option>
+                ${DB.bodegas.map(b=>`<option value="${b.id}" ${filtroBodega===b.id?'selected':''}>${b.nombre}</option>`).join('')}
+            </select>
+            <span class="text-muted" style="font-size:0.8rem;">${cuartos.length} cuarto(s)</span>
+        </div>` : '';
 
     c.innerHTML = `<div class="card">
         <div class="card-header">
             <h2>🖥️ Cuartos de Equipos</h2>
             <div class="flex" style="gap:8px;">
-                ${USER.role==='admin' ? `<button class="btn btn-primary" onclick="modalNewCuarto()">➕ Nuevo Cuarto</button>` : ''}
-                ${sugerirCrear ? `<button class="btn btn-primary" onclick="modalNewCuarto()">➕ Crear Cuarto de mi Bodega</button>` : ''}
+                ${(USER.role==='admin' || USER.role==='bodega') ? `<button class="btn btn-primary" onclick="modalNewCuarto()">➕ Nuevo Cuarto</button>` : ''}
             </div>
         </div>
+        ${bodegaSelector}
         ${cuartos.length === 0 ? `
             <div class="text-center" style="padding:30px;">
                 <div style="font-size:3rem;">🖥️</div>
-                <p class="text-muted">No hay cuartos de equipos registrados.</p>
+                <p class="text-muted">${filtroBodega ? 'Esta bodega no tiene cuartos registrados.' : 'No hay cuartos de equipos registrados.'}</p>
+                ${sugerirCrear || USER.role==='admin' ? `<button class="btn btn-primary" onclick="modalNewCuarto()" style="margin-top:10px;">➕ Crear Cuarto</button>` : ''}
             </div>
         ` : cuartos.map(q => renderCuartoCard(q)).join('')}
     </div>`;
@@ -1883,31 +1901,73 @@ function renderCuartos(c) {
 
 function renderCuartoCard(q) {
     if(!q.externos) q.externos = [];
+    if(!q.componentes) q.componentes = [];
     const bodNom = DB.bodegas.find(b=>b.id===q.bodegaId)?.nombre || 'Sin bodega';
     const totalRackEquipos = (q.racks||[]).reduce((s,r)=>s+(r.equipos||[]).length, 0);
     const totalExt = q.externos.length;
+    const totalComp = q.componentes.length;
     const totalConexiones = (q.conexiones||[]).length;
     return `<div class="card" style="border-left:4px solid #4f46e5;margin-bottom:15px;">
         <div class="card-header">
             <div>
                 <h3 style="margin:0;">🖥️ ${q.nombre}</h3>
-                <p class="text-muted" style="margin:4px 0 0;font-size:0.85rem;">🏭 ${bodNom} | 📍 ${q.ubicacion||'Sin ubicación'} | ${(q.racks||[]).length} rack(s) | ${totalRackEquipos+totalExt} equipo(s) (${totalExt} externos) | ${totalConexiones} conexión(es)</p>
+                <p class="text-muted" style="margin:4px 0 0;font-size:0.85rem;">🏭 ${bodNom} | 📍 ${q.ubicacion||'Sin ubicación'} | ${(q.racks||[]).length} rack(s) | ${totalRackEquipos+totalExt} equipo(s) (${totalExt} externos) | ${totalComp} componente(s) | ${totalConexiones} conexión(es)</p>
             </div>
             <div class="flex" style="gap:6px;flex-wrap:wrap;">
                 <button class="btn btn-outline btn-sm" onclick="modalEditCuarto('${q.id}')">✏️ Editar</button>
                 <button class="btn btn-success btn-sm" onclick="modalNewRack('${q.id}')">➕ Rack</button>
-                <button class="btn btn-success btn-sm" onclick="modalNewExterno('${q.id}')">📡 Equipo Externo</button>
+                <button class="btn btn-success btn-sm" onclick="modalNewExterno('${q.id}')">📡 Componente de Red</button>
+                <button class="btn btn-success btn-sm" onclick="modalNewComponente('${q.id}')">🔋 Componente Rack</button>
                 <button class="btn btn-primary btn-sm" onclick="modalVerConexiones('${q.id}')">🔌 Conexiones (${totalConexiones})</button>
                 <button class="btn btn-primary btn-sm" onclick="modalDiagramaCompleto('${q.id}')" style="background:linear-gradient(135deg,#4f46e5,#7c3aed);">🌐 Diagrama Completo</button>
-                <button class="btn btn-warning btn-sm" onclick="modalDiagramaCompleto('${q.id}')">📊 Diagrama Completo</button>
                 ${USER.role==='admin' ? `<button class="btn btn-danger btn-sm" onclick="eliminarCuarto('${q.id}')">🗑️</button>` : ''}
             </div>
         </div>
         ${q.descripcion ? `<p class="text-muted" style="font-size:0.85rem;">${q.descripcion}</p>` : ''}
         ${(q.racks||[]).length === 0 ? '<p class="text-muted">Sin racks. Agrega uno con el botón "➕ Rack".</p>' :
             (q.racks||[]).map(r => renderRackCard(q.id, r)).join('')}
+        ${renderComponentesSection(q)}
         ${renderExternosSection(q)}
     </div>`;
+}
+
+function renderComponentesSection(q) {
+    if(!q.componentes) q.componentes = [];
+    if(q.componentes.length === 0) {
+        return `<div style="margin-top:15px;padding:14px;border:2px dashed #fcd34d;border-radius:10px;text-align:center;color:#92400e;background:#fffbeb;">
+            <div style="font-size:2rem;">🔋</div>
+            <p style="margin:6px 0;">Sin componentes de rack. Usa "🔋 Componente Rack" para agregar baterías, paneles, PDU, ventiladores, organizadores, etc.</p>
+        </div>`;
+    }
+    const colorComp = {
+        'Batería':'#16a34a','Banco de Baterías':'#15803d','Panel Solar':'#eab308','Rectificador':'#0891b2',
+        'PDU':'#dc2626','Ventilador':'#3b82f6','Organizador':'#8b5cf6','Bandeja':'#64748b',
+        'Inversor':'#f97316','Breaker':'#be185d','Otro':'#64748b'
+    };
+    return `<details open style="border:1px solid #fde68a;border-radius:10px;margin:15px 0 0;background:#fffbeb;">
+        <summary style="padding:10px 14px;cursor:pointer;font-weight:600;color:#92400e;">
+            🔋 Componentes del Rack (${q.componentes.length})
+        </summary>
+        <div style="padding:0 14px 14px;">
+            <div class="table-wrap"><table style="font-size:0.85rem;">
+                <thead><tr><th>Componente</th><th>Tipo</th><th>Marca/Modelo</th><th>Capacidad</th><th>Estado</th><th>Ubicación</th><th></th></tr></thead>
+                <tbody>
+                ${q.componentes.map(comp=>`<tr>
+                    <td><strong>${comp.nombre}</strong></td>
+                    <td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${colorComp[comp.tipo]||'#64748b'};margin-right:5px;"></span>${comp.tipo}</td>
+                    <td>${comp.marca||'-'} ${comp.modelo||''}</td>
+                    <td>${comp.capacidad||'-'}</td>
+                    <td><span class="badge ${comp.estado==='activo'?'badge-new':'badge-used'}">${comp.estado||'activo'}</span></td>
+                    <td>${comp.ubicacion||'-'}</td>
+                    <td style="white-space:nowrap;">
+                        <button class="btn btn-outline btn-sm" onclick="modalEditComponente('${q.id}','${comp.id}')">✏️</button>
+                        <button class="btn btn-danger btn-sm" onclick="eliminarComponente('${q.id}','${comp.id}')">🗑️</button>
+                    </td>
+                </tr>`).join('')}
+                </tbody>
+            </table></div>
+        </div>
+    </details>`;
 }
 
 function renderExternosSection(q) {
@@ -2442,11 +2502,13 @@ function modalNewEquipoRack(qId, rId) {
             if(!r) return;
             const nom = id('eqNom').value.trim();
             if(!nom) return alert('El nombre es obligatorio');
+            let tipo = id('eqTipo').value;
+            if(tipo === 'Otro') { const c = id('eqTipoOtro').value.trim(); if(c) tipo = c; }
             if(!r.equipos) r.equipos = [];
             r.equipos.push({
                 id: Date.now().toString(),
                 nombre: nom,
-                tipo: id('eqTipo').value,
+                tipo,
                 marca: id('eqMarca').value.trim(),
                 modelo: id('eqModelo').value.trim(),
                 serial: id('eqSerial').value.trim(),
@@ -2465,6 +2527,7 @@ function modalNewEquipoRack(qId, rId) {
             save(); closeModal(); renderTab('cuartos');
         });
     setupPuertosUI('eq', []);
+    setTimeout(()=>toggleEqTipoOtro(), 50);
 }
 window.modalNewEquipoRack = modalNewEquipoRack;
 
@@ -2477,7 +2540,9 @@ function modalEditEquipoRack(qId, rId, eqId) {
         formEquipoRackHTML(eq),
         ()=>{
             eq.nombre = id('eqNom').value.trim() || eq.nombre;
-            eq.tipo = id('eqTipo').value;
+            let tipoE = id('eqTipo').value;
+            if(tipoE === 'Otro') { const c = id('eqTipoOtro').value.trim(); if(c) tipoE = c; }
+            eq.tipo = tipoE;
             eq.marca = id('eqMarca').value.trim();
             eq.modelo = id('eqModelo').value.trim();
             eq.serial = id('eqSerial').value.trim();
@@ -2494,6 +2559,7 @@ function modalEditEquipoRack(qId, rId, eqId) {
             save(); closeModal(); renderTab('cuartos');
         });
     setupPuertosUI('eq', eq.puertos||[]);
+    setTimeout(()=>toggleEqTipoOtro(), 50);
 }
 window.modalEditEquipoRack = modalEditEquipoRack;
 
@@ -2553,24 +2619,39 @@ function modalVerEquipo(qId, rId, eqId) {
 }
 window.modalVerEquipo = modalVerEquipo;
 
+function toggleEqTipoOtro() {
+    const sel = id('eqTipo');
+    const wrap = id('eqTipoOtroWrap');
+    if(sel && wrap) wrap.style.display = sel.value==='Otro' ? 'block' : 'none';
+}
+window.toggleEqTipoOtro = toggleEqTipoOtro;
+
 function formEquipoRackHTML(eq) {
+    const tiposBase = ['OLT','Switch','Router','Servidor','UPS','Firewall','ODF','PatchPanel'];
+    const tipoEnLista = tiposBase.includes(eq.tipo);
+    const tipoSel = eq.tipo ? (tipoEnLista ? eq.tipo : 'Otro') : 'OLT';
+    const tipoCustom = (!tipoEnLista && eq.tipo) ? eq.tipo : '';
     return `<div class="form-row">
         <div class="form-group"><label>Nombre *</label>
             <input id="eqNom" class="form-control" value="${eq.nombre||''}" placeholder="Ej: OLT-01, Switch Core, Servidor Web">
         </div>
         <div class="form-group"><label>Tipo</label>
-            <select id="eqTipo" class="form-control">
-                <option value="OLT" ${eq.tipo==='OLT'?'selected':''}>OLT</option>
-                <option value="Switch" ${eq.tipo==='Switch'?'selected':''}>Switch</option>
-                <option value="Router" ${eq.tipo==='Router'?'selected':''}>Router</option>
-                <option value="Servidor" ${eq.tipo==='Servidor'?'selected':''}>Servidor</option>
-                <option value="UPS" ${eq.tipo==='UPS'?'selected':''}>UPS</option>
-                <option value="Firewall" ${eq.tipo==='Firewall'?'selected':''}>Firewall</option>
-                <option value="ODF" ${eq.tipo==='ODF'?'selected':''}>ODF (Fibra)</option>
-                <option value="PatchPanel" ${eq.tipo==='PatchPanel'?'selected':''}>Patch Panel</option>
-                <option value="Otro" ${eq.tipo==='Otro'?'selected':''}>Otro</option>
+            <select id="eqTipo" class="form-control" onchange="toggleEqTipoOtro()">
+                <option value="OLT" ${tipoSel==='OLT'?'selected':''}>OLT</option>
+                <option value="Switch" ${tipoSel==='Switch'?'selected':''}>Switch</option>
+                <option value="Router" ${tipoSel==='Router'?'selected':''}>Router</option>
+                <option value="Servidor" ${tipoSel==='Servidor'?'selected':''}>Servidor</option>
+                <option value="UPS" ${tipoSel==='UPS'?'selected':''}>UPS</option>
+                <option value="Firewall" ${tipoSel==='Firewall'?'selected':''}>Firewall</option>
+                <option value="ODF" ${tipoSel==='ODF'?'selected':''}>ODF (Fibra)</option>
+                <option value="PatchPanel" ${tipoSel==='PatchPanel'?'selected':''}>Patch Panel</option>
+                <option value="Otro" ${tipoSel==='Otro'?'selected':''}>✏️ Otro (especificar)</option>
             </select>
         </div>
+    </div>
+    <div class="form-group" id="eqTipoOtroWrap" style="display:none;">
+        <label>Especifica el tipo de equipo</label>
+        <input id="eqTipoOtro" class="form-control" value="${tipoCustom}" placeholder="Ej: Conversor de medios, NVR, Media converter...">
     </div>
     <div class="form-row">
         <div class="form-group"><label>Marca</label><input id="eqMarca" class="form-control" value="${eq.marca||''}"></div>
@@ -3321,6 +3402,133 @@ function eliminarExterno(qId, eqId) {
     save(); renderTab('cuartos');
 }
 window.eliminarExterno = eliminarExterno;
+
+// ── COMPONENTES DEL RACK (baterías, paneles, PDU, etc) ──────────────────────
+const TIPOS_COMPONENTE = [
+    'Batería','Banco de Baterías','Panel Solar','Rectificador','PDU',
+    'Ventilador','Organizador','Bandeja','Inversor','Breaker','Otro'
+];
+
+function modalNewComponente(qId) {
+    openModal('🔋 Nuevo Componente del Rack',
+        formComponenteHTML({}),
+        ()=>{
+            const q = DB.cuartos.find(x=>x.id===qId);
+            const nom = id('compNom').value.trim();
+            if(!nom) return alert('El nombre es obligatorio');
+            let tipo = id('compTipo').value;
+            if(tipo === 'Otro') {
+                const custom = id('compTipoOtro').value.trim();
+                if(custom) tipo = custom;
+            }
+            if(!q.componentes) q.componentes = [];
+            q.componentes.push({
+                id: Date.now().toString(),
+                nombre: nom,
+                tipo,
+                marca: id('compMarca').value.trim(),
+                modelo: id('compModelo').value.trim(),
+                serial: id('compSerial').value.trim(),
+                capacidad: id('compCap').value.trim(),
+                ubicacion: id('compUbic').value.trim(),
+                estado: id('compEstado').value,
+                fechaInstalacion: id('compFecha').value,
+                observaciones: id('compObs').value.trim()
+            });
+            logMsg(`Componente "${nom}" agregado al cuarto "${q.nombre}"`);
+            save(); closeModal(); renderTab('cuartos');
+        });
+    setTimeout(()=>toggleCompTipoOtro(), 50);
+}
+window.modalNewComponente = modalNewComponente;
+
+function modalEditComponente(qId, compId) {
+    const q = DB.cuartos.find(x=>x.id===qId);
+    const comp = q?.componentes?.find(x=>x.id===compId);
+    if(!comp) return;
+    openModal('✏️ Editar Componente',
+        formComponenteHTML(comp),
+        ()=>{
+            comp.nombre = id('compNom').value.trim() || comp.nombre;
+            let tipo = id('compTipo').value;
+            if(tipo === 'Otro') { const custom = id('compTipoOtro').value.trim(); if(custom) tipo = custom; }
+            comp.tipo = tipo;
+            comp.marca = id('compMarca').value.trim();
+            comp.modelo = id('compModelo').value.trim();
+            comp.serial = id('compSerial').value.trim();
+            comp.capacidad = id('compCap').value.trim();
+            comp.ubicacion = id('compUbic').value.trim();
+            comp.estado = id('compEstado').value;
+            comp.fechaInstalacion = id('compFecha').value;
+            comp.observaciones = id('compObs').value.trim();
+            save(); closeModal(); renderTab('cuartos');
+        });
+    setTimeout(()=>toggleCompTipoOtro(), 50);
+}
+window.modalEditComponente = modalEditComponente;
+
+function formComponenteHTML(comp) {
+    const tipoEnLista = TIPOS_COMPONENTE.includes(comp.tipo);
+    const tipoSel = comp.tipo ? (tipoEnLista ? comp.tipo : 'Otro') : 'Batería';
+    const tipoCustomVal = (!tipoEnLista && comp.tipo) ? comp.tipo : '';
+    return `<div class="form-row">
+        <div class="form-group"><label>Nombre *</label>
+            <input id="compNom" class="form-control" value="${comp.nombre||''}" placeholder="Ej: Batería 1, Panel frontal, PDU principal">
+        </div>
+        <div class="form-group"><label>Tipo</label>
+            <select id="compTipo" class="form-control" onchange="toggleCompTipoOtro()">
+                ${TIPOS_COMPONENTE.map(t=>`<option value="${t}" ${tipoSel===t?'selected':''}>${t}</option>`).join('')}
+            </select>
+        </div>
+    </div>
+    <div class="form-group" id="compTipoOtroWrap" style="display:none;">
+        <label>Especifica el tipo</label>
+        <input id="compTipoOtro" class="form-control" value="${tipoCustomVal}" placeholder="Escribe el tipo de componente">
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Marca</label><input id="compMarca" class="form-control" value="${comp.marca||''}"></div>
+        <div class="form-group"><label>Modelo</label><input id="compModelo" class="form-control" value="${comp.modelo||''}"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Serial</label><input id="compSerial" class="form-control" value="${comp.serial||''}"></div>
+        <div class="form-group"><label>Capacidad</label><input id="compCap" class="form-control" value="${comp.capacidad||''}" placeholder="Ej: 200Ah 48V, 16 tomas, 1500W"></div>
+    </div>
+    <div class="form-row">
+        <div class="form-group"><label>Estado</label>
+            <select id="compEstado" class="form-control">
+                <option value="activo" ${comp.estado==='activo'?'selected':''}>🟢 Activo</option>
+                <option value="standby" ${comp.estado==='standby'?'selected':''}>🟡 Standby</option>
+                <option value="averiado" ${comp.estado==='averiado'?'selected':''}>🔴 Averiado</option>
+                <option value="mantenimiento" ${comp.estado==='mantenimiento'?'selected':''}>🔧 Mantenimiento</option>
+            </select>
+        </div>
+        <div class="form-group"><label>Ubicación</label><input id="compUbic" class="form-control" value="${comp.ubicacion||''}" placeholder="Ej: Base del rack, Parte superior"></div>
+    </div>
+    <div class="form-group"><label>Fecha instalación</label>
+        <input id="compFecha" type="date" class="form-control" value="${comp.fechaInstalacion||new Date().toISOString().split('T')[0]}">
+    </div>
+    <div class="form-group"><label>Observaciones</label>
+        <textarea id="compObs" class="form-control" rows="2">${comp.observaciones||''}</textarea>
+    </div>`;
+}
+
+function toggleCompTipoOtro() {
+    const sel = id('compTipo');
+    const wrap = id('compTipoOtroWrap');
+    if(sel && wrap) wrap.style.display = sel.value==='Otro' ? 'block' : 'none';
+}
+window.toggleCompTipoOtro = toggleCompTipoOtro;
+
+function eliminarComponente(qId, compId) {
+    const q = DB.cuartos.find(x=>x.id===qId);
+    const comp = q?.componentes?.find(x=>x.id===compId);
+    if(!comp) return;
+    if(!confirm(`¿Eliminar componente "${comp.nombre}"?`)) return;
+    q.componentes = q.componentes.filter(x=>x.id!==compId);
+    logMsg(`Componente "${comp.nombre}" eliminado`);
+    save(); renderTab('cuartos');
+}
+window.eliminarComponente = eliminarComponente;
 
 function formEquipoExternoHTML(eq) {
     return `<div class="form-row">
