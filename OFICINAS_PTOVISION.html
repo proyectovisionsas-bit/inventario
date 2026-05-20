@@ -2411,6 +2411,7 @@ function renderClientes(){
                 <button class="btn btn-outline btn-sm" onclick="descargarPlantillaExcel()">📥 Plantilla Excel</button>
                 <button class="btn btn-outline btn-sm" onclick="modalImportarExcel('${oid}')">📤 Importar Excel</button>
                 <button class="btn btn-primary btn-sm" onclick="modalImportarClientesWisphub('${oid}')" style="background:#ea580c;">📥 Importar de WispHub</button>
+                <button class="btn btn-outline btn-sm" onclick="modalCompararInventario('${oid}')" style="background:rgba(59,130,246,0.1);color:#3b82f6;border-color:rgba(59,130,246,0.3);">🔗 Comparar con Inventario</button>
                 <button class="btn btn-outline btn-sm" onclick="_imprimirContratoEnBlanco()" style="background:rgba(107,114,128,0.1);color:#6b7280;border-color:rgba(107,114,128,0.3);">📄 Contrato en blanco</button>
                 <button class="btn btn-outline btn-sm" onclick="modalGenerarContrato('${oid}')" style="background:rgba(168,85,247,0.1);color:#a855f7;border-color:rgba(168,85,247,0.3);">📄 Generar Contrato</button>
                 <button class="btn btn-primary" onclick="modalAgregarCliente('${oid}')">➕ Nuevo Cliente</button>
@@ -12601,8 +12602,24 @@ function _normalizarNombre(nombre){
     return String(nombre)
         .toLowerCase()
         .normalize('NFD').replace(/[\u0300-\u036f]/g,'') // quitar tildes
-        .replace(/\s+/g,' ')
+        .replace(/[_\-.]+/g,' ') // guiones bajos, medios y puntos a espacios
+        .replace(/\s+/g,' ') // espacios múltiples a uno
         .trim();
+}
+
+// Similitud entre dos nombres (0 a 1) — para detectar coincidencias aproximadas
+function _similitudNombres(a, b){
+    const na=_normalizarNombre(a), nb=_normalizarNombre(b);
+    if(!na||!nb) return 0;
+    if(na===nb) return 1;
+    // Comparar por palabras compartidas
+    const palA=na.split(' ').filter(p=>p.length>1);
+    const palB=nb.split(' ').filter(p=>p.length>1);
+    if(palA.length===0||palB.length===0) return 0;
+    const setB=new Set(palB);
+    const compartidas=palA.filter(p=>setB.has(p)).length;
+    // Proporción de palabras compartidas respecto al nombre más corto
+    return compartidas/Math.min(palA.length, palB.length);
 }
 
 // Cargar clientes del inventario desde Firebase (documento separado)
@@ -12690,6 +12707,14 @@ function _buscarClienteInventario(clienteOficina){
     });
     if(parcial) return {match:parcial, tipo:'parcial'};
 
+    // 4. Por similitud de palabras (>=70% de palabras compartidas)
+    let mejorMatch=null, mejorSim=0;
+    _inventarioClientes.forEach(ci=>{
+        const sim=_similitudNombres(clienteOficina.nombre, ci.nombre);
+        if(sim>mejorSim){ mejorSim=sim; mejorMatch=ci; }
+    });
+    if(mejorMatch && mejorSim>=0.7) return {match:mejorMatch, tipo:'similitud', similitud:Math.round(mejorSim*100)};
+
     return null;
 }
 
@@ -12698,10 +12723,6 @@ function _renderEquiposInventario(clienteOficina, containerId){
     const cont=document.getElementById(containerId);
     if(!cont) return;
 
-    console.log('🔗 Buscando en inventario al cliente:', clienteOficina.nombre, '→ normalizado:', _normalizarNombre(clienteOficina.nombre));
-    if(_inventarioClientes && _inventarioClientes.length>0){
-        console.log('🔗 Primeros nombres en inventario:', _inventarioClientes.slice(0,5).map(c=>c.nombre));
-    }
     const resultado=_buscarClienteInventario(clienteOficina);
     if(!resultado){
         cont.innerHTML=`
@@ -12715,7 +12736,7 @@ function _renderEquiposInventario(clienteOficina, containerId){
     const ci=resultado.match;
     const bodega=(_inventarioBodegas||[]).find(b=>b.id===ci.bodegaId);
     const equipos=ci.equipos||[];
-    const tipoMatch={cedula:'✅ por cédula',nombre:'✅ por nombre',parcial:'⚠️ coincidencia parcial'}[resultado.tipo];
+    const tipoMatch={cedula:'✅ por cédula',nombre:'✅ por nombre',parcial:'⚠️ coincidencia parcial',similitud:'🔍 similitud '+(resultado.similitud||'')+'%'}[resultado.tipo];
 
     cont.innerHTML=`
     <div style="background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.2);border-radius:10px;padding:12px;">
@@ -12975,6 +12996,133 @@ function _confirmarImportClientesWisphub(){
         renderClientes();
         alert(`✅ Importación completada:\n\n• ${nuevos} clientes nuevos\n• ${actualizados} actualizados\n• ${omitidos} omitidos`);
     });
+}
+
+
+// ─── COMPARAR CLIENTES OFICINAS vs INVENTARIO ───
+async function modalCompararInventario(oid){
+    openModal('🔗 Comparar con Inventario',
+        '<p style="text-align:center;color:var(--muted);padding:30px;">⏳ Cargando clientes del inventario y comparando...</p>',
+        `<button class="btn btn-outline" onclick="closeModal()">Cerrar</button>`);
+
+    await cargarClientesInventario();
+
+    const esAdmin=USER.role==='admin';
+    const o=DB.oficinas.find(x=>x.id===oid)||getOficina(oid);
+    let clientesOficina=[];
+    if(esAdmin && (window._compararTodas)){
+        DB.oficinas.forEach(of=>clientesOficina.push(...(of.clientes||[]).map(c=>({...c,_ofiNombre:of.nombre}))));
+    } else {
+        clientesOficina=(o?.clientes||[]).map(c=>({...c,_ofiNombre:o?.nombre}));
+    }
+
+    const invClientes=_inventarioClientes||[];
+
+    // Para cada cliente de oficina, buscar si está en inventario
+    const enAmbos=[], soloOficina=[];
+    clientesOficina.forEach(c=>{
+        const r=_buscarClienteInventario(c);
+        if(r) enAmbos.push({cliente:c, inv:r.match, tipo:r.tipo, similitud:r.similitud});
+        else soloOficina.push(c);
+    });
+
+    // Clientes de inventario que NO están en oficina
+    const nombresOficinaNorm=new Set(clientesOficina.map(c=>_normalizarNombre(c.nombre)));
+    const cedulasOficina=new Set(clientesOficina.map(c=>String(c.cedula||c.documento||'').trim()).filter(Boolean));
+    const soloInventario=invClientes.filter(ci=>{
+        if(ci.cedula && cedulasOficina.has(String(ci.cedula).trim())) return false;
+        const n=_normalizarNombre(ci.nombre);
+        // Verificar que no haya match por nombre/similitud con ningún cliente de oficina
+        if(nombresOficinaNorm.has(n)) return false;
+        const hayParecido=clientesOficina.some(c=>_similitudNombres(c.nombre,ci.nombre)>=0.7);
+        return !hayParecido;
+    });
+
+    const tab=window._compTab||'ambos';
+    const tabBtn=(id,label,count,color)=>`<button onclick="window._compTab='${id}';modalCompararInventario('${oid}')" style="flex:1;padding:8px;border:none;border-radius:8px;cursor:pointer;font-weight:700;font-size:0.8rem;background:${tab===id?color:'var(--surface2)'};color:${tab===id?'#fff':'var(--muted)'};">${label} (${count})</button>`;
+
+    let lista='';
+    if(tab==='ambos'){
+        lista=enAmbos.length===0?'<p style="text-align:center;color:var(--muted);padding:20px;">Ningún cliente cruza con el inventario.</p>':
+        enAmbos.map(item=>{
+            const tipoTxt={cedula:'✅ cédula',nombre:'✅ nombre',parcial:'⚠️ parcial',similitud:`🔍 ${item.similitud}%`}[item.tipo];
+            const equipos=(item.inv.equipos||[]).length;
+            return `<div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:8px 12px;margin-bottom:6px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
+                    <div style="flex:1;min-width:180px;">
+                        <div style="font-size:0.82rem;font-weight:600;">${item.cliente.nombre}</div>
+                        <div style="font-size:0.7rem;color:var(--muted);">Inventario: ${item.inv.nombre} · 📦 ${equipos} equipo(s)</div>
+                    </div>
+                    <span style="font-size:0.65rem;background:rgba(16,185,129,0.15);color:#10b981;padding:2px 8px;border-radius:8px;">${tipoTxt}</span>
+                </div>
+            </div>`;
+        }).join('');
+    } else if(tab==='solo_ofi'){
+        lista=soloOficina.length===0?'<p style="text-align:center;color:var(--muted);padding:20px;">Todos los clientes de oficina están en el inventario. ✅</p>':
+        soloOficina.map(c=>`<div style="background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:8px 12px;margin-bottom:6px;">
+            <div style="font-size:0.82rem;font-weight:600;">${c.nombre}</div>
+            <div style="font-size:0.7rem;color:var(--muted);">${c.cedula?'🆔 '+c.cedula+' · ':''}No tiene equipos registrados en inventario</div>
+        </div>`).join('');
+    } else if(tab==='solo_inv'){
+        lista=soloInventario.length===0?'<p style="text-align:center;color:var(--muted);padding:20px;">Todos los clientes del inventario están en oficinas. ✅</p>':
+        soloInventario.slice(0,200).map(ci=>`<div style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:8px 12px;margin-bottom:6px;">
+            <div style="font-size:0.82rem;font-weight:600;">${ci.nombre}</div>
+            <div style="font-size:0.7rem;color:var(--muted);">${ci.cedula?'🆔 '+ci.cedula+' · ':''}📦 ${(ci.equipos||[]).length} equipo(s) · No está en oficinas</div>
+        </div>`).join('')+(soloInventario.length>200?`<p style="text-align:center;color:var(--muted);padding:10px;">...y ${soloInventario.length-200} más</p>`:'');
+    }
+
+    const html=`
+    <div style="background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.2);border-radius:8px;padding:10px;margin-bottom:12px;font-size:0.78rem;color:var(--muted);">
+        Comparando <strong>${clientesOficina.length}</strong> clientes de ${esAdmin&&window._compararTodas?'todas las oficinas':o?.nombre} con <strong>${invClientes.length}</strong> del inventario.
+        ${esAdmin?`<label style="display:block;margin-top:6px;cursor:pointer;"><input type="checkbox" ${window._compararTodas?'checked':''} onchange="window._compararTodas=this.checked;modalCompararInventario('${oid}')"> Comparar todas las oficinas</label>`:''}
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:12px;">
+        ${tabBtn('ambos','✅ En ambos',enAmbos.length,'#10b981')}
+        ${tabBtn('solo_ofi','⚠️ Solo oficina',soloOficina.length,'#f59e0b')}
+        ${tabBtn('solo_inv','📦 Solo inventario',soloInventario.length,'#ef4444')}
+    </div>
+    <div style="max-height:400px;overflow-y:auto;">${lista}</div>`;
+
+    openModal('🔗 Comparar con Inventario', html, `
+        <button class="btn btn-outline" onclick="closeModal()">Cerrar</button>
+        <button class="btn btn-outline btn-sm" onclick="_exportarComparacionInventario('${oid}')" style="background:rgba(16,185,129,0.1);color:#10b981;border-color:rgba(16,185,129,0.3);">📊 Exportar Excel</button>`);
+}
+
+function _exportarComparacionInventario(oid){
+    const esAdmin=USER.role==='admin';
+    const o=DB.oficinas.find(x=>x.id===oid)||getOficina(oid);
+    let clientesOficina=[];
+    if(esAdmin && window._compararTodas){
+        DB.oficinas.forEach(of=>clientesOficina.push(...(of.clientes||[]).map(c=>({...c,_ofiNombre:of.nombre}))));
+    } else {
+        clientesOficina=(o?.clientes||[]).map(c=>({...c,_ofiNombre:o?.nombre}));
+    }
+    const invClientes=_inventarioClientes||[];
+
+    const cargarYExportar=()=>{
+        const datos=[['Cliente','Cédula','Oficina','¿En Inventario?','Tipo cruce','Equipos','Nombre en Inventario']];
+        clientesOficina.forEach(c=>{
+            const r=_buscarClienteInventario(c);
+            datos.push([
+                c.nombre, c.cedula||c.documento||'', c._ofiNombre||'',
+                r?'SÍ':'NO',
+                r?({cedula:'Cédula',nombre:'Nombre',parcial:'Parcial',similitud:'Similitud '+(r.similitud||'')+'%'}[r.tipo]):'-',
+                r?(r.match.equipos||[]).length:0,
+                r?r.match.nombre:''
+            ]);
+        });
+        const wb=XLSX.utils.book_new();
+        const ws=XLSX.utils.aoa_to_sheet(datos);
+        ws['!cols']=[{wch:30},{wch:14},{wch:14},{wch:14},{wch:16},{wch:8},{wch:30}];
+        XLSX.utils.book_append_sheet(wb,ws,'Comparación');
+        XLSX.writeFile(wb,'Comparacion_Oficinas_Inventario.xlsx');
+    };
+
+    if(typeof XLSX==='undefined'){
+        const s=document.createElement('script');
+        s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+        s.onload=cargarYExportar; document.head.appendChild(s);
+    } else cargarYExportar();
 }
 
 function openAdminPanel(){ navigate('administracion'); }
