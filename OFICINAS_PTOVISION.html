@@ -2410,6 +2410,7 @@ function renderClientes(){
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button class="btn btn-outline btn-sm" onclick="descargarPlantillaExcel()">📥 Plantilla Excel</button>
                 <button class="btn btn-outline btn-sm" onclick="modalImportarExcel('${oid}')">📤 Importar Excel</button>
+                <button class="btn btn-primary btn-sm" onclick="modalImportarClientesWisphub('${oid}')" style="background:#ea580c;">📥 Importar de WispHub</button>
                 <button class="btn btn-outline btn-sm" onclick="_imprimirContratoEnBlanco()" style="background:rgba(107,114,128,0.1);color:#6b7280;border-color:rgba(107,114,128,0.3);">📄 Contrato en blanco</button>
                 <button class="btn btn-outline btn-sm" onclick="modalGenerarContrato('${oid}')" style="background:rgba(168,85,247,0.1);color:#a855f7;border-color:rgba(168,85,247,0.3);">📄 Generar Contrato</button>
                 <button class="btn btn-primary" onclick="modalAgregarCliente('${oid}')">➕ Nuevo Cliente</button>
@@ -12613,18 +12614,39 @@ async function cargarClientesInventario(forzar){
         if(!db){ console.warn('Sin Firebase'); _inventarioCargando=false; return []; }
 
         // Cargar el índice de chunks
+        console.log('🔗 Buscando inventario/clientes_index...');
         const indexSnap=await db.collection('inventario').doc('clientes_index').get();
         let clientes=[];
         if(indexSnap.exists){
             const {numChunks}=indexSnap.data();
+            console.log('🔗 Índice encontrado:', numChunks, 'chunks');
             for(let i=0;i<numChunks;i++){
                 const snap=await db.collection('inventario').doc('clientes_'+i).get();
-                if(snap.exists) clientes=clientes.concat(snap.data().clientes||[]);
+                if(snap.exists){
+                    const ch=snap.data().clientes||[];
+                    clientes=clientes.concat(ch);
+                    console.log('🔗 chunk',i,':',ch.length,'clientes');
+                } else {
+                    console.warn('🔗 chunk',i,'NO existe');
+                }
             }
         } else {
+            console.warn('🔗 NO existe inventario/clientes_index — probando legacy y datos...');
             // Intentar documento legacy
             const legacy=await db.collection('inventario').doc('clientes').get();
-            if(legacy.exists && legacy.data().clientes) clientes=legacy.data().clientes;
+            if(legacy.exists && legacy.data().clientes){
+                clientes=legacy.data().clientes;
+                console.log('🔗 legacy encontrado:', clientes.length);
+            } else {
+                // Intentar el documento datos (puede tener clientes embebidos)
+                const datos=await db.collection('inventario').doc('datos').get();
+                if(datos.exists && datos.data().clientes && datos.data().clientes.length){
+                    clientes=datos.data().clientes;
+                    console.log('🔗 clientes en inventario/datos:', clientes.length);
+                } else {
+                    console.warn('🔗 inventario/datos existe:', datos.exists, '— pero sin clientes embebidos');
+                }
+            }
         }
 
         // Cargar bodegas del inventario (están en inventario/datos)
@@ -12676,11 +12698,16 @@ function _renderEquiposInventario(clienteOficina, containerId){
     const cont=document.getElementById(containerId);
     if(!cont) return;
 
+    console.log('🔗 Buscando en inventario al cliente:', clienteOficina.nombre, '→ normalizado:', _normalizarNombre(clienteOficina.nombre));
+    if(_inventarioClientes && _inventarioClientes.length>0){
+        console.log('🔗 Primeros nombres en inventario:', _inventarioClientes.slice(0,5).map(c=>c.nombre));
+    }
     const resultado=_buscarClienteInventario(clienteOficina);
     if(!resultado){
         cont.innerHTML=`
         <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:10px;font-size:0.78rem;color:#f59e0b;">
-            ⚠️ No se encontró este cliente en el inventario de bodegas. Verifica que el nombre coincida.
+            ⚠️ No se encontró "<strong>${clienteOficina.nombre}</strong>" en el inventario de bodegas.<br>
+            <span style="font-size:0.72rem;">Clientes en inventario: ${(_inventarioClientes||[]).length}. Verifica que el nombre coincida en ambos sistemas.</span>
         </div>`;
         return;
     }
@@ -12717,6 +12744,237 @@ function _renderEquiposInventario(clienteOficina, containerId){
         </div>`}
         ${ci.observaciones?`<p style="font-size:0.72rem;color:var(--muted);margin-top:8px;font-style:italic;">📝 ${ci.observaciones}</p>`:''}
     </div>`;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 📥 IMPORTAR CLIENTES DESDE EXCEL DE WISPHUB
+// ═══════════════════════════════════════════════════════════════════════════
+
+let _clientesWisphubProcesados=null;
+
+function modalImportarClientesWisphub(oid){
+    const esAdmin=USER.role==='admin';
+    const html=`
+    <div style="background:rgba(234,88,12,0.08);border:1px solid rgba(234,88,12,0.25);border-radius:10px;padding:12px;margin-bottom:14px;font-size:0.82rem;">
+        <p style="font-weight:700;color:#ea580c;margin-bottom:4px;">📥 Importar clientes de WispHub</p>
+        <p style="color:var(--muted);">Sube el Excel de <strong>clientes</strong> exportado desde WispHub (con columnas Nombre, Servicio, Estado, Plan, etc.). El sistema importará todos los clientes con su cédula.</p>
+    </div>
+
+    <div class="form-group-dark">
+        <label>¿A qué oficina pertenecen estos clientes? *</label>
+        <select id="impcli_oficina" class="form-control">
+            ${esAdmin?DB.oficinas.map(o=>`<option value="${o.id}" ${o.id===oid?'selected':''}>${o.nombre}</option>`).join(''):`<option value="${USER.id}">${(DB.oficinas.find(o=>o.id===USER.id)||{}).nombre||'Mi oficina'}</option>`}
+        </select>
+    </div>
+
+    <div class="form-group-dark">
+        <label>¿Qué clientes importar?</label>
+        <select id="impcli_filtro" class="form-control">
+            <option value="todos">Todos (activos, suspendidos, gratis, cancelados)</option>
+            <option value="activos">Solo activos</option>
+            <option value="sin_cancelados">Todos menos cancelados</option>
+        </select>
+    </div>
+
+    <div class="form-group-dark">
+        <label>Modo de importación</label>
+        <select id="impcli_modo" class="form-control">
+            <option value="actualizar">Actualizar: crea nuevos y actualiza existentes (por cédula)</option>
+            <option value="solo_nuevos">Solo agregar nuevos (no tocar existentes)</option>
+        </select>
+    </div>
+
+    <div class="form-group-dark">
+        <label>Archivo Excel de clientes WispHub *</label>
+        <div style="border:2px dashed var(--border);border-radius:8px;padding:16px;text-align:center;"
+            ondragover="event.preventDefault();this.style.borderColor='#ea580c'"
+            ondragleave="this.style.borderColor='var(--border)'"
+            ondrop="event.preventDefault();this.style.borderColor='var(--border)';_procesarExcelClientesWisphub(event.dataTransfer.files[0])">
+            <input type="file" id="impcli_file" accept=".xlsx,.xls" style="display:none" onchange="_procesarExcelClientesWisphub(this.files[0])">
+            <button type="button" class="btn btn-outline" onclick="document.getElementById('impcli_file').click()">📂 Seleccionar Excel</button>
+            <p style="font-size:0.72rem;color:var(--muted);margin-top:6px;">O arrastra el archivo .xlsx aquí</p>
+        </div>
+    </div>
+
+    <div id="impcli_resultado" style="margin-top:12px;"></div>`;
+
+    openModal('📥 Importar Clientes WispHub', html, `
+        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" id="btn_confirmar_impcli" onclick="_confirmarImportClientesWisphub()" style="background:#ea580c;display:none;">✅ Confirmar importación</button>`);
+}
+
+async function _procesarExcelClientesWisphub(file){
+    if(!file) return;
+    const resultado=document.getElementById('impcli_resultado');
+    resultado.innerHTML='<p style="text-align:center;color:var(--muted);padding:20px;">⏳ Procesando Excel...</p>';
+
+    if(typeof XLSX==='undefined'){
+        await new Promise((res,rej)=>{
+            const s=document.createElement('script');
+            s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+            s.onload=res; s.onerror=rej;
+            document.head.appendChild(s);
+        });
+    }
+
+    try{
+        const data=await file.arrayBuffer();
+        const wb=XLSX.read(data,{type:'array'});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+
+        // Buscar fila de encabezados
+        let headerRow=-1;
+        for(let i=0;i<Math.min(10,rows.length);i++){
+            const fila=rows[i].map(c=>String(c).trim());
+            if(fila.includes('Nombre')&&(fila.includes('Servicio')||fila.includes('DNI/C.I./C.C./IFE'))){
+                headerRow=i; break;
+            }
+        }
+        if(headerRow<0){
+            resultado.innerHTML='<p style="color:#ef4444;padding:12px;">❌ No se encontraron las columnas esperadas (Nombre, Servicio, etc.). Verifica que sea el Excel de clientes de WispHub.</p>';
+            return;
+        }
+
+        const headers=rows[headerRow].map(c=>String(c).trim());
+        const idx=(n)=>headers.indexOf(n);
+        const col={
+            nombre:idx('Nombre'),
+            servicio:idx('Servicio'),
+            estado:idx('Estado'),
+            plan:idx('Plan Internet'),
+            direccion:idx('Dirección'),
+            fechaInst:idx('Fecha Instalación'),
+            zona:idx('Zona'),
+            cedula:idx('DNI/C.I./C.C./IFE'),
+            barrio:idx('Barrio/Localidad'),
+            telefono:idx('Telefono'),
+            precio:idx('Plan Precio'),
+            ciudad:idx('Ciudad/Municipio'),
+            ip:idx('Ip')
+        };
+
+        const filtro=document.getElementById('impcli_filtro').value;
+        const clientes=[];
+        for(let i=headerRow+1;i<rows.length;i++){
+            const f=rows[i];
+            if(!f||!String(f[col.nombre]||'').trim()) continue;
+            const estado=String(f[col.estado]||'').trim();
+            // Aplicar filtro
+            if(filtro==='activos'&&estado.toLowerCase()!=='activo') continue;
+            if(filtro==='sin_cancelados'&&estado.toLowerCase()==='cancelado') continue;
+
+            // Fecha instalación: tomar solo la parte de fecha DD/MM/YYYY → YYYY-MM-DD
+            let fechaInst='';
+            const fiRaw=String(f[col.fechaInst]||'').trim().split(' ')[0];
+            if(fiRaw){
+                const p=fiRaw.split('/');
+                if(p.length===3) fechaInst=`${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
+            }
+
+            clientes.push({
+                nombre:String(f[col.nombre]||'').trim(),
+                servicio:String(f[col.servicio]||'').trim(),
+                estado:estado,
+                plan:String(f[col.plan]||'').trim(),
+                direccion:String(f[col.direccion]||'').trim(),
+                fechaInstalacion:fechaInst,
+                zona:String(f[col.zona]||'').trim(),
+                cedula:String(f[col.cedula]||'').trim(),
+                barrio:String(f[col.barrio]||'').trim(),
+                telefono:String(f[col.telefono]||'').trim(),
+                tarifaMensual:parseFloat(String(f[col.precio]||'0').replace(/[^0-9.-]/g,''))||0,
+                ciudad:String(f[col.ciudad]||'').trim(),
+                ip:String(f[col.ip]||'').trim()
+            });
+        }
+
+        _clientesWisphubProcesados=clientes;
+
+        // Resumen por estado
+        const porEstado={};
+        clientes.forEach(c=>{ porEstado[c.estado]=(porEstado[c.estado]||0)+1; });
+
+        resultado.innerHTML=`
+        <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:8px;padding:12px;">
+            <p style="font-weight:700;color:#10b981;margin-bottom:8px;">✅ Excel procesado</p>
+            <div style="font-size:0.82rem;color:var(--muted);line-height:1.6;">
+                • Total de clientes a importar: <strong style="color:var(--text);">${clientes.length}</strong><br>
+                ${Object.entries(porEstado).map(([e,n])=>`• ${e}: <strong style="color:var(--text);">${n}</strong>`).join('<br>')}
+            </div>
+        </div>`;
+
+        if(clientes.length>0) document.getElementById('btn_confirmar_impcli').style.display='inline-flex';
+
+    }catch(e){
+        console.error('Error procesando Excel clientes:',e);
+        resultado.innerHTML=`<p style="color:#ef4444;padding:12px;">❌ Error: ${e.message}</p>`;
+    }
+}
+
+function _confirmarImportClientesWisphub(){
+    if(!_clientesWisphubProcesados||!_clientesWisphubProcesados.length) return;
+    const oficinaId=document.getElementById('impcli_oficina').value;
+    const modo=document.getElementById('impcli_modo').value;
+    const o=DB.oficinas.find(x=>x.id===oficinaId);
+    if(!o){ alert('Oficina no encontrada'); return; }
+    if(!o.clientes) o.clientes=[];
+
+    let nuevos=0, actualizados=0, omitidos=0;
+
+    _clientesWisphubProcesados.forEach(cw=>{
+        // Buscar existente por cédula (o por servicio si no hay cédula)
+        const ced=cw.cedula;
+        let existente=null;
+        if(ced) existente=o.clientes.find(c=>String(c.cedula||c.documento||'').trim()===ced);
+        if(!existente && cw.servicio) existente=o.clientes.find(c=>c.servicioWisphub===cw.servicio);
+
+        if(existente){
+            if(modo==='solo_nuevos'){ omitidos++; return; }
+            // Actualizar datos
+            existente.nombre=cw.nombre;
+            existente.cedula=cw.cedula;
+            existente.telefono=cw.telefono;
+            existente.direccion=cw.direccion;
+            existente.barrio=cw.barrio;
+            existente.zona=cw.zona;
+            existente.plan=cw.plan;
+            existente.tarifaMensual=cw.tarifaMensual;
+            existente.estado=cw.estado;
+            existente.servicioWisphub=cw.servicio;
+            existente.ipWisphub=cw.ip;
+            if(cw.fechaInstalacion) existente.fechaInstalacion=cw.fechaInstalacion;
+            actualizados++;
+        } else {
+            o.clientes.push({
+                id:uid(),
+                nombre:cw.nombre,
+                cedula:cw.cedula,
+                telefono:cw.telefono,
+                direccion:cw.direccion,
+                barrio:cw.barrio,
+                zona:cw.zona,
+                plan:cw.plan,
+                tarifaMensual:cw.tarifaMensual,
+                estado:cw.estado,
+                servicioWisphub:cw.servicio,
+                ipWisphub:cw.ip,
+                fechaInstalacion:cw.fechaInstalacion,
+                fechaRegistro:now(),
+                importadoWisphub:true
+            });
+            nuevos++;
+        }
+    });
+
+    registrarLog('CLIENTES_WISPHUB_IMPORTADOS',{oficinaId, nuevos, actualizados, omitidos});
+    _clientesWisphubProcesados=null;
+    save().then(()=>{
+        closeModal();
+        renderClientes();
+        alert(`✅ Importación completada:\n\n• ${nuevos} clientes nuevos\n• ${actualizados} actualizados\n• ${omitidos} omitidos`);
+    });
 }
 
 function openAdminPanel(){ navigate('administracion'); }
