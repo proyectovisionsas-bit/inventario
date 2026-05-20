@@ -2438,6 +2438,9 @@ function renderClientes(){
                             <span class="motivo-tag motivo-${c.estado?.toLowerCase()||'activo'}">${c.estado||'Activo'}</span>
                             ${c.estado==='Moroso'?`<span class="motivo-tag motivo-moroso">⚠️ ${c.motivoNoPago||'Sin motivo'}</span>`:''}
                             ${c.estado==='Retirado'?`<span class="motivo-tag motivo-retirado">↩️ ${c.motivoRetiro||'Sin motivo'}</span>`:''}
+                            ${c.estadoPago?(c.estadoPago.alDia
+                                ?`<span class="motivo-tag" style="background:rgba(16,185,129,0.15);color:#10b981;">✅ Al día</span>`
+                                :`<span class="motivo-tag" style="background:rgba(239,68,68,0.15);color:#ef4444;">💰 Debe ${c.estadoPago.pendientes} (${fmtShort(c.estadoPago.montoPend)})</span>`):''}
                         </div>
                     </div>
                     <div style="display:flex;gap:6px;flex-direction:column;align-items:flex-end;">
@@ -2672,6 +2675,23 @@ function modalVerCliente(oid,cid){
         ${c.motivoRetiro?`<p style="font-size:0.82rem;color:var(--muted);margin-bottom:4px;">↩️ <strong style="color:var(--text);">Motivo retiro:</strong> ${c.motivoRetiro}</p>`:''}
         ${c.observaciones?`<p style="font-size:0.82rem;color:var(--muted);margin-top:6px;">📝 <strong style="color:var(--text);">Observaciones:</strong> ${c.observaciones}</p>`:''}
         <p style="font-size:0.7rem;color:var(--muted);margin-top:10px;">Registrado: ${new Date(c.fechaRegistro||Date.now()).toLocaleDateString('es-CO')}</p>
+
+        <!-- Estado de pago (cruce con facturas WispHub) -->
+        ${c.estadoPago?`
+        <div style="margin-top:14px;background:${c.estadoPago.alDia?'rgba(16,185,129,0.06)':'rgba(239,68,68,0.06)'};border:1px solid ${c.estadoPago.alDia?'rgba(16,185,129,0.25)':'rgba(239,68,68,0.25)'};border-radius:10px;padding:12px;">
+            <div style="font-weight:700;font-size:0.85rem;color:${c.estadoPago.alDia?'#10b981':'#ef4444'};margin-bottom:8px;">
+                ${c.estadoPago.alDia?'✅ Cliente al día':'💰 Cliente en mora'}
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:0.78rem;">
+                <div><span style="color:var(--muted);">Facturas pendientes:</span> <strong>${c.estadoPago.pendientes}</strong></div>
+                <div><span style="color:var(--muted);">Monto adeudado:</span> <strong>${fmtShort(c.estadoPago.montoPend||0)}</strong></div>
+                <div><span style="color:var(--muted);">Facturas pagadas:</span> <strong>${c.estadoPago.pagadas}</strong></div>
+                <div><span style="color:var(--muted);">Estado servicio:</span> <strong>${c.estadoPago.servicioEstado||'-'}</strong></div>
+                ${c.estadoPago.ultPagFecha?`<div><span style="color:var(--muted);">Última factura pagada:</span> <strong>${_fmtFechaLocal(c.estadoPago.ultPagFecha)}</strong></div>`:''}
+                ${c.estadoPago.ultPendFecha?`<div><span style="color:var(--muted);">Vence más reciente:</span> <strong>${_fmtFechaLocal(c.estadoPago.ultPendFecha)}</strong></div>`:''}
+            </div>
+            <div style="font-size:0.65rem;color:var(--muted);margin-top:8px;">Actualizado: ${c.estadoPago.actualizadoEn?new Date(c.estadoPago.actualizadoEn).toLocaleDateString('es-CO'):'-'} (al cargar facturas en Recogida)</div>
+        </div>`:''}
 
         <!-- Sección de equipos del inventario -->
         <div style="margin-top:14px;">
@@ -11896,21 +11916,49 @@ async function _procesarExcelMorosos(file){
 
         // Procesar filas de datos
         const facturas=[];
+        // Para el cruce de pagos: capturar el estado de TODAS las facturas por servicio
+        const fechaPagoCol=headers.indexOf('Fecha Pago');
+        const estadoPagos={}; // servicioId -> {pendientes, pagadas, montoPend, ultPendFecha, ultPagFecha, servicioEstado, cliente, cedula}
+
         for(let i=headerRow+1;i<rows.length;i++){
             const f=rows[i];
             if(!f||f.length===0) continue;
-            const estado=String(f[col.estado]||'').trim().toLowerCase();
-            // Solo pendientes
-            if(!estado.includes('pendiente')) continue;
-
+            const estadoRaw=String(f[col.estado]||'').trim();
+            const estado=estadoRaw.toLowerCase();
             const es=_parseEstadoServicio(f[col.estadoServicio]);
+            const total=parseFloat(String(f[col.total]||'0').replace(/[^0-9.-]/g,''))||0;
+            const sid=es.id||(String(f[col.cedula]||'').trim());
+
+            // Acumular estado de pago para TODAS las facturas (pagadas y pendientes)
+            if(sid){
+                if(!estadoPagos[sid]) estadoPagos[sid]={
+                    pendientes:0, pagadas:0, montoPend:0,
+                    ultPendFecha:null, ultPagFecha:null,
+                    servicioEstado:es.estado, cliente:String(f[col.cliente]||'').trim(),
+                    cedula:String(f[col.cedula]||'').trim()
+                };
+                const ep=estadoPagos[sid];
+                const fVenc=_parseFechaWisphub(f[col.fechaVenc]);
+                const fPago=fechaPagoCol>=0?_parseFechaWisphub(f[fechaPagoCol]):null;
+                if(estado.includes('pendiente')){
+                    ep.pendientes++; ep.montoPend+=total;
+                    if(fVenc&&(!ep.ultPendFecha||fVenc>ep.ultPendFecha)) ep.ultPendFecha=fVenc;
+                } else if(estado.includes('pagad')){
+                    ep.pagadas++;
+                    if(fPago&&(!ep.ultPagFecha||fPago>ep.ultPagFecha)) ep.ultPagFecha=fPago;
+                }
+                ep.servicioEstado=es.estado;
+            }
+
+            // Para recogidas: solo pendientes (como antes)
+            if(!estado.includes('pendiente')) continue;
             facturas.push({
                 factura:String(f[col.factura]||'').trim(),
                 cliente:String(f[col.cliente]||'').trim(),
                 cedula:String(f[col.cedula]||'').trim(),
                 fechaVenc:String(f[col.fechaVenc]||'').trim(),
                 zona:String(f[col.zona]||'').trim(),
-                total:parseFloat(String(f[col.total]||'0').replace(/[^0-9.-]/g,''))||0,
+                total:total,
                 direccion:String(f[col.direccion]||'').trim(),
                 barrio:String(f[col.barrio]||'').trim(),
                 telefono:String(f[col.telefono]||'').trim(),
@@ -11956,7 +12004,7 @@ async function _procesarExcelMorosos(file){
             diasMora:s.fechaVencAntigua?Math.floor((new Date()-s.fechaVencAntigua)/(1000*60*60*24)):0
         }));
 
-        _morososProcesados={candidatos, totalFacturasPend:facturas.length, totalServicios:Object.keys(porServicio).length};
+        _morososProcesados={candidatos, totalFacturasPend:facturas.length, totalServicios:Object.keys(porServicio).length, estadoPagos};
 
         // Mostrar resumen
         resultado.innerHTML=`
@@ -12053,13 +12101,49 @@ function _confirmarImportacion(){
         }
     });
 
-    registrarLog('MOROSOS_IMPORTADOS',{oficinaId, nuevas, actualizadas, resueltas});
+    // ─── CRUCE DE PAGOS: actualizar el estado de pago de los clientes de oficinas ───
+    let pagosActualizados=0;
+    const estadoPagos=_morososProcesados.estadoPagos||{};
+    const o=DB.oficinas.find(x=>x.id===oficinaId);
+    if(o && o.clientes){
+        o.clientes.forEach(cli=>{
+            // Buscar el estado de pago por servicioWisphub o cédula
+            let ep=null;
+            if(cli.servicioWisphub && estadoPagos[cli.servicioWisphub]) ep=estadoPagos[cli.servicioWisphub];
+            if(!ep && cli.cedula){
+                // Buscar por cédula entre las claves
+                const sidPorCed=Object.keys(estadoPagos).find(k=>estadoPagos[k].cedula===String(cli.cedula).trim());
+                if(sidPorCed) ep=estadoPagos[sidPorCed];
+            }
+            if(ep){
+                cli.estadoPago={
+                    pendientes:ep.pendientes,
+                    pagadas:ep.pagadas,
+                    montoPend:ep.montoPend,
+                    ultPendFecha:ep.ultPendFecha?_fechaISOdeDate(ep.ultPendFecha):null,
+                    ultPagFecha:ep.ultPagFecha?_fechaISOdeDate(ep.ultPagFecha):null,
+                    servicioEstado:ep.servicioEstado,
+                    alDia:ep.pendientes===0,
+                    actualizadoEn:now()
+                };
+                pagosActualizados++;
+            }
+        });
+    }
+
+    registrarLog('MOROSOS_IMPORTADOS',{oficinaId, nuevas, actualizadas, resueltas, pagosActualizados});
     _morososProcesados=null;
     save().then(()=>{
         closeModal();
         renderRecogidas();
-        alert(`✅ Importación completada:\n\n• ${nuevas} nuevas órdenes\n• ${actualizadas} actualizadas\n• ${resueltas} marcadas como pagadas (ya no aparecen)`);
+        alert(`✅ Importación completada:\n\n• ${nuevas} nuevas órdenes\n• ${actualizadas} actualizadas\n• ${resueltas} marcadas como pagadas\n• ${pagosActualizados} clientes con estado de pago actualizado`);
     });
+}
+
+// Helper: convertir objeto Date a string YYYY-MM-DD
+function _fechaISOdeDate(d){
+    if(!d) return null;
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
 
 
@@ -12762,7 +12846,12 @@ function _renderEquiposInventario(clienteOficina, containerId, oficina){
 
     // Filtrar por la bodega correspondiente a la oficina (si se encuentra)
     const bod = oficina ? _bodegaDeOficina(oficina) : null;
-    const resultado=_buscarClienteInventario(clienteOficina, bod?bod.id:null);
+    console.log('👁️ Ver cliente:', clienteOficina.nombre, '| inventario cargado:', (_inventarioClientes||[]).length, '| bodega oficina:', bod?bod.nombre:'(ninguna)');
+    // 1er intento: buscar en la bodega de la oficina
+    let resultado = bod ? _buscarClienteInventario(clienteOficina, bod.id) : null;
+    if(resultado) console.log('👁️ Encontrado en bodega:', resultado.tipo);
+    // 2do intento (fallback): buscar en TODO el inventario, sin filtro de bodega
+    if(!resultado){ resultado=_buscarClienteInventario(clienteOficina, null); if(resultado) console.log('👁️ Encontrado SIN filtro de bodega:', resultado.tipo); else console.log('👁️ NO encontrado en ninguna parte'); }
     if(!resultado){
         cont.innerHTML=`
         <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:10px;font-size:0.78rem;color:#f59e0b;">
