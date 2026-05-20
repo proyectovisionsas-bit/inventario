@@ -2684,9 +2684,9 @@ function modalVerCliente(oid,cid){
     `,`<button class="btn btn-outline" onclick="closeModal()">Cerrar</button>
        <button class="btn btn-outline" onclick="closeModal();setTimeout(()=>modalEditarCliente('${oid}','${cid}'),100)">✏️ Editar cliente</button>`);
 
-    // Cargar y mostrar equipos del inventario
+    // Cargar y mostrar equipos del inventario (filtrado por la bodega de esta oficina)
     cargarClientesInventario().then(()=>{
-        _renderEquiposInventario(c, 'inv_equipos_'+cid);
+        _renderEquiposInventario(c, 'inv_equipos_'+cid, o);
     });
 }
 
@@ -12683,25 +12683,62 @@ async function cargarClientesInventario(forzar){
     }
 }
 
+
+// Encontrar la bodega del inventario que corresponde a una oficina (por nombre)
+function _bodegaDeOficina(oficina){
+    if(!oficina||!_inventarioBodegas) return null;
+    const nombreOfi=_normalizarNombre(oficina.nombre).replace(/oficina/g,'').trim();
+    const ciudadOfi=_normalizarNombre(oficina.ciudad||'').trim();
+
+    // 1. Match exacto de nombre (sin la palabra "oficina")
+    let bod=_inventarioBodegas.find(b=>_normalizarNombre(b.nombre)===nombreOfi);
+    if(bod) return bod;
+
+    // 2. Por ciudad
+    if(ciudadOfi){
+        bod=_inventarioBodegas.find(b=>_normalizarNombre(b.nombre)===ciudadOfi);
+        if(bod) return bod;
+    }
+
+    // 3. Uno contiene al otro
+    bod=_inventarioBodegas.find(b=>{
+        const nb=_normalizarNombre(b.nombre);
+        return nb.includes(nombreOfi)||nombreOfi.includes(nb)||(ciudadOfi&&(nb.includes(ciudadOfi)||ciudadOfi.includes(nb)));
+    });
+    if(bod) return bod;
+
+    // 4. Por similitud
+    let mejor=null,mejorSim=0;
+    _inventarioBodegas.forEach(b=>{
+        const sim=_similitudNombres(oficina.nombre.replace(/oficina/gi,''), b.nombre);
+        if(sim>mejorSim){ mejorSim=sim; mejor=b; }
+    });
+    if(mejor && mejorSim>=0.5) return mejor;
+
+    return null;
+}
+
 // Buscar el cliente de inventario que coincide con un cliente de oficinas
-function _buscarClienteInventario(clienteOficina){
+function _buscarClienteInventario(clienteOficina, bodegaIdFiltro){
     if(!_inventarioClientes) return null;
     const nombreNorm=_normalizarNombre(clienteOficina.nombre);
     if(!nombreNorm) return null;
+    // Si se pasa bodegaIdFiltro, solo buscar entre clientes de esa bodega
+    const universo = bodegaIdFiltro ? _inventarioClientes.filter(ci=>ci.bodegaId===bodegaIdFiltro) : _inventarioClientes;
 
     // 1. Match exacto por cédula (si ambos la tienen)
     if(clienteOficina.cedula||clienteOficina.documento){
         const ced=String(clienteOficina.cedula||clienteOficina.documento).trim();
-        const porCed=_inventarioClientes.find(ci=>ci.cedula&&String(ci.cedula).trim()===ced);
+        const porCed=universo.find(ci=>ci.cedula&&String(ci.cedula).trim()===ced);
         if(porCed) return {match:porCed, tipo:'cedula'};
     }
 
     // 2. Match exacto por nombre normalizado
-    const exacto=_inventarioClientes.find(ci=>_normalizarNombre(ci.nombre)===nombreNorm);
+    const exacto=universo.find(ci=>_normalizarNombre(ci.nombre)===nombreNorm);
     if(exacto) return {match:exacto, tipo:'nombre'};
 
     // 3. Match parcial: el nombre de oficina está contenido en inventario o viceversa
-    const parcial=_inventarioClientes.find(ci=>{
+    const parcial=universo.find(ci=>{
         const n=_normalizarNombre(ci.nombre);
         return n.includes(nombreNorm)||nombreNorm.includes(n);
     });
@@ -12709,7 +12746,7 @@ function _buscarClienteInventario(clienteOficina){
 
     // 4. Por similitud de palabras (>=70% de palabras compartidas)
     let mejorMatch=null, mejorSim=0;
-    _inventarioClientes.forEach(ci=>{
+    universo.forEach(ci=>{
         const sim=_similitudNombres(clienteOficina.nombre, ci.nombre);
         if(sim>mejorSim){ mejorSim=sim; mejorMatch=ci; }
     });
@@ -12719,11 +12756,13 @@ function _buscarClienteInventario(clienteOficina){
 }
 
 // Renderizar la sección de equipos instalados dentro del modal de cliente
-function _renderEquiposInventario(clienteOficina, containerId){
+function _renderEquiposInventario(clienteOficina, containerId, oficina){
     const cont=document.getElementById(containerId);
     if(!cont) return;
 
-    const resultado=_buscarClienteInventario(clienteOficina);
+    // Filtrar por la bodega correspondiente a la oficina (si se encuentra)
+    const bod = oficina ? _bodegaDeOficina(oficina) : null;
+    const resultado=_buscarClienteInventario(clienteOficina, bod?bod.id:null);
     if(!resultado){
         cont.innerHTML=`
         <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:10px;font-size:0.78rem;color:#f59e0b;">
@@ -12945,11 +12984,12 @@ function _confirmarImportClientesWisphub(){
     let nuevos=0, actualizados=0, omitidos=0;
 
     _clientesWisphubProcesados.forEach(cw=>{
-        // Buscar existente por cédula (o por servicio si no hay cédula)
-        const ced=cw.cedula;
+        // Identificador único = SERVICIO (incluye -1, -2 para multi-servicio).
+        // Así un cliente con varios servicios NO se fusiona en uno solo.
         let existente=null;
-        if(ced) existente=o.clientes.find(c=>String(c.cedula||c.documento||'').trim()===ced);
-        if(!existente && cw.servicio) existente=o.clientes.find(c=>c.servicioWisphub===cw.servicio);
+        if(cw.servicio) existente=o.clientes.find(c=>c.servicioWisphub===cw.servicio);
+        // Si no hay servicio, intentar por cédula como respaldo
+        if(!existente && !cw.servicio && cw.cedula) existente=o.clientes.find(c=>String(c.cedula||c.documento||'').trim()===cw.cedula && !c.servicioWisphub);
 
         if(existente){
             if(modo==='solo_nuevos'){ omitidos++; return; }
@@ -13016,23 +13056,28 @@ async function modalCompararInventario(oid){
         clientesOficina=(o?.clientes||[]).map(c=>({...c,_ofiNombre:o?.nombre}));
     }
 
-    const invClientes=_inventarioClientes||[];
+    // Determinar la bodega correspondiente (a menos que se comparen todas)
+    const compararTodasBodegas = (esAdmin && window._compararTodas);
+    const bodega = compararTodasBodegas ? null : _bodegaDeOficina(o);
+    const bodegaId = bodega ? bodega.id : null;
 
-    // Para cada cliente de oficina, buscar si está en inventario
+    // Universo de inventario: solo la bodega de esta oficina (o todo si se pidió)
+    const invClientes = bodegaId ? (_inventarioClientes||[]).filter(ci=>ci.bodegaId===bodegaId) : (_inventarioClientes||[]);
+
+    // Para cada cliente de oficina, buscar si está en inventario (filtrado por bodega)
     const enAmbos=[], soloOficina=[];
     clientesOficina.forEach(c=>{
-        const r=_buscarClienteInventario(c);
+        const r=_buscarClienteInventario(c, bodegaId);
         if(r) enAmbos.push({cliente:c, inv:r.match, tipo:r.tipo, similitud:r.similitud});
         else soloOficina.push(c);
     });
 
-    // Clientes de inventario que NO están en oficina
+    // Clientes de inventario (de esa bodega) que NO están en oficina
     const nombresOficinaNorm=new Set(clientesOficina.map(c=>_normalizarNombre(c.nombre)));
     const cedulasOficina=new Set(clientesOficina.map(c=>String(c.cedula||c.documento||'').trim()).filter(Boolean));
     const soloInventario=invClientes.filter(ci=>{
         if(ci.cedula && cedulasOficina.has(String(ci.cedula).trim())) return false;
         const n=_normalizarNombre(ci.nombre);
-        // Verificar que no haya match por nombre/similitud con ningún cliente de oficina
         if(nombresOficinaNorm.has(n)) return false;
         const hayParecido=clientesOficina.some(c=>_similitudNombres(c.nombre,ci.nombre)>=0.7);
         return !hayParecido;
@@ -13073,8 +13118,9 @@ async function modalCompararInventario(oid){
 
     const html=`
     <div style="background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.2);border-radius:8px;padding:10px;margin-bottom:12px;font-size:0.78rem;color:var(--muted);">
-        Comparando <strong>${clientesOficina.length}</strong> clientes de ${esAdmin&&window._compararTodas?'todas las oficinas':o?.nombre} con <strong>${invClientes.length}</strong> del inventario.
-        ${esAdmin?`<label style="display:block;margin-top:6px;cursor:pointer;"><input type="checkbox" ${window._compararTodas?'checked':''} onchange="window._compararTodas=this.checked;modalCompararInventario('${oid}')"> Comparar todas las oficinas</label>`:''}
+        Comparando <strong>${clientesOficina.length}</strong> clientes de ${compararTodasBodegas?'todas las oficinas':o?.nombre}
+        con <strong>${invClientes.length}</strong> del inventario${bodega?` (bodega: <strong style="color:#3b82f6;">${bodega.nombre}</strong>)`:compararTodasBodegas?' (todas las bodegas)':' <span style="color:#f59e0b;">(⚠️ no se encontró bodega para esta oficina, comparando con todas)</span>'}.
+        ${esAdmin?`<label style="display:block;margin-top:6px;cursor:pointer;"><input type="checkbox" ${window._compararTodas?'checked':''} onchange="window._compararTodas=this.checked;modalCompararInventario('${oid}')"> Comparar con todas las bodegas (ignorar bodega específica)</label>`:''}
     </div>
     <div style="display:flex;gap:6px;margin-bottom:12px;">
         ${tabBtn('ambos','✅ En ambos',enAmbos.length,'#10b981')}
