@@ -393,6 +393,65 @@
 <!-- SYNC STATUS -->
 <div id="syncStatus" style="display:none;"><div class="sync-dot sync-ok" id="syncDot"></div><span id="syncText">Listo</span></div>
 
+<!-- Overlay de guardado animado -->
+<div id="saveOverlay" style="display:none;position:fixed;bottom:24px;right:24px;z-index:99999;">
+    <div style="display:flex;align-items:center;gap:12px;background:rgba(20,20,30,0.92);backdrop-filter:blur(8px);border:1px solid rgba(168,85,247,0.4);border-radius:14px;padding:14px 20px;box-shadow:0 8px 32px rgba(0,0,0,0.4);">
+        <div class="save-spinner"></div>
+        <div>
+            <div id="saveOverlayText" style="font-size:0.88rem;font-weight:700;color:#fff;">Guardando...</div>
+            <div id="saveOverlaySubtext" style="font-size:0.7rem;color:rgba(255,255,255,0.6);">Sincronizando con la nube</div>
+        </div>
+    </div>
+</div>
+
+<style>
+.save-spinner {
+    width: 28px; height: 28px;
+    border: 3px solid rgba(168,85,247,0.2);
+    border-top-color: #a855f7;
+    border-radius: 50%;
+    animation: saveSpin 0.7s linear infinite;
+    flex-shrink: 0;
+}
+@keyframes saveSpin { to { transform: rotate(360deg); } }
+
+#saveOverlay { animation: saveSlideIn 0.3s ease; }
+@keyframes saveSlideIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+#saveOverlay.saving-done .save-spinner {
+    border: 3px solid #10b981;
+    border-top-color: #10b981;
+    animation: none;
+    position: relative;
+}
+#saveOverlay.saving-done .save-spinner::after {
+    content: '✓';
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%,-50%);
+    color: #10b981;
+    font-size: 16px;
+    font-weight: bold;
+}
+#saveOverlay.saving-error .save-spinner {
+    border: 3px solid #ef4444;
+    border-top-color: #ef4444;
+    animation: none;
+    position: relative;
+}
+#saveOverlay.saving-error .save-spinner::after {
+    content: '✕';
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%,-50%);
+    color: #ef4444;
+    font-size: 16px;
+    font-weight: bold;
+}
+</style>
+
 <!-- LOGIN -->
 <div id="login-screen" style="display:none;">
     <div class="login-card">
@@ -645,6 +704,35 @@ function showSync(t,msg){
     d.className='sync-dot sync-'+t; s.textContent=msg;
 }
 
+// Overlay animado de guardado
+let _saveOverlayTimer=null;
+function mostrarSaveOverlay(estado, texto, subtexto){
+    const ov=document.getElementById('saveOverlay');
+    if(!ov) return;
+    const t=document.getElementById('saveOverlayText');
+    const st=document.getElementById('saveOverlaySubtext');
+
+    clearTimeout(_saveOverlayTimer);
+    ov.className=''; // limpiar estados
+
+    if(estado==='saving'){
+        ov.style.display='block';
+        if(t) t.textContent=texto||'Guardando...';
+        if(st) st.textContent=subtexto||'Sincronizando con la nube';
+    } else if(estado==='done'){
+        ov.classList.add('saving-done');
+        if(t) t.textContent=texto||'¡Guardado!';
+        if(st) st.textContent=subtexto||'Información sincronizada';
+        // Ocultar después de 1.5 segundos
+        _saveOverlayTimer=setTimeout(()=>{ ov.style.display='none'; ov.className=''; }, 1500);
+    } else if(estado==='error'){
+        ov.classList.add('saving-error');
+        if(t) t.textContent=texto||'Error al guardar';
+        if(st) st.textContent=subtexto||'Revisa tu conexión';
+        _saveOverlayTimer=setTimeout(()=>{ ov.style.display='none'; ov.className=''; }, 3000);
+    }
+}
+
 // ─── FIREBASE ───────────────────────────────────────────────────────────────
 let db = null;
 const DOC_ID = 'main'; // documento único en colección "oficinas_sistema"
@@ -678,8 +766,9 @@ let _saveInProgress = false;
 let _lastSaveTime = 0;
 
 async function save(){
-    if(!db){ showSync('err','Sin conexión Firebase'); console.error('❌ save() sin db'); return; }
+    if(!db){ showSync('err','Sin conexión Firebase'); console.error('❌ save() sin db'); mostrarSaveOverlay('error','Sin conexión','No hay conexión a Firebase'); return; }
     showSync('saving','Guardando...');
+    mostrarSaveOverlay('saving');
     _saveInProgress = true;
     _lastSaveTime = Date.now();
 
@@ -734,11 +823,13 @@ async function save(){
 
         await db.collection('oficinas_sistema').doc(DOC_ID).set(datosLimpios);
         showSync('ok','Guardado ✓');
+        mostrarSaveOverlay('done');
         console.log('✅ save() exitoso');
         console.log('💾 ═══════════════════════════════════════════');
         setTimeout(()=>{ _saveInProgress = false; }, 2000);
     }catch(e){
         showSync('err','Error al guardar: '+e.message);
+        mostrarSaveOverlay('error','Error al guardar', e.message.substring(0,40));
         console.error('❌ save() ERROR DETALLADO:', e);
         console.error('   Mensaje:', e.message);
         console.error('   Código:', e.code);
@@ -9992,6 +10083,36 @@ p { margin:4px 0; font-size:8px; text-align:justify; line-height:1.35; }
 // ⭐ CLIENTES ESPECIALES — Cartera con facturas mensuales y abonos parciales
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Helper: formatear fecha YYYY-MM-DD sin desfase UTC
+// Si la fecha viene como "2025-11-25" o "2025-11-25T...", muestra ese día tal cual
+function _fmtFechaLocal(fechaStr){
+    if(!fechaStr) return '-';
+    const f=String(fechaStr).slice(0,10); // tomar solo YYYY-MM-DD
+    const partes=f.split('-');
+    if(partes.length!==3) return fechaStr;
+    return `${partes[2]}/${partes[1]}/${partes[0]}`;
+}
+
+// Helper: formatear fecha como "noviembre 2025" sin desfase UTC
+function _fmtMesAnioLocal(fechaStr){
+    if(!fechaStr) return '-';
+    const f=String(fechaStr).slice(0,10);
+    const partes=f.split('-');
+    if(partes.length!==3) return fechaStr;
+    const meses=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+    const m=parseInt(partes[1],10)-1;
+    return `${meses[m]||''} ${partes[0]}`;
+}
+
+// Helper: obtener timestamp para ordenar fechas YYYY-MM-DD sin desfase
+function _fechaTimestamp(fechaStr){
+    if(!fechaStr) return 0;
+    const f=String(fechaStr).slice(0,10);
+    const partes=f.split('-');
+    if(partes.length!==3) return 0;
+    return parseInt(partes[0])*10000 + parseInt(partes[1])*100 + parseInt(partes[2]);
+}
+
 // Helper: calcular saldo de un cliente especial
 function _saldoClienteEspecial(cliId){
     const facturas=(DB.facturasEspeciales||[]).filter(f=>f.clienteId===cliId);
@@ -10011,12 +10132,20 @@ function _abonadoFactura(facturaId){
         },0);
 }
 
-// Helper: días desde la fecha de emisión
+// Helper: días desde la fecha de emisión (sin desfase UTC)
 function _diasDesde(fechaStr){
     if(!fechaStr) return 0;
-    const f=new Date(fechaStr);
-    return Math.floor((new Date()-f)/(1000*60*60*24));
+    const f=String(fechaStr).slice(0,10);
+    const partes=f.split('-');
+    if(partes.length!==3) return 0;
+    // Crear fecha local sin convertir a UTC
+    const fechaLocal=new Date(parseInt(partes[0]),parseInt(partes[1])-1,parseInt(partes[2]));
+    const hoy=new Date();
+    hoy.setHours(0,0,0,0);
+    return Math.floor((hoy-fechaLocal)/(1000*60*60*24));
 }
+
+
 
 function renderClientesEspeciales(){
     const cont=document.getElementById('appContent');
@@ -10193,7 +10322,7 @@ function modalDetalleClienteEspecial(cliId){
         if(abonado>=parseFloat(f.valor)) estado='pagada';
         else if(abonado>0) estado='parcial';
         return {...f, abonado, pendiente, estado};
-    }).sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+    }).sort((a,b)=>_fechaTimestamp(b.fecha)-_fechaTimestamp(a.fecha));
 
     const colorSaldo=stats.saldo===0?'#10b981':'#ef4444';
 
@@ -10251,8 +10380,8 @@ function modalDetalleClienteEspecial(cliId){
         const tieneDeducciones=f.deducciones && (f.deducciones.iva?.activo||f.deducciones.retefuente?.activo||f.deducciones.reteiva?.activo||f.deducciones.reteica?.activo);
         return `<div style="background:${bgCol};border:1px solid ${bdCol};border-radius:8px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
             <div style="flex:1;min-width:200px;">
-                <div style="font-size:0.82rem;font-weight:700;">${f.periodo||new Date(f.fecha).toLocaleDateString('es-CO',{year:'numeric',month:'long'})}</div>
-                <div style="font-size:0.7rem;color:var(--muted);">📅 ${new Date(f.fecha).toLocaleDateString('es-CO')} ${f.descripcion?` · ${f.descripcion}`:''}</div>
+                <div style="font-size:0.82rem;font-weight:700;">${f.periodo||_fmtMesAnioLocal(f.fecha)}</div>
+                <div style="font-size:0.7rem;color:var(--muted);">📅 ${_fmtFechaLocal(f.fecha)} ${f.descripcion?` · ${f.descripcion}`:''}</div>
                 <div style="font-size:0.72rem;margin-top:3px;">${lbl}</div>
                 ${tieneDeducciones?`<div style="font-size:0.65rem;color:var(--muted);margin-top:3px;font-style:italic;">
                     Base: ${fmtShort(f.valorBase||0)}
@@ -10274,14 +10403,14 @@ function modalDetalleClienteEspecial(cliId){
     <h3 style="font-size:0.92rem;font-weight:700;margin:14px 0 8px;">💵 Abonos (${stats.abonos.length})</h3>
     ${stats.abonos.length===0?'<p style="text-align:center;color:var(--muted);padding:20px;">Sin abonos registrados.</p>':`
     <div style="display:flex;flex-direction:column;gap:6px;max-height:240px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px;">
-    ${stats.abonos.slice().sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).map(a=>{
+    ${stats.abonos.slice().sort((a,b)=>_fechaTimestamp(b.fecha)-_fechaTimestamp(a.fecha)).map(a=>{
         return `<div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
             <div style="flex:1;min-width:200px;">
                 <div style="font-size:0.82rem;font-weight:700;">💵 Abono ${a.forma||'Efectivo'}</div>
-                <div style="font-size:0.7rem;color:var(--muted);">📅 ${new Date(a.fecha).toLocaleDateString('es-CO')} ${a.descripcion?` · ${a.descripcion}`:''}</div>
+                <div style="font-size:0.7rem;color:var(--muted);">📅 ${_fmtFechaLocal(a.fecha)} ${a.descripcion?` · ${a.descripcion}`:''}</div>
                 ${a.aplicaciones?.length>0?`<div style="font-size:0.65rem;color:var(--muted);margin-top:2px;">Aplicado a: ${a.aplicaciones.map(ap=>{
                     const fact=stats.facturas.find(f=>f.id===ap.facturaId);
-                    return `${fact?fact.periodo||new Date(fact.fecha).toLocaleDateString('es-CO',{month:'short',year:'numeric'}):'?'} (${fmtShort(ap.valor)})`;
+                    return `${fact?fact.periodo||_fmtMesAnioLocal(fact.fecha):'?'} (${fmtShort(ap.valor)})`;
                 }).join(', ')}</div>`:''}
             </div>
             <div style="text-align:right;">
@@ -10315,7 +10444,7 @@ function modalVerComprobantesAbono(abonoId){
     <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:10px;padding:12px;margin-bottom:14px;">
         <p style="font-size:0.82rem;color:var(--muted);">Cliente:</p>
         <p style="font-weight:700;color:var(--text);">⭐ ${cli?.nombre||'?'}</p>
-        <p style="font-size:0.82rem;color:var(--muted);margin-top:6px;">Abono: <strong style="color:#10b981;">${fmtShort(a.valor)}</strong> · ${a.forma} · ${new Date(a.fecha).toLocaleDateString('es-CO')}</p>
+        <p style="font-size:0.82rem;color:var(--muted);margin-top:6px;">Abono: <strong style="color:#10b981;">${fmtShort(a.valor)}</strong> · ${a.forma} · ${_fmtFechaLocal(a.fecha)}</p>
     </div>
     <h3 style="font-size:0.92rem;font-weight:700;margin-bottom:10px;">📎 Comprobantes (${comps.length})</h3>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;">
@@ -10329,7 +10458,7 @@ function modalVerComprobantesAbono(abonoId){
                     :`<img src="${c.url}" style="width:100%;height:100px;object-fit:cover;cursor:pointer;" onclick="window.open('${c.url}','_blank')">`}
                 <div style="padding:6px 8px;">
                     <div style="font-size:0.68rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.nombre||'Comprobante '+(i+1)}</div>
-                    <div style="font-size:0.62rem;color:var(--muted);">${new Date(c.fecha).toLocaleDateString('es-CO')}</div>
+                    <div style="font-size:0.62rem;color:var(--muted);">${_fmtFechaLocal(c.fecha)}</div>
                 </div>
                 <div style="padding:0 6px 6px;">
                     <a href="${c.url}" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm" style="width:100%;text-align:center;font-size:0.7rem;padding:3px;">👁️ Ver</a>
@@ -10356,7 +10485,7 @@ function modalAgregarCompAbono(abonoId, cliId){
     <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:10px;padding:12px;margin-bottom:14px;font-size:0.82rem;">
         <p style="font-weight:700;color:#10b981;margin-bottom:4px;">📤 Agregar comprobantes a abono existente</p>
         <p style="color:var(--muted);">Cliente: <strong style="color:var(--text);">${cli?.nombre||'?'}</strong></p>
-        <p style="color:var(--muted);">Abono: <strong style="color:#10b981;">${fmtShort(a.valor)}</strong> · ${a.forma} · ${new Date(a.fecha).toLocaleDateString('es-CO')}</p>
+        <p style="color:var(--muted);">Abono: <strong style="color:#10b981;">${fmtShort(a.valor)}</strong> · ${a.forma} · ${_fmtFechaLocal(a.fecha)}</p>
         <p style="color:var(--muted);margin-top:4px;">Comprobantes existentes: <strong>${existentes}</strong></p>
     </div>
 
@@ -10537,7 +10666,7 @@ function solicitarCorreccionAbono(abonoId, cliId){
         <p style="color:var(--muted);">Tu solicitud quedará pendiente hasta que el admin la apruebe.</p>
     </div>
     <p style="margin-bottom:8px;font-size:0.82rem;">Cliente: <strong>${cli?.nombre||'?'}</strong></p>
-    <p style="margin-bottom:14px;font-size:0.82rem;">Abono actual: <strong style="color:#10b981;">${fmtShort(a.valor)}</strong> · ${a.forma} · ${new Date(a.fecha).toLocaleDateString('es-CO')}</p>
+    <p style="margin-bottom:14px;font-size:0.82rem;">Abono actual: <strong style="color:#10b981;">${fmtShort(a.valor)}</strong> · ${a.forma} · ${_fmtFechaLocal(a.fecha)}</p>
 
     <div class="form-group-dark"><label>Tipo de solicitud *</label>
         <select id="sol_tipo" class="form-control" onchange="document.getElementById('sol_correccion_box').style.display=this.value==='correccion'?'block':'none'">
@@ -10847,7 +10976,7 @@ function modalNuevoAbonoEspecial(cliId){
         const abonado=_abonadoFactura(f.id);
         const pendiente=parseFloat(f.valor)-abonado;
         return {...f, abonado, pendiente};
-    }).filter(f=>f.pendiente>0).sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
+    }).filter(f=>f.pendiente>0).sort((a,b)=>_fechaTimestamp(a.fecha)-_fechaTimestamp(b.fecha));
 
     if(pendientes.length===0){ alert('Este cliente no tiene saldo pendiente'); return; }
 
@@ -11277,7 +11406,7 @@ ${facturas.length===0?'<p style="font-style:italic;color:#666;">Sin facturas reg
         </tr>
     </thead>
     <tbody>
-    ${facturas.sort((a,b)=>new Date(a.fecha)-new Date(b.fecha)).map(f=>{
+    ${facturas.slice().sort((a,b)=>_fechaTimestamp(a.fecha)-_fechaTimestamp(b.fecha)).map(f=>{
         const estado=f.pendiente<=0?'PAGADA':f.abonado>0?'PARCIAL':'PENDIENTE';
         const cls=f.pendiente<=0?'estado-pagada':f.abonado>0?'estado-parcial':'estado-pendiente';
         const d=f.deducciones||{};
@@ -11289,7 +11418,7 @@ ${facturas.length===0?'<p style="font-style:italic;color:#666;">Sin facturas reg
         const base=f.valorBase||f.valor;
         return `<tr>
             <td>${f.periodo||'-'}</td>
-            <td>${new Date(f.fecha).toLocaleDateString('es-CO')}</td>
+            <td>${_fmtFechaLocal(f.fecha)}</td>
             <td style="text-align:right;">$${base.toLocaleString('es-CO')}</td>
             <td style="text-align:right;color:#10b981;">${ivaVal>0?'+$'+ivaVal.toLocaleString('es-CO'):'-'}</td>
             <td style="text-align:right;color:#ef4444;">${totalRet>0?'-$'+totalRet.toLocaleString('es-CO'):'-'}</td>
@@ -11315,7 +11444,7 @@ ${facturas.map(f=>{
     if(!d||(!d.iva?.activo&&!d.retefuente?.activo&&!d.reteiva?.activo&&!d.reteica?.activo)) return '';
     const base=f.valorBase||f.valor;
     return `<div style="border:1px solid #ccc;border-radius:6px;padding:8px 10px;margin-bottom:8px;page-break-inside:avoid;">
-        <p style="font-weight:bold;color:#a855f7;font-size:11px;margin-bottom:4px;">${f.periodo} — ${new Date(f.fecha).toLocaleDateString('es-CO')}</p>
+        <p style="font-weight:bold;color:#a855f7;font-size:11px;margin-bottom:4px;">${f.periodo} — ${_fmtFechaLocal(f.fecha)}</p>
         <table style="margin:0;font-size:9px;">
             <tr>
                 <td style="background:#f9f9f9;">Valor base</td>
@@ -11358,13 +11487,13 @@ ${stats.abonos.length===0?'<p style="font-style:italic;color:#666;">Sin abonos r
         </tr>
     </thead>
     <tbody>
-    ${stats.abonos.sort((a,b)=>new Date(a.fecha)-new Date(b.fecha)).map(a=>{
+    ${stats.abonos.slice().sort((a,b)=>_fechaTimestamp(a.fecha)-_fechaTimestamp(b.fecha)).map(a=>{
         const aplicado=(a.aplicaciones||[]).map(ap=>{
             const fact=stats.facturas.find(f=>f.id===ap.facturaId);
             return `${fact?.periodo||'?'}: $${ap.valor.toLocaleString('es-CO')}`;
         }).join('; ');
         return `<tr>
-            <td>${new Date(a.fecha).toLocaleDateString('es-CO')}</td>
+            <td>${_fmtFechaLocal(a.fecha)}</td>
             <td>${a.forma||'Efectivo'}</td>
             <td>${a.descripcion||'-'}</td>
             <td>${aplicado||'-'}</td>
