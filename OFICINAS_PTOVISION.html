@@ -762,7 +762,7 @@ let db = null;
 const DOC_ID = 'main'; // documento único en colección "oficinas_sistema"
 // ─── CONTROL DE VERSIÓN ───
 // Incrementa este número cada vez que publiques una actualización.
-const APP_VERSION = 2; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 3; // ⬆️ Subir en cada nueva versión publicada
 const APP_VERSION_FECHA = '22 May 2026';
 
 
@@ -3191,7 +3191,7 @@ function renderReportes(){
 
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:1px solid var(--border);flex-wrap:wrap;gap:8px;">
             <span style="font-size:0.8rem;color:var(--muted);">Período: <strong style="color:var(--text);">${periodoLabel}</strong> · <strong style="color:var(--accent);">${movs.length} movimiento(s)</strong></span>
-            <button class="btn btn-primary btn-sm" onclick="exportarReporteExcel('${oid}','${periodo}')">📥 Exportar Excel</button>
+            <button class="btn btn-primary btn-sm" onclick="modalElegirFormatoReporte('${oid}','${periodo}')">📥 Exportar Reporte</button>
         </div>
     </div>
 
@@ -3364,6 +3364,206 @@ function renderReportes(){
         </div>`:'<div class="card" style="margin-bottom:0"><p style="color:var(--muted);text-align:center;padding:30px;font-size:0.85rem;">Comparativa disponible en vista mensual.</p></div>'}
     </div>
     `;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 📊 REPORTE PDF PROFESIONAL DE OFICINA (con gráficos y tablas)
+// ═══════════════════════════════════════════════════════════════════════════
+
+function exportarReportePDF(oid, periodo){
+    const o=getOficina(oid); if(!o) return;
+    // Cargar Chart.js si no está, para generar los gráficos
+    const generar=()=>_generarReportePDF(o, periodo);
+    if(typeof Chart==='undefined'){
+        const s=document.createElement('script');
+        s.src='https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js';
+        s.onload=generar;
+        s.onerror=()=>alert('No se pudo cargar la librería de gráficos');
+        document.head.appendChild(s);
+    } else generar();
+}
+
+async function _generarReportePDF(o, periodo){
+    const ahora=new Date();
+    const esMesExp=window._repMes||(ahora.toISOString().slice(0,7));
+    const fDesde=window._repDesde||'', fHasta=window._repHasta||'';
+    const movs=(o.movimientos||[]).filter(m=>{
+        const d=new Date(m.fecha);
+        if(periodo==='hoy') return d.toDateString()===ahora.toDateString();
+        if(periodo==='rango'&&fDesde&&fHasta) return d>=new Date(fDesde+'T00:00:00')&&d<=new Date(fHasta+'T23:59:59');
+        const ref=new Date(esMesExp+'-15');
+        return d.getMonth()===ref.getMonth()&&d.getFullYear()===ref.getFullYear();
+    });
+
+    const ing=movs.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
+    const egr=movs.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
+    const balance=ing-egr;
+
+    let periodoTexto='';
+    if(periodo==='hoy') periodoTexto='Hoy '+ahora.toLocaleDateString('es-CO');
+    else if(periodo==='rango'&&fDesde&&fHasta) periodoTexto=new Date(fDesde+'T12:00:00').toLocaleDateString('es-CO')+' al '+new Date(fHasta+'T12:00:00').toLocaleDateString('es-CO');
+    else periodoTexto=new Date(esMesExp+'-15').toLocaleDateString('es-CO',{month:'long',year:'numeric'});
+
+    // Datos por forma de pago
+    const formas=['Efectivo','Efecty','Cta Bancolombia','Cruce de Cuentas','Transferencia'];
+    const porFormaIng={}, porFormaEgr={};
+    formas.forEach(f=>{ porFormaIng[f]=0; porFormaEgr[f]=0; });
+    movs.filter(m=>m.tipo==='ingreso').forEach(m=>{ porFormaIng[m.forma]=(porFormaIng[m.forma]||0)+parseFloat(m.valor||0); });
+    movs.filter(m=>m.tipo==='egreso').forEach(m=>{ porFormaEgr[m.forma]=(porFormaEgr[m.forma]||0)+parseFloat(m.valor||0); });
+    const formasConDatos=formas.filter(f=>porFormaIng[f]+porFormaEgr[f]>0);
+
+    // Ingresos/egresos por concepto
+    const porConcIng={}, porConcEgr={};
+    movs.filter(m=>m.tipo==='ingreso').forEach(m=>{ const l=labelMov(m); porConcIng[l]=(porConcIng[l]||0)+parseFloat(m.valor||0); });
+    movs.filter(m=>m.tipo==='egreso').forEach(m=>{ const l=labelMov(m); porConcEgr[l]=(porConcEgr[l]||0)+parseFloat(m.valor||0); });
+
+    // Día a día (si es mes)
+    let diaLabels=[], diaIng=[], diaEgr=[];
+    if(periodo==='mes'){
+        const ref=new Date(esMesExp+'-15');
+        const dim=new Date(ref.getFullYear(),ref.getMonth()+1,0).getDate();
+        for(let d=1;d<=dim;d++){
+            const dMovs=movs.filter(m=>new Date(m.fecha).getDate()===d);
+            diaLabels.push(d);
+            diaIng.push(dMovs.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+parseFloat(m.valor||0),0));
+            diaEgr.push(dMovs.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+parseFloat(m.valor||0),0));
+        }
+    }
+
+    // ─── Generar los gráficos como imágenes (canvas oculto) ───
+    const mkCanvas=()=>{ const c=document.createElement('canvas'); c.width=600; c.height=340; c.style.display='none'; document.body.appendChild(c); return c; };
+    const charts=[];
+    const fmtPeso=v=>'$'+Math.round(v).toLocaleString('es-CO');
+
+    // Gráfico 1: Torta ingresos vs egresos
+    const c1=mkCanvas();
+    const ch1=new Chart(c1,{type:'doughnut',data:{labels:['Ingresos','Egresos'],datasets:[{data:[ing,egr],backgroundColor:['#10b981','#ef4444']}]},options:{responsive:false,animation:false,plugins:{legend:{position:'bottom',labels:{font:{size:14}}},title:{display:true,text:'Ingresos vs Egresos',font:{size:16}}}}});
+    charts.push(ch1);
+
+    // Gráfico 2: Barras por forma de pago
+    const c2=mkCanvas();
+    const ch2=new Chart(c2,{type:'bar',data:{labels:formasConDatos,datasets:[
+        {label:'Ingresos',data:formasConDatos.map(f=>porFormaIng[f]),backgroundColor:'#10b981'},
+        {label:'Egresos',data:formasConDatos.map(f=>porFormaEgr[f]),backgroundColor:'#ef4444'}
+    ]},options:{responsive:false,animation:false,plugins:{legend:{position:'bottom'},title:{display:true,text:'Por forma de pago',font:{size:16}}},scales:{y:{ticks:{callback:v=>'$'+(v/1000)+'k'}}}}});
+    charts.push(ch2);
+
+    // Gráfico 3: Línea día a día (si aplica)
+    let c3=null;
+    if(diaLabels.length>0){
+        c3=mkCanvas();
+        const ch3=new Chart(c3,{type:'line',data:{labels:diaLabels,datasets:[
+            {label:'Ingresos',data:diaIng,borderColor:'#10b981',backgroundColor:'rgba(16,185,129,0.1)',fill:true,tension:0.3},
+            {label:'Egresos',data:diaEgr,borderColor:'#ef4444',backgroundColor:'rgba(239,68,68,0.1)',fill:true,tension:0.3}
+        ]},options:{responsive:false,animation:false,plugins:{legend:{position:'bottom'},title:{display:true,text:'Evolución diaria',font:{size:16}}},scales:{y:{ticks:{callback:v=>'$'+(v/1000)+'k'}}}}});
+        charts.push(ch3);
+    }
+
+    // Esperar a que rendericen y convertir a imagen
+    await new Promise(r=>setTimeout(r,300));
+    const img1=c1.toDataURL('image/png');
+    const img2=c2.toDataURL('image/png');
+    const img3=c3?c3.toDataURL('image/png'):null;
+    charts.forEach(ch=>ch.destroy());
+    [c1,c2,c3].forEach(c=>{ if(c) c.remove(); });
+
+    // ─── Construir el HTML del PDF ───
+    const filaConc=(obj,total,color)=>Object.entries(obj).sort((a,b)=>b[1]-a[1]).map(([k,v])=>
+        `<tr><td>${k}</td><td style="text-align:right;">${fmtPeso(v)}</td><td style="text-align:right;color:${color};">${total>0?(v/total*100).toFixed(1):0}%</td></tr>`).join('');
+
+    const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Reporte ${o.nombre}</title>
+<style>
+@page { size:letter; margin:1.2cm; }
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:Arial,sans-serif;font-size:11px;color:#1a1a1a;padding:10px;}
+.header{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #cc0000;padding-bottom:12px;margin-bottom:16px;}
+.header img{height:54px;}
+.header .info{text-align:right;font-size:10px;color:#666;}
+.header .info h1{font-size:20px;color:#cc0000;margin-bottom:2px;}
+.cards{display:flex;gap:12px;margin-bottom:18px;}
+.card{flex:1;border-radius:10px;padding:14px;text-align:center;color:#fff;}
+.card .lbl{font-size:10px;text-transform:uppercase;opacity:0.9;}
+.card .val{font-size:20px;font-weight:bold;margin-top:4px;}
+.charts{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:18px;justify-content:center;}
+.chart-box{width:48%;border:1px solid #e0e0e0;border-radius:8px;padding:8px;text-align:center;}
+.chart-box img{max-width:100%;height:auto;}
+.chart-full{width:100%;}
+h2{font-size:14px;color:#cc0000;margin:16px 0 8px;border-left:4px solid #cc0000;padding-left:8px;}
+table{width:100%;border-collapse:collapse;margin-bottom:14px;font-size:10px;}
+th,td{border:1px solid #ddd;padding:5px 8px;}
+th{background:#cc0000;color:#fff;text-align:left;}
+tr:nth-child(even){background:#f9f9f9;}
+.btn-print{position:fixed;top:10px;right:10px;padding:10px 18px;background:#cc0000;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;}
+@media print{.btn-print{display:none;}}
+.footer{margin-top:20px;text-align:center;font-size:9px;color:#999;border-top:1px solid #eee;padding-top:8px;}
+</style></head><body>
+<button class="btn-print" onclick="window.print()">🖨️ Imprimir / Guardar PDF</button>
+
+<div class="header">
+    ${typeof LOGO_PV!=='undefined'?`<img src="${LOGO_PV}" alt="Logo">`:'<div style="font-size:20px;font-weight:bold;color:#cc0000;">PROYECTOVISION</div>'}
+    <div class="info">
+        <h1>Reporte de Oficina</h1>
+        <strong>${o.nombre}</strong><br>
+        Período: ${periodoTexto}<br>
+        Generado: ${ahora.toLocaleString('es-CO')}
+    </div>
+</div>
+
+<div class="cards">
+    <div class="card" style="background:#10b981;"><div class="lbl">Total Ingresos</div><div class="val">${fmtPeso(ing)}</div></div>
+    <div class="card" style="background:#ef4444;"><div class="lbl">Total Egresos</div><div class="val">${fmtPeso(egr)}</div></div>
+    <div class="card" style="background:${balance>=0?'#3b82f6':'#f59e0b'};"><div class="lbl">Balance</div><div class="val">${fmtPeso(balance)}</div></div>
+</div>
+
+<h2>📊 Análisis gráfico</h2>
+<div class="charts">
+    <div class="chart-box"><img src="${img1}"></div>
+    <div class="chart-box"><img src="${img2}"></div>
+    ${img3?`<div class="chart-box chart-full"><img src="${img3}"></div>`:''}
+</div>
+
+<h2>💵 Ingresos por concepto</h2>
+<table><thead><tr><th>Concepto</th><th style="text-align:right;">Valor</th><th style="text-align:right;">% del total</th></tr></thead>
+<tbody>${filaConc(porConcIng,ing,'#10b981')||'<tr><td colspan="3" style="text-align:center;color:#999;">Sin ingresos</td></tr>'}</tbody></table>
+
+<h2>💸 Egresos por concepto</h2>
+<table><thead><tr><th>Concepto</th><th style="text-align:right;">Valor</th><th style="text-align:right;">% del total</th></tr></thead>
+<tbody>${filaConc(porConcEgr,egr,'#ef4444')||'<tr><td colspan="3" style="text-align:center;color:#999;">Sin egresos</td></tr>'}</tbody></table>
+
+<h2>📋 Detalle de movimientos (${movs.length})</h2>
+<table><thead><tr><th>Fecha</th><th>Tipo</th><th>Concepto</th><th>Forma</th><th style="text-align:right;">Valor</th></tr></thead>
+<tbody>${movs.slice().reverse().slice(0,100).map(m=>{
+    const d=new Date(m.fecha);
+    return `<tr><td>${d.toLocaleDateString('es-CO')}</td><td style="color:${m.tipo==='ingreso'?'#10b981':'#ef4444'};">${m.tipo==='ingreso'?'Ingreso':'Egreso'}</td><td>${m.concepto||labelMov(m)}</td><td>${m.forma||''}</td><td style="text-align:right;">${fmtPeso(parseFloat(m.valor||0))}</td></tr>`;
+}).join('')}</tbody></table>
+${movs.length>100?`<p style="font-size:9px;color:#999;">Mostrando los primeros 100 de ${movs.length} movimientos. Para el detalle completo usa el Excel.</p>`:''}
+
+<div class="footer">PROYECTOVISION CLICK ZOMAC S.A.S · Reporte generado automáticamente · ${ahora.toLocaleString('es-CO')}</div>
+</body></html>`;
+
+    const w=window.open('','_blank');
+    if(!w){ alert('Permite ventanas emergentes para ver el PDF'); return; }
+    w.document.write(html); w.document.close();
+}
+
+// Modal para elegir formato PDF o Excel
+function modalElegirFormatoReporte(oid, periodo){
+    const html=`
+    <p style="text-align:center;color:var(--muted);margin-bottom:16px;font-size:0.9rem;">¿En qué formato quieres el reporte?</p>
+    <div style="display:flex;gap:12px;">
+        <button class="btn btn-primary" style="flex:1;padding:18px;background:#cc0000;flex-direction:column;display:flex;align-items:center;gap:6px;" onclick="closeModal();exportarReportePDF('${oid}','${periodo}')">
+            <span style="font-size:1.8rem;">📄</span>
+            <span style="font-weight:700;">PDF Profesional</span>
+            <span style="font-size:0.7rem;opacity:0.9;">Con gráficos y diseño</span>
+        </button>
+        <button class="btn btn-primary" style="flex:1;padding:18px;background:#10b981;flex-direction:column;display:flex;align-items:center;gap:6px;" onclick="closeModal();exportarReporteExcel('${oid}','${periodo}')">
+            <span style="font-size:1.8rem;">📊</span>
+            <span style="font-weight:700;">Excel Detallado</span>
+            <span style="font-size:0.7rem;opacity:0.9;">Para análisis y datos</span>
+        </button>
+    </div>`;
+    openModal('📥 Exportar Reporte', html, `<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>`);
 }
 
 function exportarReporteExcel(oid, periodo){
@@ -4741,7 +4941,7 @@ function renderVentas2(){
             background:${tab===t?'var(--accent)':'transparent'};color:${tab===t?'#fff':'var(--muted)'};">${l}</button>`
         ).join('')}
         <button class="btn btn-primary btn-sm" onclick="modalNuevaVenta()" style="margin-left:8px;">➕ Nueva Venta</button>
-        <button class="btn btn-outline btn-sm" onclick="exportarVentasExcel()">📥 Exportar</button>
+        <button class="btn btn-outline btn-sm" onclick="modalElegirFormatoVentas()">📥 Exportar</button>
     </div>
 
     <div id="ventas_tab_content"></div>
@@ -5185,6 +5385,126 @@ function eliminarVenta2(idx){
     if(!confirm('¿Eliminar esta venta?')) return;
     DB.ventas.splice(idx,1);
     save().then(()=>renderVentas2());
+}
+
+
+// ─── REPORTE PDF DE VENTAS (con gráficos) ───
+function exportarVentasPDF(){
+    const generar=()=>_generarVentasPDF();
+    if(typeof Chart==='undefined'){
+        const s=document.createElement('script');
+        s.src='https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js';
+        s.onload=generar; s.onerror=()=>alert('No se pudo cargar gráficos');
+        document.head.appendChild(s);
+    } else generar();
+}
+
+async function _generarVentasPDF(){
+    const ventas=getVentasOficina();
+    if(!ventas.length) return alert('No hay ventas para exportar');
+    const ahora=new Date();
+    const fmtPeso=v=>'$'+Math.round(v).toLocaleString('es-CO');
+
+    // Agrupar por vendedor
+    const porVend={};
+    ventas.forEach(v=>{
+        if(!porVend[v.vendedor]) porVend[v.vendedor]={ventas:0, valor:0, comision:0};
+        porVend[v.vendedor].ventas++;
+        porVend[v.vendedor].valor+=parseFloat(v.valor||0);
+        porVend[v.vendedor].comision+=(parseFloat(v.comisionInst||0)+parseFloat(v.comisionM1||0)+parseFloat(v.comisionM2||0));
+    });
+    const vendedores=Object.keys(porVend);
+    const totalVentas=ventas.length;
+    const totalValor=ventas.reduce((s,v)=>s+parseFloat(v.valor||0),0);
+    const totalComision=ventas.reduce((s,v)=>s+parseFloat(v.comisionInst||0)+parseFloat(v.comisionM1||0)+parseFloat(v.comisionM2||0),0);
+
+    // Por plan
+    const porPlan={};
+    ventas.forEach(v=>{ porPlan[v.plan||'Otro']=(porPlan[v.plan||'Otro']||0)+1; });
+
+    const mkCanvas=()=>{ const c=document.createElement('canvas'); c.width=600;c.height=340;c.style.display='none';document.body.appendChild(c);return c; };
+    const paleta=['#3b82f6','#10b981','#f59e0b','#a855f7','#ef4444','#0ea5e9','#ec4899'];
+
+    // Gráfico 1: ventas por vendedor (barras)
+    const c1=mkCanvas();
+    const ch1=new Chart(c1,{type:'bar',data:{labels:vendedores,datasets:[{label:'N° Ventas',data:vendedores.map(v=>porVend[v].ventas),backgroundColor:'#3b82f6'}]},options:{responsive:false,animation:false,plugins:{legend:{display:false},title:{display:true,text:'Ventas por vendedor',font:{size:16}}}}});
+
+    // Gráfico 2: comisiones por vendedor (barras)
+    const c2=mkCanvas();
+    const ch2=new Chart(c2,{type:'bar',data:{labels:vendedores,datasets:[{label:'Comisión',data:vendedores.map(v=>porVend[v].comision),backgroundColor:'#10b981'}]},options:{responsive:false,animation:false,plugins:{legend:{display:false},title:{display:true,text:'Comisiones por vendedor',font:{size:16}}},scales:{y:{ticks:{callback:v=>'$'+(v/1000)+'k'}}}}});
+
+    // Gráfico 3: distribución por plan (torta)
+    const c3=mkCanvas();
+    const ch3=new Chart(c3,{type:'pie',data:{labels:Object.keys(porPlan),datasets:[{data:Object.values(porPlan),backgroundColor:paleta}]},options:{responsive:false,animation:false,plugins:{legend:{position:'bottom'},title:{display:true,text:'Ventas por plan',font:{size:16}}}}});
+
+    await new Promise(r=>setTimeout(r,300));
+    const img1=c1.toDataURL(),img2=c2.toDataURL(),img3=c3.toDataURL();
+    [ch1,ch2,ch3].forEach(c=>c.destroy());
+    [c1,c2,c3].forEach(c=>c.remove());
+
+    const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Reporte de Ventas</title>
+<style>
+@page{size:letter;margin:1.2cm;}*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:Arial,sans-serif;font-size:11px;color:#1a1a1a;padding:10px;}
+.header{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #cc0000;padding-bottom:12px;margin-bottom:16px;}
+.header img{height:54px;}.header .info{text-align:right;font-size:10px;color:#666;}
+.header .info h1{font-size:20px;color:#cc0000;margin-bottom:2px;}
+.cards{display:flex;gap:12px;margin-bottom:18px;}
+.card{flex:1;border-radius:10px;padding:14px;text-align:center;color:#fff;}
+.card .lbl{font-size:10px;text-transform:uppercase;opacity:0.9;}.card .val{font-size:20px;font-weight:bold;margin-top:4px;}
+.charts{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:18px;justify-content:center;}
+.chart-box{width:48%;border:1px solid #e0e0e0;border-radius:8px;padding:8px;text-align:center;}
+.chart-box img{max-width:100%;height:auto;}.chart-full{width:100%;}
+h2{font-size:14px;color:#cc0000;margin:16px 0 8px;border-left:4px solid #cc0000;padding-left:8px;}
+table{width:100%;border-collapse:collapse;margin-bottom:14px;font-size:10px;}
+th,td{border:1px solid #ddd;padding:5px 8px;}th{background:#cc0000;color:#fff;text-align:left;}
+tr:nth-child(even){background:#f9f9f9;}
+.btn-print{position:fixed;top:10px;right:10px;padding:10px 18px;background:#cc0000;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;}
+@media print{.btn-print{display:none;}}
+.footer{margin-top:20px;text-align:center;font-size:9px;color:#999;border-top:1px solid #eee;padding-top:8px;}
+</style></head><body>
+<button class="btn-print" onclick="window.print()">🖨️ Imprimir / Guardar PDF</button>
+<div class="header">
+    ${typeof LOGO_PV!=='undefined'?`<img src="${LOGO_PV}">`:'<div style="font-size:20px;font-weight:bold;color:#cc0000;">PROYECTOVISION</div>'}
+    <div class="info"><h1>Reporte de Ventas</h1>Generado: ${ahora.toLocaleString('es-CO')}</div>
+</div>
+<div class="cards">
+    <div class="card" style="background:#3b82f6;"><div class="lbl">Total Ventas</div><div class="val">${totalVentas}</div></div>
+    <div class="card" style="background:#10b981;"><div class="lbl">Valor Total</div><div class="val">${fmtPeso(totalValor)}</div></div>
+    <div class="card" style="background:#a855f7;"><div class="lbl">Comisiones</div><div class="val">${fmtPeso(totalComision)}</div></div>
+</div>
+<h2>📊 Análisis gráfico</h2>
+<div class="charts">
+    <div class="chart-box"><img src="${img1}"></div>
+    <div class="chart-box"><img src="${img2}"></div>
+    <div class="chart-box chart-full"><img src="${img3}"></div>
+</div>
+<h2>🏆 Resumen por vendedor</h2>
+<table><thead><tr><th>Vendedor</th><th style="text-align:right;">Ventas</th><th style="text-align:right;">Valor</th><th style="text-align:right;">Comisión</th></tr></thead>
+<tbody>${vendedores.sort((a,b)=>porVend[b].ventas-porVend[a].ventas).map(v=>`<tr><td>${v}</td><td style="text-align:right;">${porVend[v].ventas}</td><td style="text-align:right;">${fmtPeso(porVend[v].valor)}</td><td style="text-align:right;color:#10b981;">${fmtPeso(porVend[v].comision)}</td></tr>`).join('')}</tbody></table>
+<h2>📋 Detalle de ventas (${ventas.length})</h2>
+<table><thead><tr><th>Fecha</th><th>Vendedor</th><th>Cliente</th><th>Plan</th><th style="text-align:right;">Valor</th></tr></thead>
+<tbody>${ventas.slice(0,100).map(v=>`<tr><td>${v.fecha||''}</td><td>${v.vendedor||''}</td><td>${v.cliente||''}</td><td>${v.plan||''}</td><td style="text-align:right;">${fmtPeso(parseFloat(v.valor||0))}</td></tr>`).join('')}</tbody></table>
+<div class="footer">PROYECTOVISION CLICK ZOMAC S.A.S · ${ahora.toLocaleString('es-CO')}</div>
+</body></html>`;
+
+    const w=window.open('','_blank');
+    if(!w){ alert('Permite ventanas emergentes'); return; }
+    w.document.write(html); w.document.close();
+}
+
+function modalElegirFormatoVentas(){
+    const html=`
+    <p style="text-align:center;color:var(--muted);margin-bottom:16px;font-size:0.9rem;">¿En qué formato quieres el reporte de ventas?</p>
+    <div style="display:flex;gap:12px;">
+        <button class="btn btn-primary" style="flex:1;padding:18px;background:#cc0000;flex-direction:column;display:flex;align-items:center;gap:6px;" onclick="closeModal();exportarVentasPDF()">
+            <span style="font-size:1.8rem;">📄</span><span style="font-weight:700;">PDF Profesional</span><span style="font-size:0.7rem;opacity:0.9;">Con gráficos</span>
+        </button>
+        <button class="btn btn-primary" style="flex:1;padding:18px;background:#10b981;flex-direction:column;display:flex;align-items:center;gap:6px;" onclick="closeModal();exportarVentasExcel()">
+            <span style="font-size:1.8rem;">📊</span><span style="font-weight:700;">Excel Detallado</span><span style="font-size:0.7rem;opacity:0.9;">Para datos</span>
+        </button>
+    </div>`;
+    openModal('📥 Exportar Ventas', html, `<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>`);
 }
 
 function exportarVentasExcel(){
