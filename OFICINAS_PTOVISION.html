@@ -391,9 +391,28 @@
 <div id="loading-screen"><div class="spinner"></div><p style="color:var(--muted);font-size:0.9rem;">Cargando sistema de oficinas...</p></div>
 
 <!-- SYNC STATUS -->
-<div id="syncStatus" style="display:none;"><div class="sync-dot sync-ok" id="syncDot"></div><span id="syncText">Listo</span></div>
+<div id="syncStatus" style="display:none;"><div class="sync-dot sync-ok" id="syncDot"></div><span id="syncText">Listo</span><span id="appVersionLabel" style="opacity:0.5;font-size:0.68rem;margin-left:4px;" title="Versión del sistema"></span></div>
 
 <!-- Overlay de guardado animado -->
+<!-- Banner de versión nueva disponible -->
+<div id="versionBanner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:999999;background:linear-gradient(90deg,#7c3aed,#a855f7);color:#fff;padding:12px 20px;box-shadow:0 4px 20px rgba(124,58,237,0.4);animation:vbSlideDown 0.4s ease;">
+    <div style="max-width:1000px;margin:0 auto;display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:10px;">
+            <span style="font-size:1.4rem;animation:vbPulse 1.5s ease infinite;">🚀</span>
+            <div>
+                <div style="font-weight:800;font-size:0.95rem;">¡Hay una versión nueva disponible!</div>
+                <div style="font-size:0.78rem;opacity:0.9;">Estás usando una versión anterior. Recarga para obtener las últimas mejoras.</div>
+            </div>
+        </div>
+        <button onclick="location.reload(true)" style="background:#fff;color:#7c3aed;border:none;padding:8px 20px;border-radius:8px;font-weight:800;cursor:pointer;font-size:0.88rem;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.15);">🔄 Recargar ahora</button>
+    </div>
+</div>
+
+<style>
+@keyframes vbSlideDown { from { transform:translateY(-100%); opacity:0; } to { transform:translateY(0); opacity:1; } }
+@keyframes vbPulse { 0%,100% { transform:scale(1); } 50% { transform:scale(1.2); } }
+</style>
+
 <div id="saveOverlay" style="display:none;position:fixed;bottom:24px;right:24px;z-index:99999;">
     <div style="display:flex;align-items:center;gap:12px;background:rgba(20,20,30,0.92);backdrop-filter:blur(8px);border:1px solid rgba(168,85,247,0.4);border-radius:14px;padding:14px 20px;box-shadow:0 8px 32px rgba(0,0,0,0.4);">
         <div class="save-spinner"></div>
@@ -741,6 +760,10 @@ function mostrarSaveOverlay(estado, texto, subtexto){
 // ─── FIREBASE ───────────────────────────────────────────────────────────────
 let db = null;
 const DOC_ID = 'main'; // documento único en colección "oficinas_sistema"
+// ─── CONTROL DE VERSIÓN ───
+// Incrementa este número cada vez que publiques una actualización.
+const APP_VERSION = 1; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION_FECHA = '22 May 2026';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -906,6 +929,41 @@ async function save(){
 let _unsubscribeRT = null;
 let _rtActivo = false;
 let _ultimoGuardadoPor = null;
+
+// ─── SISTEMA DE CONTROL DE VERSIÓN ───
+let _unsubscribeVersion = null;
+let _bannerVersionMostrado = false;
+
+async function registrarVersion(){
+    if(!db) return;
+    try{
+        const ref = db.collection('oficinas_sistema').doc('app_version');
+        const snap = await ref.get();
+        const versionRemota = snap.exists ? (snap.data().version||0) : 0;
+        // Si mi versión es más nueva que la registrada, la actualizo (yo publiqué la nueva)
+        if(APP_VERSION > versionRemota){
+            await ref.set({version: APP_VERSION, fecha: APP_VERSION_FECHA, actualizadoEn: Date.now()});
+            console.log('📌 Versión registrada en Firebase:', APP_VERSION);
+        }
+    }catch(e){ console.warn('No se pudo registrar versión:', e); }
+}
+
+function iniciarEscuchaVersion(){
+    if(!db) return;
+    if(_unsubscribeVersion) _unsubscribeVersion();
+    _unsubscribeVersion = db.collection('oficinas_sistema').doc('app_version')
+        .onSnapshot(snap=>{
+            if(!snap.exists) return;
+            const versionRemota = snap.data().version || 0;
+            // Si la versión en la nube es MAYOR que la mía, mi pestaña está desactualizada
+            if(versionRemota > APP_VERSION && !_bannerVersionMostrado){
+                _bannerVersionMostrado = true;
+                const banner = document.getElementById('versionBanner');
+                if(banner) banner.style.display = 'block';
+                console.log(`🚀 Versión nueva detectada: ${versionRemota} (tú tienes ${APP_VERSION})`);
+            }
+        }, err=>console.warn('Error escucha versión:', err));
+}
 
 function iniciarEscuchaRealtime(){
     if(!db) return;
@@ -1125,6 +1183,7 @@ function enterApp(){
     setTimeout(applyStoredTheme,50);
     setTimeout(iniciarMonitorRecordatorios,1000);
     setTimeout(()=>{ _rtActivo=true; iniciarEscuchaRealtime(); }, 500);
+    setTimeout(()=>{ registrarVersion(); iniciarEscuchaVersion(); }, 700);
     setTimeout(showAIFab, 800);
     setInterval(()=>{
         const c=document.getElementById('clock');
@@ -14276,6 +14335,10 @@ const firebaseConfig = {
         showSync("saving","Conectando...");
         await load();
         showSync("ok","Conectado ✓");
+        // Activar control de versión desde la pantalla de login
+        registrarVersion();
+        iniciarEscuchaVersion();
+        const vLabel=document.getElementById('appVersionLabel'); if(vLabel) vLabel.textContent='v'+APP_VERSION;
     }catch(e){
         showSync("err","Error de conexion");
         console.error(e);
