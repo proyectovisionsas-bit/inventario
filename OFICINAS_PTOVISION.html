@@ -12084,6 +12084,7 @@ function renderRecogidas(){
             <h2>📦 Recogida de Equipos <span>${totalActivas} pendientes</span></h2>
             <div style="display:flex;gap:6px;flex-wrap:wrap;">
                 <button class="btn btn-outline btn-sm" onclick="navigate('facturas')" style="background:rgba(14,165,233,0.1);color:#0ea5e9;border-color:rgba(14,165,233,0.3);">📄 Ir a Facturas (cargar)</button>
+                <button class="btn btn-outline btn-sm" onclick="_regenerarRecogidasManual()" style="background:rgba(16,185,129,0.1);color:#10b981;border-color:rgba(16,185,129,0.3);" title="Regenerar desde las facturas ya cargadas">🔄 Regenerar</button>
                 <button class="btn btn-outline btn-sm" onclick="exportarPDFRecogidas()" style="background:rgba(59,130,246,0.1);color:#3b82f6;border-color:rgba(59,130,246,0.3);">📄 PDF para técnico</button>
                 ${esAdmin?`<button class="btn btn-outline btn-sm" onclick="modalConfigRecogidas()">⚙️ Reglas</button>`:''}
                 ${esAdmin?`<button class="btn btn-outline btn-sm" onclick="modalLimpiarRecogidas()" style="background:rgba(239,68,68,0.1);color:#ef4444;border-color:rgba(239,68,68,0.3);">🗑️ Limpiar</button>`:''}
@@ -12667,12 +12668,11 @@ function _eliminarRecogida(recId){
 
 // ─── CONFIGURAR REGLAS ───
 function modalConfigRecogidas(){
-    if(USER.role!=='admin') return alert('Solo admin puede configurar reglas');
     const cfg=DB.recogidasConfig||{minFacturas:2,minDias:0,soloSuspendidos:false};
     const html=`
     <div style="background:rgba(234,88,12,0.08);border:1px solid rgba(234,88,12,0.25);border-radius:10px;padding:12px;margin-bottom:14px;font-size:0.82rem;">
         <p style="font-weight:700;color:#ea580c;margin-bottom:4px;">⚙️ Reglas de activación</p>
-        <p style="color:var(--muted);">Define cuándo un cliente moroso entra a la lista de recogida de equipos al importar el Excel.</p>
+        <p style="color:var(--muted);">Define cuándo un servicio entra a la lista de recogida de equipos. Al guardar, se regeneran las recogidas según estas reglas.</p>
     </div>
 
     <div class="form-group-dark">
@@ -12701,7 +12701,6 @@ function modalConfigRecogidas(){
 }
 
 function _guardarConfigRecogidas(){
-    if(USER.role!=='admin') return;
     DB.recogidasConfig={
         minFacturas:parseInt(document.getElementById('cfg_min_facturas').value)||2,
         minDias:parseInt(document.getElementById('cfg_min_dias').value)||0,
@@ -12709,7 +12708,15 @@ function _guardarConfigRecogidas(){
         zonasMapeo:(DB.recogidasConfig||{}).zonasMapeo||{}
     };
     registrarLog('CONFIG_RECOGIDAS_ACTUALIZADA', DB.recogidasConfig);
-    save().then(()=>{ closeModal(); alert('✅ Reglas actualizadas'); });
+    // Regenerar recogidas con las nuevas reglas para todas las oficinas que tengan facturas
+    if(typeof _generarRecogidasAuto==='function'){
+        const oficinasConFacturas=[...new Set(Object.values(DB.facturasHistorial||{}).map(s=>s.oficinaId))];
+        let totalNuevas=0;
+        oficinasConFacturas.forEach(oid=>{ const r=_generarRecogidasAuto(oid); totalNuevas+=r.nuevas; });
+        save().then(()=>{ closeModal(); alert(`✅ Reglas actualizadas.\n\nSe regeneraron las recogidas: ${totalNuevas} nuevas órdenes según las nuevas reglas.`); });
+    } else {
+        save().then(()=>{ closeModal(); alert('✅ Reglas actualizadas'); });
+    }
 }
 
 
@@ -13675,6 +13682,7 @@ function renderFacturas(){
             <h2>📄 Facturas <span>${totalServicios} servicios</span></h2>
             <div style="display:flex;gap:6px;flex-wrap:wrap;">
                 <button class="btn btn-primary" onclick="modalImportarFacturas()" style="background:#0ea5e9;">📥 Cargar Excel WispHub</button>
+                <button class="btn btn-outline btn-sm" onclick="modalConfigRecogidas()" title="Configurar reglas de recogida">⚙️ Reglas de recogida</button>
                 ${esAdmin?`<button class="btn btn-outline btn-sm" onclick="modalLimpiarFacturas()" style="background:rgba(239,68,68,0.1);color:#ef4444;border-color:rgba(239,68,68,0.3);">🗑️ Limpiar</button>`:''}
             </div>
         </div>
@@ -14017,10 +14025,41 @@ function _confirmarImportFacturas(){
 
 
 // ─── GENERAR RECOGIDAS AUTOMÁTICAMENTE desde el historial de facturas ───
+// Regenerar recogidas manualmente desde las facturas ya cargadas
+function _regenerarRecogidasManual(){
+    const hist=DB.facturasHistorial||{};
+    if(Object.keys(hist).length===0){
+        return alert('⚠️ No hay facturas cargadas. Ve a 📄 Facturas y carga el Excel de WispHub primero.');
+    }
+    const esAdmin=USER.role==='admin';
+    // Determinar qué oficinas regenerar
+    let oficinas;
+    if(esAdmin){
+        oficinas=[...new Set(Object.values(hist).map(s=>s.oficinaId))];
+    } else {
+        oficinas=[USER.id];
+    }
+    let totalNuevas=0, totalResueltas=0, totalActualizadas=0;
+    oficinas.forEach(oid=>{
+        const r=_generarRecogidasAuto(oid);
+        totalNuevas+=r.nuevas; totalResueltas+=r.resueltas; totalActualizadas+=r.actualizadas;
+    });
+    save().then(()=>{
+        renderRecogidas();
+        alert(`🔄 Recogidas regeneradas desde facturas:\n\n• ${totalNuevas} nuevas\n• ${totalActualizadas} actualizadas\n• ${totalResueltas} marcadas como pagadas\n\nReglas usadas: mínimo ${(DB.recogidasConfig||{}).minFacturas||2} facturas pendientes.`);
+    });
+}
+
 function _generarRecogidasAuto(oficinaId){
     const cfg=DB.recogidasConfig||{minFacturas:2,minDias:0,soloSuspendidos:false};
     if(!DB.recogidas) DB.recogidas=[];
     const hist=DB.facturasHistorial||{};
+
+    console.log('📦 Generando recogidas para oficina:', oficinaId);
+    console.log('📦 Reglas:', JSON.stringify(cfg));
+    const totalDeOfi=Object.values(hist).filter(s=>s.oficinaId===oficinaId).length;
+    const conPendientes=Object.values(hist).filter(s=>s.oficinaId===oficinaId && (s.pendientes||0)>0).length;
+    console.log(`📦 Servicios de esta oficina: ${totalDeOfi}, con pendientes: ${conPendientes}`);
 
     // Servicios de esta oficina que cumplen las reglas
     const candidatos=Object.values(hist).filter(s=>{
@@ -14032,6 +14071,7 @@ function _generarRecogidasAuto(oficinaId){
         if(cfg.soloSuspendidos && s.servicioEstado!=='Suspendido') cumple=false;
         return cumple;
     });
+    console.log(`📦 Candidatos que cumplen reglas: ${candidatos.length}`);
 
     const clavesEnCandidatos=new Set(candidatos.map(c=>c.servicioId||c.cedula));
     let nuevas=0, actualizadas=0, resueltas=0;
