@@ -820,8 +820,9 @@ async function save(){
         }
         datosLimpios = sanitizarFirebase(datosLimpios);
 
-        // ─── GUARDADO POR CHUNKS: extraer clientes pesados a documentos separados ───
-        // Firebase limita 1MB por documento. Los clientes de cada oficina van aparte.
+        // ─── GUARDADO POR CHUNKS: extraer datos pesados a documentos separados ───
+        // Firebase limita 1MB y ~20000 entradas de índice por documento.
+        // 1) Clientes de cada oficina
         const clientesPorOficina = {};
         (datosLimpios.oficinas||[]).forEach(o=>{
             if(o.clientes && o.clientes.length>0){
@@ -830,11 +831,14 @@ async function save(){
                 o._tieneClientesEnChunk = true;
             }
         });
+        // 2) Historial de facturas (puede tener miles de servicios)
+        const histGuardar = datosLimpios.facturasHistorial || {};
+        datosLimpios.facturasHistorial = {}; // vaciar del doc principal
 
         const sizeMB = JSON.stringify(datosLimpios).length / 1024 / 1024;
-        console.log(`   📦 Tamaño doc principal (sin clientes): ${sizeMB.toFixed(2)} MB`);
+        console.log(`   📦 Tamaño doc principal (sin clientes ni facturas): ${sizeMB.toFixed(2)} MB`);
 
-        // Guardar el documento principal (ya liviano)
+        // Guardar el documento principal (ya liviano, sin clientes ni historial)
         await db.collection('oficinas_sistema').doc(DOC_ID).set(datosLimpios);
 
         // Guardar los clientes de cada oficina en su propio documento (sub-divididos en lotes de 500)
@@ -863,6 +867,24 @@ async function save(){
             actualizado: Date.now()
         });
         console.log(`   👥 Clientes guardados en chunks:`, chunkInfo);
+
+        // Guardar el historial de facturas en chunks de 300 servicios
+        const histKeys = Object.keys(histGuardar);
+        const HIST_CHUNK = 300;
+        const histNumChunks = Math.ceil(histKeys.length / HIST_CHUNK);
+        for(let i=0;i<histNumChunks;i++){
+            const parteKeys = histKeys.slice(i*HIST_CHUNK, (i+1)*HIST_CHUNK);
+            const parteObj = {};
+            parteKeys.forEach(k=>{ parteObj[k]=histGuardar[k]; });
+            await db.collection('oficinas_sistema').doc(`facturas_hist_${i}`).set({
+                historial: parteObj, parte: i, totalPartes: histNumChunks, actualizado: Date.now()
+            });
+        }
+        await db.collection('oficinas_sistema').doc('facturas_hist_index').set({
+            numChunks: histNumChunks, totalServicios: histKeys.length, actualizado: Date.now()
+        });
+        DB.facturasHistorial = histGuardar; // restaurar en memoria
+        console.log(`   📄 Historial facturas en ${histNumChunks} chunk(s), ${histKeys.length} servicios`);
 
         showSync('ok','Guardado ✓');
         mostrarSaveOverlay('done');
@@ -931,6 +953,7 @@ function iniciarEscuchaRealtime(){
             // el doc principal los trae vacíos). Evita que se borren en la vista.
             const clientesMem = {};
             (DB.oficinas||[]).forEach(o=>{ clientesMem[o.id] = o.clientes||[]; });
+            const histMem = DB.facturasHistorial || {};
 
             // Actualizar DB con los datos confirmados del servidor
             Object.keys(datos).forEach(k=>{
@@ -941,8 +964,12 @@ function iniciarEscuchaRealtime(){
             (DB.oficinas||[]).forEach(o=>{
                 if((!o.clientes||o.clientes.length===0) && clientesMem[o.id]) o.clientes=clientesMem[o.id];
             });
-            // Recargar chunks de clientes en segundo plano (por si otro equipo los cambió)
-            _cargarClientesChunks().then(()=>{
+            // Restaurar historial de facturas (el doc principal lo trae vacío)
+            if((!DB.facturasHistorial || Object.keys(DB.facturasHistorial).length===0) && Object.keys(histMem).length>0){
+                DB.facturasHistorial = histMem;
+            }
+            // Recargar chunks en segundo plano (por si otro equipo los cambió)
+            _cargarClientesChunks().then(()=>_cargarFacturasChunks()).then(()=>{
                 if(_rtActivo && USER && USER.role) _recargarVistaSilenciosa();
             });
 
@@ -999,10 +1026,31 @@ async function load(){
 
             // ─── Cargar clientes desde los chunks separados ───
             await _cargarClientesChunks();
+            // ─── Cargar historial de facturas desde sus chunks ───
+            await _cargarFacturasChunks();
         } else {
             console.warn('⚠️ load(): documento no existe en Firebase');
         }
     }catch(e){ console.error('❌ Error cargando:', e); }
+}
+
+// Cargar el historial de facturas desde sus documentos separados
+async function _cargarFacturasChunks(){
+    try{
+        const idxSnap = await db.collection('oficinas_sistema').doc('facturas_hist_index').get();
+        if(!idxSnap.exists) return; // no hay chunks (datos viejos)
+        const {numChunks} = idxSnap.data();
+        let hist = {};
+        for(let i=0;i<numChunks;i++){
+            const cSnap = await db.collection('oficinas_sistema').doc(`facturas_hist_${i}`).get();
+            if(cSnap.exists){
+                const parte = reconvertirArrays(cSnap.data().historial||{});
+                Object.assign(hist, parte);
+            }
+        }
+        DB.facturasHistorial = hist;
+        console.log(`📄 Historial de facturas cargado: ${Object.keys(hist).length} servicios en ${numChunks} chunk(s)`);
+    }catch(e){ console.error('Error cargando chunks de facturas:', e); }
 }
 
 // Cargar los clientes de cada oficina desde sus documentos separados (sub-chunks de 500)
