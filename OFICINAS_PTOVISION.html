@@ -8033,34 +8033,69 @@ function enviarSolicitudEdicion(oid, mid){
 
 // ── VERIFICACIÓN IA DE COMPROBANTES ──────────────────────────────────────────
 
-// ── GESTIÓN DE API KEY GROQ (localStorage) ──────────────────────────────
+// ── GESTIÓN DE API KEY GROQ (localStorage — la key nunca sale del dispositivo) ──
 function obtenerAPIKey(){
-    return localStorage.getItem('groq_api_key') || '';
+    try { return localStorage.getItem('groq_api_key') || ''; }
+    catch(e){ console.warn('localStorage no accesible:', e); return window._apiKeyMemoria || ''; }
 }
 
 function guardarAPIKey(key){
     if(!key||!key.startsWith('gsk_')) return false;
-    localStorage.setItem('groq_api_key', key.trim());
-    return true;
+    const k=key.trim();
+    try {
+        localStorage.setItem('groq_api_key', k);
+        // Verificar que realmente se guardó (Chrome Android a veces falla silencioso)
+        if(localStorage.getItem('groq_api_key')!==k){
+            window._apiKeyMemoria = k;
+            return 'memoria'; // se guardó solo en memoria de sesión
+        }
+        return true;
+    } catch(e){
+        // localStorage bloqueado → guardar en memoria de la sesión
+        console.warn('No se pudo guardar en localStorage:', e);
+        window._apiKeyMemoria = k;
+        return 'memoria';
+    }
 }
 
 function eliminarAPIKey(){
-    localStorage.removeItem('groq_api_key');
+    try { localStorage.removeItem('groq_api_key'); } catch(e){}
+    window._apiKeyMemoria = '';
 }
 
+// Guardar API key desde el modal (función normal, robusta en móvil)
+function _guardarApiKeyDesdeModal(){
+    const input=document.getElementById('api_key_input');
+    if(!input){ alert('Error: no se encontró el campo de texto'); return; }
+    const k=input.value.trim();
+    if(!k){ alert('Pega tu API Key'); return; }
+    if(!k.startsWith('gsk_')){ alert('La API Key de Groq debe empezar con "gsk_"'); return; }
+    const res=guardarAPIKey(k);
+    closeModal();
+    if(res==='memoria'){
+        alert('⚠️ API Key guardada solo para esta sesión.\\n\\nTu navegador móvil tiene el almacenamiento restringido (modo incógnito o cookies bloqueadas). La IA funcionará ahora, pero deberás reingresar la key al recargar.\\n\\nPara guardarla permanentemente: usa Chrome normal (no incógnito) y permite cookies/datos para este sitio.');
+    } else {
+        alert('✅ API Key guardada. Ya puedes usar la IA.');
+    }
+    if(typeof _apiKeyCallback==='function'){ const cb=_apiKeyCallback; _apiKeyCallback=null; try{cb();}catch(e){} }
+}
+
+let _apiKeyCallback=null;
+
 function modalConfigurarAPIKey(callback){
+    _apiKeyCallback = callback || null;
     const actual=obtenerAPIKey();
     const masked=actual?actual.slice(0,8)+'...'+actual.slice(-4):'';
     const html=`
     <div style="background:rgba(249,115,22,0.08);border:1px solid rgba(249,115,22,0.25);border-radius:10px;padding:14px;margin-bottom:14px;font-size:0.82rem;">
         <p style="font-weight:700;color:#f97316;margin-bottom:6px;">🔑 Configuración de API Key de Groq</p>
-        <p style="color:var(--muted);margin-bottom:8px;">Para usar la IA necesitas tu propia API Key de Groq (100% gratis, sin tarjeta). Se guardará en este dispositivo y solo tú la verás.</p>
+        <p style="color:var(--muted);margin-bottom:8px;">Para usar la IA necesitas tu propia API Key de Groq (100% gratis, sin tarjeta). Se guarda solo en este dispositivo (por seguridad nunca se sube a la nube). Debes ingresarla una vez en cada dispositivo: PC, celular, etc.</p>
         <p style="color:var(--muted);font-size:0.75rem;">📌 Obtén una gratis en: <a href="https://console.groq.com/keys" target="_blank" style="color:#f97316;text-decoration:underline;">console.groq.com/keys</a></p>
         <p style="color:var(--muted);font-size:0.72rem;margin-top:6px;">⚡ Groq es ultrarrápido y permite hasta 14,400 solicitudes diarias gratis.</p>
     </div>
     <div class="form-group-dark">
         <label>API Key de Groq ${actual?`(actual: ${masked})`:''}</label>
-        <input type="text" id="api_key_input" class="form-control" placeholder="gsk_..." style="font-family:monospace;font-size:0.85rem;">
+        <input type="text" id="api_key_input" class="form-control" placeholder="gsk_..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="text" style="font-family:monospace;font-size:0.85rem;">
         <p style="font-size:0.72rem;color:var(--muted);margin-top:4px;">Debe empezar con "gsk_"</p>
     </div>
     ${actual?'<div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:8px 12px;font-size:0.78rem;color:#10b981;">✅ Ya tienes una API Key guardada. Pega una nueva solo si quieres cambiarla.</div>':''}`;
@@ -8068,15 +8103,7 @@ function modalConfigurarAPIKey(callback){
     const footer=`
         <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
         ${actual?`<button class="btn btn-danger" onclick="if(confirm('¿Eliminar la API Key guardada?')){eliminarAPIKey();closeModal();alert('API Key eliminada');}">🗑️ Eliminar</button>`:''}
-        <button class="btn btn-primary" onclick="(()=>{
-            const k=document.getElementById('api_key_input').value.trim();
-            if(!k){ alert('Pega tu API Key'); return; }
-            if(!k.startsWith('gsk_')){ alert('La API Key de Groq debe empezar con gsk_'); return; }
-            guardarAPIKey(k);
-            closeModal();
-            alert('✅ API Key guardada. Ya puedes usar la IA.');
-            ${callback?'('+callback.toString()+')();':''}
-        })()">💾 Guardar</button>`;
+        <button class="btn btn-primary" onclick="_guardarApiKeyDesdeModal()">💾 Guardar</button>`;
 
     openModal('🔑 Configurar API Key', html, footer);
 }
