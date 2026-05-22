@@ -3332,7 +3332,9 @@ function renderAdmin(){
                         registro_pasado:'📅 Registro de día pasado',
                         editar_cliente:'✏️ Editar cliente',
                         corregir_abono_especial:'⭐ Corregir abono especial',
-                        eliminar_abono_especial:'⭐🗑️ Eliminar abono especial'
+                        eliminar_abono_especial:'⭐🗑️ Eliminar abono especial',
+                        corregir_factura_especial:'⭐ Corregir factura especial',
+                        eliminar_factura_especial:'⭐🗑️ Eliminar factura especial'
                     }[s.tipo]||s.tipo;
                     return `
                 <div class="notif-item">
@@ -3475,6 +3477,38 @@ function aprobarSolicitud(sid){
         }
     } else if(s.tipo==='eliminar_abono_especial'){
         DB.abonosEspeciales=(DB.abonosEspeciales||[]).filter(x=>x.id!==s.abonoId);
+    } else if(s.tipo==='corregir_factura_especial'){
+        const f=(DB.facturasEspeciales||[]).find(x=>x.id===s.facturaId);
+        if(f&&s.datos){
+            if(s.datos.nuevoPeriodo) f.periodo=s.datos.nuevoPeriodo;
+            if(s.datos.nuevaFecha) f.fecha=s.datos.nuevaFecha;
+            if(s.datos.nuevoValorBase!=null && s.datos.nuevoValorBase>0){
+                // Recalcular total respetando las deducciones existentes
+                const base=s.datos.nuevoValorBase;
+                const ded=f.deducciones||{};
+                const calcDed=(d, esICA, esRIVA, ivaCalc)=>{
+                    if(!d||!d.activo) return 0;
+                    if(d.modo==='fijo') return d.tasa;
+                    if(esRIVA) return ivaCalc*(d.tasa/100);
+                    if(esICA) return base*(d.tasa/1000);
+                    return base*(d.tasa/100);
+                };
+                const iva=calcDed(ded.iva,false,false,0);
+                const rfte=calcDed(ded.retefuente,false,false,0);
+                const riva=calcDed(ded.reteiva,false,true,iva);
+                const rica=calcDed(ded.reteica,true,false,0);
+                f.valorBase=base;
+                f.valor=Math.round(base+iva-rfte-riva-rica);
+                if(ded.iva) ded.iva.calculado=Math.round(iva);
+                if(ded.retefuente) ded.retefuente.calculado=Math.round(rfte);
+                if(ded.reteiva) ded.reteiva.calculado=Math.round(riva);
+                if(ded.reteica) ded.reteica.calculado=Math.round(rica);
+            }
+            f.editadoPor='admin (sol. '+(s.solicitadoPor||'oficina')+')';
+            f.editadoEn=now();
+        }
+    } else if(s.tipo==='eliminar_factura_especial'){
+        DB.facturasEspeciales=(DB.facturasEspeciales||[]).filter(x=>x.id!==s.facturaId);
     }
     s.estado='aprobado';
     save().then(()=>{
@@ -10503,7 +10537,13 @@ function modalDetalleClienteEspecial(cliId){
                 <div style="font-size:0.95rem;font-weight:700;color:#a855f7;">${fmtShort(f.valor)}</div>
                 ${f.pendiente>0?`<div style="font-size:0.68rem;color:#ef4444;">Falta: ${fmtShort(f.pendiente)}</div>`:''}
             </div>
-            ${USER.role==='admin'?`<button class="btn btn-danger btn-sm" style="padding:3px 8px;" onclick="event.stopPropagation();eliminarFacturaEspecial('${f.id}','${cliId}')">🗑️</button>`:''}
+            <div style="display:flex;flex-direction:column;gap:3px;">
+            ${USER.role==='admin'
+                ? `<button class="btn btn-outline btn-sm" style="padding:3px 8px;font-size:0.7rem;" onclick="event.stopPropagation();modalEditarFacturaEspecial('${f.id}','${cliId}')" title="Editar factura">✏️</button>
+                   <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:0.7rem;" onclick="event.stopPropagation();eliminarFacturaEspecial('${f.id}','${cliId}')" title="Eliminar factura">🗑️</button>`
+                : `<button class="btn btn-outline btn-sm" style="padding:3px 7px;font-size:0.7rem;" onclick="event.stopPropagation();solicitarCorreccionFactura('${f.id}','${cliId}')" title="Solicitar corrección">✏️ Solicitar</button>`
+            }
+            </div>
         </div>`;
     }).join('')}
     </div>`}
@@ -10845,6 +10885,247 @@ function enviarSolicitudAbono(abonoId, cliId){
     });
 
     registrarLog('SOLICITUD_'+tipo.toUpperCase()+'_ABONO_ENVIADA',{cliId, abonoId, motivo});
+    save().then(()=>{
+        closeModal();
+        modalDetalleClienteEspecial(cliId);
+        alert('📨 Solicitud enviada al administrador. Espera su aprobación.');
+    });
+}
+
+
+// ─── EDITAR FACTURA ESPECIAL (solo admin) ───
+function modalEditarFacturaEspecial(facturaId, cliId){
+    if(USER.role!=='admin') return alert('Solo admin puede editar');
+    const f=DB.facturasEspeciales?.find(x=>x.id===facturaId);
+    if(!f) return alert('Factura no encontrada');
+    const cli=DB.clientesEspeciales?.find(x=>x.id===cliId);
+    const abonado=_abonadoFactura(facturaId);
+
+    const html=`
+    <div style="background:rgba(168,85,247,0.08);border:1px solid rgba(168,85,247,0.25);border-radius:10px;padding:12px;margin-bottom:14px;font-size:0.82rem;">
+        <p style="font-weight:700;color:#a855f7;margin-bottom:4px;">✏️ Editar factura</p>
+        <p style="color:var(--muted);">Cliente: <strong style="color:var(--text);">${cli?.nombre||'?'}</strong></p>
+        ${abonado>0?`<p style="color:#f59e0b;margin-top:4px;">⚠️ Esta factura tiene abonos por ${fmtShort(abonado)}. Si cambias el valor, revisa que siga siendo coherente.</p>`:''}
+    </div>
+
+    <div class="form-row">
+        <div class="form-group-dark"><label>Período *</label>
+            <input id="edf_periodo" class="form-control" value="${(f.periodo||'').replace(/"/g,'&quot;')}">
+        </div>
+        <div class="form-group-dark"><label>Fecha de emisión *</label>
+            <input id="edf_fecha" type="date" class="form-control" value="${f.fecha?f.fecha.slice(0,10):''}">
+        </div>
+    </div>
+
+    <div class="form-group-dark"><label>Valor base de la factura *</label>
+        <input id="edf_valor_base" type="number" class="form-control" value="${f.valorBase||f.valor||0}" min="0" oninput="_recalcEditFactura()">
+        <p style="font-size:0.7rem;color:var(--muted);margin-top:3px;">Valor sin IVA ni retenciones</p>
+    </div>
+
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;">
+        <div style="display:grid;grid-template-columns:auto 1fr 1fr 1fr;gap:8px;align-items:center;margin-bottom:8px;">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.85rem;font-weight:600;color:#10b981;">
+                <input type="checkbox" id="edf_iva_check" ${f.deducciones?.iva?.activo?'checked':''} onchange="_recalcEditFactura()"> ➕ IVA
+            </label>
+            <select id="edf_iva_modo" class="form-control" onchange="_recalcEditFactura()" style="font-size:0.8rem;padding:4px 6px;">
+                <option value="porcentaje" ${f.deducciones?.iva?.modo==='porcentaje'?'selected':''}>%</option>
+                <option value="fijo" ${f.deducciones?.iva?.modo==='fijo'?'selected':''}>$</option>
+            </select>
+            <input id="edf_iva_valor" type="number" step="0.01" class="form-control" value="${f.deducciones?.iva?.tasa??19}" oninput="_recalcEditFactura()" style="font-size:0.8rem;padding:4px 6px;">
+            <span id="edf_iva_resultado" style="font-size:0.78rem;color:#10b981;font-weight:700;text-align:right;">+$0</span>
+        </div>
+        <div style="display:grid;grid-template-columns:auto 1fr 1fr 1fr;gap:8px;align-items:center;margin-bottom:8px;">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.85rem;font-weight:600;color:#ef4444;">
+                <input type="checkbox" id="edf_rfte_check" ${f.deducciones?.retefuente?.activo?'checked':''} onchange="_recalcEditFactura()"> ➖ Retefuente
+            </label>
+            <select id="edf_rfte_modo" class="form-control" onchange="_recalcEditFactura()" style="font-size:0.8rem;padding:4px 6px;">
+                <option value="porcentaje" ${f.deducciones?.retefuente?.modo==='porcentaje'?'selected':''}>%</option>
+                <option value="fijo" ${f.deducciones?.retefuente?.modo==='fijo'?'selected':''}>$</option>
+            </select>
+            <input id="edf_rfte_valor" type="number" step="0.01" class="form-control" value="${f.deducciones?.retefuente?.tasa??2.5}" oninput="_recalcEditFactura()" style="font-size:0.8rem;padding:4px 6px;">
+            <span id="edf_rfte_resultado" style="font-size:0.78rem;color:#ef4444;font-weight:700;text-align:right;">-$0</span>
+        </div>
+        <div style="display:grid;grid-template-columns:auto 1fr 1fr 1fr;gap:8px;align-items:center;margin-bottom:8px;">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.85rem;font-weight:600;color:#ef4444;">
+                <input type="checkbox" id="edf_riva_check" ${f.deducciones?.reteiva?.activo?'checked':''} onchange="_recalcEditFactura()"> ➖ ReteIVA
+            </label>
+            <select id="edf_riva_modo" class="form-control" onchange="_recalcEditFactura()" style="font-size:0.8rem;padding:4px 6px;">
+                <option value="porcentaje" ${f.deducciones?.reteiva?.modo==='porcentaje'?'selected':''}>% del IVA</option>
+                <option value="fijo" ${f.deducciones?.reteiva?.modo==='fijo'?'selected':''}>$</option>
+            </select>
+            <input id="edf_riva_valor" type="number" step="0.01" class="form-control" value="${f.deducciones?.reteiva?.tasa??15}" oninput="_recalcEditFactura()" style="font-size:0.8rem;padding:4px 6px;">
+            <span id="edf_riva_resultado" style="font-size:0.78rem;color:#ef4444;font-weight:700;text-align:right;">-$0</span>
+        </div>
+        <div style="display:grid;grid-template-columns:auto 1fr 1fr 1fr;gap:8px;align-items:center;">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.85rem;font-weight:600;color:#ef4444;">
+                <input type="checkbox" id="edf_rica_check" ${f.deducciones?.reteica?.activo?'checked':''} onchange="_recalcEditFactura()"> ➖ ReteICA
+            </label>
+            <select id="edf_rica_modo" class="form-control" onchange="_recalcEditFactura()" style="font-size:0.8rem;padding:4px 6px;">
+                <option value="porcentaje" ${f.deducciones?.reteica?.modo==='porcentaje'?'selected':''}>‰ (por mil)</option>
+                <option value="fijo" ${f.deducciones?.reteica?.modo==='fijo'?'selected':''}>$</option>
+            </select>
+            <input id="edf_rica_valor" type="number" step="0.01" class="form-control" value="${f.deducciones?.reteica?.tasa??6}" oninput="_recalcEditFactura()" style="font-size:0.8rem;padding:4px 6px;">
+            <span id="edf_rica_resultado" style="font-size:0.78rem;color:#ef4444;font-weight:700;text-align:right;">-$0</span>
+        </div>
+    </div>
+
+    <div style="background:rgba(168,85,247,0.08);border:1px solid rgba(168,85,247,0.25);border-radius:8px;padding:12px;margin-top:10px;">
+        <div style="display:flex;justify-content:space-between;font-size:1rem;font-weight:800;">
+            <span style="color:#a855f7;">TOTAL FACTURA:</span>
+            <span id="edf_r_total" style="color:#a855f7;">$0</span>
+        </div>
+    </div>
+
+    <div class="form-group-dark" style="margin-top:10px;"><label>Descripción (opcional)</label>
+        <input id="edf_descripcion" class="form-control" value="${(f.descripcion||'').replace(/"/g,'&quot;')}">
+    </div>`;
+
+    openModal('✏️ Editar Factura', html, `
+        <button class="btn btn-outline" onclick="modalDetalleClienteEspecial('${cliId}')">Cancelar</button>
+        <button class="btn btn-primary" onclick="guardarEdicionFactura('${facturaId}','${cliId}')" style="background:#a855f7;">💾 Guardar cambios</button>`);
+
+    setTimeout(_recalcEditFactura, 50);
+}
+
+// Recalcular deducciones en el modal de edición
+function _recalcEditFactura(){
+    const base=parseFloat(document.getElementById('edf_valor_base').value||0);
+    const g=(id)=>document.getElementById(id);
+    const calc=(checkId,modoId,valId,esICA,esRIVA,ivaCalc)=>{
+        if(!g(checkId).checked) return 0;
+        const modo=g(modoId).value;
+        const val=parseFloat(g(valId).value||0);
+        if(modo==='fijo') return val;
+        if(esRIVA) return ivaCalc*(val/100); // % del IVA
+        if(esICA) return base*(val/1000); // por mil
+        return base*(val/100);
+    };
+    const iva=calc('edf_iva_check','edf_iva_modo','edf_iva_valor',false,false,0);
+    const rfte=calc('edf_rfte_check','edf_rfte_modo','edf_rfte_valor',false,false,0);
+    const riva=calc('edf_riva_check','edf_riva_modo','edf_riva_valor',false,true,iva);
+    const rica=calc('edf_rica_check','edf_rica_modo','edf_rica_valor',true,false,0);
+    const total=base+iva-rfte-riva-rica;
+
+    if(g('edf_iva_resultado')) g('edf_iva_resultado').textContent='+'+fmtShort(iva);
+    if(g('edf_rfte_resultado')) g('edf_rfte_resultado').textContent='-'+fmtShort(rfte);
+    if(g('edf_riva_resultado')) g('edf_riva_resultado').textContent='-'+fmtShort(riva);
+    if(g('edf_rica_resultado')) g('edf_rica_resultado').textContent='-'+fmtShort(rica);
+    if(g('edf_r_total')) g('edf_r_total').textContent=fmtShort(Math.round(total));
+    return {base,iva,rfte,riva,rica,total};
+}
+
+function guardarEdicionFactura(facturaId, cliId){
+    if(USER.role!=='admin') return alert('Solo admin');
+    const f=DB.facturasEspeciales.find(x=>x.id===facturaId);
+    if(!f) return;
+    const periodo=document.getElementById('edf_periodo').value.trim();
+    const fecha=document.getElementById('edf_fecha').value;
+    if(!periodo) return alert('El período es obligatorio');
+    if(!fecha) return alert('La fecha es obligatoria');
+
+    const g=(id)=>document.getElementById(id);
+    const d=_recalcEditFactura();
+    if(d.base<=0) return alert('El valor base debe ser mayor a 0');
+
+    f.periodo=periodo;
+    f.fecha=fecha;
+    f.valorBase=d.base;
+    f.valor=Math.round(d.total);
+    f.deducciones={
+        iva:{activo:g('edf_iva_check').checked, modo:g('edf_iva_modo').value, tasa:parseFloat(g('edf_iva_valor').value||0), calculado:Math.round(d.iva)},
+        retefuente:{activo:g('edf_rfte_check').checked, modo:g('edf_rfte_modo').value, tasa:parseFloat(g('edf_rfte_valor').value||0), calculado:Math.round(d.rfte)},
+        reteiva:{activo:g('edf_riva_check').checked, modo:g('edf_riva_modo').value, tasa:parseFloat(g('edf_riva_valor').value||0), calculado:Math.round(d.riva)},
+        reteica:{activo:g('edf_rica_check').checked, modo:g('edf_rica_modo').value, tasa:parseFloat(g('edf_rica_valor').value||0), calculado:Math.round(d.rica)}
+    };
+    f.descripcion=g('edf_descripcion').value.trim();
+    f.editadoPor=USER?.nombre||USER?.id;
+    f.editadoEn=now();
+
+    registrarLog('FACTURA_ESPECIAL_EDITADA',{cliId, facturaId, nuevoValor:f.valor, periodo});
+    save().then(()=>{
+        closeModal();
+        modalDetalleClienteEspecial(cliId);
+        alert('✅ Factura actualizada: '+fmtShort(f.valor));
+    });
+}
+
+// ─── SOLICITAR CORRECCIÓN DE FACTURA (oficinas) ───
+function solicitarCorreccionFactura(facturaId, cliId){
+    const f=(DB.facturasEspeciales||[]).find(x=>x.id===facturaId);
+    if(!f) return alert('Factura no encontrada');
+    const cli=DB.clientesEspeciales?.find(x=>x.id===cliId);
+
+    const html=`
+    <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:10px;padding:12px;margin-bottom:14px;font-size:0.82rem;">
+        <p style="font-weight:700;color:#f59e0b;margin-bottom:4px;">📨 Solicitar corrección al administrador</p>
+        <p style="color:var(--muted);">Tu solicitud quedará pendiente hasta que el admin la apruebe.</p>
+    </div>
+    <p style="margin-bottom:8px;font-size:0.82rem;">Cliente: <strong>${cli?.nombre||'?'}</strong></p>
+    <p style="margin-bottom:14px;font-size:0.82rem;">Factura actual: <strong style="color:#a855f7;">${f.periodo||''}</strong> · ${fmtShort(f.valor)} · ${_fmtFechaLocal(f.fecha)}</p>
+
+    <div class="form-group-dark"><label>Tipo de solicitud *</label>
+        <select id="solf_tipo" class="form-control" onchange="document.getElementById('solf_correccion_box').style.display=this.value==='correccion'?'block':'none'">
+            <option value="correccion">✏️ Corregir valor / datos</option>
+            <option value="eliminar">🗑️ Eliminar factura</option>
+        </select>
+    </div>
+
+    <div id="solf_correccion_box">
+        <div class="form-row">
+            <div class="form-group-dark"><label>Nuevo período</label><input id="solf_periodo" class="form-control" value="${(f.periodo||'').replace(/"/g,'&quot;')}"></div>
+            <div class="form-group-dark"><label>Nueva fecha</label><input id="solf_fecha" type="date" class="form-control" value="${f.fecha?f.fecha.slice(0,10):''}"></div>
+        </div>
+        <div class="form-group-dark"><label>Nuevo valor base</label><input id="solf_valor_base" type="number" class="form-control" value="${f.valorBase||f.valor||0}"></div>
+        <p style="font-size:0.7rem;color:var(--muted);">El admin recalculará las deducciones al aprobar si es necesario.</p>
+    </div>
+
+    <div class="form-group-dark"><label>Motivo de la solicitud *</label>
+        <textarea id="solf_motivo" class="form-control" rows="3" placeholder="Explica por qué necesitas corregir/eliminar esta factura..."></textarea>
+    </div>`;
+
+    openModal('📨 Solicitar al administrador', html, `
+        <button class="btn btn-outline" onclick="modalDetalleClienteEspecial('${cliId}')">Cancelar</button>
+        <button class="btn btn-primary" onclick="enviarSolicitudFactura('${facturaId}','${cliId}')">📨 Enviar solicitud</button>`);
+}
+
+function enviarSolicitudFactura(facturaId, cliId){
+    const tipo=document.getElementById('solf_tipo').value;
+    const motivo=document.getElementById('solf_motivo').value.trim();
+    if(!motivo||motivo.length<10) return alert('El motivo debe tener al menos 10 caracteres');
+
+    const f=DB.facturasEspeciales.find(x=>x.id===facturaId);
+    const cli=DB.clientesEspeciales?.find(x=>x.id===cliId);
+    const ofi=DB.oficinas.find(o=>o.id===USER.id);
+
+    let datosSolicitud={};
+    let descripcionSol='';
+    if(tipo==='correccion'){
+        datosSolicitud={
+            nuevoPeriodo:document.getElementById('solf_periodo').value.trim(),
+            nuevaFecha:document.getElementById('solf_fecha').value,
+            nuevoValorBase:parseFloat(document.getElementById('solf_valor_base').value||0)
+        };
+        descripcionSol=`Corregir factura ${f.periodo||''} de ${fmtShort(f.valor)} (${cli?.nombre||'?'})`;
+    } else {
+        descripcionSol=`Eliminar factura ${f.periodo||''} de ${fmtShort(f.valor)} (${cli?.nombre||'?'})`;
+    }
+
+    if(!DB.solicitudes) DB.solicitudes=[];
+    DB.solicitudes.push({
+        id:uid(),
+        tipo: tipo==='eliminar'?'eliminar_factura_especial':'corregir_factura_especial',
+        facturaId, cliId,
+        datos: datosSolicitud,
+        motivo,
+        descripcion: descripcionSol,
+        oficina: ofi?.nombre||USER.id,
+        oid: USER.id,
+        solicitadoPor: USER?.nombre||USER?.id,
+        estado: 'pendiente',
+        fecha: now()
+    });
+
+    registrarLog('SOLICITUD_'+tipo.toUpperCase()+'_FACTURA_ENVIADA',{cliId, facturaId, motivo});
     save().then(()=>{
         closeModal();
         modalDetalleClienteEspecial(cliId);
