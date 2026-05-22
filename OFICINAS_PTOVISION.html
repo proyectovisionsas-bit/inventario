@@ -818,13 +818,50 @@ async function save(){
         }
         datosLimpios = sanitizarFirebase(datosLimpios);
 
-        const sizeMB = JSON.stringify(datosLimpios).length / 1024 / 1024;
-        console.log(`   📦 Tamaño total: ${sizeMB.toFixed(2)} MB`);
-        if(sizeMB > 1){
-            console.warn('⚠️ Documento de más de 1MB');
-        }
+        // ─── GUARDADO POR CHUNKS: extraer clientes pesados a documentos separados ───
+        // Firebase limita 1MB por documento. Los clientes de cada oficina van aparte.
+        const clientesPorOficina = {};
+        (datosLimpios.oficinas||[]).forEach(o=>{
+            if(o.clientes && o.clientes.length>0){
+                clientesPorOficina[o.id] = o.clientes;
+                o.clientes = []; // vaciar del doc principal
+                o._tieneClientesEnChunk = true;
+            }
+        });
 
+        const sizeMB = JSON.stringify(datosLimpios).length / 1024 / 1024;
+        console.log(`   📦 Tamaño doc principal (sin clientes): ${sizeMB.toFixed(2)} MB`);
+
+        // Guardar el documento principal (ya liviano)
         await db.collection('oficinas_sistema').doc(DOC_ID).set(datosLimpios);
+
+        // Guardar los clientes de cada oficina en su propio documento (sub-divididos en lotes de 500)
+        const idsConClientes = Object.keys(clientesPorOficina);
+        const CHUNK_SIZE = 500;
+        const chunkInfo = {}; // ofiId -> numChunks
+        for(const ofiId of idsConClientes){
+            const lista = clientesPorOficina[ofiId];
+            const numChunks = Math.ceil(lista.length / CHUNK_SIZE);
+            chunkInfo[ofiId] = numChunks;
+            for(let i=0;i<numChunks;i++){
+                const parte = lista.slice(i*CHUNK_SIZE, (i+1)*CHUNK_SIZE);
+                await db.collection('oficinas_sistema').doc(`clientes_${ofiId}_${i}`).set({
+                    clientes: parte, oficinaId: ofiId, parte: i, totalPartes: numChunks,
+                    actualizado: Date.now()
+                });
+            }
+            // Restaurar en memoria
+            const oMem=(DB.oficinas||[]).find(x=>x.id===ofiId);
+            if(oMem) oMem.clientes = lista;
+        }
+        // Guardar índice de qué oficinas tienen chunks y cuántos
+        await db.collection('oficinas_sistema').doc('clientes_index').set({
+            oficinasConClientes: idsConClientes,
+            chunkInfo: chunkInfo,
+            actualizado: Date.now()
+        });
+        console.log(`   👥 Clientes guardados en chunks:`, chunkInfo);
+
         showSync('ok','Guardado ✓');
         mostrarSaveOverlay('done');
         console.log('✅ save() exitoso');
@@ -888,9 +925,23 @@ function iniciarEscuchaRealtime(){
             const totalMovs = (datos.oficinas||[]).reduce((s,o)=>s+(o.movimientos||[]).length, 0);
             console.log(`✅ Snapshot aceptado del SERVIDOR: ${totalMovs} movs totales`);
 
+            // Preservar los clientes que ya tenemos en memoria (vienen en chunks aparte,
+            // el doc principal los trae vacíos). Evita que se borren en la vista.
+            const clientesMem = {};
+            (DB.oficinas||[]).forEach(o=>{ clientesMem[o.id] = o.clientes||[]; });
+
             // Actualizar DB con los datos confirmados del servidor
             Object.keys(datos).forEach(k=>{
                 if(datos[k]!==undefined) DB[k]=datos[k];
+            });
+
+            // Restaurar clientes en memoria, luego refrescar desde chunks
+            (DB.oficinas||[]).forEach(o=>{
+                if((!o.clientes||o.clientes.length===0) && clientesMem[o.id]) o.clientes=clientesMem[o.id];
+            });
+            // Recargar chunks de clientes en segundo plano (por si otro equipo los cambió)
+            _cargarClientesChunks().then(()=>{
+                if(_rtActivo && USER && USER.role) _recargarVistaSilenciosa();
             });
 
             // Re-renderizar
@@ -942,10 +993,41 @@ async function load(){
             // Reconvertir objetos-array de Firebase (datos antiguos corrompidos)
             const datosReconv = reconvertirArrays(datos);
             Object.keys(datosReconv).forEach(k=>{ if(datosReconv[k]!==undefined) DB[k]=datosReconv[k]; });
+
+            // ─── Cargar clientes desde los chunks separados ───
+            await _cargarClientesChunks();
         } else {
             console.warn('⚠️ load(): documento no existe en Firebase');
         }
     }catch(e){ console.error('❌ Error cargando:', e); }
+}
+
+// Cargar los clientes de cada oficina desde sus documentos separados (sub-chunks de 500)
+async function _cargarClientesChunks(){
+    try{
+        const idxSnap = await db.collection('oficinas_sistema').doc('clientes_index').get();
+        if(!idxSnap.exists) return; // no hay chunks (datos viejos), los clientes ya vienen en el doc principal
+        const idxData = idxSnap.data();
+        const oficinasConClientes = idxData.oficinasConClientes||[];
+        const chunkInfo = idxData.chunkInfo||{};
+        if(!oficinasConClientes.length) return;
+        for(const ofiId of oficinasConClientes){
+            const numChunks = chunkInfo[ofiId] || 1;
+            let clientes = [];
+            for(let i=0;i<numChunks;i++){
+                // Intentar el formato nuevo (con _i); si no, el viejo (sin _i)
+                let cSnap = await db.collection('oficinas_sistema').doc(`clientes_${ofiId}_${i}`).get();
+                if(!cSnap.exists && i===0){
+                    cSnap = await db.collection('oficinas_sistema').doc('clientes_'+ofiId).get();
+                }
+                if(cSnap.exists) clientes = clientes.concat(reconvertirArrays(cSnap.data().clientes||[]));
+            }
+            const o = (DB.oficinas||[]).find(x=>x.id===ofiId);
+            if(o) o.clientes = clientes;
+        }
+        const totalCli = (DB.oficinas||[]).reduce((s,o)=>s+(o.clientes||[]).length,0);
+        console.log(`👥 Clientes cargados desde chunks: ${totalCli} en ${oficinasConClientes.length} oficina(s)`);
+    }catch(e){ console.error('Error cargando chunks de clientes:', e); }
 }
 
 // ─── LOGIN ──────────────────────────────────────────────────────────────────
