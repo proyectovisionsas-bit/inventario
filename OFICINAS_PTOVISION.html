@@ -10620,10 +10620,10 @@ function modalDetalleClienteEspecial(cliId){
                 ${f.pendiente>0?`<div style="font-size:0.68rem;color:#ef4444;">Falta: ${fmtShort(f.pendiente)}</div>`:''}
             </div>
             <div style="display:flex;flex-direction:column;gap:3px;">
+                <button class="btn btn-outline btn-sm" style="padding:3px 8px;font-size:0.7rem;" onclick="event.stopPropagation();modalEditarFacturaEspecial('${f.id}','${cliId}')" title="Editar factura">✏️</button>
             ${USER.role==='admin'
-                ? `<button class="btn btn-outline btn-sm" style="padding:3px 8px;font-size:0.7rem;" onclick="event.stopPropagation();modalEditarFacturaEspecial('${f.id}','${cliId}')" title="Editar factura">✏️</button>
-                   <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:0.7rem;" onclick="event.stopPropagation();eliminarFacturaEspecial('${f.id}','${cliId}')" title="Eliminar factura">🗑️</button>`
-                : `<button class="btn btn-outline btn-sm" style="padding:3px 7px;font-size:0.7rem;" onclick="event.stopPropagation();solicitarCorreccionFactura('${f.id}','${cliId}')" title="Solicitar corrección">✏️ Solicitar</button>`
+                ? `<button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:0.7rem;" onclick="event.stopPropagation();eliminarFacturaEspecial('${f.id}','${cliId}')" title="Eliminar factura">🗑️</button>`
+                : `<button class="btn btn-outline btn-sm" style="padding:3px 7px;font-size:0.68rem;color:#ef4444;border-color:rgba(239,68,68,0.3);" onclick="event.stopPropagation();solicitarCorreccionFactura('${f.id}','${cliId}')" title="Solicitar eliminación al admin">🗑️ Solicitar</button>`
             }
             </div>
         </div>`;
@@ -10649,10 +10649,10 @@ function modalDetalleClienteEspecial(cliId){
             <div style="display:flex;flex-direction:column;gap:3px;">
                 ${(a.comprobantes||[]).length>0?`<button class="btn btn-outline btn-sm" style="padding:3px 7px;font-size:0.7rem;" onclick="event.stopPropagation();modalVerComprobantesAbono('${a.id}')" title="Ver comprobantes">📎 ${(a.comprobantes||[]).length}</button>`:''}
                 <button class="btn btn-outline btn-sm" style="padding:3px 7px;font-size:0.7rem;background:rgba(16,185,129,0.1);color:#10b981;border-color:rgba(16,185,129,0.3);" onclick="event.stopPropagation();modalAgregarCompAbono('${a.id}','${cliId}')" title="Agregar comprobante">📤</button>
+                <button class="btn btn-outline btn-sm" style="padding:3px 7px;font-size:0.7rem;" onclick="event.stopPropagation();modalEditarAbonoEspecial('${a.id}','${cliId}')" title="Editar">✏️</button>
                 ${USER.role==='admin'
-                    ? `<button class="btn btn-outline btn-sm" style="padding:3px 7px;font-size:0.7rem;" onclick="event.stopPropagation();modalEditarAbonoEspecial('${a.id}','${cliId}')" title="Editar">✏️</button>
-                       <button class="btn btn-danger btn-sm" style="padding:3px 7px;font-size:0.7rem;" onclick="event.stopPropagation();eliminarAbonoEspecial('${a.id}','${cliId}')" title="Eliminar">🗑️</button>`
-                    : `<button class="btn btn-outline btn-sm" style="padding:3px 7px;font-size:0.7rem;" onclick="event.stopPropagation();solicitarCorreccionAbono('${a.id}','${cliId}')" title="Solicitar corrección">✏️ Solicitar</button>`
+                    ? `<button class="btn btn-danger btn-sm" style="padding:3px 7px;font-size:0.7rem;" onclick="event.stopPropagation();eliminarAbonoEspecial('${a.id}','${cliId}')" title="Eliminar">🗑️</button>`
+                    : `<button class="btn btn-outline btn-sm" style="padding:3px 7px;font-size:0.68rem;color:#ef4444;border-color:rgba(239,68,68,0.3);" onclick="event.stopPropagation();solicitarCorreccionAbono('${a.id}','${cliId}')" title="Solicitar eliminación al admin">🗑️ Solicitar</button>`
                 }
             </div>
         </div>`;
@@ -10781,7 +10781,6 @@ async function subirCompsAbonoExistente(abonoId, cliId){
 
 // Editar abono (solo admin)
 function modalEditarAbonoEspecial(abonoId, cliId){
-    if(USER.role!=='admin') return alert('Solo el administrador puede editar abonos');
     const a=(DB.abonosEspeciales||[]).find(x=>x.id===abonoId);
     if(!a) return alert('Abono no encontrado');
     const cli=DB.clientesEspeciales?.find(x=>x.id===cliId);
@@ -10834,7 +10833,6 @@ function modalEditarAbonoEspecial(abonoId, cliId){
 }
 
 function guardarEdicionAbono(abonoId, cliId){
-    if(USER.role!=='admin') return alert('Solo admin');
     const a=DB.abonosEspeciales.find(x=>x.id===abonoId);
     if(!a) return;
 
@@ -10873,10 +10871,10 @@ function guardarEdicionAbono(abonoId, cliId){
     a.forma=forma;
     a.fecha=fecha;
     a.descripcion=descripcion;
-    a.editadoPor=USER?.nombre||USER?.id;
+    a.editadoPor=(USER?.role==='admin'?'admin':(USER?.nombre||USER?.id));
     a.editadoEn=now();
 
-    registrarLog('ABONO_ESPECIAL_EDITADO',{cliId, abonoId, valorAnt, valorNuevo:valor, formaAnt, formaNueva:forma});
+    registrarLog('ABONO_ESPECIAL_EDITADO',{cliId, abonoId, valorAnt, valorNuevo:valor, formaAnt, formaNueva:forma, editadoPor:a.editadoPor, rol:USER?.role});
     save().then(()=>{
         closeModal();
         modalDetalleClienteEspecial(cliId);
@@ -10977,7 +10975,6 @@ function enviarSolicitudAbono(abonoId, cliId){
 
 // ─── EDITAR FACTURA ESPECIAL (solo admin) ───
 function modalEditarFacturaEspecial(facturaId, cliId){
-    if(USER.role!=='admin') return alert('Solo admin puede editar');
     const f=DB.facturasEspeciales?.find(x=>x.id===facturaId);
     if(!f) return alert('Factura no encontrada');
     const cli=DB.clientesEspeciales?.find(x=>x.id===cliId);
@@ -11097,7 +11094,6 @@ function _recalcEditFactura(){
 }
 
 function guardarEdicionFactura(facturaId, cliId){
-    if(USER.role!=='admin') return alert('Solo admin');
     const f=DB.facturasEspeciales.find(x=>x.id===facturaId);
     if(!f) return;
     const periodo=document.getElementById('edf_periodo').value.trim();
@@ -11120,10 +11116,10 @@ function guardarEdicionFactura(facturaId, cliId){
         reteica:{activo:g('edf_rica_check').checked, modo:g('edf_rica_modo').value, tasa:parseFloat(g('edf_rica_valor').value||0), calculado:Math.round(d.rica)}
     };
     f.descripcion=g('edf_descripcion').value.trim();
-    f.editadoPor=USER?.nombre||USER?.id;
+    f.editadoPor=(USER?.role==='admin'?'admin':(USER?.nombre||USER?.id));
     f.editadoEn=now();
 
-    registrarLog('FACTURA_ESPECIAL_EDITADA',{cliId, facturaId, nuevoValor:f.valor, periodo});
+    registrarLog('FACTURA_ESPECIAL_EDITADA',{cliId, facturaId, nuevoValor:f.valor, periodo, editadoPor:f.editadoPor, rol:USER?.role});
     save().then(()=>{
         closeModal();
         modalDetalleClienteEspecial(cliId);
