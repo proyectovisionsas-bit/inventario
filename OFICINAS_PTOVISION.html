@@ -7640,6 +7640,7 @@ function renderPvisionControl(){
         </div>`:''}
 
         <button class="btn btn-primary" id="pvSendBtn" style="width:100%;padding:13px;font-size:0.95rem;" onclick="pvisionTransmit()">📡 Transmitir lista al equipo</button>
+        <button class="btn" id="pvClearBtn" style="width:100%;padding:11px;font-size:0.88rem;margin-top:8px;background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.3);" onclick="pvisionClear()">🗑️ Quitar lista del equipo</button>
 
         <div id="pvStatus" style="margin-top:14px;padding:12px;border-radius:8px;font-size:0.85rem;text-align:center;display:none;"></div>
     </div>
@@ -7693,6 +7694,25 @@ async function pvisionTransmit(){
         localStorage.setItem('pvision_presets',JSON.stringify(presets));
     }catch(e){ showStatus('Error al enviar. Revisa la conexión y el código.',false); }
     btn.disabled=false; btn.textContent='📡 Transmitir lista al equipo';
+}
+
+async function pvisionClear(){
+    const code=document.getElementById('pvCode').value.trim().toUpperCase();
+    const st=document.getElementById('pvStatus');
+    const showStatus=(msg,ok)=>{ st.style.display='block'; st.textContent=msg;
+        st.style.background=ok?'rgba(16,185,129,0.12)':'rgba(239,68,68,0.12)';
+        st.style.color=ok?'#10b981':'#ef4444';
+        st.style.border='1px solid '+(ok?'rgba(16,185,129,0.3)':'rgba(239,68,68,0.3)'); };
+    if(code.length!==6){ showStatus('Escribe el código del equipo (6 caracteres).',false); return; }
+    if(!confirm('¿Quitar la lista del equipo '+code+'? El equipo quedará en espera para cargar una nueva.')) return;
+    const btn=document.getElementById('pvClearBtn');
+    btn.disabled=true; btn.textContent='Enviando…';
+    try{
+        const res=await fetch('https://ntfy.sh/m3uplay-'+code,{method:'POST',body:JSON.stringify({cmd:'clear'})});
+        if(!res.ok) throw new Error();
+        showStatus('✓ Lista eliminada del equipo '+code+'. Ya puedes enviar una nueva.',true);
+    }catch(e){ showStatus('Error al enviar. Revisa la conexión y el código.',false); }
+    btn.disabled=false; btn.textContent='🗑️ Quitar lista del equipo';
 }
 
 function pvisionSaveEquipo(){
