@@ -829,6 +829,11 @@ function reconvertirArrays(obj){
 
 let _saveInProgress = false;
 let _lastSaveTime = 0;
+// Firmas para guardar SOLO lo que cambió (optimización de velocidad)
+let _sigClientes = {};      // ofiId -> firma del último guardado exitoso
+let _sigFacturas = null;    // firma del historial de facturas
+let _sigIdxClientes = null; // firma del índice de clientes
+function _hashStr(s){ let h=5381; for(let i=0;i<s.length;i++){ h=((h<<5)+h) ^ s.charCodeAt(i); } return (h>>>0).toString(36); }
 
 async function save(){
     if(!db){ showSync('err','Sin conexión Firebase'); console.error('❌ save() sin db'); mostrarSaveOverlay('error','Sin conexión','No hay conexión a Firebase'); return; }
@@ -901,48 +906,72 @@ async function save(){
         // Guardar el documento principal (ya liviano, sin clientes ni historial)
         await db.collection('oficinas_sistema').doc(DOC_ID).set(datosLimpios);
 
-        // Guardar los clientes de cada oficina en su propio documento (sub-divididos en lotes de 500)
+        // ─── OPTIMIZACIÓN: subir SOLO lo que cambió, y en PARALELO ───
+        // (antes se reescribía TODA la base en cada guardado, en fila → muy lento)
         const idsConClientes = Object.keys(clientesPorOficina);
         const CHUNK_SIZE = 500;
-        const chunkInfo = {}; // ofiId -> numChunks
+        const chunkInfo = {};            // ofiId -> numChunks (índice completo, siempre)
+        const escrituras = [];           // promesas de escritura para correr en paralelo
+        const sigClientesNuevas = {};    // firmas nuevas (se confirman tras éxito)
+        let _nClientesEscritos = 0;
+
         for(const ofiId of idsConClientes){
             const lista = clientesPorOficina[ofiId];
             const numChunks = Math.ceil(lista.length / CHUNK_SIZE);
             chunkInfo[ofiId] = numChunks;
-            for(let i=0;i<numChunks;i++){
-                const parte = lista.slice(i*CHUNK_SIZE, (i+1)*CHUNK_SIZE);
-                await db.collection('oficinas_sistema').doc(`clientes_${ofiId}_${i}`).set({
-                    clientes: parte, oficinaId: ofiId, parte: i, totalPartes: numChunks,
-                    actualizado: Date.now()
-                });
+            const sig = lista.length + ':' + _hashStr(JSON.stringify(lista));
+            sigClientesNuevas[ofiId] = sig;
+            // Reescribir SOLO si cambió respecto al último guardado (o si nunca se guardó en esta sesión)
+            if(_sigClientes[ofiId] !== sig){
+                for(let i=0;i<numChunks;i++){
+                    const parte = lista.slice(i*CHUNK_SIZE, (i+1)*CHUNK_SIZE);
+                    escrituras.push(db.collection('oficinas_sistema').doc(`clientes_${ofiId}_${i}`).set({
+                        clientes: parte, oficinaId: ofiId, parte: i, totalPartes: numChunks, actualizado: Date.now()
+                    }));
+                }
+                _nClientesEscritos++;
             }
             // Restaurar en memoria
             const oMem=(DB.oficinas||[]).find(x=>x.id===ofiId);
             if(oMem) oMem.clientes = lista;
         }
-        // Guardar índice de qué oficinas tienen chunks y cuántos
-        await db.collection('oficinas_sistema').doc('clientes_index').set({
-            oficinasConClientes: idsConClientes,
-            chunkInfo: chunkInfo,
-            actualizado: Date.now()
-        });
-        console.log(`   👥 Clientes guardados en chunks:`, chunkInfo);
 
-        // Guardar el historial de facturas en chunks de 300 servicios
+        // Historial de facturas: subir SOLO si cambió
         const histKeys = Object.keys(histGuardar);
         const HIST_CHUNK = 300;
         const histNumChunks = Math.ceil(histKeys.length / HIST_CHUNK);
-        for(let i=0;i<histNumChunks;i++){
-            const parteKeys = histKeys.slice(i*HIST_CHUNK, (i+1)*HIST_CHUNK);
-            const parteObj = {};
-            parteKeys.forEach(k=>{ parteObj[k]=histGuardar[k]; });
-            await db.collection('oficinas_sistema').doc(`facturas_hist_${i}`).set({
-                historial: parteObj, parte: i, totalPartes: histNumChunks, actualizado: Date.now()
-            });
+        const sigFacturasNueva = histKeys.length + ':' + _hashStr(JSON.stringify(histGuardar));
+        const _facturasCambiaron = (_sigFacturas !== sigFacturasNueva);
+        if(_facturasCambiaron){
+            for(let i=0;i<histNumChunks;i++){
+                const parteKeys = histKeys.slice(i*HIST_CHUNK, (i+1)*HIST_CHUNK);
+                const parteObj = {};
+                parteKeys.forEach(k=>{ parteObj[k]=histGuardar[k]; });
+                escrituras.push(db.collection('oficinas_sistema').doc(`facturas_hist_${i}`).set({
+                    historial: parteObj, parte: i, totalPartes: histNumChunks, actualizado: Date.now()
+                }));
+            }
+            escrituras.push(db.collection('oficinas_sistema').doc('facturas_hist_index').set({
+                numChunks: histNumChunks, totalServicios: histKeys.length, actualizado: Date.now()
+            }));
         }
-        await db.collection('oficinas_sistema').doc('facturas_hist_index').set({
-            numChunks: histNumChunks, totalServicios: histKeys.length, actualizado: Date.now()
-        });
+
+        // Índice de clientes (documento pequeño): solo si cambió algún cliente o el conjunto de oficinas
+        const idxClientesSig = JSON.stringify({o:idsConClientes, c:chunkInfo});
+        if(_nClientesEscritos>0 || _sigIdxClientes !== idxClientesSig){
+            escrituras.push(db.collection('oficinas_sistema').doc('clientes_index').set({
+                oficinasConClientes: idsConClientes, chunkInfo: chunkInfo, actualizado: Date.now()
+            }));
+        }
+
+        // Ejecutar TODAS las escrituras pendientes en paralelo
+        await Promise.all(escrituras);
+
+        // Confirmar firmas SOLO después del éxito (si falla, se reintenta todo en el próximo guardado)
+        _sigClientes = sigClientesNuevas;
+        _sigFacturas = sigFacturasNueva;
+        _sigIdxClientes = idxClientesSig;
+        console.log(`   ⚡ Guardado optimizado: ${escrituras.length} escritura(s) · clientes cambiados: ${_nClientesEscritos} · facturas: ${_facturasCambiaron?'sí':'no'}`);
         DB.facturasHistorial = histGuardar; // restaurar en memoria
         console.log(`   📄 Historial facturas en ${histNumChunks} chunk(s), ${histKeys.length} servicios`);
 
