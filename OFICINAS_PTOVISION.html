@@ -15788,6 +15788,7 @@ function modalRespaldoDrive(){
         +'<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">'
         +'<button onclick="guardarDriveClientId(document.getElementById(\'inpDriveCid\').value);showToastRespaldo(\'✅ ID de cliente guardado\');" style="background:#2563eb;color:#fff;border:none;padding:9px 14px;border-radius:8px;cursor:pointer;font-weight:bold;">Guardar ID</button>'
         +'<button onclick="document.getElementById(\'ovRespaldo\').remove();respaldarADrive(false);" style="background:#16a34a;color:#fff;border:none;padding:9px 14px;border-radius:8px;cursor:pointer;font-weight:bold;">📤 Respaldar ahora</button>'
+        +'<button onclick="importarRespaldo();" style="background:#7c3aed;color:#fff;border:none;padding:9px 14px;border-radius:8px;cursor:pointer;font-weight:bold;">📥 Importar respaldo</button>'
         +'<button onclick="document.getElementById(\'ovRespaldo\').remove();" style="background:#334155;color:#fff;border:none;padding:9px 14px;border-radius:8px;cursor:pointer;">Cerrar</button>'
         +'</div>'
         +'<p style="margin:14px 0 0;font-size:0.74rem;color:#64748b;line-height:1.5;">El respaldo automático corre cuando alguien entra después de las <strong>6:30 p.m.</strong> y aún no se ha respaldado ese día. Para el respaldo programado fijo (aunque nadie entre) usa el Apps Script (Camino B).</p>'
@@ -15796,6 +15797,76 @@ function modalRespaldoDrive(){
     document.body.appendChild(ov);
 }
 window.modalRespaldoDrive=modalRespaldoDrive;
+
+// ── IMPORTAR / RESTAURAR RESPALDO (Oficinas) ────────────────────────────────
+function _resumenDatosImp(d){
+    d=d||{}; const ofis=(d.oficinas||[]); let movs=0, clis=0;
+    ofis.forEach(o=>{ movs+=((o.movimientos||[]).length); clis+=((o.clientes||[]).length); });
+    return 'Oficinas: <strong>'+ofis.length+'</strong> · Movimientos: <strong>'+movs+'</strong> · Clientes: <strong>'+clis+'</strong>';
+}
+function _descargarLocalImp(nombre, texto){
+    try{ const blob=new Blob([texto],{type:'application/json'}); const a=document.createElement('a');
+        a.href=URL.createObjectURL(blob); a.download=nombre; document.body.appendChild(a); a.click();
+        setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+    }catch(e){ console.warn('descarga local falló',e); }
+}
+function importarRespaldo(){
+    const inp=document.createElement('input'); inp.type='file'; inp.accept='.json,application/json';
+    inp.onchange=()=>{
+        const file=inp.files && inp.files[0]; if(!file) return;
+        const rd=new FileReader();
+        rd.onload=()=>{
+            let parsed; try{ parsed=JSON.parse(rd.result); }catch(e){ alert('❌ El archivo no es un JSON válido.'); return; }
+            const datos = (parsed && parsed.datos) ? parsed.datos : null;
+            if(!datos || !Array.isArray(datos.oficinas)){ alert('❌ Este archivo no parece un respaldo válido de OFICINAS.'); return; }
+            if(parsed.sistema && parsed.sistema.indexOf('OFICINAS')===-1){ alert('❌ Este respaldo es de otro sistema ('+parsed.sistema+'). No se importará aquí.'); return; }
+            _confirmarImport(parsed, datos);
+        };
+        rd.readAsText(file);
+    };
+    inp.click();
+}
+window.importarRespaldo=importarRespaldo;
+function _confirmarImport(parsed, datos){
+    const ov=document.getElementById('ovRespaldo'); if(ov) ov.remove();
+    window._importPendiente=datos;
+    const gen=parsed.generado ? new Date(parsed.generado).toLocaleString('es-CO') : 'fecha desconocida';
+    const c=document.createElement('div'); c.id='ovImport';
+    c.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:100001;display:flex;align-items:center;justify-content:center;padding:16px;';
+    c.innerHTML='<div style="background:#0f172a;color:#e2e8f0;max-width:480px;width:100%;border-radius:14px;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,0.55);max-height:90vh;overflow:auto;">'
+        +'<h2 style="margin:0 0 6px;font-size:1.15rem;color:#fca5a5;">⚠️ Restaurar respaldo</h2>'
+        +'<p style="margin:0 0 10px;font-size:0.82rem;color:#94a3b8;">Vas a <strong>reemplazar todos los datos actuales</strong> por los de este respaldo. Afecta a todas las oficinas conectadas y <strong>no se puede deshacer</strong> (salvo por la copia de seguridad que se descargará automáticamente a tu computador antes de continuar).</p>'
+        +'<div style="background:#1e293b;border-radius:10px;padding:12px;font-size:0.8rem;line-height:1.7;">'
+        +'<div style="color:#93c5fd;">📦 Respaldo a restaurar ('+gen+'):</div><div>'+_resumenDatosImp(datos)+'</div>'
+        +'<hr style="border:none;border-top:1px solid #334155;margin:8px 0;">'
+        +'<div style="color:#fcd34d;">💾 Datos actuales (se reemplazarán):</div><div>'+_resumenDatosImp(DB)+'</div>'
+        +'</div>'
+        +'<label style="display:flex;gap:8px;align-items:flex-start;margin:14px 0;font-size:0.8rem;cursor:pointer;"><input type="checkbox" id="chkImport" onchange="document.getElementById(\'btnImportOk\').disabled=!this.checked;"> Entiendo que esto reemplaza los datos actuales y no se puede deshacer.</label>'
+        +'<div style="display:flex;gap:8px;flex-wrap:wrap;">'
+        +'<button id="btnImportOk" disabled onclick="_ejecutarImport();" style="background:#dc2626;color:#fff;border:none;padding:10px 16px;border-radius:8px;cursor:pointer;font-weight:bold;">Restaurar ahora</button>'
+        +'<button onclick="document.getElementById(\'ovImport\').remove();" style="background:#334155;color:#fff;border:none;padding:10px 16px;border-radius:8px;cursor:pointer;">Cancelar</button>'
+        +'</div></div>';
+    c.addEventListener('click',e=>{ if(e.target===c) c.remove(); });
+    document.body.appendChild(c);
+}
+window._confirmarImport=_confirmarImport;
+async function _ejecutarImport(){
+    const datos=window._importPendiente; if(!datos) return;
+    const ov=document.getElementById('ovImport'); if(ov) ov.remove();
+    const ahora=new Date(); const p2=n=>String(n).padStart(2,'0');
+    const stamp=ahora.getFullYear()+'-'+p2(ahora.getMonth()+1)+'-'+p2(ahora.getDate())+'_'+p2(ahora.getHours())+p2(ahora.getMinutes());
+    _descargarLocalImp('PRE-IMPORT_OFICINAS_'+stamp+'.json', JSON.stringify({ generado:ahora.toISOString(), sistema:'OFICINAS PROYECTOVISION (pre-import)', datos:DB }));
+    try{ Object.keys(DB).forEach(k=>{ delete DB[k]; }); Object.assign(DB, datos); }
+    catch(e){ showToastRespaldo('❌ Error al cargar los datos: '+(e.message||e), true); return; }
+    try{
+        showToastRespaldo('💾 Guardando datos restaurados en Firebase...');
+        await save();
+        showToastRespaldo('✅ Respaldo restaurado. Recargando...');
+        setTimeout(()=>location.reload(), 1300);
+    }catch(e){ showToastRespaldo('❌ Error al guardar en Firebase: '+(e.message||e), true); }
+}
+window._ejecutarImport=_ejecutarImport;
+
 
 
 
