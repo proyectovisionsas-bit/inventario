@@ -7,6 +7,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
         :root {
             --bg: #0a0f1e;
@@ -534,6 +535,7 @@
             <span id="clock" style="font-size:0.78rem;color:var(--muted);"></span>
             <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn">🌙 Nocturno</button>
             <button class="btn btn-outline btn-sm admin-only" onclick="openAdminPanel()">⚙️ Admin</button>
+            <button class="btn btn-outline btn-sm admin-only" onclick="modalRespaldoDrive()" title="Respaldo a Google Drive">☁️ Respaldo</button>
             <button class="btn btn-outline btn-sm oficina-only" onclick="modalCambiarPass()">🔑 Cambiar clave</button>
             <button class="btn btn-danger btn-sm" onclick="doLogout()">🚪 Salir</button>
         </div>
@@ -1186,6 +1188,7 @@ function enterApp(){
     setTimeout(()=>{ _rtActivo=true; iniciarEscuchaRealtime(); }, 500);
     setTimeout(()=>{ registrarVersion(); iniciarEscuchaVersion(); }, 700);
     setTimeout(showAIFab, 800);
+    setTimeout(()=>{ try{ verificarRespaldoDrive(); }catch(e){ console.warn('verificarRespaldoDrive:',e); } }, 1800);
     setInterval(()=>{
         const c=document.getElementById('clock');
         if(c) c.textContent=new Date().toLocaleTimeString('es-CO');
@@ -15653,6 +15656,148 @@ function openModal(title,body,footer=''){
 }
 function closeModal(){ document.getElementById('modal').classList.remove('show'); }
 document.getElementById('modal').addEventListener('click',function(e){ if(e.target===this) closeModal(); });
+
+// ════════════════════════════════════════════════════════════════════════════
+// ☁️ RESPALDO AUTOMÁTICO A GOOGLE DRIVE (Camino A)
+// ════════════════════════════════════════════════════════════════════════════
+const DRIVE_SCOPE='https://www.googleapis.com/auth/drive.file';
+const DRIVE_FOLDER_NAME='PROYECTOVISION Respaldos';
+let _driveTokenClient=null, _driveToken=null, _driveCb=null;
+
+function driveClientId(){ return localStorage.getItem('drive_client_id')||''; }
+function guardarDriveClientId(id){ localStorage.setItem('drive_client_id',(id||'').trim()); }
+window.guardarDriveClientId=guardarDriveClientId;
+
+function _initDriveTokenClient(cb){
+    const cid=driveClientId();
+    if(!cid){ if(cb)cb(new Error('Falta el ID de cliente de Google')); return false; }
+    if(typeof google==='undefined' || !google.accounts || !google.accounts.oauth2){
+        if(cb)cb(new Error('Google aún no carga, intenta de nuevo en unos segundos')); return false;
+    }
+    _driveTokenClient=google.accounts.oauth2.initTokenClient({
+        client_id:cid, scope:DRIVE_SCOPE,
+        callback:(resp)=>{
+            if(resp && resp.access_token){ _driveToken=resp.access_token; if(_driveCb){const f=_driveCb;_driveCb=null;f(null,resp.access_token);} }
+            else if(_driveCb){ const f=_driveCb;_driveCb=null;f(new Error('No se obtuvo autorización')); }
+        },
+        error_callback:(err)=>{ if(_driveCb){const f=_driveCb;_driveCb=null;f(err||new Error('Error de autorización'));} }
+    });
+    return true;
+}
+function _obtenerTokenDrive(silencioso, cb){
+    _driveCb=cb;
+    if(!_driveTokenClient){ if(!_initDriveTokenClient(cb)) return; }
+    try{ _driveTokenClient.requestAccessToken({prompt: silencioso?'none':''}); }
+    catch(e){ _driveCb=null; cb(e); }
+}
+async function _driveFetch(url,opts){
+    opts=opts||{}; opts.headers=opts.headers||{};
+    opts.headers['Authorization']='Bearer '+_driveToken;
+    const r=await fetch(url,opts);
+    if(!r.ok){ const t=await r.text(); throw new Error('Drive '+r.status+': '+t.slice(0,200)); }
+    return r.json();
+}
+async function _carpetaRespaldos(){
+    const q=encodeURIComponent("name='"+DRIVE_FOLDER_NAME+"' and mimeType='application/vnd.google-apps.folder' and trashed=false");
+    const res=await _driveFetch('https://www.googleapis.com/drive/v3/files?q='+q+'&fields=files(id,name)&spaces=drive');
+    if(res.files && res.files.length>0) return res.files[0].id;
+    const crear=await _driveFetch('https://www.googleapis.com/drive/v3/files?fields=id',{
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({name:DRIVE_FOLDER_NAME, mimeType:'application/vnd.google-apps.folder'})
+    });
+    return crear.id;
+}
+async function _subirRespaldoDrive(){
+    const folderId=await _carpetaRespaldos();
+    const ahora=new Date();
+    const p2=n=>String(n).padStart(2,'0');
+    const stamp=ahora.getFullYear()+'-'+p2(ahora.getMonth()+1)+'-'+p2(ahora.getDate())+'_'+p2(ahora.getHours())+p2(ahora.getMinutes());
+    const nombre='respaldo_OFICINAS_'+stamp+'.json';
+    const contenido=JSON.stringify({ generado:ahora.toISOString(), sistema:'OFICINAS PROYECTOVISION', datos:DB });
+    const metadata={ name:nombre, parents:[folderId], mimeType:'application/json' };
+    const boundary='----pv'+Date.now();
+    const body='--'+boundary+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'+JSON.stringify(metadata)+'\r\n--'+boundary+'\r\nContent-Type: application/json\r\n\r\n'+contenido+'\r\n--'+boundary+'--';
+    await _driveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name',{
+        method:'POST', headers:{'Content-Type':'multipart/related; boundary='+boundary}, body:body
+    });
+    localStorage.setItem('drive_last_backup', hoyLocal());
+    return nombre;
+}
+function respaldarADrive(silencioso){
+    if(!driveClientId()){ if(!silencioso) modalRespaldoDrive(); return; }
+    _obtenerTokenDrive(silencioso, async (err)=>{
+        if(err){
+            if(!silencioso) showToastRespaldo('❌ No se pudo autorizar Drive: '+(err.message||err), true);
+            else _bannerRespaldoPendiente();
+            return;
+        }
+        try{
+            if(!silencioso) showToastRespaldo('☁️ Subiendo respaldo a Drive...');
+            const nombre=await _subirRespaldoDrive();
+            showToastRespaldo('✅ Respaldo guardado en Drive: '+nombre);
+            _quitarBannerRespaldo();
+        }catch(e){ showToastRespaldo('❌ Error al subir respaldo: '+(e.message||e), true); }
+    });
+}
+window.respaldarADrive=respaldarADrive;
+function verificarRespaldoDrive(){
+    if(!driveClientId()) return;                                  // no configurado
+    const now=new Date(); const mins=now.getHours()*60+now.getMinutes();
+    if(mins < (18*60+30)) return;                                 // aún no son las 18:30
+    if(localStorage.getItem('drive_last_backup')===hoyLocal()) return; // ya se respaldó hoy
+    respaldarADrive(true);                                        // intento silencioso; si requiere consentimiento muestra banner
+}
+window.verificarRespaldoDrive=verificarRespaldoDrive;
+
+function showToastRespaldo(msg, err){
+    let t=document.getElementById('toastRespaldo');
+    if(!t){ t=document.createElement('div'); t.id='toastRespaldo';
+        t.style.cssText='position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:12px 18px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,0.3);z-index:99999;font-size:0.9rem;max-width:90vw;text-align:center;';
+        document.body.appendChild(t);
+    }
+    t.style.background=err?'#7f1d1d':'#1e293b';
+    t.textContent=msg; t.style.display='block';
+    clearTimeout(t._to); t._to=setTimeout(()=>{ t.style.display='none'; }, err?7000:4500);
+}
+function _bannerRespaldoPendiente(){
+    if(document.getElementById('bannerRespaldo')) return;
+    const b=document.createElement('div'); b.id='bannerRespaldo';
+    b.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;padding:12px 16px;border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,0.35);z-index:99999;display:flex;gap:12px;align-items:center;font-size:0.9rem;';
+    const txt=document.createElement('span'); txt.textContent='☁️ Es hora del respaldo diario a Drive.';
+    const btn=document.createElement('button'); btn.textContent='Respaldar ahora';
+    btn.style.cssText='background:#fff;color:#1d4ed8;border:none;padding:6px 12px;border-radius:8px;font-weight:bold;cursor:pointer;';
+    btn.onclick=()=>respaldarADrive(false);
+    const x=document.createElement('button'); x.textContent='✕';
+    x.style.cssText='background:transparent;color:#fff;border:none;cursor:pointer;font-size:1rem;';
+    x.onclick=_quitarBannerRespaldo;
+    b.appendChild(txt); b.appendChild(btn); b.appendChild(x);
+    document.body.appendChild(b);
+}
+function _quitarBannerRespaldo(){ const b=document.getElementById('bannerRespaldo'); if(b) b.remove(); }
+
+function modalRespaldoDrive(){
+    const cid=driveClientId();
+    const last=localStorage.getItem('drive_last_backup')||'nunca';
+    const ov=document.createElement('div'); ov.id='ovRespaldo';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;';
+    ov.innerHTML='<div style="background:#0f172a;color:#e2e8f0;max-width:470px;width:100%;border-radius:14px;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,0.5);max-height:90vh;overflow:auto;">'
+        +'<h2 style="margin:0 0 4px;font-size:1.15rem;">☁️ Respaldo a Google Drive</h2>'
+        +'<p style="margin:0 0 14px;font-size:0.82rem;color:#94a3b8;">Sube una copia completa de la base de datos a tu Drive. Último respaldo: <strong>'+last+'</strong></p>'
+        +'<label style="font-size:0.8rem;display:block;margin-bottom:4px;">ID de cliente de Google (OAuth)</label>'
+        +'<input id="inpDriveCid" value="'+cid.replace(/"/g,'&quot;')+'" placeholder="123...apps.googleusercontent.com" style="width:100%;padding:9px;border-radius:8px;border:1px solid #334155;background:#1e293b;color:#fff;font-size:0.82rem;box-sizing:border-box;">'
+        +'<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">'
+        +'<button onclick="guardarDriveClientId(document.getElementById(\'inpDriveCid\').value);showToastRespaldo(\'✅ ID de cliente guardado\');" style="background:#2563eb;color:#fff;border:none;padding:9px 14px;border-radius:8px;cursor:pointer;font-weight:bold;">Guardar ID</button>'
+        +'<button onclick="document.getElementById(\'ovRespaldo\').remove();respaldarADrive(false);" style="background:#16a34a;color:#fff;border:none;padding:9px 14px;border-radius:8px;cursor:pointer;font-weight:bold;">📤 Respaldar ahora</button>'
+        +'<button onclick="document.getElementById(\'ovRespaldo\').remove();" style="background:#334155;color:#fff;border:none;padding:9px 14px;border-radius:8px;cursor:pointer;">Cerrar</button>'
+        +'</div>'
+        +'<p style="margin:14px 0 0;font-size:0.74rem;color:#64748b;line-height:1.5;">El respaldo automático corre cuando alguien entra después de las <strong>6:30 p.m.</strong> y aún no se ha respaldado ese día. Para el respaldo programado fijo (aunque nadie entre) usa el Apps Script (Camino B).</p>'
+        +'</div>';
+    ov.addEventListener('click',e=>{ if(e.target===ov) ov.remove(); });
+    document.body.appendChild(ov);
+}
+window.modalRespaldoDrive=modalRespaldoDrive;
+
+
 
 // ─── FIREBASE INIT ──────────────────────────────────────────────────────────
 const firebaseConfig = {
