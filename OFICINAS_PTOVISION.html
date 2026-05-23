@@ -8830,6 +8830,29 @@ function _detectarPeriodoPregunta(pregunta){
     m=p.match(/hace (\d+) mes/);
     if(m){ const n=parseInt(m[1]); const d=new Date(hoy.getFullYear(), hoy.getMonth()-n, 1); return {mes:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`, etiqueta:`hace ${n} meses`}; }
 
+    // Día específico tipo "2 de mayo", "el día 15 de abril de 2026" (debe ir ANTES del mes solo)
+    let md=p.match(/\b(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)(?:\s+de(?:l)?\s+(20\d{2}))?/);
+    if(md){
+        const diaN=parseInt(md[1]); const mesN=meses[md[2]];
+        const anioN=md[3]?parseInt(md[3]):(mesN>hoy.getMonth()?hoy.getFullYear()-1:hoy.getFullYear());
+        if(diaN>=1&&diaN<=31){
+            const fStr=`${anioN}-${String(mesN+1).padStart(2,'0')}-${String(diaN).padStart(2,'0')}`;
+            return {desde:fStr, hasta:fStr, etiqueta:`${diaN} de ${md[2]} de ${anioN}`, dia:true};
+        }
+    }
+    // Fecha numérica tipo 02/05/2026 o 2-5-2026
+    let mnum=p.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](20\d{2})\b/);
+    if(mnum){
+        const diaN=parseInt(mnum[1]), mesNum=parseInt(mnum[2]), anioN=parseInt(mnum[3]);
+        if(diaN>=1&&diaN<=31&&mesNum>=1&&mesNum<=12){
+            const fStr=`${anioN}-${String(mesNum).padStart(2,'0')}-${String(diaN).padStart(2,'0')}`;
+            return {desde:fStr, hasta:fStr, etiqueta:fStr, dia:true};
+        }
+    }
+    // Fecha ISO tipo 2026-05-02
+    let miso=p.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
+    if(miso){ return {desde:miso[0], hasta:miso[0], etiqueta:miso[0], dia:true}; }
+
     // Nombre de mes explícito (ej. "en marzo", "abril")
     for(const [nombre,idx] of Object.entries(meses)){
         if(new RegExp('\\b'+nombre+'\\b').test(p)){
@@ -8930,6 +8953,18 @@ function _construirContextoNegocio(pregunta){
                 t:m.tipo, c:m.concepto, d:m.descripcion?.slice(0,40),
                 fp:m.forma, v:m.valor
             }));
+        }
+        // Desglose POR DÍA del período consultado (compacto: solo días con movimiento, máx 45 días)
+        const _porDiaMap={};
+        movsMes.forEach(m=>{
+            const f=(m.fecha||'').slice(0,10); if(!f) return;
+            if(!_porDiaMap[f]) _porDiaMap[f]={i:0,e:0};
+            if(m.tipo==='ingreso') _porDiaMap[f].i+=parseFloat(m.valor||0);
+            else _porDiaMap[f].e+=parseFloat(m.valor||0);
+        });
+        const _diasOrden=Object.keys(_porDiaMap).sort();
+        if(_diasOrden.length>0 && _diasOrden.length<=45){
+            oficinaObj.movimientosPorDia=_diasOrden.map(f=>({f, ing:_porDiaMap[f].i, egr:_porDiaMap[f].e, neto:_porDiaMap[f].i-_porDiaMap[f].e}));
         }
         // Etiqueta del período consultado (para que la IA sepa de qué fechas habla)
         oficinaObj.periodoConsultado=_etiquetaPeriodo;
@@ -9060,7 +9095,8 @@ ${JSON.stringify(contexto)}
 
 INSTRUCCIONES:
 - Usa los datos REALES del JSON
-- El campo "periodoConsultado" te dice de qué período son los datos (ej. "mes actual", "abril 2026"). Si el usuario preguntó por un período específico, los datos ya están filtrados a ese período.
+- El campo "periodoConsultado" te dice de qué período son los datos (ej. "mes actual", "abril 2026", "2 de mayo de 2026"). Si el usuario preguntó por un período específico, los datos ya están filtrados a ese período.
+- Cada oficina trae "movimientosPorDia": detalle día por día (f=fecha, ing=ingresos, egr=egresos, neto) del período consultado. ÚSALO para responder por un día puntual (ej. "el 2 de mayo"). MUY IMPORTANTE: si te preguntan por un día y ese día NO aparece en movimientosPorDia, significa que ESE DÍA NO HUBO MOVIMIENTOS registrados; dilo así (ej. "El 2 de mayo no se registraron movimientos en esa oficina"). NUNCA digas que "no tienes la información" si el período ya está consultado.
 - Valores en COP con formato $ y separador miles (ej: $1.500.000)
 - Negrita en números/nombres importantes con **texto**
 - Sé conciso, máximo 5-6 frases salvo que pidan análisis profundo
