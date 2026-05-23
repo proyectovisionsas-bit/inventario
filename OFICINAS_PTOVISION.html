@@ -622,6 +622,15 @@
                 <button class="nav-btn admin-only" data-tab="administracion">🛠️ Administración</button>
             </div>
         </div>
+
+        <!-- IPTV / PVISION -->
+        <div class="nav-group" id="navGrpIptv">
+            <button class="nav-group-btn" onclick="toggleNavGroup('navGrpIptv')">📡 IPTV <span class="nav-arrow">▾</span></button>
+            <div class="nav-group-items">
+                <div class="nav-group-label">PVISION</div>
+                <button class="nav-btn" data-tab="pvision_control">🎬 Control PVISION</button>
+            </div>
+        </div>
     </nav>
     <div class="container" id="appContent"></div>
 </div>
@@ -1312,7 +1321,7 @@ function navigate(tab){
     if(document.getElementById('aiPanel')?.classList.contains('open')){
         setTimeout(()=>{actualizarContextoIA();actualizarSugerenciasIA();},100);
     }
-    const renders = { dash:renderDash, registro:renderRegistro, clientes:renderClientes, reportes:renderReportes, vendedores:renderVendedores, incentivos:renderIncentivos, ventas:renderVentas2, pagos_admin:renderPagosAdmin, prestamos:renderPrestamos, rrhh:renderRRHH, administracion:renderAdmin, especiales:renderClientesEspeciales, facturas:renderFacturas, recogidas:renderRecogidas };
+    const renders = { dash:renderDash, registro:renderRegistro, clientes:renderClientes, reportes:renderReportes, vendedores:renderVendedores, incentivos:renderIncentivos, ventas:renderVentas2, pagos_admin:renderPagosAdmin, prestamos:renderPrestamos, rrhh:renderRRHH, administracion:renderAdmin, especiales:renderClientesEspeciales, facturas:renderFacturas, recogidas:renderRecogidas, pvision_control:renderPvisionControl };
     if(renders[tab]) renders[tab]();
 }
 
@@ -7590,6 +7599,118 @@ function eliminarRecordatorio(rid){
 // ═══════════════════════════════════════════════════════════════
 // MÓDULO PRÉSTAMOS
 // ═══════════════════════════════════════════════════════════════
+
+// ─── PVISION IPTV CONTROL ───────────────────────────────────────────────────
+function renderPvisionControl(){
+    const content=document.getElementById('appContent');
+    const presets = JSON.parse(localStorage.getItem('pvision_presets')||'[]');
+    const equipos = JSON.parse(localStorage.getItem('pvision_equipos')||'[]');
+
+    content.innerHTML=`
+    <div class="card" style="max-width:680px;margin:0 auto;">
+        <div class="card-header">
+            <h2>🎬 Control PVISION IPTV</h2>
+            <div style="font-size:0.78rem;color:var(--muted);">Envía listas M3U a tus equipos a distancia</div>
+        </div>
+
+        <div style="background:rgba(34,232,224,0.07);border-left:3px solid #22e8e0;padding:14px 16px;border-radius:8px;margin-bottom:20px;font-size:0.85rem;line-height:1.6;color:var(--muted);">
+            <strong style="color:var(--ink);">¿Cómo funciona?</strong><br>
+            1. Abre PVISION IPTV en el TV o equipo.<br>
+            2. Copia el <strong>código de 6 caracteres</strong> que muestra la pantalla.<br>
+            3. Escríbelo aquí con la URL de la lista y pulsa transmitir.
+        </div>
+
+        <div class="form-group" style="margin-bottom:16px;">
+            <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:6px;color:var(--ink);">Código del equipo (6 caracteres)</label>
+            <input type="text" class="form-control" id="pvCode" maxlength="6" placeholder="ABC123"
+                style="text-transform:uppercase;letter-spacing:4px;font-family:monospace;font-size:1.1rem;text-align:center;"
+                oninput="this.value=this.value.toUpperCase()">
+        </div>
+
+        <div class="form-group" style="margin-bottom:8px;">
+            <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:6px;color:var(--ink);">URL de la lista (.m3u / .m3u8)</label>
+            <input type="text" class="form-control" id="pvUrl" placeholder="https://tu-servidor.com/lista.m3u8" style="font-family:monospace;font-size:0.85rem;">
+        </div>
+
+        ${presets.length? `<div style="margin-bottom:16px;">
+            <div style="font-size:0.72rem;color:var(--muted);margin-bottom:6px;">Listas usadas recientemente:</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                ${presets.map(u=>`<button class="btn btn-sm" style="background:rgba(34,232,224,0.1);color:#22e8e0;border:1px solid rgba(34,232,224,0.3);font-size:0.7rem;font-family:monospace;" onclick="document.getElementById('pvUrl').value='${u.replace(/'/g,"\\'")}'">${u.length>40?u.slice(0,40)+'…':u}</button>`).join('')}
+            </div>
+        </div>`:''}
+
+        <button class="btn btn-primary" id="pvSendBtn" style="width:100%;padding:13px;font-size:0.95rem;" onclick="pvisionTransmit()">📡 Transmitir lista al equipo</button>
+
+        <div id="pvStatus" style="margin-top:14px;padding:12px;border-radius:8px;font-size:0.85rem;text-align:center;display:none;"></div>
+    </div>
+
+    ${equipos.length? `<div class="card" style="max-width:680px;margin:16px auto 0;">
+        <div class="card-header"><h2>📺 Equipos guardados</h2></div>
+        <div class="table-wrap"><table>
+            <thead><tr><th>Nombre</th><th>Código</th><th></th></tr></thead>
+            <tbody>
+                ${equipos.map((e,i)=>`<tr>
+                    <td><strong>${e.nombre}</strong></td>
+                    <td style="font-family:monospace;letter-spacing:2px;">${e.codigo}</td>
+                    <td><button class="btn btn-sm" style="background:rgba(34,232,224,0.1);color:#22e8e0;" onclick="document.getElementById('pvCode').value='${e.codigo}'">Usar</button>
+                        <button class="btn btn-sm btn-danger" onclick="pvisionDelEquipo(${i})">🗑️</button></td>
+                </tr>`).join('')}
+            </tbody>
+        </table></div>
+    </div>`:''}
+
+    <div class="card" style="max-width:680px;margin:16px auto 0;">
+        <div class="card-header"><h2>💾 Guardar equipo</h2><div style="font-size:0.75rem;color:var(--muted);">Para no escribir el código cada vez</div></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <input type="text" class="form-control" id="pvEquipoNombre" placeholder="Nombre (ej: TV Sala)" style="flex:1;min-width:140px;">
+            <input type="text" class="form-control" id="pvEquipoCodigo" placeholder="Código" maxlength="6" style="flex:1;min-width:120px;text-transform:uppercase;font-family:monospace;" oninput="this.value=this.value.toUpperCase()">
+            <button class="btn btn-primary" onclick="pvisionSaveEquipo()">➕ Guardar</button>
+        </div>
+    </div>`;
+}
+
+async function pvisionTransmit(){
+    const code=document.getElementById('pvCode').value.trim().toUpperCase();
+    const url=document.getElementById('pvUrl').value.trim();
+    const st=document.getElementById('pvStatus');
+    const showStatus=(msg,ok)=>{ st.style.display='block'; st.textContent=msg;
+        st.style.background=ok?'rgba(16,185,129,0.12)':'rgba(239,68,68,0.12)';
+        st.style.color=ok?'#10b981':'#ef4444';
+        st.style.border='1px solid '+(ok?'rgba(16,185,129,0.3)':'rgba(239,68,68,0.3)'); };
+
+    if(code.length!==6){ showStatus('El código debe tener 6 caracteres.',false); return; }
+    if(!url){ showStatus('Escribe la URL de la lista.',false); return; }
+
+    const btn=document.getElementById('pvSendBtn');
+    btn.disabled=true; btn.textContent='Enviando…';
+    try{
+        const res=await fetch('https://ntfy.sh/m3uplay-'+code,{method:'POST',body:JSON.stringify({url})});
+        if(!res.ok) throw new Error();
+        showStatus('✓ Lista transmitida al equipo '+code+'. Debería empezar a cargar.',true);
+        // guardar preset
+        let presets=JSON.parse(localStorage.getItem('pvision_presets')||'[]');
+        presets=[url,...presets.filter(x=>x!==url)].slice(0,5);
+        localStorage.setItem('pvision_presets',JSON.stringify(presets));
+    }catch(e){ showStatus('Error al enviar. Revisa la conexión y el código.',false); }
+    btn.disabled=false; btn.textContent='📡 Transmitir lista al equipo';
+}
+
+function pvisionSaveEquipo(){
+    const nombre=document.getElementById('pvEquipoNombre').value.trim();
+    const codigo=document.getElementById('pvEquipoCodigo').value.trim().toUpperCase();
+    if(!nombre||codigo.length!==6){ alert('Escribe un nombre y un código de 6 caracteres.'); return; }
+    let equipos=JSON.parse(localStorage.getItem('pvision_equipos')||'[]');
+    equipos.push({nombre,codigo});
+    localStorage.setItem('pvision_equipos',JSON.stringify(equipos));
+    renderPvisionControl();
+}
+
+function pvisionDelEquipo(i){
+    let equipos=JSON.parse(localStorage.getItem('pvision_equipos')||'[]');
+    equipos.splice(i,1);
+    localStorage.setItem('pvision_equipos',JSON.stringify(equipos));
+    renderPvisionControl();
+}
 
 function renderPrestamos(){
     const content=document.getElementById('appContent');
