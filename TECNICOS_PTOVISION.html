@@ -80,7 +80,7 @@ header .who small{display:block;color:var(--muted);font-size:0.72rem;font-weight
 <div id="login">
     <div class="login-card">
         <div class="login-logo">🔧</div>
-        <h1>App de Técnicos</h1>
+        <h1>Técnicos</h1>
         <div class="sub">PROYECTOVISION</div>
         <label>Número de documento</label>
         <input id="li_doc" type="text" inputmode="numeric" placeholder="Tu cédula" autocomplete="off">
@@ -89,6 +89,7 @@ header .who small{display:block;color:var(--muted);font-size:0.72rem;font-weight
         <button class="btn btn-primary" onclick="doLogin()">Ingresar</button>
         <div id="li_err" style="color:#f87171;font-size:0.82rem;text-align:center;margin-top:10px;"></div>
         <div id="li_status" class="sync" style="text-align:center;margin-top:14px;"></div>
+        <a href="index.html" class="btn btn-ghost btn-block" style="display:block;text-align:center;text-decoration:none;margin-top:16px;">← Volver al inicio</a>
     </div>
 </div>
 
@@ -96,8 +97,9 @@ header .who small{display:block;color:var(--muted);font-size:0.72rem;font-weight
 <div id="app" class="hidden">
     <header>
         <div class="who" id="hWho">—</div>
-        <div style="display:flex;align-items:center;gap:10px;">
+        <div style="display:flex;align-items:center;gap:8px;">
             <span class="sync" id="hSync">●</span>
+            <button class="btn btn-ghost btn-sm" onclick="modalCambiarClave()">🔑</button>
             <button class="btn btn-ghost btn-sm" onclick="doLogout()">Salir</button>
         </div>
     </header>
@@ -325,6 +327,60 @@ async function guardarNota(ordenId){
     }catch(e){ showToast('❌ '+(e.message||e), true); }
 }
 window.guardarNota=guardarNota;
+
+function modalCambiarClave(){
+    const bg=document.createElement('div'); bg.className='modal-bg'; bg.id='modalClave';
+    bg.innerHTML=`<div class="modal">
+        <h3>🔑 Cambiar mi clave</h3>
+        <label>Clave actual</label>
+        <input id="ck_actual" type="password" placeholder="Tu clave actual">
+        <label>Nueva clave</label>
+        <input id="ck_nueva" type="password" placeholder="Nueva clave">
+        <label>Repetir nueva clave</label>
+        <input id="ck_nueva2" type="password" placeholder="Repite la nueva clave">
+        <div id="ck_err" style="color:#f87171;font-size:0.82rem;margin-bottom:10px;"></div>
+        <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary btn-block" onclick="guardarClave()">Guardar</button>
+            <button class="btn btn-ghost" onclick="document.getElementById('modalClave').remove()">Cerrar</button>
+        </div>
+    </div>`;
+    bg.addEventListener('click',e=>{ if(e.target===bg) bg.remove(); });
+    document.body.appendChild(bg);
+}
+window.modalCambiarClave=modalCambiarClave;
+
+async function guardarClave(){
+    const err=document.getElementById('ck_err');
+    const actual=document.getElementById('ck_actual').value.trim();
+    const nueva=document.getElementById('ck_nueva').value.trim();
+    const nueva2=document.getElementById('ck_nueva2').value.trim();
+    err.textContent='';
+    if(!actual||!nueva||!nueva2){ err.textContent='Completa todos los campos.'; return; }
+    if(nueva!==nueva2){ err.textContent='La nueva clave no coincide.'; return; }
+    if(nueva.length<3){ err.textContent='La clave debe tener al menos 3 caracteres.'; return; }
+    try{
+        const ref=db.collection(COLECCION).doc(DOC_ID);
+        let ok=false;
+        await db.runTransaction(async tx=>{
+            const snap=await tx.get(ref);
+            if(!snap.exists) throw new Error('No existe el documento');
+            const data=snap.data();
+            const empleados=data.rrhh_empleados||[];
+            const idx=empleados.findIndex(e=>String(e.id)===String(TEC.id));
+            if(idx<0) throw new Error('Tu usuario ya no existe');
+            if(String(empleados[idx].tecnicoPass||'').trim()!==actual){ throw new Error('La clave actual no es correcta'); }
+            empleados[idx].tecnicoPass=nueva;
+            tx.update(ref, { rrhh_empleados: empleados });
+            ok=true;
+        });
+        if(ok){
+            try{ sessionStorage.setItem('tec_session', JSON.stringify({doc:TEC.documento, pass:nueva})); }catch(e){}
+            const m=document.getElementById('modalClave'); if(m) m.remove();
+            showToast('✅ Clave actualizada');
+        }
+    }catch(e){ err.textContent=(e.message||e); }
+}
+window.guardarClave=guardarClave;
 
 function showToast(msg, err){
     let t=document.getElementById('toast');
