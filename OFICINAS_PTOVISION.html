@@ -3005,6 +3005,27 @@ function modalVerCliente(oid,cid){
             <div style="font-size:0.65rem;color:var(--muted);margin-top:8px;">Actualizado: ${c.estadoPago.actualizadoEn?new Date(c.estadoPago.actualizadoEn).toLocaleDateString('es-CO'):'-'} (al cargar facturas en Recogida)</div>
         </div>`:''}
 
+        <!-- Historial de órdenes de trabajo del cliente -->
+        ${(function(){
+            const ordsC=(DB.ordenesTrabajo||[]).filter(ot=>{
+                const idc=(c.cedula||c.documento||'').toString().trim();
+                return (idc && (ot.cedula||'').toString().trim()===idc) || (ot.clienteId && String(ot.clienteId)===String(cid));
+            }).sort((a,b)=>(b.creada||0)-(a.creada||0));
+            if(ordsC.length===0) return '';
+            return `<div style="margin-top:14px;">
+                <div style="font-weight:800;font-size:0.85rem;color:#818cf8;margin-bottom:8px;">🔧 Órdenes de trabajo (${ordsC.length})</div>
+                ${ordsC.slice(0,6).map(ot=>{
+                    const tp=(ORDEN_TIPOS[ot.tipo]||{label:ot.tipo,icon:'🔧'});
+                    const es=(ORDEN_ESTADOS[ot.estado]||ORDEN_ESTADOS.pendiente);
+                    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin-bottom:6px;">
+                        <div style="font-size:0.82rem;">${tp.icon} ${tp.label}<div style="font-size:0.7rem;color:var(--muted);">${ot.creada?new Date(ot.creada).toLocaleDateString('es-CO'):''}${ot.tecnicoId?' · 👷 '+_nombreOrdenTecnico(ot.tecnicoId):''}</div></div>
+                        <span style="background:${es.color}22;color:${es.color};padding:2px 9px;border-radius:10px;font-size:0.7rem;font-weight:700;white-space:nowrap;">${es.icon} ${es.label}</span>
+                    </div>`;
+                }).join('')}
+                ${ordsC.length>6?`<div style="font-size:0.72rem;color:var(--muted);">…y ${ordsC.length-6} más (ver módulo Órdenes de Trabajo)</div>`:''}
+            </div>`;
+        })()}
+
         <!-- Sección de equipos del inventario -->
         <div style="margin-top:14px;">
             <div id="inv_equipos_${cid}">
@@ -3014,6 +3035,7 @@ function modalVerCliente(oid,cid){
             </div>
         </div>
     `,`<button class="btn btn-outline" onclick="closeModal()">Cerrar</button>
+       <button class="btn btn-primary" onclick="ordenDesdeCliente('${oid}','${cid}')">🔧 Crear orden</button>
        <button class="btn btn-outline" onclick="closeModal();setTimeout(()=>modalEditarCliente('${oid}','${cid}'),100)">✏️ Editar cliente</button>`);
 
     // Cargar y mostrar equipos del inventario (filtrado por la bodega de esta oficina)
@@ -12968,6 +12990,26 @@ function _refrescarTecnicosOrden(){
 window._refrescarTecnicosOrden=_refrescarTecnicosOrden;
 window.modalNuevaOrden=modalNuevaOrden;
 
+// Crear orden prellenada desde la ficha de un cliente
+function ordenDesdeCliente(oid, cid){
+    const o=DB.oficinas.find(x=>x.id===oid)||getOficina(oid);
+    const c=(o?.clientes||[]).find(x=>x.id===cid);
+    if(!c) return alert('No se encontró el cliente.');
+    closeModal();
+    setTimeout(()=>{
+        openModal('🔧 Nueva orden — '+c.nombre, _formOrden({
+            oficinaId: oid,
+            cliente: c.nombre||'',
+            cedula: (c.cedula||c.documento||'').toString(),
+            direccion: c.direccion||'',
+            clienteId: cid
+        }),
+        `<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+         <button class="btn btn-primary" onclick="guardarNuevaOrden('${cid}')">✅ Crear orden</button>`);
+    }, 120);
+}
+window.ordenDesdeCliente=ordenDesdeCliente;
+
 function _getFormOrden(){
     return {
         tipo:document.getElementById('fo_tipo').value,
@@ -12979,7 +13021,7 @@ function _getFormOrden(){
         descripcion:document.getElementById('fo_desc').value.trim()
     };
 }
-function guardarNuevaOrden(){
+function guardarNuevaOrden(clienteId){
     const d=_getFormOrden();
     if(!d.tipo||!d.oficinaId) return alert('Selecciona tipo y oficina.');
     if(!DB.ordenesTrabajo) DB.ordenesTrabajo=[];
@@ -12987,6 +13029,7 @@ function guardarNuevaOrden(){
         id:'ord_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
         tipo:d.tipo, oficinaId:d.oficinaId, cliente:d.cliente, cedula:d.cedula,
         direccion:d.direccion, tecnicoId:d.tecnicoId||'', descripcion:d.descripcion,
+        clienteId:clienteId||'',
         estado:'pendiente', observacionTecnico:'',
         creada:Date.now(), creadaPor:USER.nombre||USER.role, actualizada:Date.now()
     });
