@@ -140,6 +140,7 @@ const ORDEN_ESTADOS = {
 };
 
 let db=null, TEC=null, DATA=null, _unsub=null, _tab='activas';
+let _invClientes=[], _invBodegas=[], _invCargado=false;
 
 // ── Init Firebase ──
 function initFB(){
@@ -260,6 +261,7 @@ function render(){
             <div class="muted">🏢 ${ofi?ofi.nombre:'—'}${disponible?' · <span style="color:#f59e0b;">disponible</span>':''}</div>
             ${o.observacionTecnico?`<div class="muted">🗣️ Tu nota: ${o.observacionTecnico}</div>`:''}
             <div class="order-actions">
+                ${o.cliente?`<button class="btn btn-sm btn-ghost" onclick="modalEquiposCliente('${o.id}')">📦 Equipos</button>`:''}
                 ${est.next?`<button class="btn btn-sm ${est.next==='finalizada'?'btn-ok':est.next==='proceso'?'btn-purple':'btn-blue'}" onclick="avanzar('${o.id}','${est.next}')">${est.nextLabel}</button>`:''}
                 ${(o.estado==='aceptada'||o.estado==='proceso')?`<button class="btn btn-sm" style="background:#ef4444;color:#fff;" onclick="modalReagendar('${o.id}')">🔁 No se pudo</button>`:''}
                 ${o.estado!=='finalizada'?`<button class="btn btn-sm btn-ghost" onclick="modalNota('${o.id}')">📝 Nota</button>`:''}
@@ -544,6 +546,148 @@ async function guardarClave(){
     }catch(e){ err.textContent=(e.message||e); }
 }
 window.guardarClave=guardarClave;
+
+// ── #Equipos del cliente desde el INVENTARIO ──
+async function _cargarInventarioClientes(){
+    try{
+        const snap=await db.collection('inventario').doc('datos').get();
+        const data=snap.exists?snap.data():{};
+        _invBodegas=data.bodegas||[];
+        // Clientes: pueden estar embebidos o en chunks
+        let clientes=data.clientes||[];
+        if(clientes.length===0){
+            try{
+                const idx=await db.collection('inventario').doc('clientes_index').get();
+                if(idx.exists){
+                    const n=idx.data().numChunks||0;
+                    for(let i=0;i<n;i++){
+                        const cs=await db.collection('inventario').doc('clientes_'+i).get();
+                        if(cs.exists) clientes=clientes.concat(cs.data().clientes||[]);
+                    }
+                }
+            }catch(e){ console.warn('chunks inv',e); }
+        }
+        _invClientes=clientes;
+        _invCargado=true;
+    }catch(e){ console.warn('cargar inventario clientes',e); _invCargado=true; }
+}
+
+function _norm(s){ return (s||'').toString().toLowerCase().trim().replace(/\s+/g,' '); }
+function _buscarClienteInv(orden){
+    const ced=_norm(orden.cedula);
+    const nom=_norm(orden.cliente);
+    // 1) por cédula
+    if(ced){ const m=_invClientes.find(c=>_norm(c.cedula||c.documento)===ced); if(m) return m; }
+    // 2) por nombre exacto
+    if(nom){ const m=_invClientes.find(c=>_norm(c.nombre)===nom); if(m) return m; }
+    // 3) por nombre parcial
+    if(nom){ const m=_invClientes.find(c=>_norm(c.nombre).includes(nom)||nom.includes(_norm(c.nombre))); if(m) return m; }
+    return null;
+}
+
+async function modalEquiposCliente(ordenId){
+    const o=(DATA.ordenesTrabajo||[]).find(x=>x.id===ordenId);
+    if(!o) return;
+    // Mostrar modal con "cargando" mientras trae el inventario
+    const bg=document.createElement('div'); bg.className='modal-bg'; bg.id='modalEq';
+    bg.innerHTML=`<div class="modal"><h3>📦 Equipos de ${o.cliente||'cliente'}</h3><div class="center"><div class="spin"></div><div>Buscando en inventario...</div></div></div>`;
+    bg.addEventListener('click',e=>{ if(e.target===bg) bg.remove(); });
+    document.body.appendChild(bg);
+
+    if(!_invCargado) await _cargarInventarioClientes();
+    const cli=_buscarClienteInv(o);
+    _renderModalEquipos(ordenId, cli);
+}
+window.modalEquiposCliente=modalEquiposCliente;
+
+function _renderModalEquipos(ordenId, cli){
+    const o=(DATA.ordenesTrabajo||[]).find(x=>x.id===ordenId);
+    const bg=document.getElementById('modalEq'); if(!bg) return;
+    const equipos=(cli&&Array.isArray(cli.equipos))?cli.equipos.filter(e=>(e.cantidad===undefined||e.cantidad>0)):[];
+    const encontrado=!!cli;
+    bg.innerHTML=`<div class="modal">
+        <h3>📦 Equipos de ${o.cliente||'cliente'}</h3>
+        ${!encontrado?`<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px;font-size:0.82rem;color:#fbbf24;margin-bottom:12px;">⚠️ Este cliente no se encontró en el inventario por nombre/cédula. Puedes agregar el equipo igualmente y quedará pendiente de confirmar.</div>`:''}
+        ${equipos.length?`<div style="margin-bottom:12px;">${equipos.map(e=>`
+            <div style="background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin-bottom:6px;">
+                <div style="font-weight:700;font-size:0.85rem;">${e.nombre} ${e.pendienteConfirmar?'<span style="color:#fbbf24;font-size:0.7rem;">(pendiente)</span>':''}</div>
+                <div style="font-size:0.72rem;color:var(--muted);">${e.tipo||''} · ${e.cantidad||1} ${e.unidad||'und'}${(e.snes&&e.snes.length)?' · SN: '+e.snes.join(', '):''}</div>
+            </div>`).join('')}</div>`:`<p style="color:var(--muted);font-size:0.85rem;margin-bottom:12px;">${encontrado?'Este cliente no tiene equipos registrados.':''}</p>`}
+
+        <div style="border-top:1px solid var(--border);padding-top:12px;">
+            <div style="font-weight:700;font-size:0.85rem;margin-bottom:8px;color:var(--accent);">➕ Agregar equipo que el cliente ya tenía</div>
+            <label>Equipo / artículo</label>
+            <input id="aeNom" placeholder="Ej: Router TP-Link">
+            <label>Cantidad</label>
+            <input id="aeCant" type="number" value="1" min="1">
+            <label>Estado</label>
+            <select id="aeTipo"><option value="usado">🟡 Usado</option><option value="nuevo">🟢 Nuevo</option></select>
+            <label>Seriales / SN (uno por línea, opcional)</label>
+            <textarea id="aeSN" rows="2" placeholder="SN12345"></textarea>
+            <div style="display:flex;gap:8px;margin-top:6px;">
+                <button class="btn btn-primary btn-block" onclick="agregarEquipoCliente('${ordenId}')">Agregar equipo</button>
+                <button class="btn btn-ghost" onclick="document.getElementById('modalEq').remove()">Cerrar</button>
+            </div>
+        </div>
+    </div>`;
+}
+
+async function agregarEquipoCliente(ordenId){
+    const o=(DATA.ordenesTrabajo||[]).find(x=>x.id===ordenId);
+    const nom=document.getElementById('aeNom').value.trim();
+    const cant=parseInt(document.getElementById('aeCant').value)||1;
+    const tipo=document.getElementById('aeTipo').value;
+    const snRaw=document.getElementById('aeSN').value.trim();
+    if(!nom){ alert('Escribe el nombre del equipo.'); return; }
+    const m=document.getElementById('modalEq'); if(m) m.remove();
+    showToast('Guardando equipo...');
+
+    const fechaStr=new Date().toLocaleDateString('es-CO');
+    const nuevoEquipo={
+        nombre:nom, cantidad:cant, unidad:'und', tipo:tipo,
+        snes: snRaw?snRaw.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean):[],
+        estado:'Activo',
+        pendienteConfirmar:true,  // el jefe de bodega lo valida
+        notaOrigen:`[${fechaStr}] Documentado por técnico ${TEC.nombre} (no descuenta bodega)`,
+        fechaAgregado:fechaStr
+    };
+
+    try{
+        const refI=db.collection('inventario').doc('datos');
+        await db.runTransaction(async tx=>{
+            const snap=await tx.get(refI);
+            if(!snap.exists) throw new Error('No se encontró el inventario');
+            const data=snap.data();
+            // Dejar en bandeja de pendientes; el inventario lo aplica al cliente al confirmar
+            // (el inventario maneja sus clientes en chunks, no aquí, por eso no escribimos el cliente directo)
+            const bandeja=data.equiposPendientesTecnico||[];
+            bandeja.push({
+                id:'eqp_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),
+                cliente:o.cliente, cedula:o.cedula, oficinaId:o.oficinaId,
+                equipo:nuevoEquipo, fecha:fechaStr, tecnico:TEC.nombre, estado:'pendiente'
+            });
+            tx.update(refI, { equiposPendientesTecnico: bandeja });
+        });
+
+        // Relacionar también en OFICINAS: dejar registro en la orden
+        const refO=db.collection(COLECCION).doc(DOC_ID);
+        await db.runTransaction(async tx=>{
+            const snap=await tx.get(refO);
+            const data=snap.data();
+            const ordenes=data.ordenesTrabajo||[];
+            const oi=ordenes.findIndex(x=>x.id===ordenId);
+            if(oi>=0){
+                if(!Array.isArray(ordenes[oi].equiposAgregados)) ordenes[oi].equiposAgregados=[];
+                ordenes[oi].equiposAgregados.push(nuevoEquipo);
+                ordenes[oi].actualizada=Date.now();
+                tx.update(refO, { ordenesTrabajo: ordenes });
+            }
+        });
+
+        showToast('✅ Equipo enviado al inventario (pendiente de confirmar por bodega)');
+    }catch(e){ console.error(e); showToast('❌ '+(e.message||e), true); }
+}
+window.agregarEquipoCliente=agregarEquipoCliente;
 
 function showToast(msg, err){
     let t=document.getElementById('toast');
