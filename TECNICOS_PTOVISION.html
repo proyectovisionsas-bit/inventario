@@ -191,27 +191,35 @@ window.doLogout=doLogout;
 function enterApp(){
     document.getElementById('login').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
-    const ofiNombres=_nombresOficinas(TEC.oficinas);
-    document.getElementById('hWho').innerHTML=`👷 ${TEC.nombre}<small>${ofiNombres||'Sin oficina asignada'}</small>`;
+    document.getElementById('hWho').innerHTML=`👷 ${TEC.nombre}<small>Cargando...</small>`;
     // Escucha en tiempo real
     if(_unsub){ _unsub(); }
     _unsub=db.collection(COLECCION).doc(DOC_ID).onSnapshot(snap=>{
-        if(snap.exists){ DATA=snap.data(); document.getElementById('hSync').style.color='#10b981'; render(); }
+        if(snap.exists){
+            DATA=snap.data();
+            document.getElementById('hSync').style.color='#10b981';
+            // Actualizar nombre de oficina AHORA que ya hay datos
+            const ofiNombres=_nombresOficinas(TEC.oficinas);
+            document.getElementById('hWho').innerHTML=`👷 ${TEC.nombre}<small>${ofiNombres||'Sin oficina asignada'}</small>`;
+            render();
+        }
     }, err=>{ console.error('snapshot',err); document.getElementById('hSync').style.color='#ef4444'; });
 }
 
 function _nombresOficinas(ids){
     if(!DATA) return '';
-    return (DATA.oficinas||[]).filter(o=>ids.includes(String(o.id))).map(o=>o.nombre).join(', ');
+    const idsStr=(ids||[]).map(String);
+    return (DATA.oficinas||[]).filter(o=>idsStr.includes(String(o.id))).map(o=>o.nombre).join(', ');
 }
 
 // ── Órdenes que ve este técnico: las de sus oficinas ──
 function _misOrdenes(){
     if(!DATA) return [];
+    const misOfis=(TEC.oficinas||[]).map(String);
     const todas=DATA.ordenesTrabajo||[];
     return todas.filter(o=>{
         // de mis oficinas
-        if(!TEC.oficinas.includes(String(o.oficinaId))) return false;
+        if(!misOfis.includes(String(o.oficinaId))) return false;
         // asignada a mí, o sin asignar (disponible)
         if(o.tecnicoId && String(o.tecnicoId)!==String(TEC.id)) return false;
         return true;
