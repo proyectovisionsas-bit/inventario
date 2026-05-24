@@ -135,6 +135,7 @@ const ORDEN_ESTADOS = {
     pendiente: { label:'Pendiente', icon:'🕒', color:'#f59e0b', next:'aceptada', nextLabel:'👍 Aceptar' },
     aceptada:  { label:'Aceptada', icon:'👍', color:'#3b82f6', next:'proceso', nextLabel:'⚙️ Iniciar trabajo' },
     proceso:   { label:'En proceso', icon:'⚙️', color:'#8b5cf6', next:'finalizada', nextLabel:'✅ Finalizar' },
+    reagendar: { label:'Reagendar', icon:'🔁', color:'#ef4444', next:'aceptada', nextLabel:'👍 Retomar' },
     finalizada:{ label:'Finalizada', icon:'✅', color:'#10b981', next:null }
 };
 
@@ -252,6 +253,7 @@ function render(){
             ${o.observacionTecnico?`<div class="muted">🗣️ Tu nota: ${o.observacionTecnico}</div>`:''}
             <div class="order-actions">
                 ${est.next?`<button class="btn btn-sm ${est.next==='finalizada'?'btn-ok':est.next==='proceso'?'btn-purple':'btn-blue'}" onclick="avanzar('${o.id}','${est.next}')">${est.nextLabel}</button>`:''}
+                ${(o.estado==='aceptada'||o.estado==='proceso')?`<button class="btn btn-sm" style="background:#ef4444;color:#fff;" onclick="modalReagendar('${o.id}')">🔁 No se pudo</button>`:''}
                 ${o.estado!=='finalizada'?`<button class="btn btn-sm btn-ghost" onclick="modalNota('${o.id}')">📝 Nota</button>`:''}
             </div>
         </div>`;
@@ -263,7 +265,12 @@ window.setTab=setTab;
 // ── Avanzar estado (lee fresco y reescribe solo la orden, sin pisar lo demás) ──
 async function avanzar(ordenId, nuevoEstado, notaExtra){
     if(nuevoEstado==='aceptada' && !confirm('¿Aceptar esta orden? Quedará asignada a ti.')) return;
-    if(nuevoEstado==='finalizada' && !confirm('¿Marcar esta orden como finalizada?')) return;
+    // Si se va a FINALIZAR una RECOGIDA, primero pedir datos del equipo recuperado
+    if(nuevoEstado==='finalizada'){
+        const o=(DATA.ordenesTrabajo||[]).find(x=>x.id===ordenId);
+        if(o && o.tipo==='recogida'){ modalEquipoRecuperado(ordenId); return; }
+        if(!confirm('¿Marcar esta orden como finalizada?')) return;
+    }
     showToast('Guardando...');
     try{
         const ref=db.collection(COLECCION).doc(DOC_ID);
@@ -275,7 +282,6 @@ async function avanzar(ordenId, nuevoEstado, notaExtra){
             const idx=ordenes.findIndex(x=>x.id===ordenId);
             if(idx<0) throw new Error('La orden ya no existe');
             const o=ordenes[idx];
-            // Al aceptar, queda asignada a este técnico
             if(nuevoEstado==='aceptada'){ o.tecnicoId=TEC.id; o.tecnicoNombre=TEC.nombre; }
             o.estado=nuevoEstado;
             o.actualizada=Date.now();
@@ -288,6 +294,155 @@ async function avanzar(ordenId, nuevoEstado, notaExtra){
     }catch(e){ console.error(e); showToast('❌ '+(e.message||e), true); }
 }
 window.avanzar=avanzar;
+
+// ── #2 Reagendar: cuando el cliente no está / no contesta ──
+function modalReagendar(ordenId){
+    const bg=document.createElement('div'); bg.className='modal-bg'; bg.id='modalReag';
+    bg.innerHTML=`<div class="modal">
+        <h3>🔁 No se pudo realizar</h3>
+        <p style="font-size:0.85rem;color:var(--muted);margin-bottom:12px;">La orden volverá a quedar pendiente para reintentar. Cuéntanos qué pasó:</p>
+        <label>Motivo</label>
+        <select id="reagMotivo">
+            <option>Cliente no estaba</option>
+            <option>No contestó el teléfono</option>
+            <option>Dirección incorrecta</option>
+            <option>Cliente pidió reagendar</option>
+            <option>Otro</option>
+        </select>
+        <label>Detalle (opcional)</label>
+        <textarea id="reagDetalle" rows="2" placeholder="Ej: volver mañana en la tarde"></textarea>
+        <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary btn-block" onclick="confirmarReagendar('${ordenId}')">Guardar</button>
+            <button class="btn btn-ghost" onclick="document.getElementById('modalReag').remove()">Cancelar</button>
+        </div>
+    </div>`;
+    bg.addEventListener('click',e=>{ if(e.target===bg) bg.remove(); });
+    document.body.appendChild(bg);
+}
+window.modalReagendar=modalReagendar;
+async function confirmarReagendar(ordenId){
+    const motivo=document.getElementById('reagMotivo').value;
+    const det=document.getElementById('reagDetalle').value.trim();
+    const m=document.getElementById('modalReag'); if(m) m.remove();
+    const nota=`🔁 No se pudo (${motivo})${det?': '+det:''} — ${new Date().toLocaleDateString('es-CO')}`;
+    showToast('Guardando...');
+    try{
+        const ref=db.collection(COLECCION).doc(DOC_ID);
+        await db.runTransaction(async tx=>{
+            const snap=await tx.get(ref);
+            const data=snap.data();
+            const ordenes=data.ordenesTrabajo||[];
+            const idx=ordenes.findIndex(x=>x.id===ordenId);
+            if(idx<0) throw new Error('La orden ya no existe');
+            ordenes[idx].estado='reagendar';
+            ordenes[idx].observacionTecnico=nota;
+            ordenes[idx].reagendadaVeces=(ordenes[idx].reagendadaVeces||0)+1;
+            ordenes[idx].actualizada=Date.now();
+            tx.update(ref, { ordenesTrabajo: ordenes });
+        });
+        showToast('🔁 Marcada para reagendar');
+    }catch(e){ showToast('❌ '+(e.message||e), true); }
+}
+window.confirmarReagendar=confirmarReagendar;
+
+// ── #3 Equipo recuperado: al finalizar una recogida ──
+function modalEquipoRecuperado(ordenId){
+    const o=(DATA.ordenesTrabajo||[]).find(x=>x.id===ordenId);
+    const bg=document.createElement('div'); bg.className='modal-bg'; bg.id='modalEquipo';
+    bg.innerHTML=`<div class="modal">
+        <h3>📦 Equipo recuperado</h3>
+        <p style="font-size:0.85rem;color:var(--muted);margin-bottom:12px;">Registra el equipo que recogiste. Llegará a la bodega como <strong>pendiente</strong> para que el jefe de bodega lo integre al inventario.</p>
+        <label>¿Recuperaste equipo?</label>
+        <select id="eqHay" onchange="document.getElementById('eqCampos').style.display=this.value==='si'?'block':'none'">
+            <option value="si">Sí, registrar equipo</option>
+            <option value="no">No recuperé equipo</option>
+        </select>
+        <div id="eqCampos">
+            <label>Equipo / artículo</label>
+            <input id="eqNom" placeholder="Ej: Router, ONU, decodificador">
+            <label>Cantidad</label>
+            <input id="eqCant" type="number" value="1" min="1">
+            <label>Estado</label>
+            <select id="eqTipo"><option value="usado">🟡 Usado</option><option value="nuevo">🟢 Nuevo</option></select>
+            <label>Seriales / SN (uno por línea, opcional)</label>
+            <textarea id="eqSN" rows="2" placeholder="SN12345&#10;SN67890"></textarea>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:6px;">
+            <button class="btn btn-ok btn-block" onclick="confirmarFinalizarRecogida('${ordenId}')">✅ Finalizar recogida</button>
+            <button class="btn btn-ghost" onclick="document.getElementById('modalEquipo').remove()">Cancelar</button>
+        </div>
+    </div>`;
+    bg.addEventListener('click',e=>{ if(e.target===bg) bg.remove(); });
+    document.body.appendChild(bg);
+}
+window.modalEquipoRecuperado=modalEquipoRecuperado;
+
+async function confirmarFinalizarRecogida(ordenId){
+    const hay=document.getElementById('eqHay').value;
+    const nom=document.getElementById('eqNom').value.trim();
+    const cant=parseInt(document.getElementById('eqCant').value)||1;
+    const tipo=document.getElementById('eqTipo').value;
+    const snRaw=document.getElementById('eqSN').value.trim();
+    if(hay==='si' && !nom){ alert('Escribe el nombre del equipo, o elige "No recuperé equipo".'); return; }
+    const m=document.getElementById('modalEquipo'); if(m) m.remove();
+    showToast('Finalizando...');
+
+    const o=(DATA.ordenesTrabajo||[]).find(x=>x.id===ordenId);
+    const ofi=(DATA.oficinas||[]).find(x=>String(x.id)===String(o.oficinaId));
+    const bodegaId=ofi?ofi.bodegaId:'';
+
+    try{
+        // 1) Finalizar la orden (en oficinas_sistema)
+        const refO=db.collection(COLECCION).doc(DOC_ID);
+        await db.runTransaction(async tx=>{
+            const snap=await tx.get(refO);
+            const data=snap.data();
+            const ordenes=data.ordenesTrabajo||[];
+            const idx=ordenes.findIndex(x=>x.id===ordenId);
+            if(idx<0) throw new Error('La orden ya no existe');
+            ordenes[idx].estado='finalizada';
+            ordenes[idx].finalizada=Date.now();
+            ordenes[idx].actualizada=Date.now();
+            if(hay==='si'){
+                ordenes[idx].equipoRecuperado={ nom, cant, tipo, snes: snRaw?snRaw.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean):[] };
+            }
+            tx.update(refO, { ordenesTrabajo: ordenes });
+        });
+
+        // 2) Si hay equipo, crear "recuperado pendiente" en el INVENTARIO (colección 'inventario', doc 'datos')
+        if(hay==='si'){
+            if(!bodegaId){
+                showToast('⚠️ Recogida finalizada, pero la oficina no tiene bodega vinculada. El equipo NO se envió al inventario.', true);
+            } else {
+                const refI=db.collection('inventario').doc('datos');
+                await db.runTransaction(async tx=>{
+                    const snap=await tx.get(refI);
+                    if(!snap.exists) throw new Error('No se encontró el inventario');
+                    const data=snap.data();
+                    const bodegas=data.bodegas||[];
+                    const bod=bodegas.find(b=>String(b.id)===String(bodegaId));
+                    const recuperados=data.recuperados||[];
+                    recuperados.push({
+                        id:Date.now().toString(),
+                        bodegaId:bodegaId,
+                        bodegaNombre:bod?bod.nombre:'',
+                        nom:nom, cant:cant, tipo:tipo, unidad:'unidad',
+                        origen:`Recogida: ${o.cliente||'cliente'}${o.cedula?' ('+o.cedula+')':''}`,
+                        snes: snRaw?snRaw.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean):[],
+                        fecha:new Date().toLocaleDateString(),
+                        estado:'pendiente',
+                        obs:`Recogida por técnico ${TEC.nombre}`
+                    });
+                    tx.update(refI, { recuperados: recuperados });
+                });
+                showToast('✅ Recogida finalizada y equipo enviado a la bodega (pendiente de integrar)');
+                return;
+            }
+        }
+        showToast('✅ Recogida finalizada');
+    }catch(e){ console.error(e); showToast('❌ '+(e.message||e), true); }
+}
+window.confirmarFinalizarRecogida=confirmarFinalizarRecogida;
 
 function modalNota(ordenId){
     const o=(DATA.ordenesTrabajo||[]).find(x=>x.id===ordenId);
