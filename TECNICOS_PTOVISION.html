@@ -302,7 +302,8 @@ async function avanzar(ordenId, nuevoEstado, notaExtra){
     if(nuevoEstado==='finalizada'){
         const o=(DATA.ordenesTrabajo||[]).find(x=>x.id===ordenId);
         if(o && o.tipo==='recogida'){ modalEquipoRecuperado(ordenId); return; }
-        if(!confirm('¿Marcar esta orden como finalizada?')) return;
+        // Para cualquier otra orden, ofrecer registrar material gastado
+        modalMaterialGastado(ordenId); return;
     }
     showToast('Guardando...');
     try{
@@ -476,6 +477,184 @@ async function confirmarFinalizarRecogida(ordenId){
     }catch(e){ console.error(e); showToast('❌ '+(e.message||e), true); }
 }
 window.confirmarFinalizarRecogida=confirmarFinalizarRecogida;
+
+// ════════════════════════════════════════════════════════════
+// FASE B — Material gastado por el técnico (de su cuadrilla)
+// El técnico se enlaza a su cuadrilla por CÉDULA (TEC.documento).
+// El gasto queda PENDIENTE; no descuenta stock (eso lo confirma la bodega).
+// ════════════════════════════════════════════════════════════
+let _cuadrillaTec=null;        // cuadrilla del inventario que corresponde al técnico
+let _matElegidos=[];           // material que el técnico marca como gastado
+
+// Busca en el inventario la cuadrilla del técnico (por cédula). Devuelve {cuad, bodega} o null.
+async function _buscarCuadrillaDelTecnico(){
+    try{
+        const snap=await db.collection('inventario').doc('datos').get();
+        if(!snap.exists) return null;
+        const data=snap.data();
+        const ced=String(TEC.documento||'').trim();
+        if(!ced) return null;
+        const cuads=data.cuadrillas||[];
+        // Buscar la cuadrilla que tenga un técnico con esta cédula
+        const cuad=cuads.find(c=>(c.tecnicos||[]).some(t=>String(t.cedula||'').trim()===ced));
+        if(!cuad) return null;
+        const bodega=(data.bodegas||[]).find(b=>String(b.id)===String(cuad.bodegaId));
+        return { cuad, bodega };
+    }catch(e){ console.warn('buscarCuadrillaDelTecnico',e); return null; }
+}
+
+// Modal para registrar material gastado al finalizar una orden
+async function modalMaterialGastado(ordenId){
+    const o=(DATA.ordenesTrabajo||[]).find(x=>x.id===ordenId);
+    const bg=document.createElement('div'); bg.className='modal-bg'; bg.id='modalMat';
+    bg.innerHTML=`<div class="modal"><h3>📦 Material gastado</h3><div class="center"><div class="spin"></div><div>Buscando tu cuadrilla...</div></div></div>`;
+    document.body.appendChild(bg);
+
+    const res=await _buscarCuadrillaDelTecnico();
+    _cuadrillaTec = res ? res.cuad : null;
+    _matElegidos=[];
+
+    const m=document.getElementById('modalMat'); if(!m) return;
+
+    if(!_cuadrillaTec){
+        m.querySelector('.modal').innerHTML=`<h3>📦 Material gastado</h3>
+            <div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px;font-size:0.82rem;color:#fbbf24;margin-bottom:12px;">
+                No encontramos tu cuadrilla en el inventario (se busca por tu cédula). Puedes finalizar la orden sin registrar material, o pide al encargado de bodega que te asocie a una cuadrilla.
+            </div>
+            <div style="display:flex;gap:8px;">
+                <button class="btn btn-ok btn-block" onclick="_finalizarConMaterial('${ordenId}')">✅ Finalizar sin material</button>
+                <button class="btn btn-ghost" onclick="document.getElementById('modalMat').remove()">Cancelar</button>
+            </div>`;
+        return;
+    }
+
+    const mats=(_cuadrillaTec.materiales||[]).filter(x=>x.cantidad>0);
+    const opts=mats.map((mt,i)=>`<option value="${i}">${mt.nombre} — disponible: ${mt.cantidad} ${mt.unidad||''}</option>`).join('');
+
+    m.querySelector('.modal').innerHTML=`<h3>📦 Material gastado</h3>
+        <p style="font-size:0.82rem;color:var(--muted);margin-bottom:10px;">Cuadrilla: <strong>${_cuadrillaTec.nombre}</strong>. Registra el material que usaste. Quedará <strong>pendiente</strong> para que la bodega lo confirme.</p>
+        <label>¿Gastaste material en esta orden?</label>
+        <select id="matHay" onchange="document.getElementById('matZona').style.display=this.value==='si'?'block':'none'">
+            <option value="si">Sí, registrar material</option>
+            <option value="no">No gasté material</option>
+        </select>
+        <div id="matZona">
+            <label>¿Para qué fue el material?</label>
+            <select id="matDestino">
+                <option value="cliente">👤 Cliente${o&&o.cliente?' ('+o.cliente+')':''}</option>
+                <option value="red">🌐 Mantenimiento de red</option>
+            </select>
+            ${mats.length?`
+            <label style="margin-top:8px;">Agregar material usado</label>
+            <div style="display:flex;gap:6px;align-items:flex-end;flex-wrap:wrap;">
+                <div style="flex:1;min-width:120px;"><select id="matSel">${opts}</select></div>
+                <div style="width:80px;"><input id="matCant" type="number" value="1" min="1"></div>
+                <button class="btn btn-sm" style="background:#0ea5e9;color:#fff;" onclick="_agregarMaterial()">➕</button>
+            </div>
+            <div id="matLista" style="margin-top:10px;"></div>
+            `:`<div style="background:rgba(245,158,11,0.1);border-radius:8px;padding:10px;font-size:0.82rem;color:#fbbf24;margin-top:8px;">Tu cuadrilla no tiene material disponible para registrar.</div>`}
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+            <button class="btn btn-ok btn-block" onclick="_finalizarConMaterial('${ordenId}')">✅ Finalizar orden</button>
+            <button class="btn btn-ghost" onclick="document.getElementById('modalMat').remove()">Cancelar</button>
+        </div>`;
+}
+window.modalMaterialGastado=modalMaterialGastado;
+
+function _agregarMaterial(){
+    const sel=document.getElementById('matSel'); const cantEl=document.getElementById('matCant');
+    if(!sel||!cantEl) return;
+    const idx=parseInt(sel.value);
+    const mat=(_cuadrillaTec.materiales||[]).filter(x=>x.cantidad>0)[idx];
+    if(!mat) return;
+    let cant=parseInt(cantEl.value)||1;
+    if(cant<1) cant=1;
+    // No permitir pasarse del stock de la cuadrilla (sumando lo ya agregado de ese material)
+    const yaAgregado=_matElegidos.filter(e=>e.nombre===mat.nombre).reduce((s,e)=>s+e.cant,0);
+    if(yaAgregado+cant>mat.cantidad){
+        alert(`No puedes registrar más de lo que tu cuadrilla tiene.\n\n${mat.nombre}: disponible ${mat.cantidad}, ya agregaste ${yaAgregado}.`);
+        return;
+    }
+    _matElegidos.push({ nombre:mat.nombre, cant:cant, unidad:mat.unidad||'', tipo:mat.tipo||'' });
+    cantEl.value=1;
+    _renderMatLista();
+}
+window._agregarMaterial=_agregarMaterial;
+
+function _renderMatLista(){
+    const c=document.getElementById('matLista'); if(!c) return;
+    if(!_matElegidos.length){ c.innerHTML='<p style="font-size:0.8rem;color:var(--muted);">Aún no has agregado material.</p>'; return; }
+    c.innerHTML=_matElegidos.map((e,i)=>`<div style="display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.05);border-radius:8px;padding:8px 10px;margin-bottom:6px;">
+        <span style="font-size:0.85rem;"><strong>${e.nombre}</strong> · ${e.cant} ${e.unidad}</span>
+        <button class="btn btn-sm btn-ghost" onclick="_matElegidos.splice(${i},1);_renderMatLista()">✕</button>
+    </div>`).join('');
+}
+window._renderMatLista=_renderMatLista;
+
+async function _finalizarConMaterial(ordenId){
+    const hay=document.getElementById('matHay') ? document.getElementById('matHay').value : 'no';
+    const destino=document.getElementById('matDestino') ? document.getElementById('matDestino').value : 'cliente';
+    if(hay==='si' && _matElegidos.length===0){
+        if(!confirm('No agregaste ningún material. ¿Finalizar sin registrar material?')) return;
+    }
+    const m=document.getElementById('modalMat'); if(m) m.remove();
+    showToast('Finalizando...');
+
+    const o=(DATA.ordenesTrabajo||[]).find(x=>x.id===ordenId);
+    const registrarMat = (hay==='si' && _matElegidos.length>0 && _cuadrillaTec);
+
+    try{
+        // 1) Finalizar la orden en oficinas_sistema
+        const refO=db.collection(COLECCION).doc(DOC_ID);
+        await db.runTransaction(async tx=>{
+            const snap=await tx.get(refO);
+            const data=snap.data();
+            const ordenes=data.ordenesTrabajo||[];
+            const idx=ordenes.findIndex(x=>x.id===ordenId);
+            if(idx<0) throw new Error('La orden ya no existe');
+            ordenes[idx].estado='finalizada';
+            ordenes[idx].finalizada=Date.now();
+            ordenes[idx].actualizada=Date.now();
+            if(registrarMat){
+                ordenes[idx].materialGastado={ destino, items:[..._matElegidos] };
+            }
+            tx.update(refO, { ordenesTrabajo: ordenes });
+        });
+
+        // 2) Si hay material, crear "consumo pendiente" en el INVENTARIO (NO descuenta aún)
+        if(registrarMat){
+            const refI=db.collection('inventario').doc('datos');
+            await db.runTransaction(async tx=>{
+                const snap=await tx.get(refI);
+                if(!snap.exists) throw new Error('No se encontró el inventario');
+                const data=snap.data();
+                const consumos=data.consumosPendientes||[];
+                consumos.push({
+                    id:Date.now().toString(),
+                    cuadrillaId:_cuadrillaTec.id,
+                    cuadrillaNombre:_cuadrillaTec.nombre,
+                    bodegaId:_cuadrillaTec.bodegaId,
+                    tecnicoCedula:String(TEC.documento||''),
+                    tecnicoNombre:TEC.nombre,
+                    destino:destino,
+                    destinoDetalle: destino==='cliente' ? (o&&o.cliente?o.cliente:'') : 'Mantenimiento de red',
+                    ordenId:ordenId,
+                    ordenTipo:o?o.tipo:'',
+                    items:[..._matElegidos],
+                    fecha:new Date().toLocaleDateString(),
+                    estado:'pendiente'
+                });
+                tx.update(refI, { consumosPendientes: consumos });
+            });
+            showToast('✅ Orden finalizada y material registrado (pendiente de confirmar por bodega)');
+            _matElegidos=[]; _cuadrillaTec=null;
+            return;
+        }
+        showToast('✅ Orden finalizada');
+        _matElegidos=[]; _cuadrillaTec=null;
+    }catch(e){ console.error(e); showToast('❌ '+(e.message||e), true); }
+}
+window._finalizarConMaterial=_finalizarConMaterial;
 
 function modalNota(ordenId){
     const o=(DATA.ordenesTrabajo||[]).find(x=>x.id===ordenId);
