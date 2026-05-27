@@ -99,6 +99,7 @@ header .who small{display:block;color:var(--muted);font-size:0.72rem;font-weight
         <div class="who" id="hWho">—</div>
         <div style="display:flex;align-items:center;gap:8px;">
             <span class="sync" id="hSync">●</span>
+            <button class="btn btn-ghost btn-sm" onclick="abrirAyuda()" title="Ayuda y manual">❓</button>
             <button class="btn btn-ghost btn-sm" onclick="modalCambiarClave()">🔑</button>
             <button class="btn btn-ghost btn-sm" onclick="doLogout()">Salir</button>
         </div>
@@ -1219,6 +1220,180 @@ window.addEventListener('load', async ()=>{
         doLogin();
     }
 });
+// ════════════════════════════════════════════════════════════
+// AYUDA — Manual escrito (siempre disponible) + Asistente IA (Groq)
+// ════════════════════════════════════════════════════════════
+const MANUAL_TECNICO = [
+    {
+        titulo:'📋 ¿Qué es esta app?',
+        contenido:'Esta es tu app de técnico. Aquí ves las órdenes de trabajo que te asignan (instalaciones, recogidas, cambios de equipo, soportes, mantenimiento de red), las ejecutas y registras lo que hiciste. Todo lo que registras llega automáticamente a la oficina y a la bodega.'
+    },
+    {
+        titulo:'🔄 ¿Cómo funciona una orden? (paso a paso)',
+        contenido:'1. La orden te llega y aparece en tu lista.\n2. Tócala y dale "👍 Aceptar" — queda asignada a ti.\n3. Cuando vayas en camino o estés trabajando, ponla "En proceso".\n4. Al terminar, dale "Finalizar" y registra lo que hiciste (material, equipos, etc.).\n5. Si no pudiste hacerla, usa "🔁 No se pudo" y explica por qué (vuelve a quedar pendiente).'
+    },
+    {
+        titulo:'📞 Contactar al cliente',
+        contenido:'En cada orden ves el teléfono del cliente con dos botones: "📞 Llamar" abre el marcador de tu celular, y "💬 WhatsApp" abre el chat directo con ese número. Úsalos para avisar que vas en camino o coordinar la visita.'
+    },
+    {
+        titulo:'📦 Registrar material gastado',
+        contenido:'Al finalizar la mayoría de órdenes, te sale el modal "Material gastado". Ahí:\n• Eliges si gastaste material o no.\n• Indicas si fue para el cliente o para la red.\n• Agregas el material que usaste, eligiéndolo de lo que tu cuadrilla tiene (no puedes registrar más de lo que hay).\nEse material queda "pendiente" hasta que la bodega lo confirme. NO se descuenta solo.'
+    },
+    {
+        titulo:'🛠️ Instalación nueva',
+        contenido:'Cuando finalizas una orden de instalación, registras el material que usaste. La instalación queda guardada en el inventario, y el administrador podrá crear el cliente en la bodega con sus equipos. El cliente ya existe en la oficina desde antes; tú solo confirmas la instalación física.'
+    },
+    {
+        titulo:'🔄 Cambio de equipo',
+        contenido:'Al finalizar un cambio de equipo:\n1. Indicas el equipo que RETIRASTE del cliente (sale automático de los equipos que el cliente tiene; si no aparece o está mal, lo escribes a mano).\n2. Dices si está 🟢 bueno (vuelve a bodega) o 🔴 dañado.\n3. Eliges el equipo NUEVO de tu cuadrilla. Su serial se carga solo; si hay varios, eliges cuál instalaste.\nTodo llega a la bodega para confirmar.'
+    },
+    {
+        titulo:'📦 Recogida / Retiro de cliente',
+        contenido:'Al finalizar una recogida:\n1. Te aparece la lista de equipos que el cliente tiene, con casillas.\n2. Marca los que SÍ recuperaste. Los que dejes sin marcar quedan como "no devueltos".\n3. Si recuperaste algo que no estaba en la lista, usa "Agregar manual".\n4. Si el cliente se retira del servicio, marca "Sí, retirar al cliente" y pon el motivo. El cliente quedará Retirado en la oficina.\nLos equipos recuperados llegan a la bodega para confirmar.'
+    },
+    {
+        titulo:'🌐 Mantenimiento de red',
+        contenido:'Estas órdenes no tienen cliente, van a una ubicación (un poste, una caja, una zona). Al finalizar, registras el material que usaste y el destino ya viene marcado como "red". Sirve para llevar el control de lo que se gasta en mantenimiento de la red.'
+    },
+    {
+        titulo:'🔑 Cambiar mi contraseña',
+        contenido:'Toca el botón 🔑 arriba a la derecha para cambiar tu clave de acceso. Úsalo si crees que alguien más la conoce.'
+    },
+    {
+        titulo:'⚠️ Si algo no funciona',
+        contenido:'• Si no ves tus órdenes, revisa tu conexión a internet y recarga.\n• Si no aparece tu cuadrilla al registrar material, avisa al encargado de bodega para que te asocie (se hace por tu cédula).\n• Si un botón no responde, cierra y vuelve a abrir la app.\n• Ante cualquier duda, pregunta al asistente (pestaña "Preguntar a la IA") o contacta a tu administrador.'
+    }
+];
+
+function abrirAyuda(){
+    const bg=document.createElement('div'); bg.className='modal-bg'; bg.id='modalAyuda';
+    const secciones=MANUAL_TECNICO.map((s,i)=>`
+        <details style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px;">
+            <summary style="cursor:pointer;font-weight:700;font-size:0.9rem;">${s.titulo}</summary>
+            <div style="margin-top:8px;font-size:0.85rem;color:var(--muted);white-space:pre-line;line-height:1.5;">${s.contenido}</div>
+        </details>`).join('');
+
+    bg.innerHTML=`<div class="modal" style="max-width:560px;max-height:88vh;display:flex;flex-direction:column;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <h3 style="margin:0;">❓ Ayuda — App del Técnico</h3>
+            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('modalAyuda').remove()">✕</button>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:12px;">
+            <button class="btn btn-sm" id="tabManual" style="flex:1;background:#0ea5e9;color:#fff;" onclick="_ayudaTab('manual')">📖 Manual</button>
+            <button class="btn btn-sm btn-ghost" id="tabIA" style="flex:1;" onclick="_ayudaTab('ia')">🤖 Preguntar a la IA</button>
+        </div>
+
+        <div id="ayudaManual" style="overflow-y:auto;flex:1;">
+            <p style="font-size:0.82rem;color:var(--muted);margin-bottom:10px;">Toca cada sección para ver los pasos. Este manual funciona siempre, con o sin internet.</p>
+            ${secciones}
+            <button class="btn btn-ok btn-block" style="margin-top:10px;" onclick="descargarManualTecnico()">⬇️ Descargar manual</button>
+        </div>
+
+        <div id="ayudaIA" style="display:none;flex-direction:column;flex:1;min-height:0;">
+            <div id="iaChat" style="flex:1;overflow-y:auto;background:rgba(0,0,0,0.03);border-radius:10px;padding:10px;margin-bottom:8px;display:flex;flex-direction:column;gap:8px;min-height:200px;">
+                <div style="align-self:flex-start;background:white;padding:10px 12px;border-radius:12px;font-size:0.85rem;max-width:85%;">👋 Hola, soy tu asistente. Pregúntame lo que necesites sobre cómo usar la app. Ej: "¿cómo registro un cambio de equipo?"</div>
+            </div>
+            <div style="display:flex;gap:6px;">
+                <input id="iaInput" placeholder="Escribe tu pregunta..." style="flex:1;" onkeydown="if(event.key==='Enter')_iaEnviar()">
+                <button class="btn btn-sm" style="background:#0ea5e9;color:#fff;" id="iaSend" onclick="_iaEnviar()">➤</button>
+            </div>
+            <p style="font-size:0.72rem;color:var(--muted);margin:6px 0 0;">Necesita internet. La primera vez te pedirá una clave gratuita de Groq.</p>
+        </div>
+    </div>`;
+    bg.addEventListener('click',e=>{ if(e.target===bg) bg.remove(); });
+    document.body.appendChild(bg);
+}
+window.abrirAyuda=abrirAyuda;
+
+function _ayudaTab(t){
+    document.getElementById('ayudaManual').style.display = t==='manual'?'block':'none';
+    document.getElementById('ayudaIA').style.display = t==='ia'?'flex':'none';
+    document.getElementById('tabManual').style.background = t==='manual'?'#0ea5e9':'';
+    document.getElementById('tabManual').style.color = t==='manual'?'#fff':'';
+    document.getElementById('tabManual').className = t==='manual'?'btn btn-sm':'btn btn-sm btn-ghost';
+    document.getElementById('tabIA').style.background = t==='ia'?'#0ea5e9':'';
+    document.getElementById('tabIA').style.color = t==='ia'?'#fff':'';
+    document.getElementById('tabIA').className = t==='ia'?'btn btn-sm':'btn btn-sm btn-ghost';
+}
+window._ayudaTab=_ayudaTab;
+
+function descargarManualTecnico(){
+    let txt='MANUAL — APP DEL TÉCNICO\nPROYECTOVISION\n\n';
+    MANUAL_TECNICO.forEach(s=>{ txt+='═══════════════════════════════\n'+s.titulo+'\n═══════════════════════════════\n'+s.contenido+'\n\n'; });
+    const blob=new Blob([txt],{type:'text/plain;charset=utf-8'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='Manual_Tecnico_PROYECTOVISION.txt';
+    a.click();
+}
+window.descargarManualTecnico=descargarManualTecnico;
+
+// --- Asistente IA (Groq) ---
+let _iaHistory=[];
+function _iaGetKey(){ return localStorage.getItem('groq_api_key')||''; }
+function _iaMsg(texto,quien){
+    const chat=document.getElementById('iaChat'); if(!chat) return;
+    const d=document.createElement('div');
+    d.style.cssText = quien==='user'
+        ? 'align-self:flex-end;background:#0ea5e9;color:#fff;padding:10px 12px;border-radius:12px;font-size:0.85rem;max-width:85%;white-space:pre-line;'
+        : 'align-self:flex-start;background:white;padding:10px 12px;border-radius:12px;font-size:0.85rem;max-width:85%;white-space:pre-line;';
+    d.textContent=texto;
+    chat.appendChild(d); chat.scrollTop=chat.scrollHeight;
+}
+function _iaContexto(){
+    // Le "enseñamos" a la IA cómo funciona la app del técnico, basado en el manual
+    let ctx='Eres un asistente amable que ayuda a técnicos de campo de una empresa de internet (PROYECTOVISION) a usar su app móvil. Responde corto, claro y práctico, en español, con pasos numerados cuando aplique. Solo respondes sobre cómo usar la app. Si preguntan algo no relacionado, indícales amablemente que solo ayudas con la app.\n\nASÍ FUNCIONA LA APP DEL TÉCNICO:\n';
+    MANUAL_TECNICO.forEach(s=>{ ctx+='\n'+s.titulo+': '+s.contenido+'\n'; });
+    return ctx;
+}
+async function _iaEnviar(){
+    const input=document.getElementById('iaInput');
+    const pregunta=input?.value?.trim();
+    if(!pregunta) return;
+    const key=_iaGetKey();
+    if(!key){
+        const nueva=prompt('Para usar el asistente necesitas una clave gratuita de Groq.\n\nObtenla gratis en: console.groq.com/keys\n\nPega aquí tu clave (empieza con gsk_):');
+        if(nueva && nueva.trim().startsWith('gsk_')){ localStorage.setItem('groq_api_key',nueva.trim()); }
+        else { if(nueva!==null) alert('Clave inválida. Debe empezar con gsk_'); return; }
+    }
+    input.value='';
+    _iaMsg(pregunta,'user');
+    const sendBtn=document.getElementById('iaSend'); if(sendBtn) sendBtn.disabled=true;
+    const chat=document.getElementById('iaChat');
+    const typing=document.createElement('div');
+    typing.id='iaTyping';
+    typing.style.cssText='align-self:flex-start;background:white;padding:10px 12px;border-radius:12px;font-size:0.85rem;color:#94a3b8;font-style:italic;';
+    typing.textContent='✨ Pensando...';
+    if(chat){ chat.appendChild(typing); chat.scrollTop=chat.scrollHeight; }
+
+    try{
+        const messages=[{role:'system',content:_iaContexto()}];
+        _iaHistory.forEach(h=>messages.push({role:h.role,content:h.text}));
+        messages.push({role:'user',content:pregunta});
+        const resp=await fetch('https://api.groq.com/openai/v1/chat/completions',{
+            method:'POST',
+            headers:{'Content-Type':'application/json','Authorization':'Bearer '+_iaGetKey()},
+            body:JSON.stringify({model:'llama-3.3-70b-versatile',messages,temperature:0.4,max_tokens:600})
+        });
+        typing.remove();
+        if(resp.status===401){ _iaMsg('⚠️ La clave de Groq no es válida. Borra y vuelve a configurarla.','bot'); localStorage.removeItem('groq_api_key'); return; }
+        if(resp.status===429){ _iaMsg('⚠️ Demasiadas preguntas seguidas. Espera unos segundos.','bot'); return; }
+        if(!resp.ok){ _iaMsg('⚠️ Error de conexión. Revisa tu internet.','bot'); return; }
+        const data=await resp.json();
+        const r=data?.choices?.[0]?.message?.content||'(sin respuesta)';
+        _iaHistory.push({role:'user',text:pregunta});
+        _iaHistory.push({role:'assistant',text:r});
+        if(_iaHistory.length>16) _iaHistory.splice(0,_iaHistory.length-16);
+        _iaMsg(r,'bot');
+    }catch(e){
+        document.getElementById('iaTyping')?.remove();
+        _iaMsg('⚠️ No se pudo conectar. Revisa tu internet e intenta de nuevo.','bot');
+    }finally{
+        if(sendBtn) sendBtn.disabled=false;
+    }
+}
+window._iaEnviar=_iaEnviar;
 </script>
 </body>
 </html>
