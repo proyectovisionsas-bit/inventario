@@ -410,6 +410,18 @@ function modalEquipoRecuperado(ordenId){
             <label>Seriales / SN (uno por línea, opcional)</label>
             <textarea id="eqSN" rows="2" placeholder="SN12345&#10;SN67890"></textarea>
         </div>
+        <div style="background:rgba(100,116,139,0.1);border:1px solid rgba(100,116,139,0.3);border-radius:8px;padding:10px;margin-top:10px;">
+            <label>¿Este cliente se retira del servicio?</label>
+            <select id="eqRetiro" onchange="document.getElementById('eqRetMotivo').style.display=this.value==='si'?'block':'none'">
+                <option value="no">No, sigue activo</option>
+                <option value="si">Sí, retirar al cliente</option>
+            </select>
+            <div id="eqRetMotivo" style="display:none;">
+                <label>Motivo del retiro</label>
+                <input id="eqMotivoRet" placeholder="Ej: Se mudó, canceló servicio, mora...">
+                <p style="font-size:0.75rem;color:var(--muted);margin-top:4px;">El cliente quedará marcado como <strong>Retirado</strong>. No se borra nada de su historial.</p>
+            </div>
+        </div>
         <div style="display:flex;gap:8px;margin-top:6px;">
             <button class="btn btn-ok btn-block" onclick="confirmarFinalizarRecogida('${ordenId}')">✅ Finalizar recogida</button>
             <button class="btn btn-ghost" onclick="document.getElementById('modalEquipo').remove()">Cancelar</button>
@@ -426,6 +438,8 @@ async function confirmarFinalizarRecogida(ordenId){
     const cant=parseInt(document.getElementById('eqCant').value)||1;
     const tipo=document.getElementById('eqTipo').value;
     const snRaw=document.getElementById('eqSN').value.trim();
+    const retira=document.getElementById('eqRetiro')?document.getElementById('eqRetiro').value:'no';
+    const motivoRet=document.getElementById('eqMotivoRet')?document.getElementById('eqMotivoRet').value.trim():'';
     if(hay==='si' && !nom){ alert('Escribe el nombre del equipo, o elige "No recuperé equipo".'); return; }
     const m=document.getElementById('modalEquipo'); if(m) m.remove();
     showToast('Finalizando...');
@@ -435,7 +449,7 @@ async function confirmarFinalizarRecogida(ordenId){
     const bodegaId=ofi?ofi.bodegaId:'';
 
     try{
-        // 1) Finalizar la orden (en oficinas_sistema)
+        // 1) Finalizar la orden Y marcar cliente como Retirado si aplica (ambos en oficinas_sistema)
         const refO=db.collection(COLECCION).doc(DOC_ID);
         await db.runTransaction(async tx=>{
             const snap=await tx.get(refO);
@@ -449,7 +463,13 @@ async function confirmarFinalizarRecogida(ordenId){
             if(hay==='si'){
                 ordenes[idx].equipoRecuperado={ nom, cant, tipo, snes: snRaw?snRaw.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean):[] };
             }
+            if(retira==='si'){
+                ordenes[idx].clienteRetirado=true;
+                ordenes[idx].motivoRetiro=motivoRet||'Retiro por orden de trabajo';
+                ordenes[idx].retiroAplicado=false; // Oficinas lo aplicará al cliente
+            }
             tx.update(refO, { ordenesTrabajo: ordenes });
+            window._retiradoOk=(retira==='si');
         });
 
         // 2) Si hay equipo, crear "recuperado pendiente" en el INVENTARIO (colección 'inventario', doc 'datos')
@@ -470,19 +490,23 @@ async function confirmarFinalizarRecogida(ordenId){
                         bodegaId:bodegaId,
                         bodegaNombre:bod?bod.nombre:'',
                         nom:nom, cant:cant, tipo:tipo, unidad:'unidad',
-                        origen:`Recogida: ${o.cliente||'cliente'}${o.cedula?' ('+o.cedula+')':''}`,
+                        origen:`${retira==='si'?'Retiro':'Recogida'}: ${o.cliente||'cliente'}${o.cedula?' ('+o.cedula+')':''}`,
                         snes: snRaw?snRaw.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean):[],
                         fecha:new Date().toLocaleDateString(),
                         estado:'pendiente',
-                        obs:`Recogida por técnico ${TEC.nombre}`
+                        obs:`${retira==='si'?'Retiro':'Recogida'} por técnico ${TEC.nombre}`
                     });
                     tx.update(refI, { recuperados: recuperados });
                 });
-                showToast('✅ Recogida finalizada y equipo enviado a la bodega (pendiente de integrar)');
+                showToast(retira==='si'
+                    ? '✅ Retiro finalizado. El cliente quedará Retirado y el equipo fue enviado a bodega.'
+                    : '✅ Recogida finalizada y equipo enviado a la bodega (pendiente de integrar)');
                 return;
             }
         }
-        showToast('✅ Recogida finalizada');
+        showToast(retira==='si'
+            ? '✅ Retiro finalizado. El cliente quedará marcado como Retirado.'
+            : '✅ Recogida finalizada');
     }catch(e){ console.error(e); showToast('❌ '+(e.message||e), true); }
 }
 window.confirmarFinalizarRecogida=confirmarFinalizarRecogida;
