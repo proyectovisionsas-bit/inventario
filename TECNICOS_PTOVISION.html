@@ -389,28 +389,40 @@ async function confirmarReagendar(ordenId){
 window.confirmarReagendar=confirmarReagendar;
 
 // ── #3 Equipo recuperado: al finalizar una recogida ──
-function modalEquipoRecuperado(ordenId){
+async function modalEquipoRecuperado(ordenId){
     const o=(DATA.ordenesTrabajo||[]).find(x=>x.id===ordenId);
     const bg=document.createElement('div'); bg.className='modal-bg'; bg.id='modalEquipo';
-    bg.innerHTML=`<div class="modal">
-        <h3>📦 Equipo recuperado</h3>
-        <p style="font-size:0.85rem;color:var(--muted);margin-bottom:12px;">Registra el equipo que recogiste. Llegará a la bodega como <strong>pendiente</strong> para que el jefe de bodega lo integre al inventario.</p>
-        <label>¿Recuperaste equipo?</label>
-        <select id="eqHay" onchange="document.getElementById('eqCampos').style.display=this.value==='si'?'block':'none'">
-            <option value="si">Sí, registrar equipo</option>
-            <option value="no">No recuperé equipo</option>
-        </select>
-        <div id="eqCampos">
-            <label>Equipo / artículo</label>
-            <input id="eqNom" placeholder="Ej: Router, ONU, decodificador">
-            <label>Cantidad</label>
-            <input id="eqCant" type="number" value="1" min="1">
-            <label>Estado</label>
-            <select id="eqTipo"><option value="usado">🟡 Usado</option><option value="nuevo">🟢 Nuevo</option></select>
-            <label>Seriales / SN (uno por línea, opcional)</label>
-            <textarea id="eqSN" rows="2" placeholder="SN12345&#10;SN67890"></textarea>
-        </div>
-        <div style="background:rgba(100,116,139,0.1);border:1px solid rgba(100,116,139,0.3);border-radius:8px;padding:10px;margin-top:10px;">
+    bg.innerHTML=`<div class="modal"><h3>📦 Equipos a recoger</h3><div class="center"><div class="spin"></div><div>Cargando equipos del cliente...</div></div></div>`;
+    document.body.appendChild(bg);
+
+    // Cargar equipos que el cliente tiene en el inventario
+    if(!_invCargado) await _cargarInventarioClientes();
+    const cli=_buscarClienteInv(o);
+    const equiposCliente=(cli&&Array.isArray(cli.equipos))?cli.equipos.filter(e=>e.nombre):[];
+    window._erEquiposCliente=equiposCliente;
+    window._erManuales=[];
+
+    const m=document.getElementById('modalEquipo'); if(!m) return;
+
+    const listaHtml = equiposCliente.length
+        ? equiposCliente.map((e,i)=>{
+            const sn=(e.snes&&e.snes.length)?e.snes.join(', '):'sin SN';
+            return `<label style="display:flex;align-items:flex-start;gap:8px;padding:8px;background:rgba(255,255,255,0.04);border-radius:8px;margin-bottom:6px;cursor:pointer;">
+                <input type="checkbox" class="erChk" data-idx="${i}" checked style="margin-top:3px;">
+                <span style="flex:1;"><strong>${e.nombre}</strong> · ${e.cantidad||1} und<br><span style="font-size:0.78rem;color:var(--muted);">SN: ${sn}</span></span>
+            </label>`;
+        }).join('')
+        : `<p style="font-size:0.82rem;color:var(--muted);">Este cliente no tiene equipos registrados en el inventario. Usa "agregar manual" abajo.</p>`;
+
+    m.querySelector('.modal').innerHTML=`<h3>📦 Equipos a recoger</h3>
+        <p style="font-size:0.82rem;color:var(--muted);margin-bottom:10px;">Marca los equipos que <strong>sí recuperaste</strong>. Los que dejes sin marcar quedarán como <strong>no devueltos</strong>. Todo llega a bodega como pendiente.</p>
+
+        <div style="max-height:240px;overflow-y:auto;margin-bottom:10px;">${listaHtml}</div>
+
+        <div id="erManualWrap" style="margin-bottom:10px;"></div>
+        <button class="btn btn-ghost btn-sm" onclick="_erAgregarManual()" style="margin-bottom:10px;">➕ Agregar equipo manual</button>
+
+        <div style="background:rgba(100,116,139,0.1);border:1px solid rgba(100,116,139,0.3);border-radius:8px;padding:10px;margin-top:6px;">
             <label>¿Este cliente se retira del servicio?</label>
             <select id="eqRetiro" onchange="document.getElementById('eqRetMotivo').style.display=this.value==='si'?'block':'none'">
                 <option value="no">No, sigue activo</option>
@@ -422,25 +434,55 @@ function modalEquipoRecuperado(ordenId){
                 <p style="font-size:0.75rem;color:var(--muted);margin-top:4px;">El cliente quedará marcado como <strong>Retirado</strong>. No se borra nada de su historial.</p>
             </div>
         </div>
-        <div style="display:flex;gap:8px;margin-top:6px;">
+        <div style="display:flex;gap:8px;margin-top:10px;">
             <button class="btn btn-ok btn-block" onclick="confirmarFinalizarRecogida('${ordenId}')">✅ Finalizar recogida</button>
             <button class="btn btn-ghost" onclick="document.getElementById('modalEquipo').remove()">Cancelar</button>
-        </div>
-    </div>`;
+        </div>`;
     bg.addEventListener('click',e=>{ if(e.target===bg) bg.remove(); });
-    document.body.appendChild(bg);
 }
 window.modalEquipoRecuperado=modalEquipoRecuperado;
 
+// Agregar un equipo recuperado manual (no estaba en la lista del cliente)
+function _erAgregarManual(){
+    (window._erManuales=window._erManuales||[]).push({nombre:'',cant:1,sn:''});
+    _erRenderManuales();
+}
+window._erAgregarManual=_erAgregarManual;
+function _erRenderManuales(){
+    const c=document.getElementById('erManualWrap'); if(!c) return;
+    c.innerHTML=(window._erManuales||[]).map((e,i)=>`
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap;background:rgba(16,185,129,0.06);padding:8px;border-radius:8px;">
+            <input placeholder="Equipo" value="${e.nombre}" oninput="window._erManuales[${i}].nombre=this.value" style="flex:1;min-width:90px;">
+            <input type="number" min="1" value="${e.cant}" oninput="window._erManuales[${i}].cant=parseInt(this.value)||1" style="width:55px;">
+            <input placeholder="SN" value="${e.sn}" oninput="window._erManuales[${i}].sn=this.value" style="flex:1;min-width:80px;">
+            <button class="btn btn-ghost btn-sm" onclick="window._erManuales.splice(${i},1);_erRenderManuales()">✕</button>
+        </div>`).join('');
+}
+window._erRenderManuales=_erRenderManuales;
+
 async function confirmarFinalizarRecogida(ordenId){
-    const hay=document.getElementById('eqHay').value;
-    const nom=document.getElementById('eqNom').value.trim();
-    const cant=parseInt(document.getElementById('eqCant').value)||1;
-    const tipo=document.getElementById('eqTipo').value;
-    const snRaw=document.getElementById('eqSN').value.trim();
     const retira=document.getElementById('eqRetiro')?document.getElementById('eqRetiro').value:'no';
     const motivoRet=document.getElementById('eqMotivoRet')?document.getElementById('eqMotivoRet').value.trim():'';
-    if(hay==='si' && !nom){ alert('Escribe el nombre del equipo, o elige "No recuperé equipo".'); return; }
+
+    // Leer qué equipos del cliente se marcaron como recuperados (casillas)
+    const equiposCliente=window._erEquiposCliente||[];
+    const recuperados=[]; // los que SÍ se recuperaron
+    const noDevueltos=[]; // los que NO se marcaron
+    document.querySelectorAll('.erChk').forEach(chk=>{
+        const idx=parseInt(chk.dataset.idx);
+        const eq=equiposCliente[idx];
+        if(!eq) return;
+        const item={ nom:eq.nombre, cant:eq.cantidad||1, snes:(eq.snes||[]).slice() };
+        if(chk.checked) recuperados.push(item);
+        else noDevueltos.push(item);
+    });
+    // Agregar los equipos manuales (siempre cuentan como recuperados)
+    (window._erManuales||[]).forEach(e=>{
+        if(e.nombre && e.nombre.trim()){
+            recuperados.push({ nom:e.nombre.trim(), cant:e.cant||1, snes:e.sn?[e.sn.trim()]:[] });
+        }
+    });
+
     const m=document.getElementById('modalEquipo'); if(m) m.remove();
     showToast('Finalizando...');
 
@@ -449,7 +491,7 @@ async function confirmarFinalizarRecogida(ordenId){
     const bodegaId=ofi?ofi.bodegaId:'';
 
     try{
-        // 1) Finalizar la orden Y marcar cliente como Retirado si aplica (ambos en oficinas_sistema)
+        // 1) Finalizar la orden + marcar retiro si aplica (en oficinas_sistema)
         const refO=db.collection(COLECCION).doc(DOC_ID);
         await db.runTransaction(async tx=>{
             const snap=await tx.get(refO);
@@ -460,53 +502,50 @@ async function confirmarFinalizarRecogida(ordenId){
             ordenes[idx].estado='finalizada';
             ordenes[idx].finalizada=Date.now();
             ordenes[idx].actualizada=Date.now();
-            if(hay==='si'){
-                ordenes[idx].equipoRecuperado={ nom, cant, tipo, snes: snRaw?snRaw.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean):[] };
-            }
+            ordenes[idx].equiposRecuperados=recuperados;
+            ordenes[idx].equiposNoDevueltos=noDevueltos;
             if(retira==='si'){
                 ordenes[idx].clienteRetirado=true;
                 ordenes[idx].motivoRetiro=motivoRet||'Retiro por orden de trabajo';
                 ordenes[idx].retiroAplicado=false; // Oficinas lo aplicará al cliente
             }
             tx.update(refO, { ordenesTrabajo: ordenes });
-            window._retiradoOk=(retira==='si');
         });
 
-        // 2) Si hay equipo, crear "recuperado pendiente" en el INVENTARIO (colección 'inventario', doc 'datos')
-        if(hay==='si'){
+        // 2) Enviar los equipos recuperados al INVENTARIO (cada uno como recuperado pendiente)
+        if(recuperados.length){
             if(!bodegaId){
-                showToast('⚠️ Recogida finalizada, pero la oficina no tiene bodega vinculada. El equipo NO se envió al inventario.', true);
+                showToast('⚠️ Finalizada, pero la oficina no tiene bodega vinculada. Los equipos NO se enviaron al inventario.', true);
             } else {
                 const refI=db.collection('inventario').doc('datos');
                 await db.runTransaction(async tx=>{
                     const snap=await tx.get(refI);
                     if(!snap.exists) throw new Error('No se encontró el inventario');
                     const data=snap.data();
-                    const bodegas=data.bodegas||[];
-                    const bod=bodegas.find(b=>String(b.id)===String(bodegaId));
-                    const recuperados=data.recuperados||[];
-                    recuperados.push({
-                        id:Date.now().toString(),
-                        bodegaId:bodegaId,
-                        bodegaNombre:bod?bod.nombre:'',
-                        nom:nom, cant:cant, tipo:tipo, unidad:'unidad',
-                        origen:`${retira==='si'?'Retiro':'Recogida'}: ${o.cliente||'cliente'}${o.cedula?' ('+o.cedula+')':''}`,
-                        snes: snRaw?snRaw.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean):[],
-                        fecha:new Date().toLocaleDateString(),
-                        estado:'pendiente',
-                        obs:`${retira==='si'?'Retiro':'Recogida'} por técnico ${TEC.nombre}`
+                    const bod=(data.bodegas||[]).find(b=>String(b.id)===String(bodegaId));
+                    const recs=data.recuperados||[];
+                    const etiqueta=retira==='si'?'Retiro':'Recogida';
+                    recuperados.forEach((it,k)=>{
+                        recs.push({
+                            id:(Date.now()+k).toString(),
+                            bodegaId:bodegaId, bodegaNombre:bod?bod.nombre:'',
+                            nom:it.nom, cant:it.cant, tipo:'usado', unidad:'unidad',
+                            origen:`${etiqueta}: ${o.cliente||'cliente'}${o.cedula?' ('+o.cedula+')':''}`,
+                            snes: it.snes||[],
+                            fecha:new Date().toLocaleDateString(),
+                            estado:'pendiente',
+                            obs:`${etiqueta} por técnico ${TEC.nombre}`
+                        });
                     });
-                    tx.update(refI, { recuperados: recuperados });
+                    tx.update(refI, { recuperados: recs });
                 });
-                showToast(retira==='si'
-                    ? '✅ Retiro finalizado. El cliente quedará Retirado y el equipo fue enviado a bodega.'
-                    : '✅ Recogida finalizada y equipo enviado a la bodega (pendiente de integrar)');
-                return;
             }
         }
+
+        const resumen=`${recuperados.length} recuperado(s)${noDevueltos.length?`, ${noDevueltos.length} no devuelto(s)`:''}`;
         showToast(retira==='si'
-            ? '✅ Retiro finalizado. El cliente quedará marcado como Retirado.'
-            : '✅ Recogida finalizada');
+            ? `✅ Retiro finalizado (${resumen}). El cliente quedará Retirado.`
+            : `✅ Recogida finalizada (${resumen}).`);
     }catch(e){ console.error(e); showToast('❌ '+(e.message||e), true); }
 }
 window.confirmarFinalizarRecogida=confirmarFinalizarRecogida;
