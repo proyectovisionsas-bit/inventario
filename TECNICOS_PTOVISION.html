@@ -521,28 +521,41 @@ async // ═══════════════════════�
 async function modalCambioEquipo(ordenId){
     const o=(DATA.ordenesTrabajo||[]).find(x=>x.id===ordenId);
     const bg=document.createElement('div'); bg.className='modal-bg'; bg.id='modalCambio';
-    bg.innerHTML=`<div class="modal"><h3>🔄 Cambio de equipo</h3><div class="center"><div class="spin"></div><div>Buscando tu cuadrilla...</div></div></div>`;
+    bg.innerHTML=`<div class="modal"><h3>🔄 Cambio de equipo</h3><div class="center"><div class="spin"></div><div>Cargando datos...</div></div></div>`;
     document.body.appendChild(bg);
 
-    // Buscar la cuadrilla del técnico (por cédula) para listar sus equipos
+    // Cargar inventario de clientes (para los equipos que YA tiene el cliente) y la cuadrilla del técnico
+    if(!_invCargado) await _cargarInventarioClientes();
+    const cli=_buscarClienteInv(o);
     const res=await _buscarCuadrillaDelTecnico();
     _cuadrillaTec = res ? res.cuad : null;
+
     const m=document.getElementById('modalCambio'); if(!m) return;
 
-    // Lista de equipos disponibles en la cuadrilla (todo su material/equipos con stock)
+    // --- Equipos que el cliente YA tiene (para el retirado) ---
+    const equiposCliente=(cli&&Array.isArray(cli.equipos))?cli.equipos.filter(e=>e.nombre):[];
+    const opcRetiro = equiposCliente.map((e,i)=>{
+        const sn=(e.snes&&e.snes.length)?e.snes.join(', '):'sin SN';
+        return `<option value="${i}">${e.nombre} — SN: ${sn}</option>`;
+    }).join('') + '<option value="manual">✏️ Otro equipo (escribir manual)</option>';
+
+    // --- Equipos disponibles en la cuadrilla (para el nuevo) ---
     const stock=_cuadrillaTec ? (_cuadrillaTec.materiales||[]).filter(x=>x.cantidad>0) : [];
-    const opcionesNuevo = stock.length
-        ? stock.map((mt,i)=>`<option value="${i}">${mt.nombre} — disponible: ${mt.cantidad} ${mt.unidad||''}</option>`).join('')
-        : '';
+    const opcNuevo = stock.map((mt,i)=>`<option value="${i}">${mt.nombre} — ${mt.cantidad} ${mt.unidad||''}</option>`).join('');
 
     m.querySelector('.modal').innerHTML=`<h3>🔄 Cambio de equipo</h3>
-        <p style="font-size:0.82rem;color:var(--muted);margin-bottom:10px;">Cuadrilla: <strong>${_cuadrillaTec?_cuadrillaTec.nombre:'(no encontrada)'}</strong>. Registra el equipo retirado y el nuevo (sale de tu cuadrilla).</p>
+        <p style="font-size:0.82rem;color:var(--muted);margin-bottom:10px;">Cuadrilla: <strong>${_cuadrillaTec?_cuadrillaTec.nombre:'(no encontrada)'}</strong></p>
 
         <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:8px;padding:10px;margin-bottom:10px;">
             <label>Equipo RETIRADO del cliente</label>
-            <input id="ceRetNom" placeholder="Ej: Router, ONU">
-            <label>Serial (opcional)</label>
-            <input id="ceRetSN" placeholder="SN del equipo retirado">
+            ${equiposCliente.length
+                ? `<select id="ceRetSel" onchange="_onRetiroChange()">${opcRetiro}</select>
+                   <div id="ceRetManual" style="display:none;">
+                       <label>Nombre del equipo</label><input id="ceRetNom" placeholder="Ej: Router, ONU">
+                       <label>Serial</label><input id="ceRetSN" placeholder="SN del equipo">
+                   </div>`
+                : `<input id="ceRetNom" placeholder="Ej: Router, ONU">
+                   <label>Serial (opcional)</label><input id="ceRetSN" placeholder="SN del equipo retirado">`}
             <label>¿En qué estado está?</label>
             <select id="ceRetEstado">
                 <option value="bueno">🟢 Bueno (sirve, vuelve a bodega)</option>
@@ -553,10 +566,9 @@ async function modalCambioEquipo(ordenId){
         <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:8px;padding:10px;margin-bottom:10px;">
             <label>Equipo NUEVO instalado (de tu cuadrilla)</label>
             ${stock.length
-                ? `<select id="ceNueSel">${opcionesNuevo}</select>
-                   <label>Serial instalado (opcional)</label>
-                   <input id="ceNueSN" placeholder="SN del equipo nuevo">`
-                : `<div style="background:rgba(245,158,11,0.1);border-radius:8px;padding:10px;font-size:0.82rem;color:#fbbf24;">${_cuadrillaTec?'Tu cuadrilla no tiene equipos disponibles en stock.':'No encontramos tu cuadrilla (se busca por cédula). Pide al encargado que te asocie.'}</div>`}
+                ? `<select id="ceNueSel" onchange="_onNuevoChange()">${opcNuevo}</select>
+                   <div id="ceNueSNWrap"></div>`
+                : `<div style="background:rgba(245,158,11,0.1);border-radius:8px;padding:10px;font-size:0.82rem;color:#fbbf24;">${_cuadrillaTec?'Tu cuadrilla no tiene equipos disponibles.':'No encontramos tu cuadrilla (se busca por cédula).'}</div>`}
         </div>
 
         <div style="display:flex;gap:8px;">
@@ -564,17 +576,62 @@ async function modalCambioEquipo(ordenId){
             <button class="btn btn-ghost" onclick="document.getElementById('modalCambio').remove()">Cancelar</button>
         </div>`;
     bg.addEventListener('click',e=>{ if(e.target===bg) bg.remove(); });
+
+    // Guardar referencias para los handlers
+    window._ceEquiposCliente=equiposCliente;
+    window._ceStock=stock;
+    _onNuevoChange(); // cargar SN del primer equipo nuevo
 }
 window.modalCambioEquipo=modalCambioEquipo;
 
+// Cuando cambia el equipo retirado seleccionado: mostrar manual si eligió "otro"
+function _onRetiroChange(){
+    const sel=document.getElementById('ceRetSel');
+    const man=document.getElementById('ceRetManual');
+    if(!sel||!man) return;
+    man.style.display = sel.value==='manual' ? 'block' : 'none';
+}
+window._onRetiroChange=_onRetiroChange;
+
+// Cuando cambia el equipo nuevo: cargar su(s) SN de la cuadrilla
+function _onNuevoChange(){
+    const sel=document.getElementById('ceNueSel');
+    const wrap=document.getElementById('ceNueSNWrap');
+    if(!sel||!wrap) return;
+    const stock=window._ceStock||[];
+    const mat=stock[parseInt(sel.value)];
+    if(!mat){ wrap.innerHTML=''; return; }
+    const snes=mat.snes||[];
+    if(snes.length>1){
+        // Varios SN: dejar elegir cuál
+        wrap.innerHTML=`<label>Serial instalado (elige cuál)</label>
+            <select id="ceNueSN">${snes.map(s=>`<option value="${s}">${s}</option>`).join('')}</select>`;
+    } else if(snes.length===1){
+        // Un solo SN: cargarlo automático (editable)
+        wrap.innerHTML=`<label>Serial instalado</label><input id="ceNueSN" value="${snes[0]}">`;
+    } else {
+        // Sin SN registrado: campo libre
+        wrap.innerHTML=`<label>Serial instalado (opcional)</label><input id="ceNueSN" placeholder="SN del equipo nuevo">`;
+    }
+}
+window._onNuevoChange=_onNuevoChange;
+
 async function _finalizarCambioEquipo(ordenId){
-    const retNom=document.getElementById('ceRetNom').value.trim();
-    const retSN=document.getElementById('ceRetSN').value.trim();
+    // --- Equipo retirado ---
+    let retNom='', retSN='';
+    const retSel=document.getElementById('ceRetSel');
+    if(retSel && retSel.value!=='manual'){
+        const eq=(window._ceEquiposCliente||[])[parseInt(retSel.value)];
+        if(eq){ retNom=eq.nombre; retSN=(eq.snes&&eq.snes.length)?eq.snes.join(', '):''; }
+    } else {
+        retNom=document.getElementById('ceRetNom')?document.getElementById('ceRetNom').value.trim():'';
+        retSN=document.getElementById('ceRetSN')?document.getElementById('ceRetSN').value.trim():'';
+    }
     const retEstado=document.getElementById('ceRetEstado').value;
+
+    // --- Equipo nuevo (de la cuadrilla) ---
     const selEl=document.getElementById('ceNueSel');
     const nueSN=document.getElementById('ceNueSN')?document.getElementById('ceNueSN').value.trim():'';
-
-    // Determinar el equipo nuevo (del stock de la cuadrilla)
     let nueNom='', equipoNuevoStock=null;
     if(selEl && _cuadrillaTec){
         const stock=(_cuadrillaTec.materiales||[]).filter(x=>x.cantidad>0);
@@ -591,7 +648,6 @@ async function _finalizarCambioEquipo(ordenId){
     const bodegaId=ofi?ofi.bodegaId:'';
 
     try{
-        // 1) Finalizar la orden con el detalle del cambio
         const refO=db.collection(COLECCION).doc(DOC_ID);
         await db.runTransaction(async tx=>{
             const snap=await tx.get(refO);
@@ -606,7 +662,6 @@ async function _finalizarCambioEquipo(ordenId){
             tx.update(refO, { ordenesTrabajo: ordenes });
         });
 
-        // 2) Inventario: equipo retirado (recuperado/dañado) + equipo nuevo como consumo pendiente
         if(bodegaId || retNom || nueNom){
             const refI=db.collection('inventario').doc('datos');
             await db.runTransaction(async tx=>{
@@ -616,7 +671,6 @@ async function _finalizarCambioEquipo(ordenId){
                 const bodegas=data.bodegas||[];
                 const bod=bodegas.find(b=>String(b.id)===String(bodegaId));
 
-                // 2a) Equipo retirado → Recuperados (bueno) o Dañados (dañado)
                 if(retNom && bodegaId){
                     const snes=retSN?[retSN]:[];
                     if(retEstado==='bueno'){
@@ -645,7 +699,6 @@ async function _finalizarCambioEquipo(ordenId){
                     }
                 }
 
-                // 2b) Equipo nuevo instalado → consumo pendiente (sale de la cuadrilla al confirmar)
                 if(nueNom && _cuadrillaTec){
                     const consumos=data.consumosPendientes||[];
                     consumos.push({
