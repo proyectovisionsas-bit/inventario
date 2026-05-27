@@ -337,6 +337,7 @@
                 <button class="nav-btn admin-only" data-tab="vista_global">🌍 Vista Global</button>
                 <button class="nav-btn bodega-only" data-tab="inv_global">🔍 Inv. Bodegas</button>
                 <button class="nav-btn" data-tab="recuperados">♻️ Recuperados</button>
+                <button class="nav-btn" data-tab="consumos">📦 Material por confirmar</button>
                 <button class="nav-btn" data-tab="danados">🔴 Equipos Dañados</button>
                 <button class="nav-btn" data-tab="ventas">💰 Ventas</button>
                 <button class="nav-btn" data-tab="cuartos">🖥️ Cuartos de Equipos</button>
@@ -396,7 +397,7 @@
 
 <script>
 const DB_KEY = 'invPro_V9_Seguro';
-let DB = { bodegas:[], cuadrillas:[], entregas:[], instalaciones:[], logs:[], transfers:[], recuperados:[], deleteRequests:[], editRequests:[], clientes:[], ventas:[], cuartos:[], equiposPendientesTecnico:[], adminPass:'admin123' };
+let DB = { bodegas:[], cuadrillas:[], entregas:[], instalaciones:[], logs:[], transfers:[], recuperados:[], consumosPendientes:[], deleteRequests:[], editRequests:[], clientes:[], ventas:[], cuartos:[], equiposPendientesTecnico:[], adminPass:'admin123' };
 let USER = null, selBodegaLogin = null, TempLists = {};
 
 const UNIDADES = [
@@ -601,7 +602,7 @@ function setupNav() {
     });
 }
 function navigate(tab) { document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active')); document.querySelector(`.nav-btn[data-tab="${tab}"]`)?.classList.add('active'); renderTab(tab); }
-function renderTab(tab) { const main=id('main-content'); if(!main) return; try { switch(tab) { case 'dash': renderDash(main); break; case 'bodegas': renderBodegas(main); break; case 'clientes': renderClientes(main); break; case 'vista_global': renderVistaGlobal(main); break; case 'inv_global': renderInvGlobal(main); break; case 'transfer': renderTransfer(main); break; case 'recuperados': renderRecuperados(main); break; case 'danados': renderEquiposDanados(main); break; case 'cuads': renderCuads(main); break; case 'entregas': renderEntregas(main); break; case 'inst': renderInst(main); break; case 'busqueda': renderBusquedaGlobal(main); break;
+function renderTab(tab) { const main=id('main-content'); if(!main) return; try { switch(tab) { case 'dash': renderDash(main); break; case 'bodegas': renderBodegas(main); break; case 'clientes': renderClientes(main); break; case 'vista_global': renderVistaGlobal(main); break; case 'inv_global': renderInvGlobal(main); break; case 'transfer': renderTransfer(main); break; case 'recuperados': renderRecuperados(main); break; case 'consumos': renderConsumos(main); break; case 'danados': renderEquiposDanados(main); break; case 'cuads': renderCuads(main); break; case 'entregas': renderEntregas(main); break; case 'inst': renderInst(main); break; case 'busqueda': renderBusquedaGlobal(main); break;
             case 'reportes': renderReportes(main); break;
             case 'ventas': renderVentas(main); break;
             case 'cuartos': renderCuartos(main); break;
@@ -4904,6 +4905,103 @@ function renderRecuperados(c) { let items=DB.recuperados; if(USER.role==='bodega
 function modalAddRecuperado() { const bs=DB.bodegas.map(b=>`<option value="${b.id}" ${USER.role==='bodega'&&b.id===USER.id?'selected':''}>${b.nombre}</option>`).join(''); openModal('Registrar Recuperado', `<div class="form-group"><label>Bodega</label><select id="recBod" class="form-control">${bs}</select></div><div class="form-row"><div class="form-group"><label>Artículo</label><input id="recNom" class="form-control"></div><div class="form-group"><label>Cantidad</label><input id="recCant" type="number" value="1" min="1" class="form-control"></div></div><div class="form-row"><div class="form-group"><label>Tipo</label><select id="recTipo" class="form-control"><option value="usado">🟡 Usado</option><option value="nuevo">🟢 Nuevo</option></select></div><div class="form-group"><label>Unidad</label><select id="recUnidad" class="form-control">${getUnidadesOptions()}</select></div></div><div class="form-group"><label>Origen</label><input id="recOrigen" class="form-control"></div><div class="form-group"><label>SNs</label><textarea id="recSNs" class="form-control"></textarea></div><div class="form-group"><label>Fecha</label><input id="recFecha" type="date" value="${new Date().toISOString().split('T')[0]}" class="form-control"></div>`, ()=>{ const nom=id('recNom').value,cant=parseInt(id('recCant').value),tipo=id('recTipo').value,unid=id('recUnidad').value,origen=id('recOrigen').value,rawSN=id('recSNs').value.trim(),fecha=id('recFecha').value,bId=id('recBod').value; if(!nom||!cant||!origen||!bId) return alert('Complete campos'); DB.recuperados.push({id:Date.now().toString(),bodegaId:bId,bodegaNombre:DB.bodegas.find(x=>x.id===bId)?.nombre,nom,cant,tipo,unidad:unid,origen,snes:rawSN?rawSN.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean):[],fecha,estado:'pendiente'}); logMsg(`Recuperado: ${nom}`); save(); closeModal(); renderTab('recuperados'); }); }
 function integrarRecuperado(idx) { const r=DB.recuperados[idx]; if(!r||r.estado!=='pendiente') return; const b=DB.bodegas.find(x=>x.id===r.bodegaId); if(!b) return alert("Bodega no existe"); const ex=b.materiales.find(m=>m.nombre===r.nom&&m.tipo===r.tipo); if(ex){ex.cantidad+=r.cant;if(r.snes.length)ex.snes.push(...r.snes);}else b.materiales.push({id:Date.now().toString(),nombre:r.nom,cantidad:r.cant,tipo:r.tipo,unidad:r.unidad,snes:r.snes,fecha:r.fecha}); r.estado='integrado'; logMsg(`Integrado "${r.nom}"`); save(); renderTab('recuperados'); }
 
+// ════════════════════════════════════════════════════════════
+// FASE C — Material por confirmar (consumos que reportan los técnicos)
+// Al confirmar, se descuenta del stock de la CUADRILLA.
+// ════════════════════════════════════════════════════════════
+function renderConsumos(c) {
+    let items=(DB.consumosPendientes||[]).filter(x=>x.estado==='pendiente');
+    // Cada bodega ve solo los consumos de SUS cuadrillas; el admin ve todos
+    if(USER.role==='bodega'){
+        const misCuads=getUserCuads().map(x=>x.id);
+        items=items.filter(x=>misCuads.includes(x.cuadrillaId) || String(x.bodegaId)===String(USER.id));
+    }
+    items.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+
+    const destinoLabel=(x)=> x.destino==='red'
+        ? '🌐 Mantenimiento de red'
+        : '👤 '+(x.destinoDetalle||'Cliente');
+
+    c.innerHTML=`<div class="card">
+        <div class="card-header"><h2>📦 Material por confirmar</h2>
+            <span class="badge ${items.length?'badge-pend':'badge-ok'}">${items.length} pendiente(s)</span>
+        </div>
+        <p class="text-muted" style="font-size:0.85rem;margin-bottom:12px;">Material que los técnicos reportaron como gastado. Al confirmar, se descuenta del stock de la cuadrilla. Si algo no cuadra, puedes rechazarlo.</p>
+        ${items.length? items.map(x=>{
+            const cuad=DB.cuadrillas.find(cu=>String(cu.id)===String(x.cuadrillaId));
+            const itemsHtml=(x.items||[]).map(it=>{
+                // ¿la cuadrilla tiene suficiente de este material?
+                const matCuad=cuad?(cuad.materiales||[]).find(m=>m.nombre===it.nombre):null;
+                const disp=matCuad?matCuad.cantidad:0;
+                const alcanza=disp>=it.cant;
+                return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border,rgba(0,0,0,0.06));">
+                    <span><strong>${it.nombre}</strong> · ${it.cant} ${it.unidad||''}</span>
+                    <span class="text-muted" style="font-size:0.8rem;color:${alcanza?'inherit':'#dc2626'};">disponible: ${disp}${alcanza?'':' ⚠️ insuficiente'}</span>
+                </div>`;
+            }).join('');
+            return `<div style="border:1px solid var(--border,rgba(0,0,0,0.1));border-radius:10px;padding:14px;margin-bottom:12px;">
+                <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+                    <div>
+                        <div style="font-weight:700;">${destinoLabel(x)}</div>
+                        <div class="text-muted" style="font-size:0.82rem;">👷 ${x.cuadrillaNombre||'-'} · Técnico: ${x.tecnicoNombre||'-'} · 📅 ${x.fecha}</div>
+                    </div>
+                    <div style="display:flex;gap:6px;align-items:flex-start;">
+                        <button class="btn btn-success btn-sm" onclick="confirmarConsumo('${x.id}')">✅ Confirmar</button>
+                        <button class="btn btn-danger btn-sm" onclick="rechazarConsumo('${x.id}')">✗ Rechazar</button>
+                    </div>
+                </div>
+                ${itemsHtml}
+            </div>`;
+        }).join('') : '<p class="text-muted">No hay material pendiente de confirmar. ✅</p>'}
+    </div>`;
+}
+
+function confirmarConsumo(consumoId){
+    const x=(DB.consumosPendientes||[]).find(c=>c.id===consumoId);
+    if(!x || x.estado!=='pendiente') return;
+    const cuad=DB.cuadrillas.find(cu=>String(cu.id)===String(x.cuadrillaId));
+    if(!cuad){ alert('La cuadrilla de este consumo ya no existe. Puedes rechazarlo.'); return; }
+
+    // Verificar que la cuadrilla tenga suficiente de cada material ANTES de descontar
+    const faltantes=[];
+    (x.items||[]).forEach(it=>{
+        const m=(cuad.materiales||[]).find(mm=>mm.nombre===it.nombre);
+        const disp=m?m.cantidad:0;
+        if(disp<it.cant) faltantes.push(`${it.nombre}: necesita ${it.cant}, hay ${disp}`);
+    });
+    if(faltantes.length){
+        alert('No se puede confirmar: la cuadrilla no tiene suficiente material.\n\n'+faltantes.join('\n')+'\n\nRevisa el stock de la cuadrilla o rechaza este consumo.');
+        return;
+    }
+
+    if(!confirm(`Confirmar el material gastado por ${cuad.nombre}.\n\nEsto descontará del stock de la cuadrilla. ¿Continuar?`)) return;
+
+    // Descontar de la cuadrilla
+    (x.items||[]).forEach(it=>{
+        const m=(cuad.materiales||[]).find(mm=>mm.nombre===it.nombre);
+        if(m){ m.cantidad-=it.cant; if(m.cantidad<0) m.cantidad=0; }
+    });
+    x.estado='confirmado';
+    x.confirmadoFecha=new Date().toLocaleDateString();
+    x.confirmadoPor=USER.role==='admin'?'Admin':(USER.nombre||'Bodega');
+    logMsg(`Material confirmado: ${cuad.nombre} → ${x.destino==='red'?'red':(x.destinoDetalle||'cliente')} (${(x.items||[]).map(i=>i.nombre+' x'+i.cant).join(', ')})`);
+    save();
+    renderTab('consumos');
+}
+window.confirmarConsumo=confirmarConsumo;
+
+function rechazarConsumo(consumoId){
+    const x=(DB.consumosPendientes||[]).find(c=>c.id===consumoId);
+    if(!x || x.estado!=='pendiente') return;
+    if(!confirm('¿Rechazar este consumo? No se descontará nada del inventario. (Úsalo si el técnico se equivocó al registrar.)')) return;
+    x.estado='rechazado';
+    x.rechazadoFecha=new Date().toLocaleDateString();
+    logMsg(`Material RECHAZADO de ${x.cuadrillaNombre||'cuadrilla'}`);
+    save();
+    renderTab('consumos');
+}
+window.rechazarConsumo=rechazarConsumo;
+
 // Aplicar un equipo pendiente (enviado por un técnico) al cliente correspondiente
 function aplicarEquipoPendiente(pendId){
     const bandeja=DB.equiposPendientesTecnico||[];
@@ -7059,6 +7157,7 @@ function fixDB() {
     if(!DB.logs) DB.logs=[];
     if(!DB.transfers) DB.transfers=[];
     if(!DB.recuperados) DB.recuperados=[];
+    if(!DB.consumosPendientes) DB.consumosPendientes=[];
     if(!DB.deleteRequests) DB.deleteRequests=[];
     if(!DB.editRequests) DB.editRequests=[];
     if(!DB.clientes) DB.clientes=[];
