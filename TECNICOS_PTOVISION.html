@@ -883,6 +883,7 @@ async function _finalizarConMaterial(ordenId){
 
     const o=(DATA.ordenesTrabajo||[]).find(x=>x.id===ordenId);
     const registrarMat = (hay==='si' && _matElegidos.length>0 && _cuadrillaTec);
+    const esInstalacion = (o && o.tipo==='instalacion');
 
     try{
         // 1) Finalizar la orden en oficinas_sistema
@@ -902,32 +903,60 @@ async function _finalizarConMaterial(ordenId){
             tx.update(refO, { ordenesTrabajo: ordenes });
         });
 
-        // 2) Si hay material, crear "consumo pendiente" en el INVENTARIO (NO descuenta aún)
-        if(registrarMat){
+        // 2) Escribir en el INVENTARIO: consumo pendiente (material) y/o registro de instalación
+        if(registrarMat || esInstalacion){
             const refI=db.collection('inventario').doc('datos');
             await db.runTransaction(async tx=>{
                 const snap=await tx.get(refI);
                 if(!snap.exists) throw new Error('No se encontró el inventario');
                 const data=snap.data();
-                const consumos=data.consumosPendientes||[];
-                consumos.push({
-                    id:Date.now().toString(),
-                    cuadrillaId:_cuadrillaTec.id,
-                    cuadrillaNombre:_cuadrillaTec.nombre,
-                    bodegaId:_cuadrillaTec.bodegaId,
-                    tecnicoCedula:String(TEC.documento||''),
-                    tecnicoNombre:TEC.nombre,
-                    destino:destino,
-                    destinoDetalle: destino==='cliente' ? (o&&o.cliente?o.cliente:'') : 'Mantenimiento de red',
-                    ordenId:ordenId,
-                    ordenTipo:o?o.tipo:'',
-                    items:[..._matElegidos],
-                    fecha:new Date().toLocaleDateString(),
-                    estado:'pendiente'
-                });
-                tx.update(refI, { consumosPendientes: consumos });
+
+                // 2a) Material gastado → consumo pendiente (sin descontar aún)
+                if(registrarMat){
+                    const consumos=data.consumosPendientes||[];
+                    consumos.push({
+                        id:Date.now().toString(),
+                        cuadrillaId:_cuadrillaTec.id,
+                        cuadrillaNombre:_cuadrillaTec.nombre,
+                        bodegaId:_cuadrillaTec.bodegaId,
+                        tecnicoCedula:String(TEC.documento||''),
+                        tecnicoNombre:TEC.nombre,
+                        destino:destino,
+                        destinoDetalle: destino==='cliente' ? (o&&o.cliente?o.cliente:'') : 'Mantenimiento de red',
+                        ordenId:ordenId,
+                        ordenTipo:o?o.tipo:'',
+                        items:[..._matElegidos],
+                        fecha:new Date().toLocaleDateString(),
+                        estado:'pendiente'
+                    });
+                    tx.update(refI, { consumosPendientes: consumos });
+                }
+
+                // 2b) Si es INSTALACIÓN → crear registro en inventario.instalaciones (Fase H)
+                // El admin lo verá en el módulo Instalaciones y podrá crear el cliente con un botón.
+                if(esInstalacion){
+                    const instalaciones=data.instalaciones||[];
+                    instalaciones.push({
+                        id:(Date.now()+2).toString(),
+                        cuadrillaId:_cuadrillaTec?_cuadrillaTec.id:'',
+                        cuadrilla:_cuadrillaTec?_cuadrillaTec.nombre:'',
+                        fecha:new Date().toISOString().split('T')[0],
+                        cliente:o.cliente||'',
+                        direccion:o.direccion||'',
+                        telefono:o.telefono||'',
+                        observaciones:'Instalación desde orden de trabajo',
+                        tipo:'Instalación nueva',
+                        bodegaId:_cuadrillaTec?_cuadrillaTec.bodegaId:'',
+                        mats:_matElegidos.map(it=>({ nom:it.nombre, cant:it.cant, unidad:it.unidad||'Und', tipo:it.tipo||'nuevo', snes:it.sn?[it.sn]:[] })),
+                        reg:new Date().toISOString(),
+                        origenOrdenId:ordenId
+                    });
+                    tx.update(refI, { instalaciones: instalaciones });
+                }
             });
-            showToast('✅ Orden finalizada y material registrado (pendiente de confirmar por bodega)');
+            showToast(esInstalacion
+                ? '✅ Instalación finalizada y registrada en el inventario.'
+                : '✅ Orden finalizada y material registrado (pendiente de confirmar por bodega)');
             _matElegidos=[]; _cuadrillaTec=null;
             return;
         }
