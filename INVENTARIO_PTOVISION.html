@@ -329,6 +329,7 @@
     <nav class="nav" id="navBar" style="flex-wrap:wrap; padding:0 8px; position:relative;">
 
         <button class="nav-btn active" data-tab="dash" style="font-weight:700;">📊 Inicio</button>
+        <button class="nav-btn" data-tab="panel" style="font-weight:700;">📈 Control</button>
 
         <div class="nav-group" id="navGrpInventario">
             <button class="nav-group-btn" onclick="toggleNavGroup('navGrpInventario')">📦 Inventario <span class="nav-arrow">▾</span></button>
@@ -603,7 +604,7 @@ function setupNav() {
     });
 }
 function navigate(tab) { document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active')); document.querySelector(`.nav-btn[data-tab="${tab}"]`)?.classList.add('active'); renderTab(tab); }
-function renderTab(tab) { const main=id('main-content'); if(!main) return; try { switch(tab) { case 'dash': renderDash(main); break; case 'bodegas': renderBodegas(main); break; case 'clientes': renderClientes(main); break; case 'vista_global': renderVistaGlobal(main); break; case 'inv_global': renderInvGlobal(main); break; case 'transfer': renderTransfer(main); break; case 'recuperados': renderRecuperados(main); break; case 'consumos': renderConsumos(main); break; case 'danados': renderEquiposDanados(main); break; case 'cuads': renderCuads(main); break; case 'entregas': renderEntregas(main); break; case 'inst': renderInst(main); break; case 'busqueda': renderBusquedaGlobal(main); break;
+function renderTab(tab) { const main=id('main-content'); if(!main) return; try { switch(tab) { case 'dash': renderDash(main); break; case 'panel': renderPanelControl(main); break; case 'bodegas': renderBodegas(main); break; case 'clientes': renderClientes(main); break; case 'vista_global': renderVistaGlobal(main); break; case 'inv_global': renderInvGlobal(main); break; case 'transfer': renderTransfer(main); break; case 'recuperados': renderRecuperados(main); break; case 'consumos': renderConsumos(main); break; case 'danados': renderEquiposDanados(main); break; case 'cuads': renderCuads(main); break; case 'entregas': renderEntregas(main); break; case 'inst': renderInst(main); break; case 'busqueda': renderBusquedaGlobal(main); break;
             case 'reportes': renderReportes(main); break;
             case 'ventas': renderVentas(main); break;
             case 'cuartos': renderCuartos(main); break;
@@ -787,6 +788,141 @@ function renderDash(c) {
         ctx.fillText('total',cx,cy+12);
     }, 100);
 }
+
+// ════════════════════════════════════════════════════════════
+// FASE I — Panel de control (solo lectura): saldo bodega, gasto por destino, material en la calle
+// ════════════════════════════════════════════════════════════
+function renderPanelControl(c){
+    const esAdmin=USER.role==='admin';
+    const periodo=window._panelPeriodo||'30'; // días: 7, 30, 90, todo
+
+    // Filtrar bodegas/cuadrillas según rol
+    const bodegas = esAdmin ? (DB.bodegas||[]) : (DB.bodegas||[]).filter(b=>b.id===USER.id);
+    const cuadrillas = esAdmin ? (DB.cuadrillas||[]) : getUserCuads();
+
+    // ---- VISTA 1: Saldo de material por bodega ----
+    const saldoBodegas = bodegas.map(b=>{
+        const mats=(b.materiales||[]);
+        const totalItems=mats.reduce((s,m)=>s+(m.cantidad||0),0);
+        const tiposDistintos=mats.filter(m=>(m.cantidad||0)>0).length;
+        return { nombre:b.nombre, totalItems, tiposDistintos, mats:mats.filter(m=>(m.cantidad||0)>0) };
+    });
+
+    // ---- VISTA 2: Gasto por destino (cliente vs red) en el periodo, desde consumos CONFIRMADOS ----
+    const ahora=Date.now();
+    const limiteDias = periodo==='todo' ? 0 : parseInt(periodo);
+    const enPeriodo=(fechaStr)=>{
+        if(limiteDias===0) return true;
+        const f=new Date(fechaStr);
+        if(isNaN(f.getTime())) return true;
+        return (ahora - f.getTime())/(1000*60*60*24) <= limiteDias;
+    };
+    const consumos=(DB.consumosPendientes||[]).filter(x=>{
+        if(x.estado!=='confirmado') return false;
+        if(!esAdmin){ const ids=cuadrillas.map(cu=>cu.id); if(!ids.includes(x.cuadrillaId)) return false; }
+        return enPeriodo(x.confirmadoFecha||x.fecha);
+    });
+    let gastoCliente=0, gastoRed=0;
+    const detalleDestino={};
+    consumos.forEach(x=>{
+        const tot=(x.items||[]).reduce((s,i)=>s+(i.cant||0),0);
+        if(x.destino==='red') gastoRed+=tot; else gastoCliente+=tot;
+        (x.items||[]).forEach(i=>{
+            const k=i.nombre;
+            if(!detalleDestino[k]) detalleDestino[k]={cliente:0,red:0};
+            if(x.destino==='red') detalleDestino[k].red+=(i.cant||0); else detalleDestino[k].cliente+=(i.cant||0);
+        });
+    });
+
+    // ---- VISTA 3: Material "en la calle" por cuadrilla (lo que tienen sin gastar) ----
+    const enLaCalle = cuadrillas.map(cu=>{
+        const mats=(cu.materiales||[]).filter(m=>(m.cantidad||0)>0);
+        const totalItems=mats.reduce((s,m)=>s+(m.cantidad||0),0);
+        // ¿tiene consumos pendientes sin confirmar? (material reportado pero no justificado aún)
+        const pendientes=(DB.consumosPendientes||[]).filter(x=>x.estado==='pendiente' && String(x.cuadrillaId)===String(cu.id));
+        const itemsPend=pendientes.reduce((s,x)=>s+(x.items||[]).reduce((ss,i)=>ss+(i.cant||0),0),0);
+        return { nombre:cu.nombre, totalItems, mats, itemsPend };
+    });
+
+    const fmtNum=(n)=>new Intl.NumberFormat('es-CO').format(n);
+
+    c.innerHTML=`<div class="card">
+        <div class="card-header">
+            <h2>📈 Panel de Control</h2>
+            <select class="form-control" style="max-width:170px;" onchange="window._panelPeriodo=this.value;renderTab('panel')">
+                <option value="7" ${periodo==='7'?'selected':''}>Últimos 7 días</option>
+                <option value="30" ${periodo==='30'?'selected':''}>Últimos 30 días</option>
+                <option value="90" ${periodo==='90'?'selected':''}>Últimos 90 días</option>
+                <option value="todo" ${periodo==='todo'?'selected':''}>Todo el tiempo</option>
+            </select>
+        </div>
+        <p class="text-muted" style="font-size:0.84rem;margin-bottom:16px;">Vista de control del material. El gasto por destino usa los consumos ya confirmados por bodega.</p>
+
+        <!-- VISTA 2 arriba: resumen de gasto -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:22px;">
+            <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.25);border-radius:12px;padding:16px;">
+                <div style="font-size:0.74rem;color:var(--muted);text-transform:uppercase;">👤 Gastado en clientes</div>
+                <div style="font-size:1.8rem;font-weight:800;color:#3b82f6;">${fmtNum(gastoCliente)}</div>
+                <div style="font-size:0.72rem;color:var(--muted);">unidades en el periodo</div>
+            </div>
+            <div style="background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.25);border-radius:12px;padding:16px;">
+                <div style="font-size:0.74rem;color:var(--muted);text-transform:uppercase;">🌐 Gastado en red</div>
+                <div style="font-size:1.8rem;font-weight:800;color:#8b5cf6;">${fmtNum(gastoRed)}</div>
+                <div style="font-size:0.72rem;color:var(--muted);">unidades en el periodo</div>
+            </div>
+            <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:12px;padding:16px;">
+                <div style="font-size:0.74rem;color:var(--muted);text-transform:uppercase;">📦 Total gastado</div>
+                <div style="font-size:1.8rem;font-weight:800;color:#10b981;">${fmtNum(gastoCliente+gastoRed)}</div>
+                <div style="font-size:0.72rem;color:var(--muted);">unidades confirmadas</div>
+            </div>
+        </div>
+
+        ${Object.keys(detalleDestino).length?`
+        <h3 style="font-size:1rem;margin:0 0 10px;">Detalle de gasto por material</h3>
+        <div class="table-wrap" style="margin-bottom:24px;"><table>
+            <thead><tr><th>Material</th><th>👤 Cliente</th><th>🌐 Red</th><th>Total</th></tr></thead>
+            <tbody>${Object.entries(detalleDestino).sort((a,b)=>(b[1].cliente+b[1].red)-(a[1].cliente+a[1].red)).map(([nom,d])=>`
+                <tr><td><strong>${nom}</strong></td><td>${fmtNum(d.cliente)}</td><td>${fmtNum(d.red)}</td><td><strong>${fmtNum(d.cliente+d.red)}</strong></td></tr>
+            `).join('')}</tbody>
+        </table></div>`:'<p class="text-muted" style="margin-bottom:24px;">No hay gasto confirmado en este periodo.</p>'}
+
+        <!-- VISTA 1: saldo por bodega -->
+        <h3 style="font-size:1rem;margin:0 0 10px;">🏭 Saldo de material por bodega</h3>
+        <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:24px;">
+        ${saldoBodegas.length?saldoBodegas.map(b=>`
+            <details style="border:1px solid var(--border);border-radius:10px;padding:12px;">
+                <summary style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                    <span style="font-weight:700;">${b.nombre}</span>
+                    <span class="text-muted" style="font-size:0.84rem;">${fmtNum(b.totalItems)} unidades · ${b.tiposDistintos} tipos</span>
+                </summary>
+                <div class="table-wrap" style="margin-top:10px;"><table>
+                    <thead><tr><th>Material</th><th>Cantidad</th><th>Unidad</th><th>Tipo</th></tr></thead>
+                    <tbody>${b.mats.length?b.mats.map(m=>`<tr><td>${m.nombre}</td><td><strong>${fmtNum(m.cantidad)}</strong></td><td>${m.unidad||''}</td><td>${m.tipo||''}</td></tr>`).join(''):'<tr><td colspan="4" class="text-muted">Sin material</td></tr>'}</tbody>
+                </table></div>
+            </details>
+        `).join(''):'<p class="text-muted">Sin bodegas.</p>'}
+        </div>
+
+        <!-- VISTA 3: material en la calle por cuadrilla -->
+        <h3 style="font-size:1rem;margin:0 0 10px;">👷 Material en la calle (por cuadrilla)</h3>
+        <p class="text-muted" style="font-size:0.8rem;margin-bottom:10px;">Material que las cuadrillas tienen consigo sin gastar. Si una cuadrilla acumula mucho, conviene revisar.</p>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+        ${enLaCalle.length?enLaCalle.map(cu=>`
+            <details style="border:1px solid var(--border);border-radius:10px;padding:12px;${cu.itemsPend>0?'border-left:4px solid #f59e0b;':''}">
+                <summary style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                    <span style="font-weight:700;">${cu.nombre}</span>
+                    <span class="text-muted" style="font-size:0.84rem;">${fmtNum(cu.totalItems)} unidades en mano${cu.itemsPend>0?` · <span style="color:#f59e0b;">⏳ ${fmtNum(cu.itemsPend)} por confirmar</span>`:''}</span>
+                </summary>
+                <div class="table-wrap" style="margin-top:10px;"><table>
+                    <thead><tr><th>Material</th><th>Cantidad</th><th>Unidad</th></tr></thead>
+                    <tbody>${cu.mats.length?cu.mats.map(m=>`<tr><td>${m.nombre}</td><td><strong>${fmtNum(m.cantidad)}</strong></td><td>${m.unidad||''}</td></tr>`).join(''):'<tr><td colspan="3" class="text-muted">Sin material</td></tr>'}</tbody>
+                </table></div>
+            </details>
+        `).join(''):'<p class="text-muted">Sin cuadrillas.</p>'}
+        </div>
+    </div>`;
+}
+window.renderPanelControl=renderPanelControl;
 
 // CLIENTES INSTALADOS
 function renderClientes(c) {
