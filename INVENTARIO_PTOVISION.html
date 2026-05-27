@@ -4910,49 +4910,76 @@ function integrarRecuperado(idx) { const r=DB.recuperados[idx]; if(!r||r.estado!
 // Al confirmar, se descuenta del stock de la CUADRILLA.
 // ════════════════════════════════════════════════════════════
 function renderConsumos(c) {
-    let items=(DB.consumosPendientes||[]).filter(x=>x.estado==='pendiente');
+    const todos=(DB.consumosPendientes||[]);
+    let pendientes=todos.filter(x=>x.estado==='pendiente');
+    let historial=todos.filter(x=>x.estado!=='pendiente');
     // Cada bodega ve solo los consumos de SUS cuadrillas; el admin ve todos
     if(USER.role==='bodega'){
         const misCuads=getUserCuads().map(x=>x.id);
-        items=items.filter(x=>misCuads.includes(x.cuadrillaId) || String(x.bodegaId)===String(USER.id));
+        const mio=(x)=>misCuads.includes(x.cuadrillaId) || String(x.bodegaId)===String(USER.id);
+        pendientes=pendientes.filter(mio);
+        historial=historial.filter(mio);
     }
-    items.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+    pendientes.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+    historial.sort((a,b)=>new Date(b.confirmadoFecha||b.rechazadoFecha||b.fecha)-new Date(a.confirmadoFecha||a.rechazadoFecha||a.fecha));
 
     const destinoLabel=(x)=> x.destino==='red'
         ? '🌐 Mantenimiento de red'
         : '👤 '+(x.destinoDetalle||'Cliente');
 
+    const tarjetaPendiente=(x)=>{
+        const cuad=DB.cuadrillas.find(cu=>String(cu.id)===String(x.cuadrillaId));
+        const itemsHtml=(x.items||[]).map(it=>{
+            const matCuad=cuad?(cuad.materiales||[]).find(m=>m.nombre===it.nombre):null;
+            const disp=matCuad?matCuad.cantidad:0;
+            const alcanza=disp>=it.cant;
+            return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border,rgba(0,0,0,0.06));">
+                <span><strong>${it.nombre}</strong> · ${it.cant} ${it.unidad||''}</span>
+                <span class="text-muted" style="font-size:0.8rem;color:${alcanza?'inherit':'#dc2626'};">disponible: ${disp}${alcanza?'':' ⚠️ insuficiente'}</span>
+            </div>`;
+        }).join('');
+        return `<div style="border:1px solid var(--border,rgba(0,0,0,0.1));border-radius:10px;padding:14px;margin-bottom:12px;">
+            <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+                <div>
+                    <div style="font-weight:700;">${destinoLabel(x)}</div>
+                    <div class="text-muted" style="font-size:0.82rem;">👷 ${x.cuadrillaNombre||'-'} · Técnico: ${x.tecnicoNombre||'-'} · 📅 ${x.fecha}</div>
+                </div>
+                <div style="display:flex;gap:6px;align-items:flex-start;">
+                    <button class="btn btn-success btn-sm" onclick="confirmarConsumo('${x.id}')">✅ Confirmar</button>
+                    <button class="btn btn-danger btn-sm" onclick="rechazarConsumo('${x.id}')">✗ Rechazar</button>
+                </div>
+            </div>
+            ${itemsHtml}
+        </div>`;
+    };
+
+    const tarjetaHist=(x)=>{
+        const esConf=x.estado==='confirmado';
+        const itemsTxt=(x.items||[]).map(it=>`${it.nombre} x${it.cant}`).join(', ');
+        return `<div style="border:1px solid var(--border,rgba(0,0,0,0.08));border-left:4px solid ${esConf?'#16a34a':'#dc2626'};border-radius:8px;padding:10px 12px;margin-bottom:8px;opacity:0.92;">
+            <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;">
+                <span style="font-weight:600;font-size:0.88rem;">${destinoLabel(x)}</span>
+                <span class="badge ${esConf?'badge-ok':'badge-rej'}">${esConf?'✅ Confirmado':'✗ Rechazado'}</span>
+            </div>
+            <div class="text-muted" style="font-size:0.8rem;margin-top:3px;">👷 ${x.cuadrillaNombre||'-'} · ${itemsTxt}</div>
+            <div class="text-muted" style="font-size:0.78rem;margin-top:2px;">
+                ${esConf?`📅 Confirmado ${x.confirmadoFecha||''} por ${x.confirmadoPor||'-'}`:`📅 Rechazado ${x.rechazadoFecha||''}${x.motivoRechazo?` · Motivo: <em>${x.motivoRechazo}</em>`:''}`}
+            </div>
+        </div>`;
+    };
+
     c.innerHTML=`<div class="card">
         <div class="card-header"><h2>📦 Material por confirmar</h2>
-            <span class="badge ${items.length?'badge-pend':'badge-ok'}">${items.length} pendiente(s)</span>
+            <span class="badge ${pendientes.length?'badge-pend':'badge-ok'}">${pendientes.length} pendiente(s)</span>
         </div>
-        <p class="text-muted" style="font-size:0.85rem;margin-bottom:12px;">Material que los técnicos reportaron como gastado. Al confirmar, se descuenta del stock de la cuadrilla. Si algo no cuadra, puedes rechazarlo.</p>
-        ${items.length? items.map(x=>{
-            const cuad=DB.cuadrillas.find(cu=>String(cu.id)===String(x.cuadrillaId));
-            const itemsHtml=(x.items||[]).map(it=>{
-                // ¿la cuadrilla tiene suficiente de este material?
-                const matCuad=cuad?(cuad.materiales||[]).find(m=>m.nombre===it.nombre):null;
-                const disp=matCuad?matCuad.cantidad:0;
-                const alcanza=disp>=it.cant;
-                return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border,rgba(0,0,0,0.06));">
-                    <span><strong>${it.nombre}</strong> · ${it.cant} ${it.unidad||''}</span>
-                    <span class="text-muted" style="font-size:0.8rem;color:${alcanza?'inherit':'#dc2626'};">disponible: ${disp}${alcanza?'':' ⚠️ insuficiente'}</span>
-                </div>`;
-            }).join('');
-            return `<div style="border:1px solid var(--border,rgba(0,0,0,0.1));border-radius:10px;padding:14px;margin-bottom:12px;">
-                <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
-                    <div>
-                        <div style="font-weight:700;">${destinoLabel(x)}</div>
-                        <div class="text-muted" style="font-size:0.82rem;">👷 ${x.cuadrillaNombre||'-'} · Técnico: ${x.tecnicoNombre||'-'} · 📅 ${x.fecha}</div>
-                    </div>
-                    <div style="display:flex;gap:6px;align-items:flex-start;">
-                        <button class="btn btn-success btn-sm" onclick="confirmarConsumo('${x.id}')">✅ Confirmar</button>
-                        <button class="btn btn-danger btn-sm" onclick="rechazarConsumo('${x.id}')">✗ Rechazar</button>
-                    </div>
-                </div>
-                ${itemsHtml}
-            </div>`;
-        }).join('') : '<p class="text-muted">No hay material pendiente de confirmar. ✅</p>'}
+        <p class="text-muted" style="font-size:0.85rem;margin-bottom:12px;">Material que los técnicos reportaron como gastado. Al confirmar, se descuenta del stock de la cuadrilla. Si algo no cuadra, puedes rechazarlo indicando el motivo. Todo queda en el historial.</p>
+        ${pendientes.length? pendientes.map(tarjetaPendiente).join('') : '<p class="text-muted">No hay material pendiente de confirmar. ✅</p>'}
+        ${historial.length?`
+            <details style="margin-top:18px;">
+                <summary style="cursor:pointer;font-weight:600;color:var(--secondary,#2980b9);">📜 Historial (${historial.length}) — confirmados y rechazados</summary>
+                <div style="margin-top:12px;">${historial.map(tarjetaHist).join('')}</div>
+            </details>
+        `:''}
     </div>`;
 }
 
@@ -4993,10 +5020,12 @@ window.confirmarConsumo=confirmarConsumo;
 function rechazarConsumo(consumoId){
     const x=(DB.consumosPendientes||[]).find(c=>c.id===consumoId);
     if(!x || x.estado!=='pendiente') return;
-    if(!confirm('¿Rechazar este consumo? No se descontará nada del inventario. (Úsalo si el técnico se equivocó al registrar.)')) return;
+    const motivo=prompt('¿Por qué rechazas este consumo? (queda en el historial)\n\nEjemplo: "El técnico se equivocó de cantidad", "Material no correspondía a esta orden", etc.');
+    if(motivo===null) return; // canceló
     x.estado='rechazado';
     x.rechazadoFecha=new Date().toLocaleDateString();
-    logMsg(`Material RECHAZADO de ${x.cuadrillaNombre||'cuadrilla'}`);
+    x.motivoRechazo=motivo.trim()||'(sin motivo especificado)';
+    logMsg(`Material RECHAZADO de ${x.cuadrillaNombre||'cuadrilla'} · Motivo: ${x.motivoRechazo}`);
     save();
     renderTab('consumos');
 }
