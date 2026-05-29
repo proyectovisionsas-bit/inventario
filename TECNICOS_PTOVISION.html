@@ -125,6 +125,43 @@ const firebaseConfig = {
 const COLECCION='oficinas_sistema';
 const DOC_ID='main';
 
+// ════════════════════════════════════════════════════════════════
+// MODO EMERGENCIA (cuota de LECTURAS de Firebase agotada).
+// Cuando está activo, NO usamos transacciones (que leen). Escribimos directamente
+// con update() usando los datos que YA tenemos en memoria (DATA), gastando solo
+// escrituras (que sí están disponibles). Riesgo: si dos técnicos editan la MISMA
+// orden a la vez, el último gana. Es muy poco probable. Se desactiva tras el reinicio.
+// Para activar: en la consola del navegador escribe  MODO_EMERGENCIA=true  y recarga la lógica,
+// o usa el botón que aparece en la app.
+// ════════════════════════════════════════════════════════════════
+let MODO_EMERGENCIA = (localStorage.getItem('modo_emergencia')==='1');
+function activarEmergencia(on){
+    MODO_EMERGENCIA = !!on;
+    localStorage.setItem('modo_emergencia', on?'1':'0');
+    showToast(on?'🚨 Modo emergencia ACTIVADO (guardará sin leer)':'✅ Modo emergencia desactivado');
+    render();
+}
+window.activarEmergencia = activarEmergencia;
+
+// Actualiza ordenesTrabajo SIN leer (usa la copia en memoria DATA). modifFn recibe el array y lo edita.
+async function _actualizarOrdenesSinLeer(modifFn){
+    const ordenes = (DATA.ordenesTrabajo||[]).map(o=>Object.assign({},o)); // copia desde memoria
+    modifFn(ordenes);
+    DATA.ordenesTrabajo = ordenes; // reflejar en memoria local de inmediato
+    await db.collection(COLECCION).doc(DOC_ID).update({ ordenesTrabajo: ordenes });
+}
+// Actualiza un campo del inventario SIN leer (usa copia en memoria si la hay)
+async function _actualizarInventarioSinLeer(campo, modifFn){
+    // Para inventario no siempre tenemos copia en memoria; intentamos una sola lectura ligera del campo.
+    // Si falla por cuota, propagamos el error (el material quedará pendiente de registrar).
+    const refI=db.collection('inventario').doc('datos');
+    const snap=await refI.get(); // 1 lectura (si la cuota lo permite)
+    const data=snap.data()||{};
+    const arr = Array.isArray(data[campo]) ? data[campo] : [];
+    modifFn(arr, data);
+    await refI.update({ [campo]: arr });
+}
+
 const ORDEN_TIPOS = {
     recogida:   { label:'Recogida de equipos', icon:'📦' },
     traslado:   { label:'Traslado de servicio', icon:'🚚' },
@@ -150,6 +187,10 @@ function initFB(){
     try{
         firebase.initializeApp(firebaseConfig);
         db=firebase.firestore();
+        // Activar persistencia offline: guarda copia local, permite abrir con datos aunque
+        // la red/cuota de Firebase falle (clave para el modo emergencia).
+        try { db.enablePersistence({synchronizeTabs:true}).catch(e=>console.warn('persistencia:',e.code)); }
+        catch(e){ console.warn('persistencia no disponible:', e); }
         return true;
     }catch(e){ console.error('FB init',e); return false; }
 }
@@ -258,6 +299,22 @@ function render(){
     const activas=mis.filter(o=>o.estado!=='finalizada');
     const finalizadas=mis.filter(o=>o.estado==='finalizada');
 
+    // Banner de modo emergencia (cuando la cuota de lecturas de Firebase está agotada)
+    let bannerEl=document.getElementById('emergBanner');
+    if(!bannerEl){
+        bannerEl=document.createElement('div'); bannerEl.id='emergBanner';
+        const cont=document.getElementById('list'); if(cont&&cont.parentNode) cont.parentNode.insertBefore(bannerEl, cont);
+    }
+    bannerEl.innerHTML = MODO_EMERGENCIA
+        ? `<div style="background:#7f1d1d;color:#fff;border-radius:10px;padding:10px 12px;margin:8px 0;font-size:0.82rem;">
+             🚨 <strong>Modo emergencia activo.</strong> Guardando sin leer (la cuota de Firebase revive ~2 AM).
+             <button onclick="activarEmergencia(false)" style="margin-left:8px;background:#fff;color:#7f1d1d;border:none;border-radius:6px;padding:4px 10px;font-weight:700;cursor:pointer;">Desactivar</button>
+           </div>`
+        : `<div style="background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);color:#f59e0b;border-radius:10px;padding:8px 12px;margin:8px 0;font-size:0.78rem;">
+             ¿Sale error "Quota exceeded" al finalizar?
+             <button onclick="activarEmergencia(true)" style="margin-left:6px;background:#f59e0b;color:#fff;border:none;border-radius:6px;padding:4px 10px;font-weight:700;cursor:pointer;">🚨 Activar modo emergencia</button>
+           </div>`;
+
     // Tabs
     document.getElementById('tabs').innerHTML=`
         <div class="tab ${_tab==='activas'?'active':''}" onclick="setTab('activas')"><span class="n">${activas.length}</span>Activas</div>
@@ -318,11 +375,7 @@ async function avanzar(ordenId, nuevoEstado, notaExtra){
     showToast('Guardando...');
     try{
         const ref=db.collection(COLECCION).doc(DOC_ID);
-        await db.runTransaction(async tx=>{
-            const snap=await tx.get(ref);
-            if(!snap.exists) throw new Error('No existe el documento');
-            const data=snap.data();
-            const ordenes=data.ordenesTrabajo||[];
+        const _modif=(ordenes)=>{
             const idx=ordenes.findIndex(x=>x.id===ordenId);
             if(idx<0) throw new Error('La orden ya no existe');
             const o=ordenes[idx];
@@ -332,8 +385,19 @@ async function avanzar(ordenId, nuevoEstado, notaExtra){
             if(typeof notaExtra==='string' && notaExtra.length){ o.observacionTecnico=notaExtra; }
             if(nuevoEstado==='finalizada'){ o.finalizada=Date.now(); }
             ordenes[idx]=o;
-            tx.update(ref, { ordenesTrabajo: ordenes });
-        });
+        };
+        if(MODO_EMERGENCIA){
+            await _actualizarOrdenesSinLeer(_modif);
+        } else {
+            await db.runTransaction(async tx=>{
+                const snap=await tx.get(ref);
+                if(!snap.exists) throw new Error('No existe el documento');
+                const data=snap.data();
+                const ordenes=data.ordenesTrabajo||[];
+                _modif(ordenes);
+                tx.update(ref, { ordenesTrabajo: ordenes });
+            });
+        }
         showToast('✅ Listo');
     }catch(e){ console.error(e); showToast('❌ '+(e.message||e), true); }
 }
@@ -372,18 +436,25 @@ async function confirmarReagendar(ordenId){
     showToast('Guardando...');
     try{
         const ref=db.collection(COLECCION).doc(DOC_ID);
-        await db.runTransaction(async tx=>{
-            const snap=await tx.get(ref);
-            const data=snap.data();
-            const ordenes=data.ordenesTrabajo||[];
+        const _modif=(ordenes)=>{
             const idx=ordenes.findIndex(x=>x.id===ordenId);
             if(idx<0) throw new Error('La orden ya no existe');
             ordenes[idx].estado='reagendar';
             ordenes[idx].observacionTecnico=nota;
             ordenes[idx].reagendadaVeces=(ordenes[idx].reagendadaVeces||0)+1;
             ordenes[idx].actualizada=Date.now();
-            tx.update(ref, { ordenesTrabajo: ordenes });
-        });
+        };
+        if(MODO_EMERGENCIA){
+            await _actualizarOrdenesSinLeer(_modif);
+        } else {
+            await db.runTransaction(async tx=>{
+                const snap=await tx.get(ref);
+                const data=snap.data();
+                const ordenes=data.ordenesTrabajo||[];
+                _modif(ordenes);
+                tx.update(ref, { ordenesTrabajo: ordenes });
+            });
+        }
         showToast('🔁 Marcada para reagendar');
     }catch(e){ showToast('❌ '+(e.message||e), true); }
 }
@@ -494,10 +565,7 @@ async function confirmarFinalizarRecogida(ordenId){
     try{
         // 1) Finalizar la orden + marcar retiro si aplica (en oficinas_sistema)
         const refO=db.collection(COLECCION).doc(DOC_ID);
-        await db.runTransaction(async tx=>{
-            const snap=await tx.get(refO);
-            const data=snap.data();
-            const ordenes=data.ordenesTrabajo||[];
+        const _modif = (ordenes)=>{
             const idx=ordenes.findIndex(x=>x.id===ordenId);
             if(idx<0) throw new Error('La orden ya no existe');
             ordenes[idx].estado='finalizada';
@@ -510,8 +578,18 @@ async function confirmarFinalizarRecogida(ordenId){
                 ordenes[idx].motivoRetiro=motivoRet||'Retiro por orden de trabajo';
                 ordenes[idx].retiroAplicado=false; // Oficinas lo aplicará al cliente
             }
-            tx.update(refO, { ordenesTrabajo: ordenes });
-        });
+        };
+        if(MODO_EMERGENCIA){
+            await _actualizarOrdenesSinLeer(_modif);
+        } else {
+            await db.runTransaction(async tx=>{
+                const snap=await tx.get(refO);
+                const data=snap.data();
+                const ordenes=data.ordenesTrabajo||[];
+                _modif(ordenes);
+                tx.update(refO, { ordenesTrabajo: ordenes });
+            });
+        }
 
         // 2) Enviar los equipos recuperados al INVENTARIO (cada uno como recuperado pendiente)
         if(recuperados.length){
@@ -519,12 +597,8 @@ async function confirmarFinalizarRecogida(ordenId){
                 showToast('⚠️ Finalizada, pero la oficina no tiene bodega vinculada. Los equipos NO se enviaron al inventario.', true);
             } else {
                 const refI=db.collection('inventario').doc('datos');
-                await db.runTransaction(async tx=>{
-                    const snap=await tx.get(refI);
-                    if(!snap.exists) throw new Error('No se encontró el inventario');
-                    const data=snap.data();
+                const _modifInv = (recs, data)=>{
                     const bod=(data.bodegas||[]).find(b=>String(b.id)===String(bodegaId));
-                    const recs=data.recuperados||[];
                     const etiqueta=retira==='si'?'Retiro':'Recogida';
                     recuperados.forEach((it,k)=>{
                         recs.push({
@@ -538,8 +612,19 @@ async function confirmarFinalizarRecogida(ordenId){
                             obs:`${etiqueta} por técnico ${TEC.nombre}`
                         });
                     });
-                    tx.update(refI, { recuperados: recs });
-                });
+                };
+                if(MODO_EMERGENCIA){
+                    await _actualizarInventarioSinLeer('recuperados', _modifInv);
+                } else {
+                    await db.runTransaction(async tx=>{
+                        const snap=await tx.get(refI);
+                        if(!snap.exists) throw new Error('No se encontró el inventario');
+                        const data=snap.data();
+                        const recs=data.recuperados||[];
+                        _modifInv(recs, data);
+                        tx.update(refI, { recuperados: recs });
+                    });
+                }
             }
         }
 
