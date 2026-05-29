@@ -5333,7 +5333,37 @@ function sendTransLogic() { const ori=DB.bodegas.find(x=>x.id===USER.id), des=DB
 function procTrans(tId,act) { const t=DB.transfers.find(x=>x.id===tId); if(!t||t.estado!=='pendiente') return; t.estado=act; if(act==='aceptada'){const des=DB.bodegas.find(x=>x.id===t.desId);t.mats.forEach(it=>{const ex=des.materiales.find(m=>m.nombre===it.nom&&m.tipo===it.tipo);if(ex){ex.cantidad+=it.cant;if(it.snes.length)ex.snes.push(...it.snes);}else des.materiales.push({id:Date.now().toString(),nombre:it.nom,cantidad:it.cant,tipo:it.tipo,unidad:it.unidad,snes:it.snes,fecha:new Date().toLocaleDateString()});});}else{const ori=DB.bodegas.find(x=>x.id===t.oriId);t.mats.forEach(it=>{let m=ori.materiales.find(x=>x.nombre===it.nom&&x.tipo===it.tipo);if(!m){m={id:Date.now().toString(),nombre:it.nom,cantidad:0,tipo:it.tipo,unidad:it.unidad,snes:[],fecha:new Date().toLocaleDateString()};ori.materiales.push(m);}m.cantidad+=it.cant;if(it.snes.length)m.snes.push(...it.snes);});} logMsg(`Transferencia ${act}`); save(); renderTab('transfer'); }
 
 // RECUPERADOS
-function renderRecuperados(c) { let items=DB.recuperados; if(USER.role==='bodega') items=items.filter(r=>r.bodegaId===USER.id); c.innerHTML=`<div class="card"><div class="card-header"><h2>♻️ Recuperados</h2>${canDo('recuperados','registrar')?`<button class="btn btn-primary btn-sm" onclick="modalAddRecuperado()">➕ Registrar</button>`:''}</div>${items.length?`<table><thead><tr><th>Fecha</th><th>${USER.role==='admin'?'Bodega':'Origen'}</th><th>Artículo</th><th>Cant</th><th>Unidad</th><th>Tipo</th><th>SNs</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>${items.map((r,i)=>`<tr><td>${r.fecha}</td><td>${USER.role==='admin'?r.bodegaNombre:r.origen}</td><td><strong>${r.nom}</strong></td><td>${r.cant}</td><td>${r.unidad}</td><td><span class="badge ${r.tipo==='nuevo'?'badge-new':'badge-used'}">${r.tipo}</span></td><td>${r.snes.length?r.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' '):'-'}</td><td><span class="badge ${r.estado==='pendiente'?'badge-pend':'badge-ok'}">${r.estado}</span></td><td style="white-space:nowrap;">${r.estado==='pendiente'?`<button class="btn btn-success btn-sm" onclick="integrarRecuperado(${DB.recuperados.indexOf(r)})">✅</button>`:''} ${USER.role==='admin'?`<button class="btn btn-danger btn-sm" onclick="eliminarRecuperado('${r.id}')" title="Solo Admin">🗑️</button>`:''}</td></tr>`).join('')}</tbody></table>`:'<p class="text-muted">Vacío</p>'}</div>`; }
+function renderRecuperados(c) {
+    let items = DB.recuperados || [];
+    if(USER.role==='bodega') items = items.filter(r=>r.bodegaId===USER.id);
+    // Normalizar campos faltantes para evitar errores
+    items.forEach(r => {
+        if(!Array.isArray(r.snes)) r.snes = [];
+        if(!r.estado) r.estado = 'pendiente';
+        if(!r.tipo) r.tipo = 'usado';
+    });
+    c.innerHTML = `<div class="card">
+        <div class="card-header"><h2>♻️ Recuperados</h2>${canDo('recuperados','registrar')?`<button class="btn btn-primary btn-sm" onclick="modalAddRecuperado()">➕ Registrar</button>`:''}</div>
+        ${items.length ? `<table>
+            <thead><tr><th>Fecha</th><th>${USER.role==='admin'?'Bodega':'Origen'}</th><th>Artículo</th><th>Cant</th><th>Unidad</th><th>Tipo</th><th>SNs</th><th>Estado</th><th>Acciones</th></tr></thead>
+            <tbody>${items.map(r=>`<tr>
+                <td>${r.fecha||'-'}</td>
+                <td>${USER.role==='admin' ? (r.bodegaNombre||'-') : (r.origen||'-')}</td>
+                <td><strong>${r.nom||'-'}</strong></td>
+                <td>${r.cant||0}</td>
+                <td>${r.unidad||'-'}</td>
+                <td><span class="badge ${r.tipo==='nuevo'?'badge-new':'badge-used'}">${r.tipo}</span></td>
+                <td>${r.snes.length ? r.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' ') : '-'}</td>
+                <td><span class="badge ${r.estado==='pendiente'?'badge-pend':'badge-ok'}">${r.estado}</span></td>
+                <td style="white-space:nowrap;">
+                    ${r.estado==='pendiente' ? `<button class="btn btn-success btn-sm" onclick="integrarRecuperado(${DB.recuperados.indexOf(r)})">✅</button>` : ''}
+                    ${USER.role==='admin' ? `<button class="btn btn-danger btn-sm" onclick="eliminarRecuperado('${r.id}')" title="Solo Admin">🗑️</button>` : ''}
+                </td>
+            </tr>`).join('')}
+            </tbody>
+        </table>` : '<p class="text-muted">Vacío</p>'}
+    </div>`;
+}
 
 function eliminarRecuperado(rid) {
     if(USER.role !== 'admin') return alert('Solo el administrador puede eliminar material recuperado.');
