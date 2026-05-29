@@ -5411,8 +5411,8 @@ function renderCuads(c) {
                     </div>
                 </div>`).join('') || '<p class="text-muted">Sin técnicos</p>'}
             <h4 style="margin:15px 0 10px;">📦 Inventario Cuadrilla</h4>
-            ${cu.materiales.length ? `<table><thead><tr><th>Artículo</th><th>Tipo</th><th>Cant</th><th>Unidad</th><th>SNs</th></tr></thead><tbody>
-                ${cu.materiales.map(m=>`<tr><td>${m.nombre}</td><td><span class="badge ${m.tipo==='nuevo'?'badge-new':'badge-used'}">${m.tipo}</span></td><td>${m.cantidad}</td><td>${m.unidad}</td><td>${m.snes.length?m.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' '):'Sin serial'}</td></tr>`).join('')}
+            ${cu.materiales.length ? `<table><thead><tr><th>Artículo</th><th>Tipo</th><th>Cant</th><th>Unidad</th><th>SNs</th>${USER.role==='admin'?'<th>Acción</th>':''}</tr></thead><tbody>
+                ${cu.materiales.map((m,mIdx)=>`<tr><td>${m.nombre}</td><td><span class="badge ${m.tipo==='nuevo'?'badge-new':'badge-used'}">${m.tipo}</span></td><td>${m.cantidad}</td><td>${m.unidad}</td><td>${m.snes.length?m.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' '):'Sin serial'}</td>${USER.role==='admin'?`<td><button class="btn btn-danger btn-sm" onclick="eliminarMatCuad('${cu.id}',${mIdx})" title="Eliminar material (Solo Admin)">🗑️</button></td>`:''}</tr>`).join('')}
             </tbody></table>` : '<p class="text-muted">Vacío</p>'}
         </div></details>`).join('') : '<p class="text-muted">Sin cuadrillas</p>'}
     </div>`;
@@ -5448,6 +5448,57 @@ function eliminarCuadrilla(cId) {
     save(); renderTab('cuads');
 }
 window.eliminarCuadrilla = eliminarCuadrilla;
+
+function eliminarMatCuad(cId, mIdx) {
+    if(USER.role !== 'admin') return alert('Solo el administrador puede eliminar material de la cuadrilla.');
+    const cu = DB.cuadrillas.find(x=>x.id===cId);
+    if(!cu) return;
+    const m = cu.materiales[mIdx];
+    if(!m) return;
+    const opciones = `¿Qué deseas hacer con "${m.nombre}" (${m.cantidad} ${m.unidad})?\n\nAceptar = Devolver a la bodega de la cuadrilla\nCancelar = Solo eliminar (no devuelve nada)`;
+    const devolver = confirm(opciones);
+
+    if(devolver) {
+        // Devolver el material a la bodega de la cuadrilla
+        const bodega = DB.bodegas.find(b=>b.id===cu.bodegaId);
+        if(!bodega) {
+            if(!confirm('La cuadrilla no tiene bodega asignada. ¿Eliminar el material de todas formas (sin devolver)?')) return;
+        } else {
+            const existente = bodega.materiales.find(x=>x.nombre===m.nombre && (x.tipo||'')===(m.tipo||''));
+            if(existente) {
+                existente.cantidad += m.cantidad;
+                if(m.snes && m.snes.length) {
+                    if(!existente.snes) existente.snes = [];
+                    m.snes.forEach(sn=>{ if(!existente.snes.includes(sn)) existente.snes.push(sn); });
+                }
+            } else {
+                bodega.materiales.push({
+                    id: Date.now().toString()+'_'+Math.random().toString(36).substr(2,4),
+                    nombre: m.nombre, cantidad: m.cantidad, tipo: m.tipo||'usado',
+                    unidad: m.unidad||'Und', snes: [...(m.snes||[])], stockMin: 0,
+                    categoria: m.categoria||'material',
+                    observaciones: `Devuelto desde cuadrilla "${cu.nombre}" por eliminación`,
+                    fotos: [], fecha: new Date().toLocaleDateString()
+                });
+            }
+            logMsg(`Admin eliminó "${m.nombre}" x${m.cantidad} de cuadrilla "${cu.nombre}" — devuelto a bodega "${bodega.nombre}"`);
+        }
+    } else {
+        // Solo confirmar eliminación sin devolver
+        if(!confirm(`¿Eliminar "${m.nombre}" (${m.cantidad} ${m.unidad}) de la cuadrilla SIN devolverlo a ninguna bodega?`)) return;
+        logMsg(`Admin eliminó "${m.nombre}" x${m.cantidad} de cuadrilla "${cu.nombre}" (sin devolución)`);
+    }
+
+    // Eliminar el material de la cuadrilla
+    cu.materiales.splice(mIdx, 1);
+
+    if(window._fbSaveImmediate) {
+        window._fbSaveImmediate().then(()=>renderTab('cuads'));
+    } else {
+        save(); renderTab('cuads');
+    }
+}
+window.eliminarMatCuad = eliminarMatCuad;
 
 function modalDevolverMat(cId) {
     const cu = DB.cuadrillas.find(x=>x.id===cId);
