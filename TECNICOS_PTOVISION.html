@@ -137,7 +137,7 @@ const COLECCION='oficinas_sistema';
 const DOC_ID='main';
 
 // ── CONTROL DE VERSIÓN (bloqueo total si hay versión nueva) ──
-const APP_VERSION_TEC = 62; // ⬆️ Subir en cada versión publicada de Técnicos
+const APP_VERSION_TEC = 63; // ⬆️ Subir en cada versión publicada de Técnicos
 let _bloqueoVersionTec = false;
 async function registrarVersionTec(){
     if(!db) return;
@@ -158,6 +158,19 @@ function iniciarEscuchaVersionTec(){
             const b=document.getElementById('versionBlock'); if(b) b.style.display='flex';
         }
     }, err=>console.warn('escucha versión tec:',err));
+}
+
+// Registra el inicio de sesión del técnico (lo ve el admin en Oficinas)
+async function registrarSesionTec(nombre){
+    if(!db) return;
+    try{
+        const ref=db.collection('oficinas_sistema').doc('logs_sesiones');
+        const snap=await ref.get();
+        let lista=(snap.exists && Array.isArray(snap.data().sesiones))?snap.data().sesiones:[];
+        lista.push({ app:'Técnicos', quien:nombre||'Técnico', rol:'técnico', fecha:Date.now() });
+        if(lista.length>300) lista=lista.slice(-300);
+        await ref.set({ sesiones:lista, actualizado:Date.now() });
+    }catch(e){ console.warn('registrar sesión tec:',e); }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -231,7 +244,7 @@ function initFB(){
 }
 
 // ── LOGIN ──
-async function doLogin(){
+async function doLogin(reanudando){
     const doc=document.getElementById('li_doc').value.trim();
     const pass=document.getElementById('li_pass').value.trim();
     const err=document.getElementById('li_err');
@@ -250,6 +263,7 @@ async function doLogin(){
         // Guardar sesión ligera
         TEC={ id:tec.id, nombre:tec.nombre, documento:tec.documento, oficinas:(Array.isArray(tec.oficinas)?tec.oficinas.map(String):[]) };
         try{ sessionStorage.setItem('tec_session', JSON.stringify({doc:doc, pass:pass})); }catch(e){}
+        if(!reanudando) registrarSesionTec(tec.nombre); // solo registra en login manual, no al reanudar
         st.textContent='';
         enterApp();
     }catch(e){
@@ -1457,7 +1471,7 @@ window.addEventListener('load', async ()=>{
         document.getElementById('li_doc').value=s.doc;
         document.getElementById('li_pass').value=s.pass;
         document.getElementById('li_status').textContent='Reanudando sesión...';
-        doLogin();
+        doLogin(true); // true = reanudación, NO registra sesión nueva
     }
 });
 // ════════════════════════════════════════════════════════════
