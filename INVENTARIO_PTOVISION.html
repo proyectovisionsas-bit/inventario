@@ -517,11 +517,13 @@ function doLogin(type) {
     if(type==='admin') {
         if(id('passAdmin').value!==DB.adminPass) return alert('❌ Contraseña incorrecta');
         USER={role:'admin'};
+        if(window.registrarSesionInv) window.registrarSesionInv('Administrador','admin');
     } else if(type==='bodega') {
         if(!selBodegaLogin) return alert('❌ Seleccione bodega');
         const b=DB.bodegas.find(x=>x.id===selBodegaLogin);
         if(!b||id('passBodega').value!==b.password) return alert('❌ Contraseña bodega incorrecta');
         USER={role:'bodega',id:b.id,nombre:b.nombre};;
+        if(window.registrarSesionInv) window.registrarSesionInv(b.nombre,'bodega');
     }
     enterApp();
 }
@@ -7234,7 +7236,7 @@ import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstat
 
 const FB_KEY = 'invPro_firebaseConfig';
 const DB_DOC = 'inventario/datos';
-const APP_VERSION_INV = 62; // ⬆️ Subir en cada versión publicada de Inventario
+const APP_VERSION_INV = 63; // ⬆️ Subir en cada versión publicada de Inventario
 const CHUNK_SIZE = 800; // clients per document - allows ~10000 clients
 
 // Helper: split array into chunks
@@ -7462,6 +7464,19 @@ async function startFirebase(config) {
             if(rem > APP_VERSION_INV){ const b=document.getElementById('versionBlock'); if(b) b.style.display='flex'; }
         });
     } catch(e){ console.warn('versión inv:', e); }
+
+    // Función global para registrar inicios de sesión (la llama doLogin desde el otro script).
+    // Escribe en oficinas_sistema/logs_sesiones (mismo proyecto) para que el admin de Oficinas lo vea.
+    window.registrarSesionInv = async function(quien, rol){
+        try{
+            const ref = doc(fsDB, 'oficinas_sistema/logs_sesiones');
+            const snap = await getDoc(ref);
+            let lista = (snap.exists() && Array.isArray(snap.data().sesiones)) ? snap.data().sesiones : [];
+            lista.push({ app:'Inventario', quien:quien||'Bodega', rol:rol||'', fecha:Date.now() });
+            if(lista.length>300) lista = lista.slice(-300);
+            await setDoc(ref, { sesiones:lista, actualizado:Date.now() });
+        }catch(e){ console.warn('registrar sesión inv:', e); }
+    };
 
     document.getElementById('firebase-setup').style.display='none';
     document.getElementById('loading-screen').style.display='flex';
