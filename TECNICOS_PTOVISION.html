@@ -64,7 +64,7 @@ header .who small{display:block;color:var(--muted);font-size:0.72rem;font-weight
 <script>
 (function(){
   try{
-    var ICON='data:image/svg+xml;base64,'+btoa('<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><rect width="512" height="512" rx="96" fill="#0e7490"/><text x="256" y="300" font-size="200" text-anchor="middle" fill="#fff" font-family="Arial">🔧</text></svg>');
+    var ICON='data:image/svg+xml;base64,'+btoa('<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><rect width="512" height="512" rx="96" fill="#0e7490"/><text x="256" y="320" font-size="220" text-anchor="middle" fill="#fff" font-family="Arial">T</text></svg>');
     var base=location.href.split('?')[0].split('#')[0];
     var scope=base.substring(0,base.lastIndexOf('/')+1);
     var m={name:"PROYECTOVISION Técnicos",short_name:"PV Técnicos",start_url:base,scope:scope,display:"standalone",orientation:"portrait",background_color:"#0b1220",theme_color:"#0ea5e9",icons:[{src:ICON,sizes:"512x512",type:"image/svg+xml",purpose:"any maskable"}]};
@@ -75,6 +75,16 @@ header .who small{display:block;color:var(--muted);font-size:0.72rem;font-weight
 </script>
 </head>
 <body>
+
+<!-- ════════ BLOQUEO POR VERSIÓN VIEJA ════════ -->
+<div id="versionBlock" style="display:none;position:fixed;inset:0;z-index:9999999;background:rgba(8,10,18,0.97);backdrop-filter:blur(6px);align-items:center;justify-content:center;flex-direction:column;padding:20px;text-align:center;">
+    <div style="background:linear-gradient(135deg,#0e7490,#0891b2);border-radius:20px;padding:36px 40px;max-width:440px;box-shadow:0 16px 50px rgba(8,145,178,0.5);">
+        <div style="font-size:3rem;margin-bottom:12px;">🚀</div>
+        <div style="font-weight:800;font-size:1.3rem;color:#fff;margin-bottom:8px;">¡Hay una versión nueva!</div>
+        <div style="font-size:0.9rem;color:rgba(255,255,255,0.85);margin-bottom:22px;">Por seguridad, debes recargar antes de seguir trabajando.</div>
+        <button onclick="location.reload(true)" style="background:#fff;color:#0891b2;border:none;padding:12px 28px;border-radius:10px;font-weight:800;cursor:pointer;font-size:1rem;">🔄 Recargar ahora</button>
+    </div>
+</div>
 
 <!-- ════════ LOGIN ════════ -->
 <div id="login">
@@ -124,6 +134,30 @@ const firebaseConfig = {
 };
 const COLECCION='oficinas_sistema';
 const DOC_ID='main';
+
+// ── CONTROL DE VERSIÓN (bloqueo total si hay versión nueva) ──
+const APP_VERSION_TEC = 2; // ⬆️ Subir en cada versión publicada de Técnicos
+let _bloqueoVersionTec = false;
+async function registrarVersionTec(){
+    if(!db) return;
+    try{
+        const ref=db.collection('oficinas_sistema').doc('app_version_tecnicos');
+        const snap=await ref.get();
+        const remota=snap.exists?(snap.data().version||0):0;
+        if(APP_VERSION_TEC > remota){ await ref.set({version:APP_VERSION_TEC, actualizadoEn:Date.now()}); }
+    }catch(e){ console.warn('registrar versión tec:',e); }
+}
+function iniciarEscuchaVersionTec(){
+    if(!db) return;
+    db.collection('oficinas_sistema').doc('app_version_tecnicos').onSnapshot(snap=>{
+        if(!snap.exists) return;
+        const remota=snap.data().version||0;
+        if(remota > APP_VERSION_TEC){
+            _bloqueoVersionTec = true;
+            const b=document.getElementById('versionBlock'); if(b) b.style.display='flex';
+        }
+    }, err=>console.warn('escucha versión tec:',err));
+}
 
 // ════════════════════════════════════════════════════════════════
 // MODO EMERGENCIA (cuota de LECTURAS de Firebase agotada).
@@ -1404,6 +1438,8 @@ function showToast(msg, err){
 // ── Auto-login si hay sesión guardada ──
 window.addEventListener('load', async ()=>{
     initFB();
+    // Arrancar control de versión (registra la mía y escucha si hay una más nueva)
+    setTimeout(()=>{ try{ registrarVersionTec(); iniciarEscuchaVersionTec(); }catch(e){ console.warn('versión tec:',e); } }, 600);
     let s=null; try{ s=JSON.parse(sessionStorage.getItem('tec_session')||'null'); }catch(e){}
     if(s && s.doc && s.pass){
         document.getElementById('li_doc').value=s.doc;
