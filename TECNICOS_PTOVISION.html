@@ -110,6 +110,7 @@ header .who small{display:block;color:var(--muted);font-size:0.72rem;font-weight
         <div style="display:flex;align-items:center;gap:8px;">
             <span class="sync" id="hSync">●</span>
             <span id="hVersion" style="opacity:0.5;font-size:0.68rem;" title="Versión del sistema"></span>
+            <button class="btn btn-ghost btn-sm" onclick="modalDevolverMaterial()" title="Devolver material a la bodega">📦 Devolver</button>
             <button class="btn btn-ghost btn-sm" onclick="abrirAyuda()" title="Ayuda y manual">❓</button>
             <button class="btn btn-ghost btn-sm" onclick="modalCambiarClave()">🔑</button>
             <button class="btn btn-ghost btn-sm" onclick="doLogout()">Salir</button>
@@ -209,6 +210,50 @@ async function _actualizarInventarioSinLeer(campo, modifFn){
     modifFn(arr, data);
     await refI.update({ [campo]: arr });
 }
+
+// ════════════════════════════════════════════════════════════════
+// BLOQUEO ANTI-DOBLE-GUARDADO.
+// Cuando una acción está guardando, mostramos una pantalla "Guardando..." que cubre
+// todo y bloquea cualquier clic. Así el técnico no puede dar guardar 2 veces y duplicar
+// material. La pantalla se quita al terminar (con éxito o error).
+// ════════════════════════════════════════════════════════════════
+let _guardandoTec = false;
+function _mostrarGuardando(texto){
+    _guardandoTec = true;
+    let ov = document.getElementById('guardandoOverlay');
+    if(!ov){
+        ov = document.createElement('div');
+        ov.id = 'guardandoOverlay';
+        ov.style.cssText = 'position:fixed;inset:0;z-index:99999999;background:rgba(8,10,18,0.85);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;flex-direction:column;';
+        document.body.appendChild(ov);
+    }
+    ov.innerHTML = `<div style="text-align:center;color:#fff;">
+        <div style="width:54px;height:54px;border:5px solid rgba(255,255,255,0.2);border-top-color:#0ea5e9;border-radius:50%;margin:0 auto 16px;animation:spinTec 0.8s linear infinite;"></div>
+        <div style="font-size:1.05rem;font-weight:700;">${texto||'Guardando...'}</div>
+        <div style="font-size:0.8rem;opacity:0.7;margin-top:4px;">No cierres ni toques la pantalla</div>
+    </div>
+    <style>@keyframes spinTec{to{transform:rotate(360deg);}}</style>`;
+    ov.style.display = 'flex';
+}
+function _ocultarGuardando(){
+    _guardandoTec = false;
+    const ov = document.getElementById('guardandoOverlay');
+    if(ov) ov.style.display = 'none';
+}
+// Envuelve una acción de guardado: si ya hay una en curso, la ignora (evita doble clic).
+async function _conBloqueo(texto, accion){
+    if(_guardandoTec){ console.warn('Ya hay un guardado en curso, se ignora el clic repetido.'); return; }
+    _mostrarGuardando(texto);
+    try{
+        await accion();
+    }catch(e){
+        console.error('Error en acción bloqueada:', e);
+        showToast('❌ '+(e.message||e), true);
+    }finally{
+        _ocultarGuardando();
+    }
+}
+window._conBloqueo = _conBloqueo;
 
 const ORDEN_TIPOS = {
     recogida:   { label:'Recogida de equipos', icon:'📦' },
@@ -658,6 +703,7 @@ function _erRenderManuales(){
 window._erRenderManuales=_erRenderManuales;
 
 async function confirmarFinalizarRecogida(ordenId){
+    if(_guardandoTec){ console.warn('Guardado en curso, clic ignorado.'); return; }
     const retira=document.getElementById('eqRetiro')?document.getElementById('eqRetiro').value:'no';
     const motivoRet=document.getElementById('eqMotivoRet')?document.getElementById('eqMotivoRet').value.trim():'';
 
@@ -681,7 +727,7 @@ async function confirmarFinalizarRecogida(ordenId){
     });
 
     const m=document.getElementById('modalEquipo'); if(m) m.remove();
-    showToast('Finalizando...');
+    _mostrarGuardando('Finalizando recogida...');
 
     const o=(DATA.ordenesTrabajo||[]).find(x=>x.id===ordenId);
     const ofi=(DATA.oficinas||[]).find(x=>String(x.id)===String(o.oficinaId));
@@ -757,7 +803,8 @@ async function confirmarFinalizarRecogida(ordenId){
         showToast(retira==='si'
             ? `✅ Retiro finalizado (${resumen}). El cliente quedará Retirado.`
             : `✅ Recogida finalizada (${resumen}).`);
-    }catch(e){ console.error(e); showToast('❌ '+(e.message||e), true); }
+        _ocultarGuardando();
+    }catch(e){ console.error(e); showToast('❌ '+(e.message||e), true); _ocultarGuardando(); }
 }
 window.confirmarFinalizarRecogida=confirmarFinalizarRecogida;
 
@@ -785,6 +832,120 @@ async function _buscarCuadrillaDelTecnico(){
         return { cuad, bodega };
     }catch(e){ console.warn('buscarCuadrillaDelTecnico',e); return null; }
 }
+
+// ════════════════════════════════════════════════════════════════
+// DEVOLUCIÓN DE MATERIAL del técnico a la bodega.
+// El técnico devuelve material (a veces dañado). Llega a INVENTARIO → sección
+// "♻️ Recuperados" como PENDIENTE, para que el jefe de bodega decida:
+// si está bueno lo integra a la bodega; si está dañado lo manda a Equipos Dañados.
+// ════════════════════════════════════════════════════════════════
+async function modalDevolverMaterial(){
+    const bg=document.createElement('div'); bg.className='modal-bg'; bg.id='modalDevol';
+    bg.innerHTML=`<div class="modal"><h3>📦 Devolver material</h3><div class="center"><div class="spin"></div><div>Buscando tu cuadrilla...</div></div></div>`;
+    document.body.appendChild(bg);
+
+    const info=await _buscarCuadrillaDelTecnico();
+    if(!info || !info.cuad){
+        bg.querySelector('.modal').innerHTML=`<h3>📦 Devolver material</h3>
+            <p style="color:var(--muted);font-size:0.88rem;">No encontré tu cuadrilla en el inventario (se busca por tu cédula). Pídele a la bodega que te asocie a una cuadrilla.</p>
+            <button class="btn btn-ghost btn-block" onclick="document.getElementById('modalDevol').remove()">Cerrar</button>`;
+        return;
+    }
+    _cuadrillaTec=info.cuad;
+    const mats=(info.cuad.materiales||[]).filter(x=>x.cantidad>0);
+    const opts=mats.map((mt,i)=>`<option value="${i}">${mt.nombre} — tienes: ${mt.cantidad} ${mt.unidad||''}</option>`).join('');
+
+    bg.querySelector('.modal').innerHTML=`<h3>📦 Devolver material a bodega</h3>
+        <p style="font-size:0.82rem;color:var(--muted);margin-bottom:10px;">Cuadrilla: <strong>${info.cuad.nombre}</strong>. El material devuelto llega a la bodega como <strong>pendiente</strong>. El jefe de bodega decide si entra al inventario (bueno) o a equipos dañados.</p>
+        ${mats.length ? `
+        <label>Material a devolver</label>
+        <select id="devSel">${opts}</select>
+        <label style="margin-top:8px;">Cantidad</label>
+        <input id="devCant" type="number" value="1" min="1">
+        <label style="margin-top:8px;">Serial(es) (opcional, separados por coma)</label>
+        <input id="devSN" type="text" placeholder="Ej: SN123, SN456">
+        <label style="margin-top:8px;">Estado del material</label>
+        <select id="devEstado">
+            <option value="por_confirmar">🔵 Por confirmar (la bodega revisa)</option>
+            <option value="danado">🔴 Está dañado</option>
+        </select>
+        <label style="margin-top:8px;">Observación (opcional)</label>
+        <textarea id="devObs" rows="2" placeholder="Ej: llegó dañado del cliente, no enciende"></textarea>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+            <button class="btn btn-ok btn-block" onclick="_confirmarDevolverMaterial()">📦 Devolver a bodega</button>
+            <button class="btn btn-ghost" onclick="document.getElementById('modalDevol').remove()">Cancelar</button>
+        </div>
+        ` : `<div style="background:rgba(245,158,11,0.1);border-radius:8px;padding:12px;color:#fbbf24;font-size:0.84rem;">Tu cuadrilla no tiene material para devolver.</div>
+        <button class="btn btn-ghost btn-block" style="margin-top:10px;" onclick="document.getElementById('modalDevol').remove()">Cerrar</button>`}`;
+}
+window.modalDevolverMaterial=modalDevolverMaterial;
+
+async function _confirmarDevolverMaterial(){
+    if(_guardandoTec){ console.warn('Guardado en curso, clic ignorado.'); return; }
+    if(!_cuadrillaTec){ alert('No hay cuadrilla cargada.'); return; }
+    const sel=document.getElementById('devSel'); if(!sel) return;
+    const mats=(_cuadrillaTec.materiales||[]).filter(x=>x.cantidad>0);
+    const mat=mats[parseInt(sel.value)];
+    if(!mat){ alert('Selecciona un material.'); return; }
+    const cant=parseInt(document.getElementById('devCant').value)||0;
+    if(cant<=0){ alert('Indica una cantidad válida.'); return; }
+    if(cant>mat.cantidad){ alert(`Solo tienes ${mat.cantidad} de ${mat.nombre}.`); return; }
+    const snRaw=(document.getElementById('devSN').value||'').trim();
+    const snes=snRaw?snRaw.split(/[,\n]+/).map(s=>s.trim()).filter(Boolean):[];
+    const estado=document.getElementById('devEstado').value;
+    const obs=(document.getElementById('devObs').value||'').trim();
+
+    const m=document.getElementById('modalDevol'); if(m) m.remove();
+    _mostrarGuardando('Devolviendo material...');
+    try{
+        const refI=db.collection('inventario').doc('datos');
+        const bodegaId=_cuadrillaTec.bodegaId;
+        const snap=await refI.get();
+        if(!snap.exists) throw new Error('No se encontró el inventario');
+        const data=snap.data();
+        const bod=(data.bodegas||[]).find(b=>String(b.id)===String(bodegaId));
+        const etiqueta = estado==='danado' ? '🔴 DAÑADO' : 'Por confirmar';
+
+        if(estado==='danado'){
+            // Va directo a Equipos Dañados (el jefe de bodega ya lo ve clasificado como dañado)
+            if(!Array.isArray(data.equiposDanados)) data.equiposDanados=[];
+            data.equiposDanados.push({
+                id:Date.now().toString(),
+                fecha:new Date().toLocaleDateString(),
+                fechaISO:new Date().toISOString(),
+                clienteNombre:`(Devolución técnico ${TEC.nombre})`,
+                equipoNombre:mat.nombre,
+                snDanado:snes.join(', '),
+                cantidadDanada:cant,
+                equipoNuevo:'—',
+                snNuevo:'',
+                bodegaId:bodegaId, bodegaNombre:bod?bod.nombre:'',
+                motivo:'Devolución de material dañado',
+                observaciones:obs||`Devuelto por técnico ${TEC.nombre}`,
+                origen:`Devolución técnico ${TEC.nombre}`
+            });
+            await refI.update({ equiposDanados: data.equiposDanados });
+        } else {
+            // Va a Recuperados como pendiente (el jefe de bodega decide bueno/dañado)
+            if(!Array.isArray(data.recuperados)) data.recuperados=[];
+            data.recuperados.push({
+                id:Date.now().toString(),
+                bodegaId:bodegaId, bodegaNombre:bod?bod.nombre:'',
+                nom:mat.nombre, cant:cant, tipo:'usado', unidad:mat.unidad||'unidad',
+                origen:`Devolución técnico ${TEC.nombre}`,
+                snes:snes,
+                fecha:new Date().toLocaleDateString(),
+                estado:'pendiente',
+                obs:obs||`Material devuelto por ${TEC.nombre} para revisión`
+            });
+            await refI.update({ recuperados: data.recuperados });
+        }
+        showToast(`✅ Material devuelto (${etiqueta}). La bodega lo revisará.`);
+        _cuadrillaTec=null;
+        _ocultarGuardando();
+    }catch(e){ console.error(e); showToast('❌ '+(e.message||e), true); _ocultarGuardando(); }
+}
+window._confirmarDevolverMaterial=_confirmarDevolverMaterial;
 
 // ════════════════════════════════════════════════════════════
 // FASE E — Cambio de equipo
@@ -890,6 +1051,7 @@ function _onNuevoChange(){
 window._onNuevoChange=_onNuevoChange;
 
 async function _finalizarCambioEquipo(ordenId){
+    if(_guardandoTec){ console.warn('Guardado en curso, clic ignorado.'); return; }
     // --- Equipo retirado ---
     let retNom='', retSN='';
     const retSel=document.getElementById('ceRetSel');
@@ -914,7 +1076,7 @@ async function _finalizarCambioEquipo(ordenId){
 
     if(!retNom && !nueNom){ alert('Indica al menos el equipo retirado o el instalado.'); return; }
     const m=document.getElementById('modalCambio'); if(m) m.remove();
-    showToast('Finalizando cambio...');
+    _mostrarGuardando('Finalizando cambio...');
 
     const o=(DATA.ordenesTrabajo||[]).find(x=>x.id===ordenId);
     const ofi=(DATA.oficinas||[]).find(x=>String(x.id)===String(o.oficinaId));
@@ -991,7 +1153,8 @@ async function _finalizarCambioEquipo(ordenId){
         }
         showToast('✅ Cambio finalizado. Equipo retirado y nuevo enviados al inventario (pendientes de confirmar).');
         _cuadrillaTec=null;
-    }catch(e){ console.error(e); showToast('❌ '+(e.message||e), true); }
+        _ocultarGuardando();
+    }catch(e){ console.error(e); showToast('❌ '+(e.message||e), true); _ocultarGuardando(); }
 }
 window._finalizarCambioEquipo=_finalizarCambioEquipo;
 
@@ -1124,13 +1287,14 @@ function _renderMatLista(){
 window._renderMatLista=_renderMatLista;
 
 async function _finalizarConMaterial(ordenId){
+    if(_guardandoTec){ console.warn('Guardado en curso, clic ignorado.'); return; }
     const hay=document.getElementById('matHay') ? document.getElementById('matHay').value : 'no';
     const destino=document.getElementById('matDestino') ? document.getElementById('matDestino').value : 'cliente';
     if(hay==='si' && _matElegidos.length===0){
         if(!confirm('No agregaste ningún material. ¿Finalizar sin registrar material?')) return;
     }
     const m=document.getElementById('modalMat'); if(m) m.remove();
-    showToast('Finalizando...');
+    _mostrarGuardando('Finalizando orden...');
 
     const o=(DATA.ordenesTrabajo||[]).find(x=>x.id===ordenId);
     const registrarMat = (hay==='si' && _matElegidos.length>0 && _cuadrillaTec);
@@ -1209,11 +1373,13 @@ async function _finalizarConMaterial(ordenId){
                 ? '✅ Instalación finalizada y registrada en el inventario.'
                 : '✅ Orden finalizada y material registrado (pendiente de confirmar por bodega)');
             _matElegidos=[]; _cuadrillaTec=null;
+            _ocultarGuardando();
             return;
         }
         showToast('✅ Orden finalizada');
         _matElegidos=[]; _cuadrillaTec=null;
-    }catch(e){ console.error(e); showToast('❌ '+(e.message||e), true); }
+        _ocultarGuardando();
+    }catch(e){ console.error(e); showToast('❌ '+(e.message||e), true); _ocultarGuardando(); }
 }
 window._finalizarConMaterial=_finalizarConMaterial;
 
