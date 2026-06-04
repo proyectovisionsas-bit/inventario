@@ -138,7 +138,7 @@ const COLECCION='oficinas_sistema';
 const DOC_ID='main';
 
 // ── CONTROL DE VERSIÓN (bloqueo total si hay versión nueva) ──
-const APP_VERSION_TEC = 63; // ⬆️ Subir en cada versión publicada de Técnicos
+const APP_VERSION_TEC = 64; // ⬆️ Subir en cada versión publicada de Técnicos
 let _bloqueoVersionTec = false;
 async function registrarVersionTec(){
     if(!db) return;
@@ -414,10 +414,49 @@ function render(){
         <div class="tab ${_tab==='finalizadas'?'active':''}" onclick="setTab('finalizadas')"><span class="n">${finalizadas.length}</span>Finalizadas</div>
     `;
 
-    const items=(_tab==='activas'?activas:finalizadas).sort((a,b)=>(b.creada||0)-(a.creada||0));
+    // Barra de búsqueda (filtra por cliente, cédula, dirección, teléfono o tipo de orden)
+    let buscadorEl=document.getElementById('buscadorOrdenes');
+    if(!buscadorEl){
+        buscadorEl=document.createElement('div'); buscadorEl.id='buscadorOrdenes';
+        const list0=document.getElementById('list'); if(list0&&list0.parentNode) list0.parentNode.insertBefore(buscadorEl, list0);
+        buscadorEl.innerHTML=`<input id="ordenBusqueda" type="text" placeholder="🔍 Buscar por cliente, cédula, dirección o teléfono..."
+            oninput="_filtrarOrdenesUI()" style="width:100%;padding:10px 14px;border-radius:10px;border:1px solid var(--border,#333);background:var(--card,#1a1a1a);color:var(--text,#fff);font-size:0.9rem;margin:6px 0;box-sizing:border-box;">`;
+    }
+
+    _renderListaOrdenes();
+}
+
+// Devuelve las órdenes de la pestaña actual ya filtradas por el texto de búsqueda
+function _ordenesFiltradas(){
+    const mis=_misOrdenes();
+    const activas=mis.filter(o=>o.estado!=='finalizada');
+    const finalizadas=mis.filter(o=>o.estado==='finalizada');
+    let items=(_tab==='activas'?activas:finalizadas).sort((a,b)=>(b.creada||0)-(a.creada||0));
+    const q=(window._busquedaOrden||'').trim().toLowerCase();
+    if(q){
+        items=items.filter(o=>{
+            const txt=`${o.cliente||''} ${o.cedula||''} ${o.direccion||''} ${o.telefono||''} ${(ORDEN_TIPOS[o.tipo]||{}).label||o.tipo||''} ${o.barrio||''}`.toLowerCase();
+            return txt.includes(q);
+        });
+    }
+    return items;
+}
+
+// Filtra SOLO la lista (sin redibujar tabs ni barra) para no perder el foco al escribir
+function _filtrarOrdenesUI(){
+    const inp=document.getElementById('ordenBusqueda');
+    window._busquedaOrden = inp ? inp.value : '';
+    _renderListaOrdenes();
+}
+window._filtrarOrdenesUI=_filtrarOrdenesUI;
+
+function _renderListaOrdenes(){
+    const items=_ordenesFiltradas();
     const list=document.getElementById('list');
+    if(!list) return;
     if(items.length===0){
-        list.innerHTML=`<div class="empty"><div class="ico">${_tab==='activas'?'📭':'📦'}</div>${_tab==='activas'?'No tienes órdenes activas.':'Aún no hay órdenes finalizadas.'}</div>`;
+        const hayBusqueda=(window._busquedaOrden||'').trim();
+        list.innerHTML=`<div class="empty"><div class="ico">${hayBusqueda?'🔍':(_tab==='activas'?'📭':'📦')}</div>${hayBusqueda?'No se encontraron órdenes con esa búsqueda.':(_tab==='activas'?'No tienes órdenes activas.':'Aún no hay órdenes finalizadas.')}</div>`;
         return;
     }
     list.innerHTML=items.map(o=>{
