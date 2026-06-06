@@ -5659,8 +5659,48 @@ function renderInst(c) {
             </details>
         </div>` : '';
 
+    // ── Bloque de sincronización por bodega (Admin) ──
+    let syncBodegasHtml = '';
+    if(USER.role === 'admin') {
+        // Agrupar instalaciones por bodega resuelta
+        const porBodega = {};
+        is.forEach(i => {
+            const b = getInstBodega(i);
+            const key = b ? b.id : '__sin__';
+            const nom = b ? b.nombre : 'Sin bodega asignada';
+            if(!porBodega[key]) porBodega[key] = {nombre:nom, total:0, pendientes:0};
+            porBodega[key].total++;
+            // Pendiente = cliente no existe O existe pero le faltan materiales
+            const cli = DB.clientes.find(cl => cl.nombre.toLowerCase().trim() === i.cliente.toLowerCase().trim());
+            if(!cli) { porBodega[key].pendientes++; }
+            else {
+                const faltaMat = (i.mats||[]).some(m => !(cli.equipos||[]).find(e =>
+                    e.nombre.toLowerCase()===m.nom.toLowerCase() && (e.tipo||'')===(m.tipo||'nuevo')));
+                if(faltaMat) porBodega[key].pendientes++;
+            }
+        });
+        const filas = Object.entries(porBodega).map(([id,info])=>`
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:white;border-radius:8px;margin-bottom:6px;border:1px solid #e2e8f0;">
+                <div style="font-size:0.88rem;">
+                    🏭 <strong>${info.nombre}</strong>
+                    <span class="text-muted"> · ${info.total} instalación(es)</span>
+                    ${info.pendientes>0 ? `<span style="color:#d97706;font-weight:600;"> · ${info.pendientes} por sincronizar</span>` : '<span style="color:#16a34a;"> · ✓ al día</span>'}
+                </div>
+                ${id!=='__sin__' ? `<button class="btn ${info.pendientes>0?'btn-primary':'btn-outline'} btn-sm" onclick="sincronizarBodega('${id}')" style="${info.pendientes>0?'background:linear-gradient(135deg,#0891b2,#0e7490);':''}">🔄 Sincronizar</button>` : '<span class="text-muted" style="font-size:0.78rem;">Asigna bodega primero</span>'}
+            </div>`).join('');
+        syncBodegasHtml = `<div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:14px;margin-bottom:15px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+                <strong style="color:#0e7490;">🔄 Sincronización por Bodega</strong>
+                <button class="btn btn-outline btn-sm" onclick="sincronizarBodega('__todas__')">🔄 Sincronizar TODAS</button>
+            </div>
+            <p class="text-muted" style="font-size:0.8rem;margin:0 0 10px;">Pasa las instalaciones a "Clientes Instalados" con su material. No duplica clientes ni materiales.</p>
+            ${filas}
+        </div>`;
+    }
+
     c.innerHTML = `<div class="card">
         <div class="card-header"><h2>🔧 Instalaciones</h2>${USER.role==='admin'?`<button class="btn btn-success btn-sm" onclick="modalNewInst()">➕ Nueva</button>`:''}</div>
+        ${syncBodegasHtml}
         ${adminAlerta}
         ${is.length ? is.map(i=>{
             const bodega = getInstBodega(i);
@@ -5699,6 +5739,117 @@ function asignarBodegaInst(instId, bodegaId) {
     }
 }
 window.asignarBodegaInst = asignarBodegaInst;
+
+// ── SINCRONIZACIÓN UNIFICADA POR BODEGA ──────────────────────────────────────
+// Pasa instalaciones a clientes instalados con su material.
+// NO duplica clientes (busca por nombre) NI materiales (busca por nombre+tipo).
+function sincronizarBodega(bodegaId) {
+    if(USER.role !== 'admin') return alert('Solo el administrador puede sincronizar.');
+    const norm = s => (s||'').toLowerCase().trim();
+
+    // Helper para resolver la bodega de una instalación
+    const getInstBod = (i) => {
+        if(i.bodegaId) return i.bodegaId;
+        const cli = DB.clientes.find(cl=>norm(cl.nombre)===norm(i.cliente));
+        if(cli?.bodegaId) return cli.bodegaId;
+        const cuad = DB.cuadrillas.find(cu=>cu.id===i.cuadrillaId);
+        if(cuad?.bodegaId) return cuad.bodegaId;
+        return '';
+    };
+
+    // Filtrar instalaciones de la bodega (o todas)
+    const insts = DB.instalaciones.filter(i => {
+        if(bodegaId === '__todas__') return true;
+        return getInstBod(i) === bodegaId;
+    });
+
+    if(!insts.length) return alert('No hay instalaciones para esta bodega.');
+
+    let clientesCreados = 0, clientesActualizados = 0, equiposAgregados = 0, snsAgregados = 0;
+
+    insts.forEach(inst => {
+        const bodId = getInstBod(inst);
+        if(!bodId) return; // sin bodega no se puede asignar
+        if(!inst.bodegaId) inst.bodegaId = bodId; // fijar bodega en la instalación
+
+        let cli = DB.clientes.find(cl => norm(cl.nombre) === norm(inst.cliente));
+
+        // 1. Crear cliente si no existe
+        if(!cli) {
+            cli = {
+                id: Date.now().toString()+'_'+Math.random().toString(36).substr(2,5),
+                nombre: inst.cliente,
+                bodegaId: bodId,
+                direccion: inst.direccion||'',
+                telefono: inst.telefono||'',
+                email: '',
+                fechaInstalacion: inst.fecha||'',
+                cuadrillaInstaladora: inst.cuadrilla||'',
+                observaciones: inst.observaciones||inst.tipo||'',
+                equipos: []
+            };
+            DB.clientes.push(cli);
+            clientesCreados++;
+        } else {
+            // Completar datos vacíos del cliente existente
+            if(!cli.bodegaId) cli.bodegaId = bodId;
+            if(!cli.fechaInstalacion && inst.fecha) cli.fechaInstalacion = inst.fecha;
+            if(!cli.cuadrillaInstaladora && inst.cuadrilla) cli.cuadrillaInstaladora = inst.cuadrilla;
+        }
+        if(!cli.equipos) cli.equipos = [];
+
+        // 2. Agregar materiales SIN duplicar
+        let cambió = false;
+        (inst.mats||[]).forEach(m => {
+            const eqExistente = cli.equipos.find(e =>
+                norm(e.nombre) === norm(m.nom) && (e.tipo||'') === (m.tipo||'nuevo'));
+            if(eqExistente) {
+                // Solo completar seriales faltantes (no tocar cantidad)
+                if(m.snes && m.snes.length) {
+                    if(!eqExistente.snes) eqExistente.snes = [];
+                    m.snes.forEach(sn => {
+                        if(!eqExistente.snes.includes(sn)) { eqExistente.snes.push(sn); snsAgregados++; cambió = true; }
+                    });
+                }
+            } else {
+                cli.equipos.push({
+                    nombre: m.nom,
+                    cantidad: m.cant,
+                    unidad: m.unidad || 'Und',
+                    tipo: m.tipo || 'nuevo',
+                    snes: [...(m.snes || [])],
+                    estado: 'Activo',
+                    notaOrigen: `Sincronizado desde instalación (${inst.fecha||''})`
+                });
+                equiposAgregados++;
+                cambió = true;
+            }
+        });
+        if(cambió && clientesCreados===0) {} // contador ya manejado
+        if(cambió) clientesActualizados++;
+    });
+
+    // Ajuste: clientesActualizados no debe contar los recién creados dos veces
+    clientesActualizados = Math.max(0, clientesActualizados - clientesCreados);
+
+    if(clientesCreados===0 && equiposAgregados===0 && snsAgregados===0) {
+        return alert('✅ Todo está sincronizado. No hubo cambios para esta bodega.');
+    }
+
+    const bodNom = bodegaId==='__todas__' ? 'TODAS las bodegas' : (DB.bodegas.find(b=>b.id===bodegaId)?.nombre||'');
+    logMsg(`Sincronización ${bodNom}: ${clientesCreados} creados, ${clientesActualizados} actualizados, ${equiposAgregados} equipos, ${snsAgregados} seriales`);
+
+    if(window.mostrarOverlayGuardado) window.mostrarOverlayGuardado('Sincronizando '+bodNom+'...');
+    const fin = () => {
+        if(window.ocultarOverlayGuardado) window.ocultarOverlayGuardado(true);
+        alert(`✅ Sincronización de ${bodNom} completada:\n\n• ${clientesCreados} cliente(s) nuevo(s)\n• ${clientesActualizados} cliente(s) actualizado(s)\n• ${equiposAgregados} equipo(s) agregado(s)\n• ${snsAgregados} serial(es) completado(s)`);
+        renderTab('inst');
+    };
+    if(window._fbSaveImmediate) {
+        window._fbSaveImmediate().then(fin).catch(e=>{ console.error(e); save(); fin(); });
+    } else { save(); fin(); }
+}
+window.sincronizarBodega = sincronizarBodega;
 
 // ── SINCRONIZAR INSTALACIONES → CLIENTES ─────────────────────────────────────
 function sincronizarInstalacionAUnCliente(instId) {
