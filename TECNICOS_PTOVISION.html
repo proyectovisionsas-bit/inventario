@@ -138,7 +138,7 @@ const COLECCION='oficinas_sistema';
 const DOC_ID='main';
 
 // ── CONTROL DE VERSIÓN (bloqueo total si hay versión nueva) ──
-const APP_VERSION_TEC = 65; // ⬆️ Subir en cada versión publicada de Técnicos
+const APP_VERSION_TEC = 66; // ⬆️ Subir en cada versión publicada de Técnicos
 let _bloqueoVersionTec = false;
 async function registrarVersionTec(){
     if(!db) return;
@@ -898,11 +898,10 @@ async function modalDevolverMaterial(){
         <p style="font-size:0.82rem;color:var(--muted);margin-bottom:10px;">Cuadrilla: <strong>${info.cuad.nombre}</strong>. El material devuelto llega a la bodega como <strong>pendiente</strong>. El jefe de bodega decide si entra al inventario (bueno) o a equipos dañados.</p>
         ${mats.length ? `
         <label>Material a devolver</label>
-        <select id="devSel">${opts}</select>
+        <select id="devSel" onchange="_onDevSelChange()">${opts}</select>
         <label style="margin-top:8px;">Cantidad</label>
-        <input id="devCant" type="number" value="1" min="1">
-        <label style="margin-top:8px;">Serial(es) (opcional, separados por coma)</label>
-        <input id="devSN" type="text" placeholder="Ej: SN123, SN456">
+        <input id="devCant" type="number" value="1" min="1" oninput="_onDevSelChange()">
+        <div id="devSnArea" style="margin-top:8px;"></div>
         <label style="margin-top:8px;">Estado del material</label>
         <select id="devEstado">
             <option value="por_confirmar">🔵 Por confirmar (la bodega revisa)</option>
@@ -916,8 +915,33 @@ async function modalDevolverMaterial(){
         </div>
         ` : `<div style="background:rgba(245,158,11,0.1);border-radius:8px;padding:12px;color:#fbbf24;font-size:0.84rem;">Tu cuadrilla no tiene material para devolver.</div>
         <button class="btn btn-ghost btn-block" style="margin-top:10px;" onclick="document.getElementById('modalDevol').remove()">Cerrar</button>`}`;
+    setTimeout(()=>{ try{ _onDevSelChange(); }catch(e){} }, 100);
 }
 window.modalDevolverMaterial=modalDevolverMaterial;
+
+// ── PARCHE v2: si el material tiene SN, se ESCOGEN de la lista (no se digitan a mano) ──
+function _onDevSelChange(){
+    const sel=document.getElementById('devSel'); const cantEl=document.getElementById('devCant');
+    const area=document.getElementById('devSnArea');
+    if(!sel||!cantEl||!area||!_cuadrillaTec) return;
+    const mats=(_cuadrillaTec.materiales||[]).filter(x=>x.cantidad>0);
+    const mat=mats[parseInt(sel.value)];
+    if(!mat){ area.innerHTML=''; return; }
+    const snes=Array.isArray(mat.snes)?mat.snes.filter(s=>s):[];
+    const cant=parseInt(cantEl.value)||1;
+    if(snes.length===0){
+        area.innerHTML=`<label>Serial(es) (opcional, separados por coma)</label>
+            <input id="devSN" type="text" placeholder="Ej: SN123, SN456">
+            <p style="font-size:0.72rem;color:var(--muted);margin:2px 0 0;">Este material no tiene seriales registrados en tu cuadrilla.</p>`;
+    } else {
+        area.innerHTML=`<label>Selecciona los seriales que devuelves — necesitas <strong>${cant}</strong>:</label>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;background:rgba(0,0,0,0.1);padding:8px;border-radius:8px;max-height:120px;overflow-y:auto;">
+            ${snes.map(sn=>`<label style="display:flex;align-items:center;gap:4px;font-size:0.78rem;background:rgba(255,255,255,0.05);padding:4px 8px;border-radius:6px;cursor:pointer;">
+                <input type="checkbox" class="devSnChk" value="${sn}" style="width:auto;margin:0;"> ${sn}
+            </label>`).join('')}</div>`;
+    }
+}
+window._onDevSelChange=_onDevSelChange;
 
 async function _confirmarDevolverMaterial(){
     if(_guardandoTec){ console.warn('Guardado en curso, clic ignorado.'); return; }
@@ -929,8 +953,16 @@ async function _confirmarDevolverMaterial(){
     const cant=parseInt(document.getElementById('devCant').value)||0;
     if(cant<=0){ alert('Indica una cantidad válida.'); return; }
     if(cant>mat.cantidad){ alert(`Solo tienes ${mat.cantidad} de ${mat.nombre}.`); return; }
-    const snRaw=(document.getElementById('devSN').value||'').trim();
-    const snes=snRaw?snRaw.split(/[,\n]+/).map(s=>s.trim()).filter(Boolean):[];
+    // PARCHE v2: si el material tiene seriales, deben marcarse exactamente "cant" casillas.
+    const snesDelMat=Array.isArray(mat.snes)?mat.snes.filter(s=>s):[];
+    let snes=[];
+    if(snesDelMat.length>0){
+        snes=Array.from(document.querySelectorAll('.devSnChk:checked')).map(c=>c.value);
+        if(snes.length!==cant){ alert(`Este material tiene seriales (SN). Marca exactamente ${cant} serial(es) para los ${cant} que devuelves.\n\nMarcaste: ${snes.length}`); return; }
+    } else {
+        const snRaw=((document.getElementById('devSN')&&document.getElementById('devSN').value)||'').trim();
+        snes=snRaw?snRaw.split(/[,\n]+/).map(s=>s.trim()).filter(Boolean):[];
+    }
     const estado=document.getElementById('devEstado').value;
     const obs=(document.getElementById('devObs').value||'').trim();
 
