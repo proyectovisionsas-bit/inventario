@@ -568,6 +568,7 @@
             <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn">🌙 Nocturno</button>
             <button class="btn btn-outline btn-sm admin-only" onclick="openAdminPanel()">⚙️ Admin</button>
             <button class="btn btn-outline btn-sm admin-only" onclick="modalRespaldoDrive()" title="Respaldo a Google Drive">☁️ Respaldo</button>
+            <button class="btn btn-outline btn-sm admin-only" onclick="modalConfigurarDriveComps()" title="Guardar comprobantes en tu Google Drive">📁 Comprobantes</button>
             <button class="btn btn-outline btn-sm oficina-only" onclick="modalCambiarPass()">🔑 Cambiar clave</button>
             <button class="btn btn-danger btn-sm" onclick="doLogout()">🚪 Salir</button>
         </div>
@@ -724,6 +725,13 @@ const CLOUDINARY_CLOUD='daaiji5zb';
 const CLOUDINARY_PRESET='ckrfzl9q';
 const CLOUDINARY_FOLDER='comprobantes_ptovision';
 
+// === Almacenamiento de comprobantes en TU Google Drive (vía Apps Script) ===
+const COMPS_DRIVE_URL_DEFAULT='https://script.google.com/macros/s/AKfycbwUc19j3OVOVID6AxpHVT0LBgSI18JPt-5hd0089vdkL0_aZVqb3ALnGIJ6oi6wjVv1/exec';
+function compsDriveUrl(){ try{ if(typeof DB==='object'&&DB&&DB.config&&DB.config.compsDriveUrl) return DB.config.compsDriveUrl; }catch(e){} return COMPS_DRIVE_URL_DEFAULT; }
+function compsDriveClave(){ try{ if(typeof DB==='object'&&DB&&DB.config&&DB.config.compsDriveClave) return DB.config.compsDriveClave; }catch(e){} return ''; }
+function compsDriveActivo(){ return !!(compsDriveUrl() && compsDriveClave()); }
+
+
 // ── HORARIOS ──────────────────────────────────────────────────────────────────
 const HORARIOS = {
     oficina: {
@@ -858,8 +866,8 @@ let db = null;
 const DOC_ID = 'main'; // documento único en colección "oficinas_sistema"
 // ─── CONTROL DE VERSIÓN ───
 // Incrementa este número cada vez que publiques una actualización.
-const APP_VERSION = 106; // ⬆️ Subir en cada nueva versión publicada
-const APP_VERSION_FECHA = '5 Jun 2026 (v106 - las oficinas YA pueden enlazar comprobantes a pagos existentes aunque sea fecha pasada (sin solicitud); solo los movimientos NUEVOS de fecha pasada van a solicitud, y ahora la solicitud SÍ lleva la imagen del comprobante)';
+const APP_VERSION = 108; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION_FECHA = '5 Jun 2026 (v108 - Cloudinary DESACTIVADO: TODOS los comprobantes se guardan ahora en TU Google Drive. Si el Drive no está configurado, avisa claro y no sube nada en silencio)';
 const LOGO_PV = 'data:image/jpeg;base64,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';
 
 
@@ -9367,16 +9375,97 @@ function getMovimiento(oid, mid){
     return (o?.movimientos||[]).find(m=>m.id===mid);
 }
 
-async function subirArchivoCloudinary(file, movId){
-    const fd=new FormData();
-    fd.append('file', file);
-    fd.append('upload_preset', CLOUDINARY_PRESET);
-    fd.append('folder', CLOUDINARY_FOLDER+'/'+movId);
-    const r=await fetch('https://api.cloudinary.com/v1_1/'+CLOUDINARY_CLOUD+'/auto/upload',{method:'POST',body:fd});
-    const d=await r.json();
-    if(!r.ok||d.error) throw new Error(d.error?.message||'Error Cloudinary');
-    return {url:d.secure_url, publicId:d.public_id, formato:d.format, bytes:d.bytes};
+// Cloudinary DESACTIVADO: todo va ahora a TU Google Drive. Esta función se mantiene
+// solo para que los lugares que aún la llamaban (Efecty, abonos, recibos) sigan
+// funcionando — pero redirige a Drive. Ya NO se sube NADA a Cloudinary.
+function _oidActual(){
+    try{ if(typeof USER==='object' && USER && USER.role==='oficina' && USER.id) return USER.id; }catch(e){}
+    return 'GENERAL';
 }
+async function subirArchivoCloudinary(file, movId){
+    return await subirArchivoDrive(file, _oidActual(), movId);
+}
+
+// Sube el comprobante a TU Google Drive (carpeta por oficina) vía el Apps Script.
+// Devuelve {url} (miniatura para mostrar) y {verUrl} (para abrir completo), igual de
+// compatible que Cloudinary para que el resto del código funcione sin cambios.
+async function subirArchivoDrive(file, oid, movId){
+    const url=compsDriveUrl(), clave=compsDriveClave();
+    if(!url) throw new Error('Falta la URL del Drive de comprobantes (configúrala en el panel de administrador).');
+    if(!clave) throw new Error('Falta la clave del Drive de comprobantes. Pídele al administrador que la configure.');
+    const base64=await new Promise((res,rej)=>{
+        const fr=new FileReader();
+        fr.onload=()=>res(fr.result);   // data:...;base64,....
+        fr.onerror=()=>rej(new Error('No se pudo leer la imagen'));
+        fr.readAsDataURL(file);
+    });
+    let oficinaNombre = oid || 'SIN_OFICINA';
+    try{ const o=(DB.oficinas||[]).find(x=>x.id===oid); if(o&&o.nombre) oficinaNombre=o.nombre; }catch(e){}
+    const r=await fetch(url,{
+        method:'POST',
+        headers:{'Content-Type':'text/plain;charset=utf-8'}, // texto plano evita el bloqueo CORS de Apps Script
+        body:JSON.stringify({ clave, oficina:oficinaNombre, movId:movId||'', nombre:(file.name||('comprobante_'+Date.now()+'.jpg')), tipo:(file.type||'image/jpeg'), base64 })
+    });
+    let data;
+    try{ data=await r.json(); }catch(e){ throw new Error('Respuesta inválida del Drive. Revisa que la URL del script termine en /exec y esté bien publicada.'); }
+    if(!data || !data.ok) throw new Error((data&&data.error)||'Error subiendo a Drive');
+    return { url:data.url, secure_url:data.url, verUrl:data.verUrl||data.url, fileId:data.fileId||null, formato:'drive' };
+}
+
+// ===== Configuración: guardar comprobantes en TU Google Drive =====
+function modalConfigurarDriveComps(){
+    if(!(USER&&USER.role==='admin')){ alert('Solo el administrador puede configurar esto.'); return; }
+    const url=compsDriveUrl(), clave=compsDriveClave();
+    const esc=s=>(s||'').toString().replace(/"/g,'&quot;');
+    const body=`
+        <p style="color:var(--muted);font-size:0.82rem;margin-bottom:10px;">Guarda las fotos de los comprobantes en <b>tu Google Drive</b> (se crea una carpeta por oficina), en vez de Cloudinary. Pega la URL del Apps Script y la clave que pusiste dentro de él.</p>
+        <label style="font-size:0.8rem;font-weight:600;">URL del Apps Script (termina en /exec)</label>
+        <input id="cfg_drive_url" style="width:100%;margin:4px 0 10px;padding:8px;border:1px solid var(--border,#ccc);border-radius:6px;" value="${esc(url)}" placeholder="https://script.google.com/macros/s/.../exec">
+        <label style="font-size:0.8rem;font-weight:600;">Clave secreta (la misma del Apps Script)</label>
+        <input id="cfg_drive_clave" style="width:100%;margin:4px 0 10px;padding:8px;border:1px solid var(--border,#ccc);border-radius:6px;" value="${esc(clave)}" placeholder="tu-clave-secreta">
+        <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:8px 12px;font-size:0.76rem;color:#10b981;">
+            ${compsDriveActivo()?'✅ Drive activo: los comprobantes nuevos se guardan en tu Drive.':'⚠️ Aún no configurado: hasta que guardes la clave, los comprobantes siguen yendo a Cloudinary.'}
+        </div>`;
+    const footer=`
+        <button class="btn btn-outline" onclick="probarDriveComps()">🧪 Probar conexión</button>
+        <button class="btn btn-primary" onclick="guardarDriveComps()">💾 Guardar</button>`;
+    openModal('📁 Comprobantes en Google Drive', body, footer);
+}
+
+function guardarDriveComps(){
+    const url=(document.getElementById('cfg_drive_url')?.value||'').trim();
+    const clave=(document.getElementById('cfg_drive_clave')?.value||'').trim();
+    if(!url||!clave){ alert('Pon la URL y la clave.'); return; }
+    if(!/\/exec$/.test(url)){ if(!confirm('La URL normalmente termina en /exec. ¿Guardar de todas formas?')) return; }
+    if(!DB.config) DB.config={};
+    DB.config.compsDriveUrl=url;
+    DB.config.compsDriveClave=clave;
+    if(typeof save==='function') save();
+    if(typeof registrarLog==='function') registrarLog('CONFIG_DRIVE_COMPROBANTES',{url});
+    closeModal();
+    alert('✅ Listo. Los comprobantes nuevos se guardarán en tu Google Drive (carpeta por oficina).');
+}
+
+async function probarDriveComps(){
+    const url=(document.getElementById('cfg_drive_url')?.value||'').trim();
+    const clave=(document.getElementById('cfg_drive_clave')?.value||'').trim();
+    if(!url||!clave){ alert('Pon la URL y la clave antes de probar.'); return; }
+    if(!DB.config) DB.config={};
+    const _u=DB.config.compsDriveUrl, _c=DB.config.compsDriveClave;
+    DB.config.compsDriveUrl=url; DB.config.compsDriveClave=clave; // temporal para la prueba
+    try{
+        const b64='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+        const bin=atob(b64); const arr=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+        const file=new File([arr],'prueba_conexion.png',{type:'image/png'});
+        const res=await subirArchivoDrive(file,'PRUEBA','test_'+Date.now());
+        alert('✅ ¡Conexión correcta!\n\nSe guardó una imagen de prueba en tu Drive (carpeta "Comprobantes PROYECTOVISION / PRUEBA"). Puedes borrarla desde tu Drive.\n\nAhora dale "Guardar" para dejarlo activo.');
+    }catch(e){
+        alert('❌ No funcionó:\n\n'+e.message+'\n\nRevisa que la URL termine en /exec, que la clave sea idéntica a la del Apps Script, y que lo publicaste para "Cualquier usuario".');
+    }finally{
+        DB.config.compsDriveUrl=_u; DB.config.compsDriveClave=_c; // restaurar hasta que guarde
+    }
+}
+
 
 function modalComprobantes(oid, mid){
     const m=getMovimiento(oid,mid);
@@ -9485,7 +9574,7 @@ function modalComprobantes(oid, mid){
                     ${c.descripcionIA?`<div style="font-size:0.62rem;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${c.descripcionIA.replace(/"/g,'&quot;')}">${c.descripcionIA}</div>`:''}
                 </div>
                 <div style="display:flex;gap:4px;padding:0 6px 6px;">
-                    <a href="${c.url}" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm" style="flex:1;text-align:center;font-size:0.68rem;padding:3px;">👁️ Ver</a>
+                    <a href="${c.verUrl||c.url}" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm" style="flex:1;text-align:center;font-size:0.68rem;padding:3px;">👁️ Ver</a>
                     <button class="btn btn-danger btn-sm" style="font-size:0.68rem;padding:3px 6px;" onclick="eliminarComp('${oid}','${mid}',${i})">🗑️</button>
                 </div>
             </div>`).join('')}
@@ -9575,7 +9664,7 @@ async function procesarArchivos(files, oid, mid){
             if(progEl) progEl.innerHTML=_progHTML('☁️ Subiendo a Cloudinary...', 80);
             const fechaStr=new Date().toLocaleDateString('es-CO').replace(/\//g,'-');
             const pdfFile=new File([pdfBlob],`comprobantes_${fechaStr}_${imageFiles.length}imgs.pdf`,{type:'application/pdf'});
-            const res=await subirArchivoCloudinary(pdfFile, mid);
+            const res=await subirArchivoDrive(pdfFile, oid, mid);
             m.comprobantes.push({
                 url:res.url, nombre:pdfFile.name, tipo:'pdf',
                 fecha:new Date().toISOString(), imagenes:imageFiles.length,
@@ -9590,7 +9679,7 @@ async function procesarArchivos(files, oid, mid){
     // Step 2: Upload any non-image files individually
     for(const file of otherFiles){
         try{
-            const res=await subirArchivoCloudinary(file, mid);
+            const res=await subirArchivoDrive(file, oid, mid);
             m.comprobantes.push({url:res.url, nombre:file.name, tipo:'pdf', fecha:new Date().toISOString()});
         }catch(e){ console.error('Error subiendo',file.name,e); }
     }
@@ -11544,6 +11633,12 @@ async function guardarComprobantesRegistrados(oid){
     const validos=_comprobantesPendientes.filter(c=>c.analizado&&c.valor>0);
     if(validos.length===0){ alert('No hay comprobantes válidos para registrar'); return; }
 
+    // Los comprobantes se guardan en TU Google Drive. Si aún no está configurado, avisar claro.
+    if(!compsDriveActivo()){
+        alert('📁 Primero configura tu Google Drive\n\nLos comprobantes ahora se guardan en tu Drive (ya no en Cloudinary). Configúralo una vez con el botón "📁 Comprobantes" (arriba a la derecha): pega tu clave, dale "🧪 Probar conexión" y luego "💾 Guardar".\n\nDespués vuelve a subir el comprobante.');
+        return;
+    }
+
     // Validar pagos combinados: la suma de las partes debe ser igual al total del comprobante
     for(const c of validos){
         if(c.splits){
@@ -11864,11 +11959,14 @@ async function guardarComprobantesRegistrados(oid){
         const movId=uid();
         const comprobantesArr=[];
 
-        // Subir la imagen original a Cloudinary
+        // Subir la imagen del comprobante a TU Google Drive (carpeta por oficina)
         try{
-            const res=await subirArchivoCloudinary(c.file, movId);
+            const res = await subirArchivoDrive(c.file, oid, movId);
             comprobantesArr.push({
                 url:res.url,
+                verUrl:res.verUrl||res.url,
+                fileId:res.fileId||null,
+                almacen:'drive',
                 nombre:c.nombre||`comprobante_${i+1}.jpg`,
                 tipo:'imagen',
                 fecha:new Date().toISOString(),
