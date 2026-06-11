@@ -1008,10 +1008,11 @@ function renderClientes(c) {
                     ` : '<p class="text-muted">Sin equipos registrados</p>'}
                     ${(cl.materialInstalado&&cl.materialInstalado.length) ? `
                         <h4 style="margin:15px 0 8px;">🧰 Material instalado</h4>
-                        <div class="table-wrap"><table><thead><tr><th>Material</th><th>Cant</th><th>Unidad</th><th>Cuadrilla</th><th>Fecha</th></tr></thead><tbody>
+                        <div class="table-wrap"><table><thead><tr><th>Material</th><th>Cant</th><th>Unidad</th><th>SNs</th><th>Cuadrilla</th><th>Fecha</th></tr></thead><tbody>
                         ${cl.materialInstalado.map(m=>`<tr>
                             <td><strong>${m.nombre}</strong></td>
                             <td>${m.cant}</td><td>${m.unidad||'-'}</td>
+                            <td>${(m.snes&&m.snes.length)?m.snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' '):'-'}</td>
                             <td>${m.cuadrilla||'-'}</td><td>${m.fecha||'-'}</td>
                         </tr>`).join('')}
                         </tbody></table></div>
@@ -5089,14 +5090,33 @@ function renderConsumos(c) {
         ? '🌐 Mantenimiento de red'
         : '👤 '+(x.destinoDetalle||'Cliente');
 
+    // ── PARCHE v2: los SN se muestran SIEMPRE; y la disponibilidad se calcula
+    // sobre la misma fila (nombre normalizado + tipo) que descuenta la confirmación.
+    const _normC=s=>(s||'').toString().toLowerCase().trim().replace(/\s+/g,' ');
+    const _matDe=(cu,it)=>{
+        if(!cu) return null;
+        const mats=cu.materiales||[];
+        const n=_normC(it.nombre), t=(it.tipo||'').toString().trim();
+        let m=null;
+        if(t) m=mats.find(mm=>_normC(mm.nombre)===n && (mm.tipo||'')===t);
+        if(!m) m=mats.find(mm=>_normC(mm.nombre)===n);
+        return m||null;
+    };
+    const _snesItem=(it)=>{
+        if(Array.isArray(it.snes) && it.snes.length) return it.snes.map(s=>(s||'').toString().trim()).filter(Boolean);
+        if(it.sn && it.sn.toString().trim()) return [it.sn.toString().trim()];
+        return [];
+    };
+
     const tarjetaPendiente=(x)=>{
         const cuad=DB.cuadrillas.find(cu=>String(cu.id)===String(x.cuadrillaId));
         const itemsHtml=(x.items||[]).map(it=>{
-            const matCuad=cuad?(cuad.materiales||[]).find(m=>m.nombre===it.nombre):null;
+            const matCuad=_matDe(cuad,it);
+            const snsIt=_snesItem(it);
             const disp=matCuad?matCuad.cantidad:0;
             const alcanza=disp>=it.cant;
             return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border,rgba(0,0,0,0.06));">
-                <span><strong>${it.nombre}</strong> · ${it.cant} ${it.unidad||''}</span>
+                <span><strong>${it.nombre}</strong> · ${it.cant} ${it.unidad||''}${snsIt.length?`<br><small>SN: ${snsIt.map(s=>`<span class="sn-tag">${s}</span>`).join(' ')}</small>`:''}</span>
                 <span class="text-muted" style="font-size:0.8rem;color:${alcanza?'inherit':'#dc2626'};">disponible: ${disp}${alcanza?'':' ⚠️ insuficiente'}</span>
             </div>`;
         }).join('');
@@ -5117,7 +5137,7 @@ function renderConsumos(c) {
 
     const tarjetaHist=(x)=>{
         const esConf=x.estado==='confirmado';
-        const itemsTxt=(x.items||[]).map(it=>`${it.nombre} x${it.cant}`).join(', ');
+        const itemsTxt=(x.items||[]).map(it=>{const sns=_snesItem(it);return `${it.nombre} x${it.cant}${sns.length?' [SN: '+sns.join(', ')+']':''}`;}).join(', ');
         return `<div style="border:1px solid var(--border,rgba(0,0,0,0.08));border-left:4px solid ${esConf?'#16a34a':'#dc2626'};border-radius:8px;padding:10px 12px;margin-bottom:8px;opacity:0.92;">
             <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;">
                 <span style="font-weight:600;font-size:0.88rem;">${destinoLabel(x)}</span>
@@ -5273,7 +5293,8 @@ function sincronizarMaterialClientes(){
         (x.items||[]).forEach(it=>{
             const ya=cl.materialInstalado.find(m=>m.consumoId===x.id && m.nombre===it.nombre);
             if(ya) return;
-            cl.materialInstalado.push({nombre:it.nombre, cant:it.cant, unidad:it.unidad||'', fecha:x.confirmadoFecha||x.fecha||'', cuadrilla:x.cuadrillaNombre||'', consumoId:x.id});
+            const snsInst=(Array.isArray(it.snes)&&it.snes.length)?it.snes.slice():((it.sn&&it.sn.toString().trim())?[it.sn.toString().trim()]:[]);
+            cl.materialInstalado.push({nombre:it.nombre, cant:it.cant, unidad:it.unidad||'', snes:snsInst, fecha:x.confirmadoFecha||x.fecha||'', cuadrilla:x.cuadrillaNombre||'', consumoId:x.id});
             totalItems++;
         });
         x.materialAplicadoCliente=true;
@@ -7484,7 +7505,7 @@ import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstat
 
 const FB_KEY = 'invPro_firebaseConfig';
 const DB_DOC = 'inventario/datos';
-const APP_VERSION_INV = 67; // ⬆️ Subir en cada versión publicada de Inventario
+const APP_VERSION_INV = 68; // ⬆️ Subir en cada versión publicada de Inventario
 const CHUNK_SIZE = 800; // clients per document - allows ~10000 clients
 
 // Helper: split array into chunks
