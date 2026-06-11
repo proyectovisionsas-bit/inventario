@@ -4117,9 +4117,9 @@ function renderEquiposDanados(c) {
                 <td>${d.cantidadDanada||1}</td>
                 <td><strong>${d.equipoNuevo}</strong></td>
                 <td>${d.snNuevo?`<span class="sn-tag">${d.snNuevo}</span>`:'-'}</td>
-                <td>${d.bodegaOrigen}</td>
+                <td>${d.bodegaOrigen||d.origenNombre||d.bodegaNombre||'-'}</td>
                 <td style="max-width:200px;font-size:0.82rem;">${d.motivo}</td>
-                <td style="font-size:0.82rem;">${d.obs||'-'}</td>
+                <td style="font-size:0.82rem;">${d.obs||d.observaciones||'-'}</td>
             </tr>`).join('')}
             </tbody>
         </table></div></div>` : '<p class="text-muted text-center" style="padding:20px;">No hay equipos dañados registrados.</p>'}
@@ -5154,10 +5154,32 @@ function confirmarConsumo(consumoId){
     const cuad=DB.cuadrillas.find(cu=>String(cu.id)===String(x.cuadrillaId));
     if(!cuad){ alert('La cuadrilla de este consumo ya no existe. Puedes rechazarlo.'); return; }
 
+    // ── PARCHE v1 ──────────────────────────────────────────────
+    // El material en la cuadrilla se acumula por NOMBRE + TIPO (así lo hacen
+    // las entregas). Aquí buscamos con la MISMA llave para descontar la fila
+    // correcta: 1) nombre normalizado + tipo; 2) si no existe, solo nombre.
+    const _norm=s=>(s||'').toString().toLowerCase().trim().replace(/\s+/g,' ');
+    const _buscarMat=(it)=>{
+        const mats=cuad.materiales||[];
+        const n=_norm(it.nombre), t=(it.tipo||'').toString().trim();
+        let m=null;
+        if(t) m=mats.find(mm=>_norm(mm.nombre)===n && (mm.tipo||'')===t);
+        if(!m) m=mats.find(mm=>_norm(mm.nombre)===n);
+        return m||null;
+    };
+    // El técnico puede enviar seriales como "snes" (lista) o "sn" (texto suelto,
+    // como pasa en los cambios de equipo). Aceptamos ambos.
+    const _snesDe=(it)=>{
+        if(Array.isArray(it.snes) && it.snes.length) return it.snes.map(s=>(s||'').toString().trim()).filter(Boolean);
+        if(it.sn && it.sn.toString().trim()) return [it.sn.toString().trim()];
+        return [];
+    };
+    // ───────────────────────────────────────────────────────────
+
     // Verificar que la cuadrilla tenga suficiente de cada material ANTES de descontar
     const faltantes=[];
     (x.items||[]).forEach(it=>{
-        const m=(cuad.materiales||[]).find(mm=>mm.nombre===it.nombre);
+        const m=_buscarMat(it);
         const disp=m?m.cantidad:0;
         if(disp<it.cant) faltantes.push(`${it.nombre}: necesita ${it.cant}, hay ${disp}`);
     });
@@ -5168,25 +5190,32 @@ function confirmarConsumo(consumoId){
 
     if(!confirm(`Confirmar el material gastado por ${cuad.nombre}.\n\nEsto descontará del stock de la cuadrilla. ¿Continuar?`)) return;
 
-    // Descontar de la cuadrilla (cantidad y SN)
+    // Descontar de la cuadrilla (cantidad y SN). Si algo no cuadra, se AVISA
+    // en pantalla y queda en el registro de actividad (antes fallaba en silencio).
+    const avisos=[];
     (x.items||[]).forEach(it=>{
-        const m=(cuad.materiales||[]).find(mm=>mm.nombre===it.nombre);
-        if(m){
-            m.cantidad-=it.cant;
-            if(m.cantidad<0) m.cantidad=0;
-            // Quitar SN específicos que el técnico marcó
-            if(Array.isArray(it.snes) && it.snes.length && Array.isArray(m.snes)){
-                it.snes.forEach(sn=>{
-                    const idx=m.snes.indexOf(sn);
-                    if(idx>-1) m.snes.splice(idx,1);
-                });
-            }
+        const m=_buscarMat(it);
+        if(!m){ avisos.push(`"${it.nombre}" no se encontró en la cuadrilla; NO se descontó.`); return; }
+        m.cantidad-=it.cant;
+        if(m.cantidad<0){ avisos.push(`"${m.nombre}" quedó en negativo y se ajustó a 0 (revisa el stock).`); m.cantidad=0; }
+        const snes=_snesDe(it);
+        if(snes.length && Array.isArray(m.snes)){
+            const noEstaban=[];
+            snes.forEach(sn=>{
+                const idx=m.snes.findIndex(s=>(s||'').toString().trim()===sn);
+                if(idx>-1) m.snes.splice(idx,1); else noEstaban.push(sn);
+            });
+            if(noEstaban.length) avisos.push(`Seriales de "${m.nombre}" que no estaban en la cuadrilla: ${noEstaban.join(', ')}.`);
         }
     });
     x.estado='confirmado';
     x.confirmadoFecha=new Date().toLocaleDateString();
     x.confirmadoPor=USER.role==='admin'?'Admin':(USER.nombre||'Bodega');
     logMsg(`Material confirmado: ${cuad.nombre} → ${x.destino==='red'?'red':(x.destinoDetalle||'cliente')} (${(x.items||[]).map(i=>i.nombre+' x'+i.cant).join(', ')})`);
+    if(avisos.length){
+        logMsg(`⚠️ Avisos al confirmar consumo de ${cuad.nombre}: ${avisos.join(' | ')}`);
+        alert('✅ Consumo confirmado, pero revisa esto:\n\n⚠️ '+avisos.join('\n⚠️ '));
+    }
     save();
     renderTab('consumos');
 }
@@ -7455,7 +7484,7 @@ import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstat
 
 const FB_KEY = 'invPro_firebaseConfig';
 const DB_DOC = 'inventario/datos';
-const APP_VERSION_INV = 66; // ⬆️ Subir en cada versión publicada de Inventario
+const APP_VERSION_INV = 67; // ⬆️ Subir en cada versión publicada de Inventario
 const CHUNK_SIZE = 800; // clients per document - allows ~10000 clients
 
 // Helper: split array into chunks
