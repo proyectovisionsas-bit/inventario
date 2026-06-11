@@ -807,20 +807,30 @@ function renderDash(c) {
 function renderPanelControl(c){
     const esAdmin=USER.role==='admin';
     const periodo=window._panelPeriodo||'30'; // días: 7, 30, 90, todo
+    const filtroBod=esAdmin?(window._panelBodega||''):'';
 
-    // Filtrar bodegas/cuadrillas según rol
-    const bodegas = esAdmin ? (DB.bodegas||[]) : (DB.bodegas||[]).filter(b=>b.id===USER.id);
-    const cuadrillas = esAdmin ? (DB.cuadrillas||[]) : getUserCuads();
+    // ── Bodegas/cuadrillas según rol + filtro de bodega (admin) ──
+    let bodegas = esAdmin ? (DB.bodegas||[]) : (DB.bodegas||[]).filter(b=>b.id===USER.id);
+    let cuadrillas = esAdmin ? (DB.cuadrillas||[]) : getUserCuads();
+    if(filtroBod){
+        bodegas=bodegas.filter(b=>String(b.id)===String(filtroBod));
+        cuadrillas=cuadrillas.filter(cu=>String(cu.bodegaId)===String(filtroBod));
+    }
 
-    // ---- VISTA 1: Saldo de material por bodega ----
-    const saldoBodegas = bodegas.map(b=>{
-        const mats=(b.materiales||[]);
-        const totalItems=mats.reduce((s,m)=>s+(m.cantidad||0),0);
-        const tiposDistintos=mats.filter(m=>(m.cantidad||0)>0).length;
-        return { nombre:b.nombre, totalItems, tiposDistintos, mats:mats.filter(m=>(m.cantidad||0)>0) };
-    });
+    // ── Helpers (mismos criterios de SN que en "Material por confirmar") ──
+    const fmtNum=(n)=>new Intl.NumberFormat('es-CO').format(n);
+    const _snIt=(it)=>{
+        if(Array.isArray(it.snes) && it.snes.length) return it.snes.map(s=>(s||'').toString().trim()).filter(Boolean);
+        if(it.sn && it.sn.toString().trim()) return [it.sn.toString().trim()];
+        return [];
+    };
+    const _tagsSN=(sns)=>(sns&&sns.length)?sns.map(s=>`<span class="sn-tag">${s}</span>`).join(' '):'-';
+    const _itemsHtml=(items)=>(items||[]).map(it=>{
+        const sns=_snIt(it);
+        return `<div style="padding:2px 0;font-size:0.84rem;"><strong>${it.nombre}</strong> x${it.cant} ${it.unidad||''}${sns.length?` · SN: ${sns.map(s=>`<span class="sn-tag">${s}</span>`).join(' ')}`:''}</div>`;
+    }).join('');
 
-    // ---- VISTA 2: Gasto por destino (cliente vs red) en el periodo, desde consumos CONFIRMADOS ----
+    // ── Periodo ──
     const ahora=Date.now();
     const limiteDias = periodo==='todo' ? 0 : parseInt(periodo);
     const enPeriodo=(fechaStr)=>{
@@ -829,13 +839,18 @@ function renderPanelControl(c){
         if(isNaN(f.getTime())) return true;
         return (ahora - f.getTime())/(1000*60*60*24) <= limiteDias;
     };
+
+    // ── Consumos CONFIRMADOS del periodo ──
+    const idsCuads=cuadrillas.map(cu=>String(cu.id));
     const consumos=(DB.consumosPendientes||[]).filter(x=>{
         if(x.estado!=='confirmado') return false;
-        if(!esAdmin){ const ids=cuadrillas.map(cu=>cu.id); if(!ids.includes(x.cuadrillaId)) return false; }
+        if(!esAdmin && !idsCuads.includes(String(x.cuadrillaId))) return false;
+        if(esAdmin && filtroBod && !idsCuads.includes(String(x.cuadrillaId))) return false;
         return enPeriodo(x.confirmadoFecha||x.fecha);
     });
+
     let gastoCliente=0, gastoRed=0;
-    const detalleDestino={};
+    const detalleDestino={}, porCuadrilla={}, porTecnico={};
     consumos.forEach(x=>{
         const tot=(x.items||[]).reduce((s,i)=>s+(i.cant||0),0);
         if(x.destino==='red') gastoRed+=tot; else gastoCliente+=tot;
@@ -844,33 +859,51 @@ function renderPanelControl(c){
             if(!detalleDestino[k]) detalleDestino[k]={cliente:0,red:0};
             if(x.destino==='red') detalleDestino[k].red+=(i.cant||0); else detalleDestino[k].cliente+=(i.cant||0);
         });
+        const kc=x.cuadrillaNombre||'(sin cuadrilla)';
+        if(!porCuadrilla[kc]) porCuadrilla[kc]={cliente:0,red:0,regs:0};
+        if(x.destino==='red') porCuadrilla[kc].red+=tot; else porCuadrilla[kc].cliente+=tot;
+        porCuadrilla[kc].regs++;
+        const kt=x.tecnicoNombre||'(sin técnico)';
+        if(!porTecnico[kt]) porTecnico[kt]={uds:0,regs:0};
+        porTecnico[kt].uds+=tot; porTecnico[kt].regs++;
+    });
+    const consumosOrden=[...consumos].sort((a,b)=>new Date(b.confirmadoFecha||b.fecha)-new Date(a.confirmadoFecha||a.fecha));
+
+    // ── Saldo por bodega (ahora con SNs) ──
+    const saldoBodegas = bodegas.map(b=>{
+        const mats=(b.materiales||[]).filter(m=>(m.cantidad||0)>0);
+        const totalItems=mats.reduce((s,m)=>s+(m.cantidad||0),0);
+        return { nombre:b.nombre, totalItems, tiposDistintos:mats.length, mats };
     });
 
-    // ---- VISTA 3: Material "en la calle" por cuadrilla (lo que tienen sin gastar) ----
+    // ── Material "en la calle" (ahora con SNs y pendientes al detalle) ──
     const enLaCalle = cuadrillas.map(cu=>{
         const mats=(cu.materiales||[]).filter(m=>(m.cantidad||0)>0);
         const totalItems=mats.reduce((s,m)=>s+(m.cantidad||0),0);
-        // ¿tiene consumos pendientes sin confirmar? (material reportado pero no justificado aún)
         const pendientes=(DB.consumosPendientes||[]).filter(x=>x.estado==='pendiente' && String(x.cuadrillaId)===String(cu.id));
         const itemsPend=pendientes.reduce((s,x)=>s+(x.items||[]).reduce((ss,i)=>ss+(i.cant||0),0),0);
-        return { nombre:cu.nombre, totalItems, mats, itemsPend };
+        return { nombre:cu.nombre, totalItems, mats, itemsPend, pendientes };
     });
 
-    const fmtNum=(n)=>new Intl.NumberFormat('es-CO').format(n);
-
     c.innerHTML=`<div class="card">
-        <div class="card-header">
+        <div class="card-header" style="flex-wrap:wrap;gap:8px;">
             <h2>📈 Panel de Control</h2>
-            <select class="form-control" style="max-width:170px;" onchange="window._panelPeriodo=this.value;renderTab('panel')">
-                <option value="7" ${periodo==='7'?'selected':''}>Últimos 7 días</option>
-                <option value="30" ${periodo==='30'?'selected':''}>Últimos 30 días</option>
-                <option value="90" ${periodo==='90'?'selected':''}>Últimos 90 días</option>
-                <option value="todo" ${periodo==='todo'?'selected':''}>Todo el tiempo</option>
-            </select>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                ${esAdmin?`<select class="form-control" style="max-width:210px;" onchange="window._panelBodega=this.value;renderTab('panel')">
+                    <option value="" ${!filtroBod?'selected':''}>🏭 Todas las bodegas</option>
+                    ${(DB.bodegas||[]).map(b=>`<option value="${b.id}" ${String(filtroBod)===String(b.id)?'selected':''}>🏭 ${b.nombre}</option>`).join('')}
+                </select>`:''}
+                <select class="form-control" style="max-width:170px;" onchange="window._panelPeriodo=this.value;renderTab('panel')">
+                    <option value="7" ${periodo==='7'?'selected':''}>Últimos 7 días</option>
+                    <option value="30" ${periodo==='30'?'selected':''}>Últimos 30 días</option>
+                    <option value="90" ${periodo==='90'?'selected':''}>Últimos 90 días</option>
+                    <option value="todo" ${periodo==='todo'?'selected':''}>Todo el tiempo</option>
+                </select>
+            </div>
         </div>
-        <p class="text-muted" style="font-size:0.84rem;margin-bottom:16px;">Vista de control del material. El gasto por destino usa los consumos ya confirmados por bodega.</p>
+        <p class="text-muted" style="font-size:0.84rem;margin-bottom:16px;">Vista de control del material. El gasto usa los consumos ya confirmados por bodega${filtroBod?' (filtrado por bodega)':''}.</p>
 
-        <!-- VISTA 2 arriba: resumen de gasto -->
+        <!-- Resumen de gasto -->
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:22px;">
             <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.25);border-radius:12px;padding:16px;">
                 <div style="font-size:0.74rem;color:var(--muted);text-transform:uppercase;">👤 Gastado en clientes</div>
@@ -885,12 +918,34 @@ function renderPanelControl(c){
             <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:12px;padding:16px;">
                 <div style="font-size:0.74rem;color:var(--muted);text-transform:uppercase;">📦 Total gastado</div>
                 <div style="font-size:1.8rem;font-weight:800;color:#10b981;">${fmtNum(gastoCliente+gastoRed)}</div>
-                <div style="font-size:0.72rem;color:var(--muted);">unidades confirmadas</div>
+                <div style="font-size:0.72rem;color:var(--muted);">${fmtNum(consumosOrden.length)} confirmación(es) en el periodo</div>
+            </div>
+        </div>
+
+        <!-- Desglose por cuadrilla y por técnico -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:15px;margin-bottom:22px;">
+            <div>
+                <h3 style="font-size:1rem;margin:0 0 8px;">👷 Gasto por cuadrilla</h3>
+                ${Object.keys(porCuadrilla).length?`<div class="table-wrap"><table>
+                    <thead><tr><th>Cuadrilla</th><th>👤 Cliente</th><th>🌐 Red</th><th>Total</th><th>Regs</th></tr></thead>
+                    <tbody>${Object.entries(porCuadrilla).sort((a,b)=>(b[1].cliente+b[1].red)-(a[1].cliente+a[1].red)).map(([nom,d])=>`
+                        <tr><td><strong>${nom}</strong></td><td>${fmtNum(d.cliente)}</td><td>${fmtNum(d.red)}</td><td><strong>${fmtNum(d.cliente+d.red)}</strong></td><td>${d.regs}</td></tr>
+                    `).join('')}</tbody>
+                </table></div>`:'<p class="text-muted" style="font-size:0.84rem;">Sin gasto en este periodo.</p>'}
+            </div>
+            <div>
+                <h3 style="font-size:1rem;margin:0 0 8px;">🧑‍🔧 Gasto por técnico</h3>
+                ${Object.keys(porTecnico).length?`<div class="table-wrap"><table>
+                    <thead><tr><th>Técnico</th><th>Unidades</th><th>Regs</th></tr></thead>
+                    <tbody>${Object.entries(porTecnico).sort((a,b)=>b[1].uds-a[1].uds).map(([nom,d])=>`
+                        <tr><td><strong>${nom}</strong></td><td>${fmtNum(d.uds)}</td><td>${d.regs}</td></tr>
+                    `).join('')}</tbody>
+                </table></div>`:'<p class="text-muted" style="font-size:0.84rem;">Sin gasto en este periodo.</p>'}
             </div>
         </div>
 
         ${Object.keys(detalleDestino).length?`
-        <h3 style="font-size:1rem;margin:0 0 10px;">Detalle de gasto por material</h3>
+        <h3 style="font-size:1rem;margin:0 0 10px;">📦 Detalle de gasto por material</h3>
         <div class="table-wrap" style="margin-bottom:24px;"><table>
             <thead><tr><th>Material</th><th>👤 Cliente</th><th>🌐 Red</th><th>Total</th></tr></thead>
             <tbody>${Object.entries(detalleDestino).sort((a,b)=>(b[1].cliente+b[1].red)-(a[1].cliente+a[1].red)).map(([nom,d])=>`
@@ -898,7 +953,23 @@ function renderPanelControl(c){
             `).join('')}</tbody>
         </table></div>`:'<p class="text-muted" style="margin-bottom:24px;">No hay gasto confirmado en este periodo.</p>'}
 
-        <!-- VISTA 1: saldo por bodega -->
+        <!-- Registro específico: consumo por consumo, con seriales -->
+        <h3 style="font-size:1rem;margin:0 0 6px;">📜 Registro específico de consumos (${fmtNum(consumosOrden.length)})</h3>
+        <p class="text-muted" style="font-size:0.8rem;margin-bottom:8px;">Cada confirmación con su fecha, técnico, destino y seriales. Filtra por cliente, técnico, cuadrilla, material o SN.</p>
+        <input type="text" class="form-control" placeholder="🔍 Filtrar registros (ej: un cliente, un técnico o un SN)..." oninput="window._filtrarPanelRegs(this.value)" style="margin-bottom:10px;">
+        <div id="pcRegs" style="display:flex;flex-direction:column;gap:8px;max-height:430px;overflow-y:auto;margin-bottom:24px;">
+        ${consumosOrden.length?consumosOrden.map(x=>`
+            <div class="pc-row" style="border:1px solid var(--border,rgba(0,0,0,0.1));border-left:4px solid ${x.destino==='red'?'#8b5cf6':'#3b82f6'};border-radius:8px;padding:10px 12px;">
+                <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;">
+                    <span style="font-weight:700;font-size:0.88rem;">${x.destino==='red'?'🌐 Mantenimiento de red':'👤 '+(x.destinoDetalle||'Cliente')}</span>
+                    <span class="text-muted" style="font-size:0.78rem;">✅ ${x.confirmadoFecha||x.fecha||''} · por ${x.confirmadoPor||'-'}</span>
+                </div>
+                <div class="text-muted" style="font-size:0.8rem;margin:2px 0 4px;">👷 ${x.cuadrillaNombre||'-'} · Técnico: ${x.tecnicoNombre||'-'} · 📅 Reportado: ${x.fecha||'-'}${x.ordenTipo?` · 🔧 ${x.ordenTipo}`:''}</div>
+                ${_itemsHtml(x.items)}
+            </div>`).join(''):'<p class="text-muted">No hay consumos confirmados en este periodo.</p>'}
+        </div>
+
+        <!-- Saldo por bodega -->
         <h3 style="font-size:1rem;margin:0 0 10px;">🏭 Saldo de material por bodega</h3>
         <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:24px;">
         ${saldoBodegas.length?saldoBodegas.map(b=>`
@@ -908,16 +979,16 @@ function renderPanelControl(c){
                     <span class="text-muted" style="font-size:0.84rem;">${fmtNum(b.totalItems)} unidades · ${b.tiposDistintos} tipos</span>
                 </summary>
                 <div class="table-wrap" style="margin-top:10px;"><table>
-                    <thead><tr><th>Material</th><th>Cantidad</th><th>Unidad</th><th>Tipo</th></tr></thead>
-                    <tbody>${b.mats.length?b.mats.map(m=>`<tr><td>${m.nombre}</td><td><strong>${fmtNum(m.cantidad)}</strong></td><td>${m.unidad||''}</td><td>${m.tipo||''}</td></tr>`).join(''):'<tr><td colspan="4" class="text-muted">Sin material</td></tr>'}</tbody>
+                    <thead><tr><th>Material</th><th>Cantidad</th><th>Unidad</th><th>Tipo</th><th>SNs</th></tr></thead>
+                    <tbody>${b.mats.length?b.mats.map(m=>`<tr><td>${m.nombre}</td><td><strong>${fmtNum(m.cantidad)}</strong></td><td>${m.unidad||''}</td><td>${m.tipo||''}</td><td>${_tagsSN(m.snes)}</td></tr>`).join(''):'<tr><td colspan="5" class="text-muted">Sin material</td></tr>'}</tbody>
                 </table></div>
             </details>
         `).join(''):'<p class="text-muted">Sin bodegas.</p>'}
         </div>
 
-        <!-- VISTA 3: material en la calle por cuadrilla -->
+        <!-- Material en la calle -->
         <h3 style="font-size:1rem;margin:0 0 10px;">👷 Material en la calle (por cuadrilla)</h3>
-        <p class="text-muted" style="font-size:0.8rem;margin-bottom:10px;">Material que las cuadrillas tienen consigo sin gastar. Si una cuadrilla acumula mucho, conviene revisar.</p>
+        <p class="text-muted" style="font-size:0.8rem;margin-bottom:10px;">Material que las cuadrillas tienen consigo sin gastar, con sus seriales. Si una cuadrilla acumula mucho, conviene revisar.</p>
         <div style="display:flex;flex-direction:column;gap:12px;">
         ${enLaCalle.length?enLaCalle.map(cu=>`
             <details style="border:1px solid var(--border);border-radius:10px;padding:12px;${cu.itemsPend>0?'border-left:4px solid #f59e0b;':''}">
@@ -926,13 +997,27 @@ function renderPanelControl(c){
                     <span class="text-muted" style="font-size:0.84rem;">${fmtNum(cu.totalItems)} unidades en mano${cu.itemsPend>0?` · <span style="color:#f59e0b;">⏳ ${fmtNum(cu.itemsPend)} por confirmar</span>`:''}</span>
                 </summary>
                 <div class="table-wrap" style="margin-top:10px;"><table>
-                    <thead><tr><th>Material</th><th>Cantidad</th><th>Unidad</th></tr></thead>
-                    <tbody>${cu.mats.length?cu.mats.map(m=>`<tr><td>${m.nombre}</td><td><strong>${fmtNum(m.cantidad)}</strong></td><td>${m.unidad||''}</td></tr>`).join(''):'<tr><td colspan="3" class="text-muted">Sin material</td></tr>'}</tbody>
+                    <thead><tr><th>Material</th><th>Cantidad</th><th>Unidad</th><th>Tipo</th><th>SNs</th></tr></thead>
+                    <tbody>${cu.mats.length?cu.mats.map(m=>`<tr><td>${m.nombre}</td><td><strong>${fmtNum(m.cantidad)}</strong></td><td>${m.unidad||''}</td><td>${m.tipo||''}</td><td>${_tagsSN(m.snes)}</td></tr>`).join(''):'<tr><td colspan="5" class="text-muted">Sin material</td></tr>'}</tbody>
                 </table></div>
+                ${cu.itemsPend>0?`<div style="margin-top:10px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px;">
+                    <div style="font-weight:700;font-size:0.84rem;color:#b45309;margin-bottom:6px;">⏳ Reportado por técnicos, pendiente de confirmar:</div>
+                    ${cu.pendientes.map(p=>`<div style="font-size:0.8rem;padding:5px 0;border-bottom:1px dashed rgba(0,0,0,0.08);">
+                        <strong>${p.destino==='red'?'🌐 Red':'👤 '+(p.destinoDetalle||'Cliente')}</strong> · Técnico: ${p.tecnicoNombre||'-'} · 📅 ${p.fecha||'-'}
+                        ${_itemsHtml(p.items)}
+                    </div>`).join('')}
+                </div>`:''}
             </details>
         `).join(''):'<p class="text-muted">Sin cuadrillas.</p>'}
         </div>
     </div>`;
+
+    window._filtrarPanelRegs=(q)=>{
+        const t=(q||'').toLowerCase();
+        document.querySelectorAll('#pcRegs .pc-row').forEach(el=>{
+            el.style.display=(t.length===0||el.textContent.toLowerCase().includes(t))?'':'none';
+        });
+    };
 }
 window.renderPanelControl=renderPanelControl;
 
@@ -7505,7 +7590,7 @@ import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstat
 
 const FB_KEY = 'invPro_firebaseConfig';
 const DB_DOC = 'inventario/datos';
-const APP_VERSION_INV = 68; // ⬆️ Subir en cada versión publicada de Inventario
+const APP_VERSION_INV = 69; // ⬆️ Subir en cada versión publicada de Inventario
 const CHUNK_SIZE = 800; // clients per document - allows ~10000 clients
 
 // Helper: split array into chunks
