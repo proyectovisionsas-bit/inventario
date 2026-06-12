@@ -111,6 +111,7 @@ header .who small{display:block;color:var(--muted);font-size:0.72rem;font-weight
             <span class="sync" id="hSync">●</span>
             <span id="hVersion" style="opacity:0.5;font-size:0.68rem;" title="Versión del sistema"></span>
             <button class="btn btn-ghost btn-sm" onclick="modalDevolverMaterial()" title="Devolver material a la bodega">📦 Devolver</button>
+            <button class="btn btn-ghost btn-sm" onclick="modalGastoPosterior()" title="Reportar material que se te pasó registrar en una orden ya finalizada">🧾 Gasto olvidado</button>
             <button class="btn btn-ghost btn-sm" onclick="abrirAyuda()" title="Ayuda y manual">❓</button>
             <button class="btn btn-ghost btn-sm" onclick="modalCambiarClave()">🔑</button>
             <button class="btn btn-ghost btn-sm" onclick="doLogout()">Salir</button>
@@ -138,7 +139,7 @@ const COLECCION='oficinas_sistema';
 const DOC_ID='main';
 
 // ── CONTROL DE VERSIÓN (bloqueo total si hay versión nueva) ──
-const APP_VERSION_TEC = 66; // ⬆️ Subir en cada versión publicada de Técnicos
+const APP_VERSION_TEC = 67; // ⬆️ Subir en cada versión publicada de Técnicos
 let _bloqueoVersionTec = false;
 async function registrarVersionTec(){
     if(!db) return;
@@ -1287,6 +1288,132 @@ async function modalMaterialGastado(ordenId){
     setTimeout(()=>{ try{ _onMatSelChange(); }catch(e){} }, 100);
 }
 window.modalMaterialGastado=modalMaterialGastado;
+
+// ════════════════════════════════════════════════════════════════
+// GASTO OLVIDADO (reporte posterior): el técnico YA finalizó la orden y se le
+// pasó registrar material. Lo reporta aquí SIN crear orden nueva. Cae a
+// "Material por confirmar" de la bodega (marcado como reporte posterior) y
+// solo se descuenta de la cuadrilla cuando la bodega lo confirma.
+// Reutiliza el mismo selector de material y seriales del flujo normal.
+// ════════════════════════════════════════════════════════════════
+async function modalGastoPosterior(){
+    const bg=document.createElement('div'); bg.className='modal-bg'; bg.id='modalGastoPost';
+    bg.innerHTML=`<div class="modal"><h3>🧾 Reportar gasto olvidado</h3><div class="center"><div class="spin"></div><div>Buscando tu cuadrilla...</div></div></div>`;
+    document.body.appendChild(bg);
+
+    const res=await _buscarCuadrillaDelTecnico();
+    _cuadrillaTec = res ? res.cuad : null;
+    _matElegidos=[];
+
+    const m=document.getElementById('modalGastoPost'); if(!m) return;
+
+    if(!_cuadrillaTec){
+        m.querySelector('.modal').innerHTML=`<h3>🧾 Reportar gasto olvidado</h3>
+            <p style="color:var(--muted);font-size:0.88rem;">No encontré tu cuadrilla en el inventario (se busca por tu cédula). Pídele a la bodega que te asocie a una cuadrilla.</p>
+            <button class="btn btn-ghost btn-block" onclick="document.getElementById('modalGastoPost').remove()">Cerrar</button>`;
+        return;
+    }
+
+    const mats=(_cuadrillaTec.materiales||[]).filter(x=>x.cantidad>0);
+    const opts=mats.map((mt,i)=>`<option value="${i}">${mt.nombre} — disponible: ${mt.cantidad} ${mt.unidad||''}</option>`).join('');
+
+    // Mis órdenes FINALIZADAS recientes, para indicar a cuál correspondía el gasto
+    const finalizadas=(DATA.ordenesTrabajo||[])
+        .filter(o=>o.estado==='finalizada' && String(o.tecnicoId||'')===String(TEC.id))
+        .sort((a,b)=>(b.finalizada||0)-(a.finalizada||0))
+        .slice(0,15);
+    const optsOrd=finalizadas.map(o=>{
+        const t=ORDEN_TIPOS[o.tipo]||{label:o.tipo||'Orden',icon:'🔧'};
+        const f=o.finalizada?new Date(o.finalizada).toLocaleDateString():'';
+        return `<option value="${o.id}">${t.icon} ${o.cliente||'Sin cliente'} · ${t.label}${f?' · '+f:''}</option>`;
+    }).join('');
+
+    m.querySelector('.modal').innerHTML=`<h3>🧾 Reportar gasto olvidado</h3>
+        <div style="background:rgba(14,165,233,0.1);border:1px solid rgba(14,165,233,0.3);border-radius:8px;padding:10px;font-size:0.8rem;margin-bottom:10px;">
+            Para cuando <strong>ya finalizaste</strong> una orden y se te pasó registrar material. No crea una orden nueva: el material queda <strong>pendiente</strong> y se descuenta de tu cuadrilla solo cuando la bodega lo confirme.
+        </div>
+        <label>¿Para qué fue el material?</label>
+        <select id="gpDestino" onchange="document.getElementById('gpClienteZona').style.display=(this.value==='cliente'&&document.getElementById('gpOrden').value==='')?'block':'none'">
+            <option value="cliente" selected>👤 Cliente</option>
+            <option value="red">🌐 Mantenimiento de red</option>
+        </select>
+        <label style="margin-top:8px;">¿A qué orden finalizada corresponde?</label>
+        <select id="gpOrden" onchange="document.getElementById('gpClienteZona').style.display=(this.value===''&&document.getElementById('gpDestino').value==='cliente')?'block':'none'">
+            ${optsOrd}
+            <option value="" ${finalizadas.length?'':'selected'}>— Otra / sin orden en la lista —</option>
+        </select>
+        <div id="gpClienteZona" style="display:${finalizadas.length?'none':'block'};">
+            <label style="margin-top:8px;">Nombre del cliente</label>
+            <input id="gpCliente" type="text" placeholder="Ej: Juan Pérez">
+        </div>
+        ${mats.length?`
+        <label style="margin-top:8px;">Agregar material usado</label>
+        <div style="display:flex;gap:6px;align-items:flex-end;flex-wrap:wrap;">
+            <div style="flex:1;min-width:120px;"><select id="matSel" onchange="_onMatSelChange()">${opts}</select></div>
+            <div style="width:80px;"><input id="matCant" type="number" value="1" min="1" onchange="_onMatSelChange()"></div>
+            <button class="btn btn-sm" style="background:#0ea5e9;color:#fff;" onclick="_agregarMaterial()">➕</button>
+        </div>
+        <div id="matSnArea" style="margin-top:6px;"></div>
+        <div id="matLista" style="margin-top:10px;"></div>
+        `:`<div style="background:rgba(245,158,11,0.1);border-radius:8px;padding:10px;font-size:0.82rem;color:#fbbf24;margin-top:8px;">Tu cuadrilla no tiene material disponible para registrar.</div>`}
+        <div style="display:flex;gap:8px;margin-top:12px;">
+            <button class="btn btn-ok btn-block" onclick="_confirmarGastoPosterior()">📨 Enviar a bodega</button>
+            <button class="btn btn-ghost" onclick="document.getElementById('modalGastoPost').remove()">Cancelar</button>
+        </div>`;
+    setTimeout(()=>{ try{ _onMatSelChange(); }catch(e){} }, 100);
+}
+window.modalGastoPosterior=modalGastoPosterior;
+
+async function _confirmarGastoPosterior(){
+    if(_guardandoTec){ console.warn('Guardado en curso, clic ignorado.'); return; }
+    if(!_cuadrillaTec){ alert('No se encontró tu cuadrilla.'); return; }
+    if(!_matElegidos.length){ alert('Agrega al menos un material con el botón ➕ antes de enviar.'); return; }
+
+    const destino=document.getElementById('gpDestino')?document.getElementById('gpDestino').value:'cliente';
+    const ordenId=document.getElementById('gpOrden')?document.getElementById('gpOrden').value:'';
+    const orden=ordenId?(DATA.ordenesTrabajo||[]).find(x=>x.id===ordenId):null;
+    let destinoDetalle='';
+    if(destino==='red'){ destinoDetalle='Mantenimiento de red'; }
+    else if(orden){ destinoDetalle=orden.cliente||((ORDEN_TIPOS[orden.tipo]||{}).label||'Orden finalizada'); }
+    else {
+        destinoDetalle=(document.getElementById('gpCliente')?document.getElementById('gpCliente').value:'').trim();
+        if(!destinoDetalle){ alert('Escribe el nombre del cliente o elige la orden a la que corresponde.'); return; }
+    }
+
+    const m=document.getElementById('modalGastoPost'); if(m) m.remove();
+    _mostrarGuardando('Enviando a bodega...');
+    try{
+        const refI=db.collection('inventario').doc('datos');
+        await db.runTransaction(async tx=>{
+            const snap=await tx.get(refI);
+            if(!snap.exists) throw new Error('No se encontró el inventario');
+            const data=snap.data();
+            const consumos=data.consumosPendientes||[];
+            consumos.push({
+                id:Date.now().toString(),
+                cuadrillaId:_cuadrillaTec.id,
+                cuadrillaNombre:_cuadrillaTec.nombre,
+                bodegaId:_cuadrillaTec.bodegaId,
+                tecnicoCedula:String(TEC.documento||''),
+                tecnicoNombre:TEC.nombre,
+                destino:destino,
+                destinoDetalle:destinoDetalle,
+                ordenId:ordenId||'',
+                ordenTipo:orden?orden.tipo:'',
+                reportePosterior:true,
+                items:[..._matElegidos],
+                fecha:new Date().toLocaleDateString(),
+                estado:'pendiente'
+            });
+            tx.update(refI, { consumosPendientes: consumos });
+        });
+        showToast('✅ Reporte enviado. La bodega debe confirmarlo para que se descuente de tu cuadrilla.');
+        _matElegidos=[]; _cuadrillaTec=null;
+        _ocultarGuardando();
+    }catch(e){ console.error(e); showToast('❌ '+(e.message||e), true); _ocultarGuardando(); }
+}
+window._confirmarGastoPosterior=_confirmarGastoPosterior;
+
 
 function _onMatSelChange(){
     const sel=document.getElementById('matSel'); const cantEl=document.getElementById('matCant');
