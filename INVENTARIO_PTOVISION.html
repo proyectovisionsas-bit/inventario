@@ -7590,7 +7590,11 @@ import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstat
 
 const FB_KEY = 'invPro_firebaseConfig';
 const DB_DOC = 'inventario/datos';
-const APP_VERSION_INV = 70; // ⬆️ Subir en cada versión publicada de Inventario
+const HISTORIAL_DOC = 'inventario/historial';
+// Campos que SOLO escribe Inventario (Técnicos no los toca) y que solo crecen.
+// Se guardan en un documento aparte para que inventario/datos no llegue al tope de 1MB.
+const HISTORIAL_FIELDS = ['editRequests','entregas','cuartos','logs','transfers','deleteRequests','ventas'];
+const APP_VERSION_INV = 71; // ⬆️ Subir en cada versión publicada de Inventario
 const CHUNK_SIZE = 800; // clients per document - allows ~10000 clients
 
 // Helper: split array into chunks
@@ -7618,7 +7622,31 @@ async function prepareDbCopy() {
     // Remove clientes from main doc
     const clientes = dbCopy.clientes || [];
     dbCopy.clientes = [];
-    return { dbCopy, clientes };
+    // Remove historial fields from main doc (van en inventario/historial)
+    const historial = {};
+    HISTORIAL_FIELDS.forEach(f => { historial[f] = Array.isArray(dbCopy[f]) ? dbCopy[f] : []; delete dbCopy[f]; });
+    return { dbCopy, clientes, historial };
+}
+
+// Guardar los campos de historial en su propio documento (separado de inventario/datos)
+async function saveHistorial(historial) {
+    await setDoc(doc(fsDB, HISTORIAL_DOC), { ...historial, _actualizado: Date.now() });
+}
+
+// Cargar los campos de historial. Devuelve true si el documento ya existía.
+async function loadHistorial() {
+    try {
+        const snap = await getDoc(doc(fsDB, HISTORIAL_DOC));
+        if(snap.exists()) {
+            const h = snap.data();
+            HISTORIAL_FIELDS.forEach(f => { DB[f] = Array.isArray(h[f]) ? h[f] : (DB[f] || []); });
+            return true;
+        }
+        return false; // legacy: los campos siguen viniendo de inventario/datos
+    } catch(e) {
+        console.error('Error cargando historial:', e);
+        return false;
+    }
 }
 
 // Save clientes in chunks across multiple documents
@@ -7741,9 +7769,10 @@ window._fbSave = function() {
     saveTO = setTimeout(async ()=>{
         window._pendingClienteSave = 'active';
         try {
-            const { dbCopy, clientes } = await prepareDbCopy();
+            const { dbCopy, clientes, historial } = await prepareDbCopy();
             await setDoc(doc(fsDB, DB_DOC), dbCopy);
             await saveClienteChunks(clientes);
+            await saveHistorial(historial);
             showSync('ok','Guardado ✓');
         } catch(e) {
             showSync('err','Error al guardar');
@@ -7761,9 +7790,10 @@ window._fbSaveImmediate = async function() {
     if(window.mostrarOverlayGuardado) window.mostrarOverlayGuardado('Guardando...');
     window._pendingClienteSave = 'active';
     try {
-        const { dbCopy, clientes } = await prepareDbCopy();
+        const { dbCopy, clientes, historial } = await prepareDbCopy();
         await setDoc(doc(fsDB, DB_DOC), dbCopy);
         await saveClienteChunks(clientes);
+        await saveHistorial(historial);
         showSync('ok','Guardado ✓');
         if(window.ocultarOverlayGuardado) window.ocultarOverlayGuardado(true);
     } catch(e) {
@@ -7841,7 +7871,24 @@ async function startFirebase(config) {
 
     // Load clientes from chunks
     DB.clientes = await loadClienteChunks();
+
+    // Load historial (campos pesados movidos a documento aparte)
+    const histExistia = await loadHistorial();
     fixDB();
+
+    // ── MIGRACIÓN AUTOMÁTICA (primera vez con esta versión) ──
+    // Si aún no existe el documento de historial, lo creamos separando los campos
+    // pesados de inventario/datos. Esto baja el documento principal por debajo de 1MB
+    // y desbloquea el guardado inmediatamente.
+    if(!histExistia) {
+        console.log('🔀 Separando historial a documento aparte por primera vez...');
+        try {
+            await window._fbSaveImmediate();
+            console.log('✅ Historial separado. inventario/datos liberado.');
+        } catch(e) {
+            console.error('⚠️ La migración del historial falló:', e);
+        }
+    }
 
     document.getElementById('loading-screen').style.display='none';
     showSync('ok','Sincronizado');
@@ -7859,8 +7906,12 @@ async function startFirebase(config) {
         if(!s.exists()) return;
         // Preservar clientes locales (vienen de chunks separados)
         const prevClientes = window.DB.clientes;
+        // Preservar campos de historial (viven en inventario/historial, los maneja su propio listener)
+        const prevHist = {};
+        HISTORIAL_FIELDS.forEach(f => { prevHist[f] = window.DB[f]; });
         Object.assign(window.DB, s.data());
         window.DB.clientes = prevClientes;
+        HISTORIAL_FIELDS.forEach(f => { if(prevHist[f] !== undefined) window.DB[f] = prevHist[f]; });
         if(window.fixDB) window.fixDB();
         if(window.showSync) window.showSync('ok','● En línea');
 
@@ -7878,6 +7929,18 @@ async function startFirebase(config) {
         if(window.showSync) window.showSync('err','Sin conexión');
         console.error('Main listener error:', err);
     });
+
+    // ── LISTENER DE HISTORIAL (editRequests, entregas, logs, etc.) ──────────
+    onSnapshot(doc(fsDB, HISTORIAL_DOC), (s)=>{
+        if(!s.exists()) return;
+        const h = s.data();
+        HISTORIAL_FIELDS.forEach(f => { if(Array.isArray(h[f])) window.DB[f] = h[f]; });
+        if(window.fixDB) window.fixDB();
+        if(window.USER && window.renderTab) {
+            const tab = document.querySelector('.nav-btn.active')?.dataset?.tab || 'dash';
+            try { window.renderTab(tab); } catch(e) { console.error('Render error (historial):', e); }
+        }
+    }, (err)=>console.error('Historial listener error:', err));
 
     // ── LISTENERS DE CLIENTES — uno por chunk ──────────────────────────────
     const setupClienteListeners = async () => {
