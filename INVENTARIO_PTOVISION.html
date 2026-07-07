@@ -5336,6 +5336,41 @@ function _descontarItemCuadrilla(cuad, it, avisos){
     if(snes.length) avisos.push(`Seriales de "${it.nombre}" que no estaban en la cuadrilla: ${snes.join(', ')}.`);
 }
 
+// ════════════════════════════════════════════════════════════════════
+// 👤 EMPAREJADOR DE CLIENTE (v73): encuentra al cliente de un consumo.
+// Orden de confianza: 1) CÉDULA exacta (el técnico la envía desde la orden),
+// 2) nombre exacto normalizado, 3) nombre contenido (uno dentro del otro).
+// ════════════════════════════════════════════════════════════════════
+function _normTxtCli(s){ return (s||'').toString().toLowerCase().replace(/\([^)]*\)/g,'').replace(/\s+/g,' ').trim(); }
+function _normCedCli(s){ return (s||'').toString().replace(/[^0-9]/g,''); }
+function _buscarClienteInv(cedula, nombre){
+    const lista=DB.clientes||[];
+    const ced=_normCedCli(cedula);
+    if(ced){
+        const porCed=lista.find(c=>c && _normCedCli(c.cedula||c.documento)===ced);
+        if(porCed) return porCed;
+    }
+    const nom=_normTxtCli(nombre);
+    if(!nom) return null;
+    let cl=lista.find(c=>c && _normTxtCli(c.nombre)===nom);
+    if(!cl) cl=lista.find(c=>{ if(!c) return false; const cn=_normTxtCli(c.nombre); return cn && (cn.includes(nom)||nom.includes(cn)); });
+    return cl||null;
+}
+// Anota los items de un consumo en la ficha del cliente (sección "🧰 Material instalado").
+// No duplica: cada consumo se marca y además se verifica por consumoId+nombre.
+function _anotarMaterialEnCliente(x, cl){
+    if(!Array.isArray(cl.materialInstalado)) cl.materialInstalado=[];
+    let n=0;
+    (x.items||[]).forEach(it=>{
+        const ya=cl.materialInstalado.find(m=>m.consumoId===x.id && m.nombre===it.nombre);
+        if(ya) return;
+        const snsInst=(Array.isArray(it.snes)&&it.snes.length)?it.snes.slice():((it.sn&&it.sn.toString().trim())?[it.sn.toString().trim()]:[]);
+        cl.materialInstalado.push({nombre:it.nombre, cant:it.cant, unidad:it.unidad||'', snes:snsInst, fecha:x.confirmadoFecha||x.fecha||'', cuadrilla:x.cuadrillaNombre||'', consumoId:x.id});
+        n++;
+    });
+    return n;
+}
+
 async function confirmarConsumo(consumoId){
     // ── Verificación previa con los datos locales (respuesta inmediata al usuario) ──
     const x=(DB.consumosPendientes||[]).find(c=>c.id===consumoId);
@@ -5352,6 +5387,12 @@ async function confirmarConsumo(consumoId){
         return;
     }
     if(!confirm(`Confirmar el material gastado por ${cuadLocal.nombre}.\n\nEsto descontará del stock de la cuadrilla. ¿Continuar?`)) return;
+
+    // 👤 v73: si el destino es un CLIENTE, buscarlo AHORA (los clientes solo los
+    // maneja esta app, así que la memoria local es la fuente confiable). Si se
+    // encuentra, el material se anotará en su ficha automáticamente al confirmar.
+    const esParaCliente = (x.destino!=='red');
+    const clienteFicha = esParaCliente ? _buscarClienteInv(x.clienteCedula, x.destinoDetalle) : null;
 
     if(!window._fbTransaccionInv){ alert('⚠️ La conexión aún no está lista. Espera unos segundos e intenta de nuevo.'); return; }
     if(window.mostrarOverlayGuardado) window.mostrarOverlayGuardado('Confirmando consumo...');
@@ -5379,6 +5420,13 @@ async function confirmarConsumo(consumoId){
             xF.estado='confirmado';
             xF.confirmadoFecha=new Date().toLocaleDateString();
             xF.confirmadoPor=USER.role==='admin'?'Admin':(USER.nombre||'Bodega');
+            // 👤 v73: si encontramos la ficha del cliente, el consumo queda marcado como
+            // aplicado (el material se anota en la ficha justo después, en este mismo flujo)
+            if(clienteFicha){
+                xF.materialAplicadoCliente=true;
+                xF.materialAplicadoFecha=new Date().toLocaleDateString();
+                xF.clienteFichaNombre=clienteFicha.nombre||'';
+            }
             // Escribir SOLO estos dos campos (no todo el documento)
             return { cuadrillas: cuadrillas, consumosPendientes: consumos };
         });
@@ -5388,11 +5436,24 @@ async function confirmarConsumo(consumoId){
             DB.cuadrillas = resultado.cuadrillas;
             DB.consumosPendientes = resultado.consumosPendientes;
         }
+        // 👤 v73: anotar el material en la ficha del cliente (sección "🧰 Material instalado").
+        // Se persiste con el guardado normal de clientes (chunks con firma).
+        let _itemsAnotados=0;
+        if(clienteFicha){
+            const xLocal=(DB.consumosPendientes||[]).find(c=>c.id===consumoId) || x;
+            _itemsAnotados=_anotarMaterialEnCliente(xLocal, clienteFicha);
+        }
         if(window.ocultarOverlayGuardado) window.ocultarOverlayGuardado(true);
-        logMsg(`Material confirmado: ${cuadLocal.nombre} → ${x.destino==='red'?'red':(x.destinoDetalle||'cliente')} (${(x.items||[]).map(i=>i.nombre+' x'+i.cant).join(', ')})`);
+        logMsg(`Material confirmado: ${cuadLocal.nombre} → ${x.destino==='red'?'red':(x.destinoDetalle||'cliente')} (${(x.items||[]).map(i=>i.nombre+' x'+i.cant).join(', ')})`
+            + (clienteFicha?` · anotado en ficha de ${clienteFicha.nombre}`:''));
         if(avisos.length){
             logMsg(`⚠️ Avisos al confirmar consumo de ${cuadLocal.nombre}: ${avisos.join(' | ')}`);
             alert('✅ Consumo confirmado, pero revisa esto:\n\n⚠️ '+avisos.join('\n⚠️ '));
+        }
+        if(clienteFicha && _itemsAnotados>0){
+            alert(`✅ Consumo confirmado y descontado de la cuadrilla.\n\n👤 Material anotado en la ficha de:\n${clienteFicha.nombre}\n(${_itemsAnotados} ítem(s) — míralo en Clientes → "🧰 Material instalado")`);
+        } else if(esParaCliente && !clienteFicha){
+            alert(`✅ Consumo confirmado y descontado de la cuadrilla.\n\n⚠️ PERO no se encontró el cliente "${x.destinoDetalle||'(sin nombre)'}" en el inventario, así que el material NO quedó anotado en ninguna ficha.\n\n👉 Crea o corrige el cliente y luego usa el botón "🔄 Sincronizar material con clientes" para anotarlo.`);
         }
         renderTab('consumos');
     }catch(e){
@@ -5446,10 +5507,8 @@ function sincronizarMaterialClientes(){
 
     const aplicar=[], sinCliente=[];
     confirmados.forEach(x=>{
-        const nom=norm(x.destinoDetalle);
-        if(!nom){ sinCliente.push(x); return; }
-        let cl=DB.clientes.find(c=>norm(c.nombre)===nom);
-        if(!cl) cl=DB.clientes.find(c=>{const cn=norm(c.nombre); return cn && (cn.includes(nom) || nom.includes(cn));});
+        // v73: mismo emparejador que la confirmación automática (cédula primero, luego nombre)
+        const cl=_buscarClienteInv(x.clienteCedula, x.destinoDetalle);
         if(!cl){ sinCliente.push(x); return; }
         aplicar.push({x, cl});
     });
@@ -7702,7 +7761,7 @@ const HISTORIAL_DOC = 'inventario/historial';
 // Campos que SOLO escribe Inventario (Técnicos no los toca) y que solo crecen.
 // Se guardan en un documento aparte para que inventario/datos no llegue al tope de 1MB.
 const HISTORIAL_FIELDS = ['editRequests','entregas','cuartos','logs','transfers','deleteRequests','ventas'];
-const APP_VERSION_INV = 72; // ⬆️ Subir en cada versión publicada de Inventario (v72: [1] confirmación de consumos con TRANSACCIÓN — el descuento a la cuadrilla ya no se puede revertir por una sincronización cruzada; [2] config Firebase integrada — no vuelve a pedirla; [3] login con ojito 👁️ y Enter; [4] BLINDAJE: guardas anti-borrado de clientes (carga incompleta o encogimiento drástico NO reescriben la nube), firma para no reescribir chunks sin cambios, carga de clientes en paralelo con reintentos, COLA de guardado (nunca se solapan), fusión de envíos recientes de técnicos antes de guardar, y fotos pequeñas ya no se recomprimen)
+const APP_VERSION_INV = 73; // ⬆️ Subir en cada versión publicada de Inventario (v73: al CONFIRMAR un consumo de cliente, el material queda anotado AUTOMATICAMENTE en la ficha del cliente — seccion "🧰 Material instalado" — emparejando primero por CEDULA (que ahora envia el tecnico v69) y si no por nombre; si no se encuentra el cliente, avisa claro y el boton "Sincronizar material con clientes" (tambien mejorado con cedula) queda como red de seguridad. Incluye v72: [1] confirmación de consumos con TRANSACCIÓN — el descuento a la cuadrilla ya no se puede revertir por una sincronización cruzada; [2] config Firebase integrada — no vuelve a pedirla; [3] login con ojito 👁️ y Enter; [4] BLINDAJE: guardas anti-borrado de clientes (carga incompleta o encogimiento drástico NO reescriben la nube), firma para no reescribir chunks sin cambios, carga de clientes en paralelo con reintentos, COLA de guardado (nunca se solapan), fusión de envíos recientes de técnicos antes de guardar, y fotos pequeñas ya no se recomprimen)
 const CHUNK_SIZE = 800; // clients per document - allows ~10000 clients
 
 // Helper: split array into chunks
