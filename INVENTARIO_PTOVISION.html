@@ -302,12 +302,22 @@
             <div class="login-tab" onclick="switchLogin('bodega')">🏭 Jefe Bodega</div>
         </div>
         <div id="login-admin" class="login-section">
-            <div class="form-group"><label>Contraseña Admin</label><input type="password" id="passAdmin" class="form-control" placeholder="admin123"></div>
+            <div class="form-group"><label>Contraseña Admin</label>
+                <div style="position:relative;">
+                    <input type="password" id="passAdmin" class="form-control" placeholder="admin123" style="padding-right:42px;" onkeydown="if(event.key==='Enter')doLogin('admin')">
+                    <button type="button" onclick="_toggleVerPass('passAdmin',this)" title="Ver/ocultar contraseña" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:1.1rem;opacity:0.65;padding:4px;">👁️</button>
+                </div>
+            </div>
             <button class="btn btn-primary" style="width:100%" onclick="doLogin('admin')">Ingresar</button>
         </div>
         <div id="login-bodega" class="login-section hidden">
             <div class="form-group"><label>Seleccione Bodega</label><div id="loginBodegaList"></div></div>
-            <div class="form-group"><label>Contraseña</label><input type="password" id="passBodega" class="form-control"></div>
+            <div class="form-group"><label>Contraseña</label>
+                <div style="position:relative;">
+                    <input type="password" id="passBodega" class="form-control" style="padding-right:42px;" onkeydown="if(event.key==='Enter')doLogin('bodega')">
+                    <button type="button" onclick="_toggleVerPass('passBodega',this)" title="Ver/ocultar contraseña" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:1.1rem;opacity:0.65;padding:4px;">👁️</button>
+                </div>
+            </div>
             <button class="btn btn-primary" style="width:100%" onclick="doLogin('bodega')">Ingresar</button>
         </div>
         <div style="margin-top:18px;padding-top:14px;border-top:1px solid #e2e8f0;text-align:center;">
@@ -493,6 +503,16 @@ function logMsg(msg) {
     save();
 }
 function id(x) { return document.getElementById(x); }
+// 👁️ Ver/ocultar contraseña (v72): alterna el tipo del campo y el ícono del botón
+function _toggleVerPass(idCampo, btn){
+    const inp=document.getElementById(idCampo);
+    if(!inp) return;
+    const ver = inp.type==='password';
+    inp.type = ver ? 'text' : 'password';
+    if(btn) btn.textContent = ver ? '🙈' : '👁️';
+    inp.focus();
+}
+window._toggleVerPass=_toggleVerPass;
 function hardReset() {
     const pass1 = prompt('⚠️ ACCIÓN IRREVERSIBLE\n\nEsto borrará TODOS los datos del sistema.\n\nIngresa la contraseña de administrador para continuar:');
     if(pass1 === null) return;
@@ -501,6 +521,7 @@ function hardReset() {
     if(pass2 === null) return;
     if(pass2 !== DB.adminPass) { alert('❌ Las contraseñas no coinciden. Operación cancelada.'); return; }
     if(!confirm('🚨 ÚLTIMA CONFIRMACIÓN\n\n¿Estás ABSOLUTAMENTE seguro?\n\nEsta acción NO se puede deshacer.')) return;
+    window._permitirEncogerClientes = true; // borrado INTENCIONAL: autoriza pasar las guardas anti-borrado
     DB={bodegas:[],cuadrillas:[],entregas:[],instalaciones:[],logs:[],transfers:[],recuperados:[],deleteRequests:[],editRequests:[],clientes:[],adminPass:DB.adminPass};
     save(); setTimeout(()=>location.reload(),800);
 }
@@ -5253,90 +5274,164 @@ function renderConsumos(c) {
     </div>`;
 }
 
-function confirmarConsumo(consumoId){
+// ════════════════════════════════════════════════════════════════════
+// CONFIRMAR CONSUMO — v72, CON TRANSACCIÓN (corrección de raíz).
+// ANTES: se descontaba en la memoria local y se guardaba con retraso (400ms de
+// espera + compresión de fotos + reescritura del documento COMPLETO). En esa
+// ventana, cualquier sincronización entrante (un técnico guardando, otra sesión)
+// PISABA el descuento en memoria y el guardado escribía los datos viejos → el
+// material "volvía" a la cuadrilla del técnico.
+// AHORA: una transacción de Firestore relee los datos FRESCOS del servidor,
+// descuenta sobre ellos y escribe SOLO los campos cuadrillas y consumosPendientes.
+// Si alguien más escribe al mismo tiempo, Firestore reintenta solo. Es el mismo
+// mecanismo que ya usa la app de Técnicos y que nunca ha perdido un dato.
+// ════════════════════════════════════════════════════════════════════
+
+// Normalizador de nombres (sin mayúsculas ni espacios dobles)
+function _normConsumo(s){ return (s||'').toString().toLowerCase().trim().replace(/\s+/g,' '); }
+// El técnico puede enviar seriales como "snes" (lista) o "sn" (texto suelto)
+function _snesDeItem(it){
+    if(Array.isArray(it.snes) && it.snes.length) return it.snes.map(s=>(s||'').toString().trim()).filter(Boolean);
+    if(it.sn && it.sn.toString().trim()) return [it.sn.toString().trim()];
+    return [];
+}
+// Filas de la cuadrilla que corresponden a este material, en orden de preferencia:
+// 1) nombre normalizado + MISMO tipo (nuevo/usado)  2) mismo nombre, otro tipo.
+// Devuelve VARIAS filas porque las entregas históricas pudieron crear duplicados
+// ("Cable UTP" vs "cable utp"): el descuento debe cubrirlas todas, no solo la primera.
+function _filasMaterialCuadrilla(cuad, it){
+    const mats=cuad.materiales||[];
+    const n=_normConsumo(it.nombre), t=(it.tipo||'').toString().trim();
+    const filas=[];
+    if(t) mats.forEach(m=>{ if(_normConsumo(m.nombre)===n && (m.tipo||'')===t) filas.push(m); });
+    mats.forEach(m=>{ if(_normConsumo(m.nombre)===n && !filas.includes(m)) filas.push(m); });
+    return filas;
+}
+function _stockDisponibleItem(cuad, it){
+    return _filasMaterialCuadrilla(cuad, it).reduce((s,m)=>s+(m.cantidad||0),0);
+}
+// Descuenta el item repartiéndolo entre las filas candidatas (primero la de su
+// mismo tipo). Quita también los seriales donde los encuentre. Registra avisos.
+function _descontarItemCuadrilla(cuad, it, avisos){
+    const filas=_filasMaterialCuadrilla(cuad, it);
+    if(!filas.length){ avisos.push(`"${it.nombre}" no se encontró en la cuadrilla; NO se descontó.`); return; }
+    let falta=it.cant||0;
+    const snes=_snesDeItem(it);
+    for(const m of filas){
+        if(falta<=0 && !snes.length) break;
+        if(falta>0){
+            const quita=Math.min(m.cantidad||0, falta);
+            m.cantidad=(m.cantidad||0)-quita;
+            falta-=quita;
+        }
+        if(snes.length && Array.isArray(m.snes)){
+            for(let i=snes.length-1;i>=0;i--){
+                const idx=m.snes.findIndex(s=>(s||'').toString().trim()===snes[i]);
+                if(idx>-1){ m.snes.splice(idx,1); snes.splice(i,1); }
+            }
+        }
+    }
+    if(falta>0) avisos.push(`"${it.nombre}": faltaron ${falta} por descontar (stock insuficiente al momento de confirmar).`);
+    if(snes.length) avisos.push(`Seriales de "${it.nombre}" que no estaban en la cuadrilla: ${snes.join(', ')}.`);
+}
+
+async function confirmarConsumo(consumoId){
+    // ── Verificación previa con los datos locales (respuesta inmediata al usuario) ──
     const x=(DB.consumosPendientes||[]).find(c=>c.id===consumoId);
     if(!x || x.estado!=='pendiente') return;
-    const cuad=DB.cuadrillas.find(cu=>String(cu.id)===String(x.cuadrillaId));
-    if(!cuad){ alert('La cuadrilla de este consumo ya no existe. Puedes rechazarlo.'); return; }
-
-    // ── PARCHE v1 ──────────────────────────────────────────────
-    // El material en la cuadrilla se acumula por NOMBRE + TIPO (así lo hacen
-    // las entregas). Aquí buscamos con la MISMA llave para descontar la fila
-    // correcta: 1) nombre normalizado + tipo; 2) si no existe, solo nombre.
-    const _norm=s=>(s||'').toString().toLowerCase().trim().replace(/\s+/g,' ');
-    const _buscarMat=(it)=>{
-        const mats=cuad.materiales||[];
-        const n=_norm(it.nombre), t=(it.tipo||'').toString().trim();
-        let m=null;
-        if(t) m=mats.find(mm=>_norm(mm.nombre)===n && (mm.tipo||'')===t);
-        if(!m) m=mats.find(mm=>_norm(mm.nombre)===n);
-        return m||null;
-    };
-    // El técnico puede enviar seriales como "snes" (lista) o "sn" (texto suelto,
-    // como pasa en los cambios de equipo). Aceptamos ambos.
-    const _snesDe=(it)=>{
-        if(Array.isArray(it.snes) && it.snes.length) return it.snes.map(s=>(s||'').toString().trim()).filter(Boolean);
-        if(it.sn && it.sn.toString().trim()) return [it.sn.toString().trim()];
-        return [];
-    };
-    // ───────────────────────────────────────────────────────────
-
-    // Verificar que la cuadrilla tenga suficiente de cada material ANTES de descontar
-    const faltantes=[];
+    const cuadLocal=DB.cuadrillas.find(cu=>String(cu.id)===String(x.cuadrillaId));
+    if(!cuadLocal){ alert('La cuadrilla de este consumo ya no existe. Puedes rechazarlo.'); return; }
+    const faltantesLocal=[];
     (x.items||[]).forEach(it=>{
-        const m=_buscarMat(it);
-        const disp=m?m.cantidad:0;
-        if(disp<it.cant) faltantes.push(`${it.nombre}: necesita ${it.cant}, hay ${disp}`);
+        const disp=_stockDisponibleItem(cuadLocal, it);
+        if(disp<(it.cant||0)) faltantesLocal.push(`${it.nombre}: necesita ${it.cant}, hay ${disp}`);
     });
-    if(faltantes.length){
-        alert('No se puede confirmar: la cuadrilla no tiene suficiente material.\n\n'+faltantes.join('\n')+'\n\nRevisa el stock de la cuadrilla o rechaza este consumo.');
+    if(faltantesLocal.length){
+        alert('No se puede confirmar: la cuadrilla no tiene suficiente material.\n\n'+faltantesLocal.join('\n')+'\n\nRevisa el stock de la cuadrilla o rechaza este consumo.');
         return;
     }
+    if(!confirm(`Confirmar el material gastado por ${cuadLocal.nombre}.\n\nEsto descontará del stock de la cuadrilla. ¿Continuar?`)) return;
 
-    if(!confirm(`Confirmar el material gastado por ${cuad.nombre}.\n\nEsto descontará del stock de la cuadrilla. ¿Continuar?`)) return;
+    if(!window._fbTransaccionInv){ alert('⚠️ La conexión aún no está lista. Espera unos segundos e intenta de nuevo.'); return; }
+    if(window.mostrarOverlayGuardado) window.mostrarOverlayGuardado('Confirmando consumo...');
 
-    // Descontar de la cuadrilla (cantidad y SN). Si algo no cuadra, se AVISA
-    // en pantalla y queda en el registro de actividad (antes fallaba en silencio).
     const avisos=[];
-    (x.items||[]).forEach(it=>{
-        const m=_buscarMat(it);
-        if(!m){ avisos.push(`"${it.nombre}" no se encontró en la cuadrilla; NO se descontó.`); return; }
-        m.cantidad-=it.cant;
-        if(m.cantidad<0){ avisos.push(`"${m.nombre}" quedó en negativo y se ajustó a 0 (revisa el stock).`); m.cantidad=0; }
-        const snes=_snesDe(it);
-        if(snes.length && Array.isArray(m.snes)){
-            const noEstaban=[];
-            snes.forEach(sn=>{
-                const idx=m.snes.findIndex(s=>(s||'').toString().trim()===sn);
-                if(idx>-1) m.snes.splice(idx,1); else noEstaban.push(sn);
+    try{
+        // ── TRANSACCIÓN: todo se verifica y descuenta sobre datos FRESCOS del servidor ──
+        const resultado = await window._fbTransaccionInv((data)=>{
+            const consumos=data.consumosPendientes||[];
+            const xF=consumos.find(c=>c.id===consumoId);
+            if(!xF) throw new Error('Este consumo ya no existe en la nube (pudo ser eliminado en otra sesión).');
+            if(xF.estado!=='pendiente') throw new Error(`Este consumo ya fue ${xF.estado==='confirmado'?'CONFIRMADO':'procesado'} en otra sesión. La pantalla se actualizará.`);
+            const cuadrillas=data.cuadrillas||[];
+            const cuadF=cuadrillas.find(cu=>String(cu.id)===String(xF.cuadrillaId));
+            if(!cuadF) throw new Error('La cuadrilla de este consumo ya no existe en la nube.');
+            // Verificar stock con los datos frescos
+            const faltantes=[];
+            (xF.items||[]).forEach(it=>{
+                const disp=_stockDisponibleItem(cuadF, it);
+                if(disp<(it.cant||0)) faltantes.push(`${it.nombre}: necesita ${it.cant}, hay ${disp}`);
             });
-            if(noEstaban.length) avisos.push(`Seriales de "${m.nombre}" que no estaban en la cuadrilla: ${noEstaban.join(', ')}.`);
+            if(faltantes.length) throw new Error('La cuadrilla no tiene suficiente material (según los datos más recientes):\n'+faltantes.join('\n'));
+            // Descontar sobre los datos frescos
+            (xF.items||[]).forEach(it=>_descontarItemCuadrilla(cuadF, it, avisos));
+            xF.estado='confirmado';
+            xF.confirmadoFecha=new Date().toLocaleDateString();
+            xF.confirmadoPor=USER.role==='admin'?'Admin':(USER.nombre||'Bodega');
+            // Escribir SOLO estos dos campos (no todo el documento)
+            return { cuadrillas: cuadrillas, consumosPendientes: consumos };
+        });
+
+        // Reflejar en la memoria local EXACTAMENTE lo que quedó en la nube
+        if(resultado){
+            DB.cuadrillas = resultado.cuadrillas;
+            DB.consumosPendientes = resultado.consumosPendientes;
         }
-    });
-    x.estado='confirmado';
-    x.confirmadoFecha=new Date().toLocaleDateString();
-    x.confirmadoPor=USER.role==='admin'?'Admin':(USER.nombre||'Bodega');
-    logMsg(`Material confirmado: ${cuad.nombre} → ${x.destino==='red'?'red':(x.destinoDetalle||'cliente')} (${(x.items||[]).map(i=>i.nombre+' x'+i.cant).join(', ')})`);
-    if(avisos.length){
-        logMsg(`⚠️ Avisos al confirmar consumo de ${cuad.nombre}: ${avisos.join(' | ')}`);
-        alert('✅ Consumo confirmado, pero revisa esto:\n\n⚠️ '+avisos.join('\n⚠️ '));
+        if(window.ocultarOverlayGuardado) window.ocultarOverlayGuardado(true);
+        logMsg(`Material confirmado: ${cuadLocal.nombre} → ${x.destino==='red'?'red':(x.destinoDetalle||'cliente')} (${(x.items||[]).map(i=>i.nombre+' x'+i.cant).join(', ')})`);
+        if(avisos.length){
+            logMsg(`⚠️ Avisos al confirmar consumo de ${cuadLocal.nombre}: ${avisos.join(' | ')}`);
+            alert('✅ Consumo confirmado, pero revisa esto:\n\n⚠️ '+avisos.join('\n⚠️ '));
+        }
+        renderTab('consumos');
+    }catch(e){
+        console.error('confirmarConsumo:', e);
+        if(window.ocultarOverlayGuardado) window.ocultarOverlayGuardado(false);
+        alert('❌ No se confirmó el consumo.\n\n'+(e.message||e));
+        renderTab('consumos'); // refrescar por si fue procesado en otra sesión
     }
-    save();
-    renderTab('consumos');
 }
 window.confirmarConsumo=confirmarConsumo;
 
-function rechazarConsumo(consumoId){
+async function rechazarConsumo(consumoId){
     const x=(DB.consumosPendientes||[]).find(c=>c.id===consumoId);
     if(!x || x.estado!=='pendiente') return;
     const motivo=prompt('¿Por qué rechazas este consumo? (queda en el historial)\n\nEjemplo: "El técnico se equivocó de cantidad", "Material no correspondía a esta orden", etc.');
     if(motivo===null) return; // canceló
-    x.estado='rechazado';
-    x.rechazadoFecha=new Date().toLocaleDateString();
-    x.motivoRechazo=motivo.trim()||'(sin motivo especificado)';
-    logMsg(`Material RECHAZADO de ${x.cuadrillaNombre||'cuadrilla'} · Motivo: ${x.motivoRechazo}`);
-    save();
-    renderTab('consumos');
+    if(!window._fbTransaccionInv){ alert('⚠️ La conexión aún no está lista. Espera unos segundos e intenta de nuevo.'); return; }
+    if(window.mostrarOverlayGuardado) window.mostrarOverlayGuardado('Rechazando consumo...');
+    try{
+        // v72: también con transacción, escribiendo SOLO consumosPendientes
+        const resultado = await window._fbTransaccionInv((data)=>{
+            const consumos=data.consumosPendientes||[];
+            const xF=consumos.find(c=>c.id===consumoId);
+            if(!xF) throw new Error('Este consumo ya no existe en la nube.');
+            if(xF.estado!=='pendiente') throw new Error(`Este consumo ya fue ${xF.estado==='confirmado'?'CONFIRMADO':'procesado'} en otra sesión.`);
+            xF.estado='rechazado';
+            xF.rechazadoFecha=new Date().toLocaleDateString();
+            xF.motivoRechazo=motivo.trim()||'(sin motivo especificado)';
+            return { consumosPendientes: consumos };
+        });
+        if(resultado) DB.consumosPendientes = resultado.consumosPendientes;
+        if(window.ocultarOverlayGuardado) window.ocultarOverlayGuardado(true);
+        logMsg(`Material RECHAZADO de ${x.cuadrillaNombre||'cuadrilla'} · Motivo: ${(motivo||'').trim()||'(sin motivo especificado)'}`);
+        renderTab('consumos');
+    }catch(e){
+        console.error('rechazarConsumo:', e);
+        if(window.ocultarOverlayGuardado) window.ocultarOverlayGuardado(false);
+        alert('❌ No se rechazó el consumo.\n\n'+(e.message||e));
+        renderTab('consumos');
+    }
 }
 window.rechazarConsumo=rechazarConsumo;
 
@@ -7586,15 +7681,27 @@ window._ejecutarImport=_ejecutarImport;
 
 <script type="module">
 import { initializeApp, getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { getFirestore, doc, getDoc, setDoc, onSnapshot, runTransaction } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 const FB_KEY = 'invPro_firebaseConfig';
+// ⚙️ CONFIG INTEGRADA (v72): la misma base de Oficinas/Técnicos. La app se conecta
+// SOLA con esta configuración; ya no pide configurar Firebase aunque se borre el
+// localStorage o se abra en un computador nuevo. La pantalla de configuración queda
+// solo como último recurso si esta config fallara.
+const DEFAULT_FB_CONFIG = {
+    apiKey: "AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w",
+    authDomain: "inventario-88a28.firebaseapp.com",
+    projectId: "inventario-88a28",
+    storageBucket: "inventario-88a28.firebasestorage.app",
+    messagingSenderId: "981251888141",
+    appId: "1:981251888141:web:85e27f09ec4350c27c7144"
+};
 const DB_DOC = 'inventario/datos';
 const HISTORIAL_DOC = 'inventario/historial';
 // Campos que SOLO escribe Inventario (Técnicos no los toca) y que solo crecen.
 // Se guardan en un documento aparte para que inventario/datos no llegue al tope de 1MB.
 const HISTORIAL_FIELDS = ['editRequests','entregas','cuartos','logs','transfers','deleteRequests','ventas'];
-const APP_VERSION_INV = 71; // ⬆️ Subir en cada versión publicada de Inventario
+const APP_VERSION_INV = 72; // ⬆️ Subir en cada versión publicada de Inventario (v72: [1] confirmación de consumos con TRANSACCIÓN — el descuento a la cuadrilla ya no se puede revertir por una sincronización cruzada; [2] config Firebase integrada — no vuelve a pedirla; [3] login con ojito 👁️ y Enter; [4] BLINDAJE: guardas anti-borrado de clientes (carga incompleta o encogimiento drástico NO reescriben la nube), firma para no reescribir chunks sin cambios, carga de clientes en paralelo con reintentos, COLA de guardado (nunca se solapan), fusión de envíos recientes de técnicos antes de guardar, y fotos pequeñas ya no se recomprimen)
 const CHUNK_SIZE = 800; // clients per document - allows ~10000 clients
 
 // Helper: split array into chunks
@@ -7608,12 +7715,17 @@ function chunkArray(arr, size) {
 async function prepareDbCopy() {
     const dbCopy = JSON.parse(JSON.stringify(DB));
     // Compress fotos
+    // v72: solo se comprimen fotos GRANDES. Antes se recomprimían TODAS en cada
+    // guardado: cada pasada degradaba un poco más la calidad y hacía lento el guardado.
     for(const b of dbCopy.bodegas) {
         for(const m of b.materiales) {
             if(m.fotos && m.fotos.length) {
                 const compressed = [];
                 for(const foto of m.fotos) {
-                    if(foto && foto.startsWith('data:')) compressed.push(await compressImage(foto));
+                    if(foto && foto.startsWith('data:')){
+                        if(foto.length < 60000) compressed.push(foto); // ya es pequeña (~<45KB): no tocarla
+                        else compressed.push(await compressImage(foto));
+                    }
                 }
                 m.fotos = compressed;
             }
@@ -7650,37 +7762,98 @@ async function loadHistorial() {
 }
 
 // Save clientes in chunks across multiple documents
+// v72: PROTECCIONES ANTI-BORRADO (mismas ideas que salvaron a Oficinas):
+//  🛡️ 1. Si la carga de clientes NO fue completa esta sesión, NO se reescriben (se conserva la nube).
+//  🛡️ 2. Si en la nube hay clientes y aquí hay 0, se bloquea (evita el borrado total).
+//  🛡️ 3. Si esto encogería la lista a menos de la MITAD de lo que hay en la nube, se bloquea
+//        (un borrado masivo intencional requiere: window._permitirEncogerClientes=true en consola).
+//  ⚡ 4. FIRMA: si los clientes no cambiaron desde el último guardado, no se reescribe nada
+//        (antes se reescribían TODOS los chunks en cada guardado — lento y gasta cuota).
 async function saveClienteChunks(clientes) {
+    clientes = clientes || [];
+    if(window._clientesCargadosOk !== true){
+        console.warn('🛡️ Clientes: la carga de esta sesión no fue completa → sus chunks NO se reescriben (se conserva la nube). Recarga la página (Ctrl+F5).');
+        if(!window._avisoClientesProtegidos){
+            window._avisoClientesProtegidos = true;
+            setTimeout(()=>{ try{ alert('🛡️ Aviso de seguridad\n\nLos clientes no se cargaron completos en esta sesión, así que NO se reescribieron en la nube (tus datos están protegidos).\n\n👉 Recarga la página (Ctrl+F5) para cargar todo bien.'); }catch(_){} }, 100);
+        }
+        return;
+    }
+    // ⚡ Firma: sin cambios → no escribir nada
+    const sig = _hashClientesInv(clientes);
+    if(window._sigClientesInv === sig) return;
+    // 🛡️ Anti-borrado: comparar con lo que hay en la nube
+    try {
+        const idxSnap = await getDoc(doc(fsDB, 'inventario/clientes_index'));
+        if(idxSnap.exists()){
+            const remTotal = idxSnap.data().total || 0;
+            if(remTotal > 0 && clientes.length === 0 && !window._permitirEncogerClientes){
+                console.warn(`🛡️ BLOQUEADO: se intentó guardar 0 clientes habiendo ${remTotal} en la nube. Se conserva la nube.`);
+                return;
+            }
+            if(remTotal >= 20 && clientes.length < remTotal/2 && !window._permitirEncogerClientes){
+                console.warn(`🛡️ BLOQUEADO: encogimiento drástico de clientes (${clientes.length} < mitad de ${remTotal}). Si es intencional, escribe en la consola: window._permitirEncogerClientes=true y guarda de nuevo.`);
+                if(!window._avisoEncogerClientes){
+                    window._avisoEncogerClientes = true;
+                    setTimeout(()=>{ try{ alert(`🛡️ Protección de datos\n\nSe evitó guardar ${clientes.length} cliente(s) porque en la nube hay ${remTotal}. Parece una pérdida accidental, así que se conservó la nube.\n\nSi el borrado ES intencional, abre la consola (F12) y escribe:\nwindow._permitirEncogerClientes=true\ny vuelve a guardar.`); }catch(_){} }, 100);
+                }
+                return;
+            }
+        }
+    } catch(eIdx){ console.warn('idx clientes (protección):', eIdx); }
+
     const chunks = chunkArray(clientes, CHUNK_SIZE);
     const numChunks = chunks.length;
-    // Save each chunk
-    for(let i=0; i<chunks.length; i++) {
-        await setDoc(doc(fsDB, `inventario/clientes_${i}`), { clientes: chunks[i], chunk: i, total: numChunks });
-    }
+    // v72: chunks en PARALELO (antes uno por uno en fila)
+    await Promise.all(chunks.map((parte,i)=> setDoc(doc(fsDB, `inventario/clientes_${i}`), { clientes: parte, chunk: i, total: numChunks })));
     // Save index
     await setDoc(doc(fsDB, 'inventario/clientes_index'), { numChunks, total: clientes.length });
+    window._sigClientesInv = sig; // confirmar firma tras el éxito
 }
 
 // Load clientes from all chunks
+// v72: (1) EN PARALELO con reintentos (antes bloque por bloque, y un error devolvía
+// lista vacía en silencio → el siguiente guardado podía BORRAR todos los clientes).
+// (2) Deja la bandera window._clientesCargadosOk: solo si la carga fue COMPLETA y sin
+// errores se permite reescribir los chunks. Si algo falló, se conserva la nube.
+function _hashClientesInv(arr){
+    const s=JSON.stringify(arr||[]);
+    let h=5381; for(let i=0;i<s.length;i++){ h=((h<<5)+h) ^ s.charCodeAt(i); }
+    return (arr||[]).length + ':' + (h>>>0).toString(36);
+}
+async function _getDocReintentos(ref, intentos=3){
+    for(let k=0;k<intentos;k++){
+        try{ return await getDoc(ref); }
+        catch(e){ if(k===intentos-1) throw e; await new Promise(r=>setTimeout(r,400)); }
+    }
+}
 async function loadClienteChunks() {
+    window._clientesCargadosOk = false;
     try {
-        const indexSnap = await getDoc(doc(fsDB, 'inventario/clientes_index'));
+        const indexSnap = await _getDocReintentos(doc(fsDB, 'inventario/clientes_index'));
         if(!indexSnap.exists()) {
             // Try legacy single document
-            const legacySnap = await getDoc(doc(fsDB, 'inventario/clientes'));
-            if(legacySnap.exists() && legacySnap.data().clientes) return legacySnap.data().clientes;
-            return [];
+            const legacySnap = await _getDocReintentos(doc(fsDB, 'inventario/clientes'));
+            window._clientesCargadosOk = true; // se leyó bien; simplemente no hay chunks aún
+            const lista = (legacySnap.exists() && legacySnap.data().clientes) ? legacySnap.data().clientes : [];
+            window._sigClientesInv = _hashClientesInv(lista);
+            return lista;
         }
         const { numChunks } = indexSnap.data();
-        let all = [];
-        for(let i=0; i<numChunks; i++) {
-            const snap = await getDoc(doc(fsDB, `inventario/clientes_${i}`));
-            if(snap.exists()) all = all.concat(snap.data().clientes || []);
-        }
+        // Todos los chunks EN PARALELO, cada uno con 3 reintentos. Si alguno falla
+        // definitivamente, se lanza el error (la carga queda marcada como incompleta).
+        const partes = await Promise.all(Array.from({length:numChunks}, async (_,i)=>{
+            const snap = await _getDocReintentos(doc(fsDB, `inventario/clientes_${i}`));
+            return snap.exists() ? (snap.data().clientes || []) : [];
+        }));
+        const all = [].concat(...partes);
+        window._clientesCargadosOk = true;
+        window._sigClientesInv = _hashClientesInv(all); // firma "bendecida": habilita reescritura
         return all;
     } catch(e) {
-        console.error('Error loading clientes:', e);
-        return [];
+        console.error('🛑 Error cargando clientes (carga INCOMPLETA — sus chunks NO se reescribirán):', e);
+        window._clientesCargadosOk = false;
+        return (window.DB && Array.isArray(window.DB.clientes)) ? window.DB.clientes : [];
     }
 }
 let fsDB = null, saveTO = null;
@@ -7766,45 +7939,92 @@ async function compressImage(base64, maxW=400, quality=0.5) {
 window._fbSave = function() {
     showSync('saving','Guardando...');
     clearTimeout(saveTO);
-    saveTO = setTimeout(async ()=>{
-        window._pendingClienteSave = 'active';
-        try {
-            const { dbCopy, clientes, historial } = await prepareDbCopy();
-            await setDoc(doc(fsDB, DB_DOC), dbCopy);
-            await saveClienteChunks(clientes);
-            await saveHistorial(historial);
-            showSync('ok','Guardado ✓');
-        } catch(e) {
-            showSync('err','Error al guardar');
-            console.error(e);
-        } finally {
-            // Solo proteger durante el save real, no bloquear actualizaciones futuras
-            setTimeout(()=>{ window._pendingClienteSave = false; }, 800);
-        }
-    }, 400);
+    saveTO = setTimeout(()=>{ _ejecutarSaveInv(false); }, 400);
 };
 
 window._fbSaveImmediate = async function() {
     clearTimeout(saveTO);
+    return await _ejecutarSaveInv(true);
+};
+
+// ════════════════════════════════════════════════════════════════════
+// NÚCLEO DE GUARDADO (v72) — un solo camino con:
+//  🔒 COLA: si se pide un guardado mientras otro corre, se ENCOLA (nunca se
+//     solapan dos guardados, que antes podían entrelazarse y pisarse).
+//  🛡️ FUSIÓN DE CAMPOS DE TÉCNICOS: antes de sobreescribir inventario/datos,
+//     se lee el documento fresco y se incorporan los registros RECIENTES
+//     (últimos 10 min) que los técnicos hayan enviado y esta sesión no tenga
+//     (recuperados, consumos, instalaciones, equipos pendientes). Así un envío
+//     del técnico que llegue justo durante el guardado ya NO se borra.
+//     Solo se incorporan registros recientes: lo que el admin borró hace tiempo
+//     no "revive".
+// ════════════════════════════════════════════════════════════════════
+let _saveEnCursoInv = false;
+let _saveEncoladoInv = null;
+const CAMPOS_DE_TECNICOS = ['recuperados','consumosPendientes','instalaciones','equiposPendientesTecnico'];
+
+function _ejecutarSaveInv(conOverlay){
+    if(_saveEnCursoInv){
+        if(!_saveEncoladoInv){
+            _saveEncoladoInv = (async()=>{
+                while(_saveEnCursoInv){ await new Promise(r=>setTimeout(r,120)); }
+                _saveEncoladoInv = null;
+                console.log('⏩ Guardado encolado: ejecutando ahora que terminó el anterior');
+                return _fbSaveCore(conOverlay);
+            })();
+        }
+        return _saveEncoladoInv;
+    }
+    return _fbSaveCore(conOverlay);
+}
+
+async function _fbSaveCore(conOverlay) {
+    _saveEnCursoInv = true;
     showSync('saving','Guardando...');
-    if(window.mostrarOverlayGuardado) window.mostrarOverlayGuardado('Guardando...');
+    if(conOverlay && window.mostrarOverlayGuardado) window.mostrarOverlayGuardado('Guardando...');
     window._pendingClienteSave = 'active';
     try {
+        // 🛡️ Fusión de envíos recientes de técnicos (lectura fresca de la nube)
+        try {
+            const frescoSnap = await getDoc(doc(fsDB, DB_DOC));
+            if(frescoSnap.exists()){
+                const fresco = frescoSnap.data();
+                const LIMITE_MS = 10*60*1000; // solo registros creados en los últimos 10 minutos
+                let incorporados = 0;
+                CAMPOS_DE_TECNICOS.forEach(campo=>{
+                    const rem = Array.isArray(fresco[campo]) ? fresco[campo] : [];
+                    if(!Array.isArray(window.DB[campo])) window.DB[campo] = [];
+                    const loc = window.DB[campo];
+                    const idsLoc = new Set(loc.map(x=>x && x.id));
+                    rem.forEach(item=>{
+                        if(!item || !item.id || idsLoc.has(item.id)) return;
+                        const ts = parseInt(item.id, 10); // los ids son Date.now() en texto
+                        if(isFinite(ts) && ts > 1000000000000 && (Date.now()-ts) < LIMITE_MS){
+                            loc.push(item); incorporados++;
+                        }
+                    });
+                });
+                if(incorporados) console.log(`🛡️ Fusión: ${incorporados} registro(s) reciente(s) de técnicos incorporado(s) antes de guardar.`);
+            }
+        } catch(eM){ console.warn('Fusión de campos de técnicos (no crítico):', eM); }
+
         const { dbCopy, clientes, historial } = await prepareDbCopy();
         await setDoc(doc(fsDB, DB_DOC), dbCopy);
         await saveClienteChunks(clientes);
         await saveHistorial(historial);
         showSync('ok','Guardado ✓');
-        if(window.ocultarOverlayGuardado) window.ocultarOverlayGuardado(true);
+        if(conOverlay && window.ocultarOverlayGuardado) window.ocultarOverlayGuardado(true);
     } catch(e) {
-        console.error(e);
         showSync('err','Error al guardar');
-        if(window.ocultarOverlayGuardado) window.ocultarOverlayGuardado(false);
-        throw e;
+        if(conOverlay && window.ocultarOverlayGuardado) window.ocultarOverlayGuardado(false);
+        console.error(e);
+        if(conOverlay) throw e;
     } finally {
+        _saveEnCursoInv = false;
+        // Solo proteger durante el save real, no bloquear actualizaciones futuras
         setTimeout(()=>{ window._pendingClienteSave = false; }, 800);
     }
-};
+}
 
 window.connectFirebase = async function() {
     const apiKey=document.getElementById('fb_apiKey').value.trim();
@@ -7834,6 +8054,27 @@ async function startFirebase(config) {
     }
     fsDB = getFirestore(app);
     const ref = doc(fsDB, DB_DOC);
+
+    // ════════════════════════════════════════════════════════════════
+    // 🔒 PUENTE DE TRANSACCIONES (v72). Igual que la app de Técnicos:
+    // relee inventario/datos FRESCO del servidor, aplica el cambio sobre esos
+    // datos frescos y escribe SOLO los campos afectados (tx.update). Si otra
+    // sesión escribe al mismo tiempo, Firestore reintenta solo. Así el descuento
+    // de material NUNCA se pierde por una sincronización cruzada.
+    // modifFn(data) → devuelve {campo:valor,...} con lo que hay que escribir,
+    // o null para abortar sin escribir. Puede lanzar Error con mensaje claro.
+    // ════════════════════════════════════════════════════════════════
+    window._fbTransaccionInv = async function(modifFn){
+        return await runTransaction(fsDB, async (tx)=>{
+            const snap = await tx.get(ref);
+            if(!snap.exists()) throw new Error('No se encontró inventario/datos en la nube');
+            const data = snap.data();
+            const cambios = modifFn(data);
+            if(!cambios) return null;
+            tx.update(ref, cambios);
+            return cambios;
+        });
+    };
 
     // ── CONTROL DE VERSIÓN (bloqueo total si hay versión nueva) ──
     try {
@@ -8003,7 +8244,9 @@ async function startFirebase(config) {
     setupClienteListeners();
 }
 
-// Auto-connect if config saved
+// Auto-connect: usa la config guardada si existe; si no, la CONFIG INTEGRADA (v72).
+// La app ya NUNCA pide configurar Firebase: si la config guardada falla, reintenta
+// automáticamente con la integrada. La pantalla de setup queda de último recurso.
 const saved = (()=>{
     try {
         return JSON.parse(localStorage.getItem(FB_KEY))
@@ -8011,19 +8254,31 @@ const saved = (()=>{
             || null;
     } catch{return null;}
 })();
-if(saved) {
+(async ()=>{
     document.getElementById('firebase-setup').style.display='none';
-    startFirebase(saved).catch(e=>{
+    try {
+        await startFirebase(saved || DEFAULT_FB_CONFIG);
+    } catch(e) {
+        console.error('Error conectando con la config '+(saved?'guardada':'integrada')+':', e);
+        // Si falló la guardada, reintentar con la integrada (config vieja/corrupta en localStorage)
+        if(saved){
+            try {
+                localStorage.removeItem(FB_KEY);
+                await startFirebase(DEFAULT_FB_CONFIG);
+                return;
+            } catch(e2){ console.error('También falló la config integrada:', e2); }
+        }
+        // Último recurso: mostrar la pantalla de configuración manual
         document.getElementById('firebase-setup').style.display='flex';
         document.getElementById('loading-screen').style.display='none';
         const msg=document.getElementById('setupMsg');
-        msg.style.color='var(--danger)';msg.textContent='❌ Error con config guardada. Reverifica tus credenciales.';
-        if(saved.apiKey) document.getElementById('fb_apiKey').value=saved.apiKey;
-        if(saved.projectId) document.getElementById('fb_projectId').value=saved.projectId;
-        if(saved.appId) document.getElementById('fb_appId').value=saved.appId;
-        console.error(e);
-    });
-}
+        msg.style.color='var(--danger)';msg.textContent='❌ No se pudo conectar automáticamente. Verifica tu internet o ingresa las credenciales.';
+        const cfg = saved || DEFAULT_FB_CONFIG;
+        if(cfg.apiKey) document.getElementById('fb_apiKey').value=cfg.apiKey;
+        if(cfg.projectId) document.getElementById('fb_projectId').value=cfg.projectId;
+        if(cfg.appId) document.getElementById('fb_appId').value=cfg.appId;
+    }
+})();
 </script>
 </body>
 </html>
