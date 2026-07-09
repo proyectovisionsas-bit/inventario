@@ -143,7 +143,7 @@ const COLECCION='oficinas_sistema';
 const DOC_ID='main';
 
 // ── CONTROL DE VERSIÓN (bloqueo total si hay versión nueva) ──
-const APP_VERSION_TEC = 69; // ⬆️ Subir en cada versión publicada de Técnicos (v69: los consumos de material ahora llevan la CÉDULA y el id del cliente de la orden, para que al confirmar en bodega el material quede anotado automáticamente en la ficha exacta del cliente. Incluye v68: login con Enter y ojito 👁️)
+const APP_VERSION_TEC = 70; // ⬆️ Subir en cada versión publicada de Técnicos (v70: nuevo botón ❌ Cancelar en toda orden activa — el motivo es OBLIGATORIO (con detalle si eliges Otro); la orden queda CANCELADA definitivamente con transacción segura, sale de tu lista y la oficina ve quién y por qué la canceló. Incluye v69: cédula del cliente en los consumos)
 
 // 👁️ Ver/ocultar la clave en el login (v68)
 function _toggleVerPassTec(btn){
@@ -409,7 +409,7 @@ function _misOrdenes(){
 function render(){
     if(!DATA){ return; }
     const mis=_misOrdenes();
-    const activas=mis.filter(o=>o.estado!=='finalizada');
+    const activas=mis.filter(o=>o.estado!=='finalizada'&&o.estado!=='cancelada');
     const finalizadas=mis.filter(o=>o.estado==='finalizada');
 
     // Banner de modo emergencia (cuando la cuota de lecturas de Firebase está agotada)
@@ -445,7 +445,7 @@ function render(){
 // Devuelve las órdenes de la pestaña actual ya filtradas por el texto de búsqueda
 function _ordenesFiltradas(){
     const mis=_misOrdenes();
-    const activas=mis.filter(o=>o.estado!=='finalizada');
+    const activas=mis.filter(o=>o.estado!=='finalizada'&&o.estado!=='cancelada');
     const finalizadas=mis.filter(o=>o.estado==='finalizada');
     let items=(_tab==='activas'?activas:finalizadas).sort((a,b)=>(b.creada||0)-(a.creada||0));
     const q=(window._busquedaOrden||'').trim().toLowerCase();
@@ -501,6 +501,7 @@ function _renderListaOrdenes(){
                 ${o.cliente?`<button class="btn btn-sm btn-ghost" onclick="modalEquiposCliente('${o.id}')">📦 Equipos</button>`:''}
                 ${est.next?`<button class="btn btn-sm ${est.next==='finalizada'?'btn-ok':est.next==='proceso'?'btn-purple':'btn-blue'}" onclick="avanzar('${o.id}','${est.next}')">${est.nextLabel}</button>`:''}
                 ${(o.estado==='aceptada'||o.estado==='proceso')?`<button class="btn btn-sm" style="background:#ef4444;color:#fff;" onclick="modalReagendar('${o.id}')">🔁 No se pudo</button>`:''}
+                ${(o.estado!=='finalizada'&&o.estado!=='cancelada')?`<button class="btn btn-sm btn-ghost" style="color:#ef4444;border-color:rgba(239,68,68,0.5);" onclick="modalCancelarOrden('${o.id}')">❌ Cancelar</button>`:''}
                 ${o.estado!=='finalizada'?`<button class="btn btn-sm btn-ghost" onclick="modalNota('${o.id}')">📝 Nota</button>`:''}
             </div>
         </div>`;
@@ -608,6 +609,75 @@ async function confirmarReagendar(ordenId){
     }catch(e){ showToast('❌ '+(e.message||e), true); }
 }
 window.confirmarReagendar=confirmarReagendar;
+
+// ── ❌ CANCELAR ORDEN (v70): definitivo, con motivo OBLIGATORIO ──
+// La orden queda CANCELADA (estado terminal): sale de tu lista y la oficina
+// ve quién la canceló y por qué. Misma transacción segura de siempre.
+function modalCancelarOrden(ordenId){
+    const o=(DATA.ordenesTrabajo||[]).find(x=>x.id===ordenId);
+    if(!o) return;
+    const bg=document.createElement('div'); bg.className='modal-bg'; bg.id='modalCancel';
+    bg.innerHTML=`<div class="modal">
+        <h3>❌ Cancelar orden</h3>
+        <p style="font-size:0.85rem;color:var(--muted);margin-bottom:12px;">La orden de <strong>${o.cliente||'este cliente'}</strong> quedará <strong>CANCELADA definitivamente</strong> (no volverá a la lista). Si solo no se pudo hoy, usa mejor "🔁 No se pudo".</p>
+        <label>Motivo *</label>
+        <select id="cancMotivo">
+            <option>Cliente desistió del servicio</option>
+            <option>Cliente no cumple requisitos</option>
+            <option>Orden duplicada</option>
+            <option>Error al crear la orden</option>
+            <option>Zona sin cobertura</option>
+            <option>Otro</option>
+        </select>
+        <label>Detalle <span id="cancDetLbl" style="color:var(--muted);">(opcional)</span></label>
+        <textarea id="cancDetalle" rows="2" placeholder="Explica brevemente qué pasó"></textarea>
+        <div style="display:flex;gap:8px;">
+            <button class="btn btn-block" style="background:#ef4444;color:#fff;" onclick="confirmarCancelarOrden('${ordenId}')">❌ Cancelar la orden</button>
+            <button class="btn btn-ghost" onclick="document.getElementById('modalCancel').remove()">Volver</button>
+        </div>
+    </div>`;
+    bg.addEventListener('click',e=>{ if(e.target===bg) bg.remove(); });
+    document.body.appendChild(bg);
+    const sel=document.getElementById('cancMotivo');
+    sel.addEventListener('change',()=>{ document.getElementById('cancDetLbl').textContent = sel.value==='Otro' ? '(obligatorio)' : '(opcional)'; });
+}
+window.modalCancelarOrden=modalCancelarOrden;
+
+async function confirmarCancelarOrden(ordenId){
+    const motivo=document.getElementById('cancMotivo').value;
+    const det=(document.getElementById('cancDetalle').value||'').trim();
+    if(motivo==='Otro' && !det){ alert('Si el motivo es "Otro", escribe el detalle: es importante saber por qué se cancela.'); return; }
+    const m=document.getElementById('modalCancel'); if(m) m.remove();
+    const motivoFinal=`${motivo}${det?': '+det:''}`;
+    showToast('Cancelando...');
+    try{
+        const ref=db.collection(COLECCION).doc(DOC_ID);
+        const _modif=(ordenes)=>{
+            const idx=ordenes.findIndex(x=>x.id===ordenId);
+            if(idx<0) throw new Error('La orden ya no existe');
+            if(ordenes[idx].estado==='finalizada') throw new Error('Esta orden ya fue FINALIZADA; no se puede cancelar.');
+            if(ordenes[idx].estado==='cancelada') throw new Error('Esta orden ya estaba cancelada.');
+            ordenes[idx].estado='cancelada';
+            ordenes[idx].motivoCancelacion=motivoFinal;
+            ordenes[idx].canceladaPor=(typeof TEC!=='undefined'&&TEC&&TEC.nombre)?TEC.nombre:'Técnico';
+            ordenes[idx].canceladaEn=Date.now();
+            ordenes[idx].actualizada=Date.now();
+        };
+        if(MODO_EMERGENCIA){
+            await _actualizarOrdenesSinLeer(_modif);
+        } else {
+            await db.runTransaction(async tx=>{
+                const snap=await tx.get(ref);
+                const data=snap.data();
+                const ordenes=data.ordenesTrabajo||[];
+                _modif(ordenes);
+                tx.update(ref, { ordenesTrabajo: ordenes });
+            });
+        }
+        showToast('❌ Orden cancelada');
+    }catch(e){ showToast('❌ '+(e.message||e), true); }
+}
+window.confirmarCancelarOrden=confirmarCancelarOrden;
 
 // ── Finalizar TRASLADO: registrar la nueva dirección y el link de Google Maps ──
 function modalFinalizarTraslado(ordenId){
