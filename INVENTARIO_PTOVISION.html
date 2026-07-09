@@ -5905,7 +5905,67 @@ window.toggleAllSN = toggleAllSN;
 function updateESelection(q){ TempLists.eSelectedSNs={}; document.querySelectorAll('#eSNArea input[type="checkbox"]:checked').forEach(cb=>TempLists.eSelectedSNs[cb.value]=true); document.querySelectorAll('#eSNArea .sn-check').forEach(el=>{const cb=el.querySelector('input[type="checkbox"]');el.classList.toggle('selected',cb.checked);}); const checked=document.querySelectorAll('#eSNArea input[type="checkbox"]:checked').length; const msg=id('eMsg'); if(q>0){if(checked===q){msg.style.color='var(--secondary)';msg.textContent='✅ Correcto';}else if(checked>q){msg.style.color='var(--danger)';msg.textContent=`⚠️ ${checked}/${q}`;}else{msg.style.color='var(--warning)';msg.textContent=`⏳ ${checked}/${q}`;}} }
 function addEItem() { const mId=id('eMat').value, q=parseInt(id('eCant').value); if(!mId||!q) return alert('Datos inválidos'); const bId=id('eBod').value, b=DB.bodegas.find(x=>x.id===bId), m=b.materiales.find(x=>x.id===mId); let snes=[]; if(m.snes.length>0){snes=Object.keys(TempLists.eSelectedSNs);if(snes.length!==q) return alert(`Seleccione ${q} SNs`);} const inList=TempLists.eItems.find(x=>x.id===mId)?.cant||0; if(q+inList>m.cantidad) return alert('Stock insuficiente'); const exist=TempLists.eItems.find(x=>x.id===mId); if(exist){exist.cant+=q;exist.snes.push(...snes);} else TempLists.eItems.push({id:m.id,nom:m.nombre,cant:q,tipo:m.tipo,unidad:m.unidad,snes:snes}); TempLists.eSelectedSNs={}; showESNBox(); renderEList(); }
 function renderEList() { const el=id('eList'); if(!el) return; el.innerHTML=TempLists.eItems.map((it,i)=>`<div class="item-list-item"><span><strong>${it.nom}</strong> x${it.cant} ${it.unidad}${it.snes.length?' [SN:'+it.snes.join(', ')+']':''}</span><button class="btn btn-danger btn-sm" onclick="TempLists.eItems.splice(${i},1);renderEList();">✕</button></div>`).join('')||'Vacío'; }
-function saveEntregaLogic() { const b=DB.bodegas.find(x=>x.id===id('eBod').value), c=DB.cuadrillas.find(x=>x.id===id('eCuad').value); TempLists.eItems.forEach(it => { const m=b.materiales.find(x=>x.id===it.id); m.cantidad-=it.cant; it.snes.forEach(s=>{const idx=m.snes.indexOf(s);if(idx>-1)m.snes.splice(idx,1);}); const ex=c.materiales.find(x=>x.nombre===it.nom&&x.tipo===it.tipo); if(ex){ex.cantidad+=it.cant;if(it.snes.length)ex.snes.push(...it.snes);}else c.materiales.push({id:Date.now().toString(),nombre:it.nom,cantidad:it.cant,tipo:it.tipo,unidad:it.unidad,snes:it.snes,fecha:new Date().toLocaleDateString()}); }); DB.entregas.push({id:Date.now().toString(),bodegaId:b.id,bodega:b.nombre,cuadrillaId:c.id,cuadrilla:c.nombre,receptor:c.receptor,fecha:id('eFecha').value,mats:[...TempLists.eItems],reg:new Date().toISOString()}); logMsg(`Entrega ${b.nombre} ➜ ${c.nombre}`); save(); closeModal(); renderTab('entregas'); }
+// ════════════════════════════════════════════════════════════════════
+// ENTREGA DE MATERIAL — v74, CON TRANSACCIÓN MULTI-DOCUMENTO.
+// ANTES: descontaba la bodega y sumaba a la cuadrilla en la MEMORIA local y
+// guardaba después (con retraso) — dos sesiones entregando al tiempo se pisaban
+// el stock. AHORA: una transacción lee FRESCOS inventario/datos y el historial,
+// valida el stock y los seriales sobre esos datos frescos, descuenta la bodega,
+// suma a la cuadrilla y registra la entrega — todo atómico. Si otra sesión
+// escribe al mismo tiempo, Firestore reintenta solo.
+// ════════════════════════════════════════════════════════════════════
+async function saveEntregaLogic() {
+    const bodegaId=id('eBod').value, cuadrillaId=id('eCuad').value, fechaEnt=id('eFecha').value;
+    const items=JSON.parse(JSON.stringify(TempLists.eItems||[]));
+    if(!items.length||!bodegaId||!cuadrillaId) return alert('Faltan datos');
+    if(!window._fbTransaccionInvMulti){ alert('⚠️ La conexión aún no está lista. Espera unos segundos e intenta de nuevo.'); return; }
+    if(window.mostrarOverlayGuardado) window.mostrarOverlayGuardado('Registrando entrega...');
+    try{
+        const resultado = await window._fbTransaccionInvMulti((datos, hist)=>{
+            const bodegas=datos.bodegas||[], cuadrillas=datos.cuadrillas||[];
+            const b=bodegas.find(x=>String(x.id)===String(bodegaId));
+            const c=cuadrillas.find(x=>String(x.id)===String(cuadrillaId));
+            if(!b) throw new Error('La bodega ya no existe en la nube.');
+            if(!c) throw new Error('La cuadrilla ya no existe en la nube.');
+            // Validar TODO sobre los datos frescos antes de tocar nada
+            const problemas=[];
+            items.forEach(it=>{
+                const m=(b.materiales||[]).find(x=>x.id===it.id);
+                if(!m){ problemas.push(`"${it.nom}" ya no está en la bodega.`); return; }
+                if((m.cantidad||0)<it.cant) problemas.push(`"${it.nom}": pediste ${it.cant} y quedan ${m.cantidad||0} (otra sesión entregó mientras tanto).`);
+                (it.snes||[]).forEach(sn=>{ if(!(m.snes||[]).includes(sn)) problemas.push(`Serial ${sn} de "${it.nom}" ya no está disponible.`); });
+            });
+            if(problemas.length) throw new Error('El stock cambió mientras preparabas la entrega:\n\n'+problemas.join('\n')+'\n\nRevisa y arma la entrega de nuevo.');
+            // Aplicar sobre los datos FRESCOS (misma lógica de siempre)
+            items.forEach(it=>{
+                const m=b.materiales.find(x=>x.id===it.id);
+                m.cantidad-=it.cant;
+                (it.snes||[]).forEach(s=>{ const ix=(m.snes||[]).indexOf(s); if(ix>-1)m.snes.splice(ix,1); });
+                if(!c.materiales) c.materiales=[];
+                const ex=c.materiales.find(x=>x.nombre===it.nom&&x.tipo===it.tipo);
+                if(ex){ ex.cantidad+=it.cant; if((it.snes||[]).length){ if(!ex.snes)ex.snes=[]; ex.snes.push(...it.snes); } }
+                else c.materiales.push({id:Date.now().toString()+Math.floor(Math.random()*100),nombre:it.nom,cantidad:it.cant,tipo:it.tipo,unidad:it.unidad,snes:it.snes||[],fecha:new Date().toLocaleDateString()});
+            });
+            const entregas=Array.isArray(hist.entregas)?hist.entregas:[];
+            entregas.push({id:Date.now().toString(),bodegaId:b.id,bodega:b.nombre,cuadrillaId:c.id,cuadrilla:c.nombre,receptor:c.receptor,fecha:fechaEnt,mats:items,reg:new Date().toISOString()});
+            return { datos:{ bodegas, cuadrillas }, hist:{ entregas } };
+        });
+        // Reflejar en memoria EXACTAMENTE lo que quedó en la nube
+        if(resultado){
+            if(resultado.datos){ DB.bodegas=resultado.datos.bodegas; DB.cuadrillas=resultado.datos.cuadrillas; }
+            if(resultado.hist && resultado.hist.entregas) DB.entregas=resultado.hist.entregas;
+        }
+        if(window.ocultarOverlayGuardado) window.ocultarOverlayGuardado(true);
+        const bN=(DB.bodegas.find(x=>String(x.id)===String(bodegaId))||{}).nombre||'';
+        const cN=(DB.cuadrillas.find(x=>String(x.id)===String(cuadrillaId))||{}).nombre||'';
+        logMsg(`Entrega ${bN} ➜ ${cN}`);
+        closeModal(); renderTab('entregas');
+    }catch(e){
+        console.error('saveEntregaLogic:', e);
+        if(window.ocultarOverlayGuardado) window.ocultarOverlayGuardado(false);
+        alert('❌ No se registró la entrega.\n\n'+(e.message||e));
+    }
+}
 function delEntrega(eid) { if(USER.role!=='admin') return alert('Solo el administrador puede eliminar entregas.'); if(!confirm('¿Eliminar esta entrega? El stock NO se devuelve.')) return; DB.entregas=DB.entregas.filter(x=>x.id!==eid); logMsg('Admin eliminó entrega'); save(); renderTab('entregas'); }
 
 // INSTALACIONES
@@ -7761,7 +7821,7 @@ const HISTORIAL_DOC = 'inventario/historial';
 // Campos que SOLO escribe Inventario (Técnicos no los toca) y que solo crecen.
 // Se guardan en un documento aparte para que inventario/datos no llegue al tope de 1MB.
 const HISTORIAL_FIELDS = ['editRequests','entregas','cuartos','logs','transfers','deleteRequests','ventas'];
-const APP_VERSION_INV = 73; // ⬆️ Subir en cada versión publicada de Inventario (v73: al CONFIRMAR un consumo de cliente, el material queda anotado AUTOMATICAMENTE en la ficha del cliente — seccion "🧰 Material instalado" — emparejando primero por CEDULA (que ahora envia el tecnico v69) y si no por nombre; si no se encuentra el cliente, avisa claro y el boton "Sincronizar material con clientes" (tambien mejorado con cedula) queda como red de seguridad. Incluye v72: [1] confirmación de consumos con TRANSACCIÓN — el descuento a la cuadrilla ya no se puede revertir por una sincronización cruzada; [2] config Firebase integrada — no vuelve a pedirla; [3] login con ojito 👁️ y Enter; [4] BLINDAJE: guardas anti-borrado de clientes (carga incompleta o encogimiento drástico NO reescriben la nube), firma para no reescribir chunks sin cambios, carga de clientes en paralelo con reintentos, COLA de guardado (nunca se solapan), fusión de envíos recientes de técnicos antes de guardar, y fotos pequeñas ya no se recomprimen)
+const APP_VERSION_INV = 74; // ⬆️ Subir en cada versión publicada de Inventario (v74: FUSION UNIVERSAL ENTRE SESIONES — el trabajo simultaneo de varias bodegas y tecnicos ya no se pisa: al guardar se fusiona con la nube fresca (datos + historial), lo de otras sesiones se incorpora, los borrados propios dejan LAPIDA y no reviven, las decisiones ajenas (confirmados/integrados/aceptados) se respetan, y un snapshot ya no borra de la pantalla lo recien creado (se conserva y reenvia solo). ENTREGAS ahora con TRANSACCION multi-documento: valida el stock y los seriales sobre datos FRESCOS (si otra sesion entrego mientras tanto, avisa claro), descuenta bodega + suma cuadrilla + registra la entrega de forma atomica. Incluye v73: al CONFIRMAR un consumo de cliente, el material queda anotado AUTOMATICAMENTE en la ficha del cliente — seccion "🧰 Material instalado" — emparejando primero por CEDULA (que ahora envia el tecnico v69) y si no por nombre; si no se encuentra el cliente, avisa claro y el boton "Sincronizar material con clientes" (tambien mejorado con cedula) queda como red de seguridad. Incluye v72: [1] confirmación de consumos con TRANSACCIÓN — el descuento a la cuadrilla ya no se puede revertir por una sincronización cruzada; [2] config Firebase integrada — no vuelve a pedirla; [3] login con ojito 👁️ y Enter; [4] BLINDAJE: guardas anti-borrado de clientes (carga incompleta o encogimiento drástico NO reescriben la nube), firma para no reescribir chunks sin cambios, carga de clientes en paralelo con reintentos, COLA de guardado (nunca se solapan), fusión de envíos recientes de técnicos antes de guardar, y fotos pequeñas ya no se recomprimen)
 const CHUNK_SIZE = 800; // clients per document - allows ~10000 clients
 
 // Helper: split array into chunks
@@ -8044,35 +8104,27 @@ async function _fbSaveCore(conOverlay) {
     if(conOverlay && window.mostrarOverlayGuardado) window.mostrarOverlayGuardado('Guardando...');
     window._pendingClienteSave = 'active';
     try {
-        // 🛡️ Fusión de envíos recientes de técnicos (lectura fresca de la nube)
+        // 🤝 v74: FUSIÓN UNIVERSAL con la nube fresca (datos + historial en paralelo).
+        // Cubre y supera la antigua fusión de técnicos: lo que otras sesiones o
+        // técnicos crearon se incorpora, los borrados propios dejan lápida (no
+        // reviven en ningún lado) y las decisiones ajenas ya tomadas se respetan.
         try {
-            const frescoSnap = await getDoc(doc(fsDB, DB_DOC));
-            if(frescoSnap.exists()){
-                const fresco = frescoSnap.data();
-                const LIMITE_MS = 10*60*1000; // solo registros creados en los últimos 10 minutos
-                let incorporados = 0;
-                CAMPOS_DE_TECNICOS.forEach(campo=>{
-                    const rem = Array.isArray(fresco[campo]) ? fresco[campo] : [];
-                    if(!Array.isArray(window.DB[campo])) window.DB[campo] = [];
-                    const loc = window.DB[campo];
-                    const idsLoc = new Set(loc.map(x=>x && x.id));
-                    rem.forEach(item=>{
-                        if(!item || !item.id || idsLoc.has(item.id)) return;
-                        const ts = parseInt(item.id, 10); // los ids son Date.now() en texto
-                        if(isFinite(ts) && ts > 1000000000000 && (Date.now()-ts) < LIMITE_MS){
-                            loc.push(item); incorporados++;
-                        }
-                    });
-                });
-                if(incorporados) console.log(`🛡️ Fusión: ${incorporados} registro(s) reciente(s) de técnicos incorporado(s) antes de guardar.`);
-            }
-        } catch(eM){ console.warn('Fusión de campos de técnicos (no crítico):', eM); }
+            const [frescoSnap, frescoHistSnap] = await Promise.all([
+                getDoc(doc(fsDB, DB_DOC)),
+                getDoc(doc(fsDB, HISTORIAL_DOC))
+            ]);
+            window._fusionarConNubeInv(
+                frescoSnap.exists() ? frescoSnap.data() : null,
+                frescoHistSnap.exists() ? frescoHistSnap.data() : null
+            );
+        } catch(eM){ console.warn('Fusión universal (no crítico):', eM); }
 
         const { dbCopy, clientes, historial } = await prepareDbCopy();
         await setDoc(doc(fsDB, DB_DOC), dbCopy);
         await saveClienteChunks(clientes);
         await saveHistorial(historial);
         showSync('ok','Guardado ✓');
+        try{ window._fotoIdsRemotosInv(dbCopy, historial); }catch(eF){} // v74: lo recién escrito ES el estado remoto
         if(conOverlay && window.ocultarOverlayGuardado) window.ocultarOverlayGuardado(true);
     } catch(e) {
         showSync('err','Error al guardar');
@@ -8134,6 +8186,111 @@ async function startFirebase(config) {
             tx.update(ref, cambios);
             return cambios;
         });
+    };
+
+    // 🔒 TRANSACCIÓN MULTI-DOCUMENTO (v74): para flujos que tocan inventario/datos
+    // Y el historial a la vez (p.ej. una ENTREGA: descuenta bodega + suma cuadrilla
+    // + registra la entrega). Todo se lee FRESCO y se escribe atómico: si otra
+    // sesión escribe al tiempo, Firestore reintenta solo.
+    const refHist = doc(fsDB, HISTORIAL_DOC);
+    window._fbTransaccionInvMulti = async function(modifFn){
+        return await runTransaction(fsDB, async (tx)=>{
+            const [sD, sH] = [await tx.get(ref), await tx.get(refHist)];
+            if(!sD.exists()) throw new Error('No se encontró inventario/datos en la nube');
+            const datos = sD.data();
+            const hist = sH.exists() ? sH.data() : {};
+            const r = modifFn(datos, hist);
+            if(!r) return null;
+            if(r.datos && Object.keys(r.datos).length) tx.update(ref, r.datos);
+            if(r.hist && Object.keys(r.hist).length){
+                if(sH.exists()) tx.update(refHist, r.hist); else tx.set(refHist, r.hist);
+            }
+            return r;
+        });
+    };
+
+    // ════════════════════════════════════════════════════════════════
+    // 🤝 FUSIÓN UNIVERSAL ENTRE SESIONES (v74) — mismo motor que OFICINAS v174.
+    // El guardado de INVENTARIO escribe los documentos COMPLETOS desde la memoria
+    // de cada sesión; con varias bodegas + técnicos trabajando al tiempo, el
+    // segundo en guardar pisaba lo del primero. Ahora, antes de escribir:
+    //  · Registro remoto que NUNCA vi → lo creó otra sesión/técnico → SE INCORPORA.
+    //  · Registro remoto que SÍ había visto y ya no tengo → YO lo borré → LÁPIDA
+    //    (los demás lo sueltan y no revive).
+    //  · Registro 'pendiente' aquí pero ya RESUELTO en la nube → la decisión ajena
+    //    se respeta (no se revierte un confirmado/integrado/aceptado).
+    // Y al RECIBIR un snapshot: lo recién creado aquí (aún en vuelo) no se borra
+    // de la pantalla; se conserva y se reenvía solo.
+    // ════════════════════════════════════════════════════════════════
+    const COLS_DATOS_INV = ['bodegas','cuadrillas','recuperados','consumosPendientes','instalaciones','equiposDanados','equiposPendientesTecnico'];
+    const COLS_HIST_INV = ['entregas','ventas','transfers','cuartos','deleteRequests','editRequests'];
+    window._fotoIdsRemotosInv = function(datos, hist){
+        const foto = window._idsRemotosInv || {d:{}, h:{}};
+        if(datos) COLS_DATOS_INV.forEach(c=>{ foto.d[c]=new Set(((datos[c])||[]).map(x=>x&&x.id).filter(Boolean)); });
+        if(hist) COLS_HIST_INV.forEach(c=>{ foto.h[c]=new Set(((hist[c])||[]).map(x=>x&&x.id).filter(Boolean)); });
+        window._idsRemotosInv = foto;
+    };
+    const _tumbaInv=(ts,col,id)=> (ts||[]).some(t=>t&&t.col===col&&t.id===id);
+    const _podarTumbasInv=(l)=>{ const corte=Date.now()-15*24*3600*1000; let x=(l||[]).filter(t=>t&&t.en>corte); if(x.length>800)x=x.slice(-800); return x; };
+    function _fusionarListasInv(cols, remoto, fotoLado, tumbas){
+        let inc=0, tn=0, sol=0;
+        cols.forEach(col=>{
+            const rem=Array.isArray(remoto[col])?remoto[col]:[];
+            if(!Array.isArray(window.DB[col])) window.DB[col]=[];
+            const antes=window.DB[col].length;
+            window.DB[col]=window.DB[col].filter(x=>!(x&&x.id&&_tumbaInv(tumbas,col,x.id)));
+            sol+=antes-window.DB[col].length;
+            const locMap=new Map(window.DB[col].filter(x=>x&&x.id).map(x=>[x.id,x]));
+            const visto=(fotoLado&&fotoLado[col])||new Set();
+            rem.forEach(item=>{
+                if(!item||!item.id) return;
+                const loc=locMap.get(item.id);
+                if(loc){
+                    // decisión ajena ya tomada (pendiente → confirmado/integrado/aceptado) se respeta
+                    if(loc.estado==='pendiente' && item.estado && item.estado!=='pendiente') Object.assign(loc, item);
+                    return; // demás conflictos: gana esta sesión (acaba de actuar)
+                }
+                if(_tumbaInv(tumbas,col,item.id)) return;
+                if(visto.has(item.id)){ tumbas.push({col,id:item.id,en:Date.now()}); tn++; }
+                else { window.DB[col].push(item); inc++; }
+            });
+        });
+        return {inc,tn,sol};
+    }
+    window._fusionarConNubeInv = function(frescoDatos, frescoHist){
+        const tumbas = _podarTumbasInv([
+            ...(Array.isArray(window.DB._tumbas)?window.DB._tumbas:[]),
+            ...((frescoDatos&&Array.isArray(frescoDatos._tumbas))?frescoDatos._tumbas:[])
+                .filter(t=>t&&!(window.DB._tumbas||[]).some(x=>x&&x.col===t.col&&x.id===t.id))
+        ]);
+        const foto = window._idsRemotosInv || {d:{}, h:{}};
+        const r1 = frescoDatos ? _fusionarListasInv(COLS_DATOS_INV, frescoDatos, foto.d, tumbas) : {inc:0,tn:0,sol:0};
+        const r2 = frescoHist ? _fusionarListasInv(COLS_HIST_INV, frescoHist, foto.h, tumbas) : {inc:0,tn:0,sol:0};
+        window.DB._tumbas = _podarTumbasInv(tumbas);
+        const tot=(a,b)=>a+b;
+        if(r1.inc+r2.inc+r1.tn+r2.tn+r1.sol+r2.sol>0)
+            console.log(`🤝 Fusión: ${r1.inc+r2.inc} registro(s) de otras sesiones incorporado(s) · ${r1.tn+r2.tn} lápida(s) por borrados propios · ${r1.sol+r2.sol} soltado(s) por borrados ajenos.`);
+    };
+    window._protegerSnapshotInv = function(entrante, cols, fotoLado, tumbas){
+        let preservados=0;
+        cols.forEach(col=>{
+            const arrEnt=Array.isArray(entrante[col])?entrante[col]:[];
+            const idsEnt=new Set(arrEnt.map(x=>x&&x.id).filter(Boolean));
+            const visto=(fotoLado&&fotoLado[col])||new Set();
+            (Array.isArray(window.DB[col])?window.DB[col]:[]).forEach(item=>{
+                if(!item||!item.id||idsEnt.has(item.id)) return;
+                if(visto.has(item.id)) return;                 // estaba y ya no: borrado ajeno → se va
+                if(_tumbaInv(tumbas,col,item.id)) return;      // lápida → se va
+                arrEnt.push(item); preservados++;              // creación en vuelo → se conserva
+            });
+            entrante[col]=arrEnt;
+        });
+        if(preservados>0 && !window._reenvioInvProgramado){
+            window._reenvioInvProgramado=true;
+            console.log(`🛡️ Snapshot: ${preservados} registro(s) de esta sesión (en vuelo) preservados; se reenviarán solos.`);
+            setTimeout(()=>{ window._reenvioInvProgramado=false; try{ window._fbSave(); }catch(e){} }, 1500);
+        }
+        return preservados;
     };
 
     // ── CONTROL DE VERSIÓN (bloqueo total si hay versión nueva) ──
@@ -8198,6 +8355,7 @@ async function startFirebase(config) {
     document.getElementById('login-screen').style.display='flex';
 
     // ── SISTEMA DE TIEMPO REAL ──────────────────────────────────────────────
+    try{ window._fotoIdsRemotosInv(window.DB, window.DB); }catch(eF){} // v74: foto inicial del estado remoto
     // Track de cambios locales para distinguir nuestros propios saves
     window._localSaveTimestamp = 0;
     window._lastSyncTimestamp = 0;
@@ -8210,7 +8368,13 @@ async function startFirebase(config) {
         // Preservar campos de historial (viven en inventario/historial, los maneja su propio listener)
         const prevHist = {};
         HISTORIAL_FIELDS.forEach(f => { prevHist[f] = window.DB[f]; });
-        Object.assign(window.DB, s.data());
+        // 🛡️ v74: lo recién creado en ESTA sesión (aún en vuelo hacia la nube) no se
+        // borra de la pantalla; se conserva y se reenvía solo. Los borrados ajenos
+        // (con lápida) sí se aplican.
+        const entrante = s.data();
+        try{ window._protegerSnapshotInv(entrante, COLS_DATOS_INV, (window._idsRemotosInv||{}).d, entrante._tumbas||window.DB._tumbas); }catch(eP){}
+        Object.assign(window.DB, entrante);
+        try{ window._fotoIdsRemotosInv(entrante, null); }catch(eF){}
         window.DB.clientes = prevClientes;
         HISTORIAL_FIELDS.forEach(f => { if(prevHist[f] !== undefined) window.DB[f] = prevHist[f]; });
         if(window.fixDB) window.fixDB();
@@ -8235,7 +8399,9 @@ async function startFirebase(config) {
     onSnapshot(doc(fsDB, HISTORIAL_DOC), (s)=>{
         if(!s.exists()) return;
         const h = s.data();
+        try{ window._protegerSnapshotInv(h, COLS_HIST_INV, (window._idsRemotosInv||{}).h, window.DB._tumbas); }catch(eP){}
         HISTORIAL_FIELDS.forEach(f => { if(Array.isArray(h[f])) window.DB[f] = h[f]; });
+        try{ window._fotoIdsRemotosInv(null, h); }catch(eF){}
         if(window.fixDB) window.fixDB();
         if(window.USER && window.renderTab) {
             const tab = document.querySelector('.nav-btn.active')?.dataset?.tab || 'dash';
