@@ -7821,7 +7821,7 @@ const HISTORIAL_DOC = 'inventario/historial';
 // Campos que SOLO escribe Inventario (Técnicos no los toca) y que solo crecen.
 // Se guardan en un documento aparte para que inventario/datos no llegue al tope de 1MB.
 const HISTORIAL_FIELDS = ['editRequests','entregas','cuartos','logs','transfers','deleteRequests','ventas'];
-const APP_VERSION_INV = 74; // ⬆️ Subir en cada versión publicada de Inventario (v74: FUSION UNIVERSAL ENTRE SESIONES — el trabajo simultaneo de varias bodegas y tecnicos ya no se pisa: al guardar se fusiona con la nube fresca (datos + historial), lo de otras sesiones se incorpora, los borrados propios dejan LAPIDA y no reviven, las decisiones ajenas (confirmados/integrados/aceptados) se respetan, y un snapshot ya no borra de la pantalla lo recien creado (se conserva y reenvia solo). ENTREGAS ahora con TRANSACCION multi-documento: valida el stock y los seriales sobre datos FRESCOS (si otra sesion entrego mientras tanto, avisa claro), descuenta bodega + suma cuadrilla + registra la entrega de forma atomica. Incluye v73: al CONFIRMAR un consumo de cliente, el material queda anotado AUTOMATICAMENTE en la ficha del cliente — seccion "🧰 Material instalado" — emparejando primero por CEDULA (que ahora envia el tecnico v69) y si no por nombre; si no se encuentra el cliente, avisa claro y el boton "Sincronizar material con clientes" (tambien mejorado con cedula) queda como red de seguridad. Incluye v72: [1] confirmación de consumos con TRANSACCIÓN — el descuento a la cuadrilla ya no se puede revertir por una sincronización cruzada; [2] config Firebase integrada — no vuelve a pedirla; [3] login con ojito 👁️ y Enter; [4] BLINDAJE: guardas anti-borrado de clientes (carga incompleta o encogimiento drástico NO reescriben la nube), firma para no reescribir chunks sin cambios, carga de clientes en paralelo con reintentos, COLA de guardado (nunca se solapan), fusión de envíos recientes de técnicos antes de guardar, y fotos pequeñas ya no se recomprimen)
+const APP_VERSION_INV = 75; // ⬆️ Subir en cada versión publicada de Inventario (v75: GUARDADO MAS RAPIDO — la fusion usa la copia del listener cuando tiene <15s (cero descargas extra, misma proteccion); si esta vieja, lee de la red como siempre. Incluye v74: FUSION UNIVERSAL ENTRE SESIONES — el trabajo simultaneo de varias bodegas y tecnicos ya no se pisa: al guardar se fusiona con la nube fresca (datos + historial), lo de otras sesiones se incorpora, los borrados propios dejan LAPIDA y no reviven, las decisiones ajenas (confirmados/integrados/aceptados) se respetan, y un snapshot ya no borra de la pantalla lo recien creado (se conserva y reenvia solo). ENTREGAS ahora con TRANSACCION multi-documento: valida el stock y los seriales sobre datos FRESCOS (si otra sesion entrego mientras tanto, avisa claro), descuenta bodega + suma cuadrilla + registra la entrega de forma atomica. Incluye v73: al CONFIRMAR un consumo de cliente, el material queda anotado AUTOMATICAMENTE en la ficha del cliente — seccion "🧰 Material instalado" — emparejando primero por CEDULA (que ahora envia el tecnico v69) y si no por nombre; si no se encuentra el cliente, avisa claro y el boton "Sincronizar material con clientes" (tambien mejorado con cedula) queda como red de seguridad. Incluye v72: [1] confirmación de consumos con TRANSACCIÓN — el descuento a la cuadrilla ya no se puede revertir por una sincronización cruzada; [2] config Firebase integrada — no vuelve a pedirla; [3] login con ojito 👁️ y Enter; [4] BLINDAJE: guardas anti-borrado de clientes (carga incompleta o encogimiento drástico NO reescriben la nube), firma para no reescribir chunks sin cambios, carga de clientes en paralelo con reintentos, COLA de guardado (nunca se solapan), fusión de envíos recientes de técnicos antes de guardar, y fotos pequeñas ya no se recomprimen)
 const CHUNK_SIZE = 800; // clients per document - allows ~10000 clients
 
 // Helper: split array into chunks
@@ -8108,15 +8108,27 @@ async function _fbSaveCore(conOverlay) {
         // Cubre y supera la antigua fusión de técnicos: lo que otras sesiones o
         // técnicos crearon se incorpora, los borrados propios dejan lápida (no
         // reviven en ningún lado) y las decisiones ajenas ya tomadas se respetan.
+        // 🛡️ v75: foto previa para marcar creaciones MÍAS de este guardado (90s de protección)
+        const _fotoAntesInv = window._idsRemotosInv
+            ? { d:Object.fromEntries(Object.entries(window._idsRemotosInv.d||{}).map(([k,s])=>[k,new Set(s)])),
+                h:Object.fromEntries(Object.entries(window._idsRemotosInv.h||{}).map(([k,s])=>[k,new Set(s)])) }
+            : null;
         try {
-            const [frescoSnap, frescoHistSnap] = await Promise.all([
-                getDoc(doc(fsDB, DB_DOC)),
-                getDoc(doc(fsDB, HISTORIAL_DOC))
-            ]);
-            window._fusionarConNubeInv(
-                frescoSnap.exists() ? frescoSnap.data() : null,
-                frescoHistSnap.exists() ? frescoHistSnap.data() : null
-            );
+            // ⚡ v75: si los listeners entregaron el estado remoto hace <15s, se fusiona
+            // con ESA copia (misma protección, cero descargas). Si no, se lee de la red.
+            const _cd=window._cacheRemDatosInv, _ch=window._cacheRemHistInv;
+            const _okD=!!(_cd && (Date.now()-_cd.ts)<15000), _okH=!!(_ch && (Date.now()-_ch.ts)<15000);
+            let _fd=null, _fh=null;
+            if(_okD && _okH){ _fd=_cd.data; _fh=_ch.data; console.log('⚡ Fusión con caché del listener (sin descargas)'); }
+            else {
+                const [frescoSnap, frescoHistSnap] = await Promise.all([
+                    getDoc(doc(fsDB, DB_DOC)),
+                    getDoc(doc(fsDB, HISTORIAL_DOC))
+                ]);
+                _fd=frescoSnap.exists()?frescoSnap.data():null;
+                _fh=frescoHistSnap.exists()?frescoHistSnap.data():null;
+            }
+            window._fusionarConNubeInv(_fd, _fh);
         } catch(eM){ console.warn('Fusión universal (no crítico):', eM); }
 
         const { dbCopy, clientes, historial } = await prepareDbCopy();
@@ -8125,6 +8137,15 @@ async function _fbSaveCore(conOverlay) {
         await saveHistorial(historial);
         showSync('ok','Guardado ✓');
         try{ window._fotoIdsRemotosInv(dbCopy, historial); }catch(eF){} // v74: lo recién escrito ES el estado remoto
+        try{ window._cacheRemDatosInv={data:dbCopy, ts:Date.now()}; window._cacheRemHistInv={data:JSON.parse(JSON.stringify(historial)), ts:Date.now()}; }catch(eC){} // v75
+        try{ // v75: marcar mis creaciones (contra pisadas ajenas sin lápida)
+            if(!(window._creadosPorMiInv instanceof Map)) window._creadosPorMiInv=new Map();
+            const _ahora=Date.now();
+            const marcar=(cols,fuente,lado)=>cols.forEach(col=>{ const prev=(_fotoAntesInv&&_fotoAntesInv[lado]&&_fotoAntesInv[lado][col])||new Set(); ((fuente&&fuente[col])||[]).forEach(x=>{ if(x&&x.id&&!prev.has(x.id)) window._creadosPorMiInv.set(col+'│'+x.id,_ahora); }); });
+            marcar(['bodegas','cuadrillas','recuperados','consumosPendientes','instalaciones','equiposDanados','equiposPendientesTecnico'], dbCopy, 'd');
+            marcar(['entregas','ventas','transfers','cuartos','deleteRequests','editRequests'], historial, 'h');
+            window._creadosPorMiInv.forEach((ts,k)=>{ if(_ahora-ts>90000) window._creadosPorMiInv.delete(k); });
+        }catch(eC){}
         if(conOverlay && window.ocultarOverlayGuardado) window.ocultarOverlayGuardado(true);
     } catch(e) {
         showSync('err','Error al guardar');
@@ -8279,8 +8300,13 @@ async function startFirebase(config) {
             const visto=(fotoLado&&fotoLado[col])||new Set();
             (Array.isArray(window.DB[col])?window.DB[col]:[]).forEach(item=>{
                 if(!item||!item.id||idsEnt.has(item.id)) return;
-                if(visto.has(item.id)) return;                 // estaba y ya no: borrado ajeno → se va
-                if(_tumbaInv(tumbas,col,item.id)) return;      // lápida → se va
+                if(_tumbaInv(tumbas,col,item.id)) return;      // lápida → borrado real → se va
+                if(visto.has(item.id)){
+                    // v75: creación MÍA reciente pisada por una escritura ajena vieja (sin lápida) → se conserva
+                    const ts=(window._creadosPorMiInv instanceof Map)?window._creadosPorMiInv.get(col+'│'+item.id):null;
+                    if(ts && (Date.now()-ts)<90000){ arrEnt.push(item); preservados++; }
+                    return;
+                }
                 arrEnt.push(item); preservados++;              // creación en vuelo → se conserva
             });
             entrante[col]=arrEnt;
@@ -8375,6 +8401,7 @@ async function startFirebase(config) {
         try{ window._protegerSnapshotInv(entrante, COLS_DATOS_INV, (window._idsRemotosInv||{}).d, entrante._tumbas||window.DB._tumbas); }catch(eP){}
         Object.assign(window.DB, entrante);
         try{ window._fotoIdsRemotosInv(entrante, null); }catch(eF){}
+        try{ window._cacheRemDatosInv={data:JSON.parse(JSON.stringify(entrante)), ts:Date.now()}; }catch(eC){} // v75
         window.DB.clientes = prevClientes;
         HISTORIAL_FIELDS.forEach(f => { if(prevHist[f] !== undefined) window.DB[f] = prevHist[f]; });
         if(window.fixDB) window.fixDB();
@@ -8402,6 +8429,7 @@ async function startFirebase(config) {
         try{ window._protegerSnapshotInv(h, COLS_HIST_INV, (window._idsRemotosInv||{}).h, window.DB._tumbas); }catch(eP){}
         HISTORIAL_FIELDS.forEach(f => { if(Array.isArray(h[f])) window.DB[f] = h[f]; });
         try{ window._fotoIdsRemotosInv(null, h); }catch(eF){}
+        try{ window._cacheRemHistInv={data:JSON.parse(JSON.stringify(h)), ts:Date.now()}; }catch(eC){} // v75
         if(window.fixDB) window.fixDB();
         if(window.USER && window.renderTab) {
             const tab = document.querySelector('.nav-btn.active')?.dataset?.tab || 'dash';
