@@ -2959,6 +2959,7 @@ function modalVerEquipo(qId, rId, eqId) {
         + '<p><strong>Observaciones:</strong> '+(eq.observaciones||'-')+'</p>'
         + '<hr style="margin:12px 0;">'
         + '<h4>🔌 Puertos ('+puertosUsados+'/'+((eq.puertos||[]).length)+')</h4>'
+        + (function(){ const h=_huerfanosDeEquipo(eq); return h.length?('<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:8px 10px;margin:6px 0;font-size:0.8rem;">⚠️ <strong>'+h.length+' puerto(s) OCUPADOS sin ninguna conexión que los respalde</strong> ('+h.slice(0,10).map(p=>p.nombre||p.id).join(', ')+(h.length>10?'…':'')+') — quedaron huérfanos (p.ej. al borrar un rack o por un choque de sesiones). <button class="btn btn-sm" style="background:#f59e0b;color:#fff;" onclick="liberarPuertosHuerfanos(\''+qId+'\',\''+eq.id+'\')">🧹 Liberarlos</button></div>'):''; })()
         + '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px;">'+(puertosHtml||'<p class="text-muted">Sin puertos definidos.</p>')+'</div>'
         + '<hr style="margin:12px 0;">'
         + '<h4>🔗 Conexiones ('+conexiones.length+')</h4>'
@@ -3225,7 +3226,7 @@ function modalVerConexiones(qId) {
                     + '<td><strong>'+(d?.nombre||'?')+'</strong><br><small class="text-muted">'+(d?.rackNombre||'')+'</small>'+dExtra+'</td>'
                     + '<td><span class="sn-tag">'+(cn.puertoDestinoNombre||cn.puertoDestino||'-')+'</span></td>'
                     + '<td><span style="display:inline-block;width:14px;height:3px;background:'+colorBar+';vertical-align:middle;margin-right:4px;"></span>'+(cn.tipoCable||'-')+(cn.descripcion?'<br><small class="text-muted">'+cn.descripcion+'</small>':'')+'</td>'
-                    + '<td><button class="btn btn-danger btn-sm" onclick="eliminarConexion(\''+qId+'\',\''+cn.id+'\')">🗑️</button></td>'
+                    + '<td style="white-space:nowrap;"><button class="btn btn-outline btn-sm" onclick="modalEditConexion(\''+qId+'\',\''+cn.id+'\')" title="Editar puertos, cable o notas">✏️</button> <button class="btn btn-danger btn-sm" onclick="eliminarConexion(\''+qId+'\',\''+cn.id+'\')">🗑️</button></td>'
                     + '</tr>';
             }).join('') + '</tbody></table></div>'),
         null, 'Cerrar');
@@ -3467,6 +3468,56 @@ function descargarDiagrama(filename) {
 }
 window.descargarDiagrama = descargarDiagrama;
 
+// ════════════════════════════════════════════════════════════════════
+// 🔌 INTEGRIDAD DE PUERTOS Y CONEXIONES (v76)
+// El "ocupado" de cada puerto es una bandera separada de la lista de conexiones,
+// y podían divergir (puertos OCUPADOS sin conexión que los respalde — huérfanos —
+// p.ej. al borrar un rack o por ediciones simultáneas del mismo cuarto).
+// Ahora: (1) reconciliador que recalcula la ocupación DESDE las conexiones reales,
+// (2) botón 🧹 para liberar huérfanos, y (3) TODA modificación de conexiones va
+// por TRANSACCIÓN sobre datos frescos — dos sesiones ya no se pisan y un puerto
+// no puede ocuparse dos veces.
+// ════════════════════════════════════════════════════════════════════
+function _puertosRespaldados(cuartos){
+    const set=new Set();
+    (cuartos||[]).forEach(c=>(c.conexiones||[]).forEach(cn=>{
+        if(cn&&cn.equipoOrigenId&&cn.puertoOrigenId) set.add(cn.equipoOrigenId+'|'+cn.puertoOrigenId);
+        if(cn&&cn.equipoDestinoId&&cn.puertoDestinoId) set.add(cn.equipoDestinoId+'|'+cn.puertoDestinoId);
+    }));
+    return set;
+}
+function _equiposDeCuarto(q){ const out=[]; (q.racks||[]).forEach(r=>(r.equipos||[]).forEach(e=>out.push(e))); (q.externos||[]).forEach(e=>out.push(e)); return out; }
+function _huerfanosDeEquipo(eq){
+    const set=_puertosRespaldados(DB.cuartos);
+    return (eq.puertos||[]).filter(p=>p.ocupado && !set.has(eq.id+'|'+p.id));
+}
+async function _cuartosTx(mutFn){
+    if(!window._fbTransaccionInvMulti) throw new Error('La conexión con la nube aún no está lista. Espera unos segundos e intenta de nuevo.');
+    const r=await window._fbTransaccionInvMulti((datos,hist)=>{
+        const cuartos=Array.isArray(hist.cuartos)?hist.cuartos:[];
+        mutFn(cuartos);
+        return { hist:{ cuartos } };
+    });
+    if(r&&r.hist&&r.hist.cuartos) DB.cuartos=r.hist.cuartos;
+    return r;
+}
+async function liberarPuertosHuerfanos(qId, eqId){
+    if(!confirm('🧹 Se liberarán los puertos marcados OCUPADO que NO tienen ninguna conexión que los respalde (en ningún cuarto, incluidos enlaces inter-sede).\n\n¿Continuar?')) return;
+    try{
+        let n=0; const nombres=[];
+        await _cuartosTx((cuartos)=>{
+            const set=_puertosRespaldados(cuartos);
+            const qF=cuartos.find(x=>x.id===qId); if(!qF) throw new Error('El cuarto ya no existe en la nube.');
+            const eqs=eqId?[findEquipoInCuarto(qF,eqId)].filter(Boolean):_equiposDeCuarto(qF);
+            eqs.forEach(eq=>(eq.puertos||[]).forEach(p=>{ if(p.ocupado && !set.has(eq.id+'|'+p.id)){ p.ocupado=false; n++; nombres.push(p.nombre||p.id); } }));
+        });
+        logMsg(`🧹 ${n} puerto(s) huérfano(s) liberado(s)`);
+        alert(`🧹 Listo: ${n} puerto(s) liberado(s)${nombres.length?' ('+nombres.slice(0,12).join(', ')+(nombres.length>12?'…':'')+')':''}.\n\nYa aparecerán disponibles en el selector de conexiones.`);
+        closeModal();
+    }catch(e){ alert('❌ No se pudo liberar.\n\n'+(e.message||e)); }
+}
+window.liberarPuertosHuerfanos = liberarPuertosHuerfanos;
+
 function modalAddConexion(qId) {
     const q = DB.cuartos.find(x=>x.id===qId);
     if(!q) return;
@@ -3554,50 +3605,40 @@ function modalAddConexion(qId) {
             if(ori === des && cuartoDesId === qId) return alert('Origen y destino no pueden ser el mismo');
             if(!pOri || !pDes) return alert('Seleccione puertos en ambos extremos');
 
-            const qDes = DB.cuartos.find(x=>x.id===cuartoDesId);
-
-            // Marcar puertos como ocupados
-            const eqOri = findEquipoInCuarto(q, ori);
-            const eqDes = findEquipoInCuarto(qDes, des);
-            const puertoOri = eqOri?.puertos?.find(p=>p.id===pOri);
-            const puertoDes = eqDes?.puertos?.find(p=>p.id===pDes);
-            if(puertoOri) puertoOri.ocupado = true;
-            if(puertoDes) puertoDes.ocupado = true;
-
-            const conexion = {
-                id: Date.now().toString(),
-                equipoOrigenId: ori,
-                equipoDestinoId: des,
-                puertoOrigenId: pOri,
-                puertoDestinoId: pDes,
-                puertoOrigenNombre: puertoOri?.nombre || '',
-                puertoDestinoNombre: puertoDes?.nombre || '',
-                tipoCable: id('cnTipo').value,
-                color: id('cnColor').value.trim(),
-                descripcion: id('cnDesc').value.trim(),
-                fecha: new Date().toISOString()
-            };
-
-            if(esInter && cuartoDesId !== qId) {
-                // Conexión inter-cuarto: marcar y guardar en ambos cuartos
-                conexion.interCuarto = true;
-                conexion.cuartoOrigenId = qId;
-                conexion.cuartoDestinoId = cuartoDesId;
-                conexion.cuartoOrigenNombre = q.nombre;
-                conexion.cuartoDestinoNombre = qDes.nombre;
-                if(!q.conexiones) q.conexiones = [];
-                q.conexiones.push(conexion);
-                // Guardar copia espejo en el cuarto destino
-                if(!qDes.conexiones) qDes.conexiones = [];
-                qDes.conexiones.push({...conexion, espejo:true});
-                logMsg(`Enlace inter-sede creado: ${q.nombre} ↔ ${qDes.nombre}`);
-            } else {
-                if(!q.conexiones) q.conexiones = [];
-                q.conexiones.push(conexion);
-                logMsg(`Conexión creada en ${q.nombre}`);
-            }
-
-            save(); closeModal(); modalVerConexiones(qId);
+            // v76: la creación va por TRANSACCIÓN — valida sobre datos FRESCOS
+            // (si otra sesión ocupó el puerto hace un instante, avisa y no daña nada).
+            (async()=>{ try{
+                let nombreCuarto='';
+                await _cuartosTx((cuartos)=>{
+                    const qF=cuartos.find(x=>x.id===qId), qDesF=cuartos.find(x=>x.id===cuartoDesId);
+                    if(!qF||!qDesF) throw new Error('El cuarto ya no existe en la nube.');
+                    nombreCuarto=qF.nombre;
+                    const eqOri=findEquipoInCuarto(qF, ori), eqDes=findEquipoInCuarto(qDesF, des);
+                    if(!eqOri||!eqDes) throw new Error('Uno de los equipos ya no existe en la nube (otra sesión lo modificó).');
+                    const puertoOri=(eqOri.puertos||[]).find(p=>p.id===pOri), puertoDes=(eqDes.puertos||[]).find(p=>p.id===pDes);
+                    if(!puertoOri||!puertoDes) throw new Error('Uno de los puertos ya no existe.');
+                    if(puertoOri.ocupado) throw new Error(`El puerto ${puertoOri.nombre||''} (origen) YA fue ocupado por otra sesión mientras tanto. Cierra y elige otro.`);
+                    if(puertoDes.ocupado) throw new Error(`El puerto ${puertoDes.nombre||''} (destino) YA fue ocupado por otra sesión mientras tanto. Cierra y elige otro.`);
+                    puertoOri.ocupado=true; puertoDes.ocupado=true;
+                    const conexion={
+                        id: Date.now().toString(),
+                        equipoOrigenId: ori, equipoDestinoId: des,
+                        puertoOrigenId: pOri, puertoDestinoId: pDes,
+                        puertoOrigenNombre: puertoOri.nombre||'', puertoDestinoNombre: puertoDes.nombre||'',
+                        tipoCable: id('cnTipo').value, color: id('cnColor').value.trim(),
+                        descripcion: id('cnDesc').value.trim(), fecha: new Date().toISOString()
+                    };
+                    if(esInter && cuartoDesId !== qId){
+                        Object.assign(conexion,{interCuarto:true,cuartoOrigenId:qId,cuartoDestinoId:cuartoDesId,cuartoOrigenNombre:qF.nombre,cuartoDestinoNombre:qDesF.nombre});
+                        if(!qF.conexiones) qF.conexiones=[]; qF.conexiones.push(conexion);
+                        if(!qDesF.conexiones) qDesF.conexiones=[]; qDesF.conexiones.push({...conexion, espejo:true});
+                    } else {
+                        if(!qF.conexiones) qF.conexiones=[]; qF.conexiones.push(conexion);
+                    }
+                });
+                logMsg(esInter?`Enlace inter-sede creado`:`Conexión creada en ${nombreCuarto}`);
+                closeModal(); modalVerConexiones(qId);
+            }catch(e){ alert('❌ No se creó la conexión.\n\n'+(e.message||e)); } })();
         });
 }
 window.modalAddConexion = modalAddConexion;
@@ -3659,54 +3700,86 @@ function loadPuertosCnxDes(qId) {
 }
 window.loadPuertosCnxDes = loadPuertosCnxDes;
 
+// ✏️ EDITAR CONEXIÓN (v76, reconstruido): permite mover los PUERTOS (con selector
+// real de libres + el actual), cambiar tipo de cable, color y descripción — todo por
+// transacción con validación fresca. Para cambiar de EQUIPO: elimina y crea de nuevo.
 function modalEditConexion(qId, cnId) {
-    const q = DB.cuartos.find(x=>x.id===qId);
-    const cn = q?.conexiones.find(x=>x.id===cnId);
-    if(!cn) return;
-    const todosEquipos = [];
-    (q.racks||[]).forEach(r => {
-        (r.equipos||[]).forEach(e => todosEquipos.push({...e, rackNombre:r.nombre}));
-    });
-    const opts = todosEquipos.map(e=>`<option value="${e.id}" ${e.id===cn.equipoOrigenId?'data-ori="selected"':''} ${e.id===cn.equipoDestinoId?'data-des="selected"':''}>${e.nombre} (${e.rackNombre})</option>`).join('');
+    let q = DB.cuartos.find(x=>x.id===qId);
+    let cn = q && (q.conexiones||[]).find(x=>x.id===cnId);
+    if(!cn){ q = DB.cuartos.find(c=>(c.conexiones||[]).some(x=>x.id===cnId)); cn = q && (q.conexiones||[]).find(x=>x.id===cnId); }
+    if(!q||!cn) return alert('La conexión ya no existe.');
+    const qOri = cn.interCuarto ? DB.cuartos.find(x=>x.id===cn.cuartoOrigenId) : q;
+    const qDes = cn.interCuarto ? DB.cuartos.find(x=>x.id===cn.cuartoDestinoId) : q;
+    const eqOri = qOri && findEquipoInCuarto(qOri, cn.equipoOrigenId);
+    const eqDes = qDes && findEquipoInCuarto(qDes, cn.equipoDestinoId);
+    if(!eqOri||!eqDes) return alert('Uno de los equipos de esta conexión ya no existe. Elimínala y crea una nueva.');
+    const optsPuertos=(eq, actualId)=>{
+        return (eq.puertos||[]).filter(p=>!p.ocupado || p.id===actualId)
+            .map(p=>`<option value="${p.id}" ${p.id===actualId?'selected':''}>${p.nombre} (${p.tipo})${p.id===actualId?' — actual':''}</option>`).join('');
+    };
     openModal('✏️ Editar Conexión',
-        `<div class="form-row">
-            <div class="form-group"><label>Equipo Origen *</label>
-                <select id="cnOri" class="form-control">${todosEquipos.map(e=>`<option value="${e.id}" ${e.id===cn.equipoOrigenId?'selected':''}>${e.nombre} (${e.rackNombre})</option>`).join('')}</select>
-            </div>
-            <div class="form-group"><label>Puerto Origen</label>
-                <input id="cnPOri" class="form-control" value="${cn.puertoOrigen||''}">
-            </div>
+        `<div style="background:#eff6ff;padding:8px 10px;border-radius:8px;margin-bottom:10px;font-size:0.8rem;">
+            <strong>${eqOri.nombre}</strong> ↔ <strong>${eqDes.nombre}</strong>${cn.interCuarto?' <span class="badge" style="background:#7c3aed;color:white;font-size:0.65rem;">🔗 INTER-SEDE</span>':''}
+            <br><small class="text-muted">Aquí mueves puertos, cable, color y notas. Para cambiar de equipo: elimina la conexión y crea una nueva.</small>
         </div>
         <div class="form-row">
-            <div class="form-group"><label>Equipo Destino *</label>
-                <select id="cnDes" class="form-control">${todosEquipos.map(e=>`<option value="${e.id}" ${e.id===cn.equipoDestinoId?'selected':''}>${e.nombre} (${e.rackNombre})</option>`).join('')}</select>
+            <div class="form-group"><label>Puerto en ${eqOri.nombre} *</label>
+                <select id="cnPOri" class="form-control">${optsPuertos(eqOri, cn.puertoOrigenId)}</select>
             </div>
-            <div class="form-group"><label>Puerto Destino</label>
-                <input id="cnPDes" class="form-control" value="${cn.puertoDestino||''}">
+            <div class="form-group"><label>Puerto en ${eqDes.nombre} *</label>
+                <select id="cnPDes" class="form-control">${optsPuertos(eqDes, cn.puertoDestinoId)}</select>
             </div>
         </div>
         <div class="form-row">
             <div class="form-group"><label>Tipo de cable</label>
                 <select id="cnTipo" class="form-control">
-                    ${['Fibra','UTP Cat6','UTP Cat5e','Patch SC/APC','Patch LC','Poder','Otro'].map(t=>`<option value="${t}" ${t===cn.tipoCable?'selected':''}>${t}</option>`).join('')}
+                    ${['Fibra','UTP Cat6','UTP Cat5e','Patch SC/APC','Patch LC','Coaxial','Radio Enlace','Poder','Otro'].map(tp=>`<option value="${tp}" ${tp===cn.tipoCable?'selected':''}>${tp}</option>`).join('')}
                 </select>
             </div>
             <div class="form-group"><label>Color / Etiqueta</label>
-                <input id="cnColor" class="form-control" value="${cn.color||''}">
+                <input id="cnColor" class="form-control" value="${(cn.color||'').replace(/"/g,'&quot;')}">
             </div>
         </div>
-        <div class="form-group"><label>Descripción</label>
+        <div class="form-group"><label>Descripción / Notas</label>
             <textarea id="cnDesc" class="form-control" rows="2">${cn.descripcion||''}</textarea>
         </div>`,
         ()=>{
-            cn.equipoOrigenId = id('cnOri').value;
-            cn.equipoDestinoId = id('cnDes').value;
-            cn.puertoOrigen = id('cnPOri').value.trim();
-            cn.puertoDestino = id('cnPDes').value.trim();
-            cn.tipoCable = id('cnTipo').value;
-            cn.color = id('cnColor').value.trim();
-            cn.descripcion = id('cnDesc').value.trim();
-            save(); closeModal(); modalVerConexiones(qId);
+            const nPOri=id('cnPOri').value, nPDes=id('cnPDes').value;
+            if(!nPOri||!nPDes) return alert('Selecciona ambos puertos.');
+            (async()=>{ try{
+                await _cuartosTx((cuartos)=>{
+                    const buscar=(cid)=>cuartos.find(x=>x.id===cid);
+                    const qOriF=cn.interCuarto?buscar(cn.cuartoOrigenId):buscar(q.id);
+                    const qDesF=cn.interCuarto?buscar(cn.cuartoDestinoId):buscar(q.id);
+                    if(!qOriF||!qDesF) throw new Error('El cuarto ya no existe en la nube.');
+                    const cnF=(qOriF.conexiones||[]).find(x=>x.id===cnId) || (qDesF.conexiones||[]).find(x=>x.id===cnId&&!x.espejo);
+                    if(!cnF) throw new Error('La conexión ya no existe (otra sesión la eliminó).');
+                    const eqOriF=findEquipoInCuarto(qOriF, cnF.equipoOrigenId), eqDesF=findEquipoInCuarto(qDesF, cnF.equipoDestinoId);
+                    if(!eqOriF||!eqDesF) throw new Error('Un equipo ya no existe en la nube.');
+                    const pOriViejo=(eqOriF.puertos||[]).find(p=>p.id===cnF.puertoOrigenId);
+                    const pDesViejo=(eqDesF.puertos||[]).find(p=>p.id===cnF.puertoDestinoId);
+                    const pOriNuevo=(eqOriF.puertos||[]).find(p=>p.id===nPOri);
+                    const pDesNuevo=(eqDesF.puertos||[]).find(p=>p.id===nPDes);
+                    if(!pOriNuevo||!pDesNuevo) throw new Error('Un puerto elegido ya no existe.');
+                    if(nPOri!==cnF.puertoOrigenId && pOriNuevo.ocupado) throw new Error(`El puerto ${pOriNuevo.nombre||''} YA fue ocupado por otra sesión. Elige otro.`);
+                    if(nPDes!==cnF.puertoDestinoId && pDesNuevo.ocupado) throw new Error(`El puerto ${pDesNuevo.nombre||''} YA fue ocupado por otra sesión. Elige otro.`);
+                    if(pOriViejo && nPOri!==cnF.puertoOrigenId) pOriViejo.ocupado=false;
+                    if(pDesViejo && nPDes!==cnF.puertoDestinoId) pDesViejo.ocupado=false;
+                    pOriNuevo.ocupado=true; pDesNuevo.ocupado=true;
+                    const cambios={ puertoOrigenId:nPOri, puertoDestinoId:nPDes,
+                        puertoOrigenNombre:pOriNuevo.nombre||'', puertoDestinoNombre:pDesNuevo.nombre||'',
+                        tipoCable:id('cnTipo').value, color:id('cnColor').value.trim(), descripcion:id('cnDesc').value.trim(),
+                        editadoEn:new Date().toISOString() };
+                    Object.assign(cnF, cambios);
+                    // sincronizar la copia espejo si es inter-sede
+                    if(cnF.interCuarto){
+                        const espejo=(qDesF.conexiones||[]).find(x=>x.id===cnId&&x.espejo) || (qOriF.conexiones||[]).find(x=>x.id===cnId&&x.espejo);
+                        if(espejo) Object.assign(espejo, cambios);
+                    }
+                });
+                logMsg('Conexión editada');
+                closeModal(); modalVerConexiones(qId);
+            }catch(e){ alert('❌ No se editó la conexión.\n\n'+(e.message||e)); } })();
         });
 }
 window.modalEditConexion = modalEditConexion;
@@ -3742,37 +3815,31 @@ function loadPuertosCnx(equipoSelId, puertoSelId, qId) {
 }
 window.loadPuertosCnx = loadPuertosCnx;
 
-function eliminarConexion(qId, cnId) {
+async function eliminarConexion(qId, cnId) {
     if(!confirm('¿Eliminar esta conexión? Los puertos quedarán libres.')) return;
-    const q = DB.cuartos.find(x=>x.id===qId);
-    const cn = (q.conexiones||[]).find(x=>x.id===cnId);
-    if(cn) {
-        if(cn.interCuarto) {
-            // Conexión inter-cuarto: liberar puertos en ambos cuartos y eliminar el espejo
-            const qOri = DB.cuartos.find(x=>x.id===cn.cuartoOrigenId);
-            const qDes = DB.cuartos.find(x=>x.id===cn.cuartoDestinoId);
-            const eqOri = qOri ? findEquipoInCuarto(qOri, cn.equipoOrigenId) : null;
-            const eqDes = qDes ? findEquipoInCuarto(qDes, cn.equipoDestinoId) : null;
-            const pOri = eqOri?.puertos?.find(p=>p.id===cn.puertoOrigenId);
-            const pDes = eqDes?.puertos?.find(p=>p.id===cn.puertoDestinoId);
-            if(pOri) pOri.ocupado = false;
-            if(pDes) pDes.ocupado = false;
-            // Eliminar de ambos cuartos (mismo id de conexión)
-            if(qOri) qOri.conexiones = (qOri.conexiones||[]).filter(x=>x.id!==cnId);
-            if(qDes) qDes.conexiones = (qDes.conexiones||[]).filter(x=>x.id!==cnId);
-            logMsg(`Enlace inter-sede eliminado`);
-        } else {
-            // Liberar puertos (mismo cuarto)
-            const eqOri = findEquipoInCuarto(q, cn.equipoOrigenId);
-            const eqDes = findEquipoInCuarto(q, cn.equipoDestinoId);
-            const pOri = eqOri?.puertos?.find(p=>p.id===cn.puertoOrigenId);
-            const pDes = eqDes?.puertos?.find(p=>p.id===cn.puertoDestinoId);
-            if(pOri) pOri.ocupado = false;
-            if(pDes) pDes.ocupado = false;
-            q.conexiones = (q.conexiones||[]).filter(x=>x.id!==cnId);
-        }
-    }
-    save(); modalVerConexiones(qId);
+    try{
+        await _cuartosTx((cuartos)=>{
+            // buscar la conexión en fresco (puede vivir en este cuarto o en su cuarto origen)
+            let qF=cuartos.find(x=>x.id===qId);
+            let cn=qF&&(qF.conexiones||[]).find(x=>x.id===cnId);
+            if(!cn){ qF=cuartos.find(c=>(c.conexiones||[]).some(x=>x.id===cnId)); cn=qF&&(qF.conexiones||[]).find(x=>x.id===cnId); }
+            if(!qF||!cn) throw new Error('La conexión ya no existe (otra sesión la eliminó).');
+            const liberar=(cuarto,eqId,pId)=>{ const eq=cuarto&&findEquipoInCuarto(cuarto,eqId); const p=eq&&(eq.puertos||[]).find(x=>x.id===pId); if(p) p.ocupado=false; };
+            if(cn.interCuarto){
+                const qOri=cuartos.find(x=>x.id===cn.cuartoOrigenId), qDes=cuartos.find(x=>x.id===cn.cuartoDestinoId);
+                liberar(qOri, cn.equipoOrigenId, cn.puertoOrigenId);
+                liberar(qDes, cn.equipoDestinoId, cn.puertoDestinoId);
+                if(qOri) qOri.conexiones=(qOri.conexiones||[]).filter(x=>x.id!==cnId);
+                if(qDes) qDes.conexiones=(qDes.conexiones||[]).filter(x=>x.id!==cnId);
+            } else {
+                liberar(qF, cn.equipoOrigenId, cn.puertoOrigenId);
+                liberar(qF, cn.equipoDestinoId, cn.puertoDestinoId);
+                qF.conexiones=(qF.conexiones||[]).filter(x=>x.id!==cnId);
+            }
+        });
+        logMsg('Conexión eliminada');
+        modalVerConexiones(qId);
+    }catch(e){ alert('❌ No se eliminó.\n\n'+(e.message||e)); }
 }
 window.eliminarConexion = eliminarConexion;
 
@@ -7821,7 +7888,7 @@ const HISTORIAL_DOC = 'inventario/historial';
 // Campos que SOLO escribe Inventario (Técnicos no los toca) y que solo crecen.
 // Se guardan en un documento aparte para que inventario/datos no llegue al tope de 1MB.
 const HISTORIAL_FIELDS = ['editRequests','entregas','cuartos','logs','transfers','deleteRequests','ventas'];
-const APP_VERSION_INV = 75; // ⬆️ Subir en cada versión publicada de Inventario (v75: GUARDADO MAS RAPIDO — la fusion usa la copia del listener cuando tiene <15s (cero descargas extra, misma proteccion); si esta vieja, lee de la red como siempre. Incluye v74: FUSION UNIVERSAL ENTRE SESIONES — el trabajo simultaneo de varias bodegas y tecnicos ya no se pisa: al guardar se fusiona con la nube fresca (datos + historial), lo de otras sesiones se incorpora, los borrados propios dejan LAPIDA y no reviven, las decisiones ajenas (confirmados/integrados/aceptados) se respetan, y un snapshot ya no borra de la pantalla lo recien creado (se conserva y reenvia solo). ENTREGAS ahora con TRANSACCION multi-documento: valida el stock y los seriales sobre datos FRESCOS (si otra sesion entrego mientras tanto, avisa claro), descuenta bodega + suma cuadrilla + registra la entrega de forma atomica. Incluye v73: al CONFIRMAR un consumo de cliente, el material queda anotado AUTOMATICAMENTE en la ficha del cliente — seccion "🧰 Material instalado" — emparejando primero por CEDULA (que ahora envia el tecnico v69) y si no por nombre; si no se encuentra el cliente, avisa claro y el boton "Sincronizar material con clientes" (tambien mejorado con cedula) queda como red de seguridad. Incluye v72: [1] confirmación de consumos con TRANSACCIÓN — el descuento a la cuadrilla ya no se puede revertir por una sincronización cruzada; [2] config Firebase integrada — no vuelve a pedirla; [3] login con ojito 👁️ y Enter; [4] BLINDAJE: guardas anti-borrado de clientes (carga incompleta o encogimiento drástico NO reescriben la nube), firma para no reescribir chunks sin cambios, carga de clientes en paralelo con reintentos, COLA de guardado (nunca se solapan), fusión de envíos recientes de técnicos antes de guardar, y fotos pequeñas ya no se recomprimen)
+const APP_VERSION_INV = 76; // ⬆️ Subir en cada versión publicada de Inventario (v76: CUARTOS DE EQUIPOS — puertos huerfanos y conexiones protegidas: aviso ambar en el equipo cuando hay puertos OCUPADOS sin conexion que los respalde + boton 🧹 Liberarlos (respeta enlaces inter-sede); boton ✏️ para EDITAR conexiones (mover puertos con selector real, cable, color, notas); y TODA modificacion de conexiones (crear/editar/eliminar/liberar) va por TRANSACCION con validacion fresca — dos sesiones ya no se pisan y un puerto no puede ocuparse dos veces. Incluye v75: GUARDADO MAS RAPIDO — la fusion usa la copia del listener cuando tiene <15s (cero descargas extra, misma proteccion); si esta vieja, lee de la red como siempre. Incluye v74: FUSION UNIVERSAL ENTRE SESIONES — el trabajo simultaneo de varias bodegas y tecnicos ya no se pisa: al guardar se fusiona con la nube fresca (datos + historial), lo de otras sesiones se incorpora, los borrados propios dejan LAPIDA y no reviven, las decisiones ajenas (confirmados/integrados/aceptados) se respetan, y un snapshot ya no borra de la pantalla lo recien creado (se conserva y reenvia solo). ENTREGAS ahora con TRANSACCION multi-documento: valida el stock y los seriales sobre datos FRESCOS (si otra sesion entrego mientras tanto, avisa claro), descuenta bodega + suma cuadrilla + registra la entrega de forma atomica. Incluye v73: al CONFIRMAR un consumo de cliente, el material queda anotado AUTOMATICAMENTE en la ficha del cliente — seccion "🧰 Material instalado" — emparejando primero por CEDULA (que ahora envia el tecnico v69) y si no por nombre; si no se encuentra el cliente, avisa claro y el boton "Sincronizar material con clientes" (tambien mejorado con cedula) queda como red de seguridad. Incluye v72: [1] confirmación de consumos con TRANSACCIÓN — el descuento a la cuadrilla ya no se puede revertir por una sincronización cruzada; [2] config Firebase integrada — no vuelve a pedirla; [3] login con ojito 👁️ y Enter; [4] BLINDAJE: guardas anti-borrado de clientes (carga incompleta o encogimiento drástico NO reescriben la nube), firma para no reescribir chunks sin cambios, carga de clientes en paralelo con reintentos, COLA de guardado (nunca se solapan), fusión de envíos recientes de técnicos antes de guardar, y fotos pequeñas ya no se recomprimen)
 const CHUNK_SIZE = 800; // clients per document - allows ~10000 clients
 
 // Helper: split array into chunks
