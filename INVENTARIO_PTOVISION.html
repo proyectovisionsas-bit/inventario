@@ -640,6 +640,256 @@ function setupNav() {
 }
 function navigate(tab) { document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active')); document.querySelector(`.nav-btn[data-tab="${tab}"]`)?.classList.add('active'); renderTab(tab); }
 // ════════════════════════════════════════════════════════════════════════════
+// 🖼️ FOTOS DE MATERIALES (v80) — cada foto en su propio documento.
+// Antes se guardaban DENTRO del documento principal como texto base64: entre
+// todas hacían que inventario/datos pasara el límite de 1 MB de Firestore, y a
+// partir de ahí NINGÚN cambio se guardaba (por eso las solicitudes reaparecían).
+// Ahora el material solo guarda el CÓDIGO de cada foto (m.fotosRef) y la imagen
+// vive aparte. Las fotos viejas que aún estén incrustadas (m.fotos) se siguen
+// viendo igual, y el botón de migración las mueve todas de una.
+// ════════════════════════════════════════════════════════════════════════════
+window._cacheFotosInv = window._cacheFotosInv || {};
+const _FOTO_VACIA = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60"><rect width="60" height="60" fill="#eef2f7"/><text x="30" y="34" font-size="9" fill="#94a3b8" text-anchor="middle">cargando</text></svg>');
+
+// Lista unificada de fotos de un material: las incrustadas viejas + las nuevas por código
+function _fotosDeMaterial(m){
+    const out=[];
+    (Array.isArray(m&&m.fotos)?m.fotos:[]).forEach(f=>{ if(f && typeof f==='string' && f.startsWith('data:')) out.push({tipo:'inline', v:f}); });
+    (Array.isArray(m&&m.fotosRef)?m.fotosRef:[]).forEach(fid=>{ if(fid) out.push({tipo:'ref', v:String(fid)}); });
+    return out;
+}
+function _tieneFotos(m){ return _fotosDeMaterial(m).length>0; }
+// HTML de una foto: si es por código y aún no está en caché, se pinta sola al terminar de cargar
+function _imgFotoInv(item, attrs){
+    if(!item) return '';
+    if(item.tipo==='inline') return `<img src="${item.v}" onclick="openLightbox('${item.v}')" ${attrs||''}>`;
+    const cache = window._cacheFotosInv[item.v];
+    if(cache) return `<img src="${cache}" onclick="_verFotoInv('${item.v}')" ${attrs||''}>`;
+    return `<img data-fid="${item.v}" src="${_FOTO_VACIA}" onclick="_verFotoInv('${item.v}')" ${attrs||''}>`;
+}
+async function _verFotoInv(fid){
+    try{
+        let d=window._cacheFotosInv[fid];
+        if(!d){ d=await window._fbLeerFoto(fid); if(d) window._cacheFotosInv[fid]=d; }
+        if(d) openLightbox(d); else alert('⚠️ Esta foto no se encontró en la nube.');
+    }catch(e){ alert('⚠️ No se pudo abrir la foto.\n\n'+(e.message||e)); }
+}
+window._verFotoInv = _verFotoInv;
+// Rellena las fotos pendientes después de pintar la pantalla
+async function _hidratarFotosInv(){
+    try{
+        const pend=[...document.querySelectorAll('img[data-fid]')];
+        for(const el of pend){
+            const fid=el.getAttribute('data-fid');
+            el.removeAttribute('data-fid');
+            try{
+                let d=window._cacheFotosInv[fid];
+                if(!d){ d=await window._fbLeerFoto(fid); if(d) window._cacheFotosInv[fid]=d; }
+                if(d) el.src=d;
+            }catch(e){}
+        }
+    }catch(e){}
+}
+window._hidratarFotosInv = _hidratarFotosInv;
+// Sube una foto a su propio documento y devuelve su código
+async function _subirFotoInv(dataURL, etiqueta){
+    if(!window._fbGuardarFoto) throw new Error('La conexión con la nube aún no está lista.');
+    const fid = 'f'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+    await window._fbGuardarFoto(fid, dataURL, etiqueta||'');
+    window._cacheFotosInv[fid]=dataURL;
+    return fid;
+}
+window._subirFotoInv = _subirFotoInv;
+
+// ════════════════════════════════════════════════════════════════════════════
+// 📦 MIGRACIÓN: mover a documentos aparte todas las fotos ya incrustadas.
+// Va material por material: sube la foto, COMPRUEBA que quedó guardada y solo
+// entonces la saca del documento principal. Si algo falla, esa foto se queda
+// como estaba (nunca se pierde). Se puede interrumpir y retomar.
+// ════════════════════════════════════════════════════════════════════════════
+async function migrarFotosFueraDeLaBase(){
+    if(USER.role!=='admin') return alert('Solo el administrador puede hacer esto.');
+    if(!window._fbGuardarFoto) return alert('⚠️ La conexión con la nube aún no está lista. Espera unos segundos.');
+    // Contar primero
+    let total=0, bytes=0;
+    (DB.bodegas||[]).forEach(b=>(b.materiales||[]).forEach(m=>{
+        (m.fotos||[]).forEach(f=>{ if(f&&typeof f==='string'&&f.startsWith('data:')){ total++; bytes+=f.length; } });
+    }));
+    if(!total) return alert('✅ No hay fotos incrustadas: ya están todas guardadas aparte.');
+    const mb=(bytes/1048576).toFixed(2);
+    if(!confirm(`📦 Se van a mover ${total} foto(s) —unos ${mb} MB— fuera de la base principal.\n\n`
+        + `Las fotos NO se pierden: cada una queda en su propio archivo en la nube y se sigue viendo igual.\n\n`
+        + `Esto libera espacio y hace que los guardados vuelvan a funcionar.\n\n`
+        + `Puede tardar un rato. NO cierres la página mientras avanza.\n\n¿Continuar?`)) return;
+
+    const cont=document.getElementById('main-content');
+    const pintar=(txt)=>{ const el=document.getElementById('migFotosMsg'); if(el) el.innerHTML=txt; };
+    if(cont) cont.insertAdjacentHTML('afterbegin', `<div id="migFotosMsg" style="background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;padding:12px;margin-bottom:12px;font-weight:700;color:#1e40af;"></div>`);
+
+    let movidas=0, fallidas=0, liberado=0;
+    try{
+        for(const b of (DB.bodegas||[])){
+            for(const m of (b.materiales||[])){
+                const inline=(m.fotos||[]).filter(f=>f&&typeof f==='string'&&f.startsWith('data:'));
+                if(!inline.length) continue;
+                if(!Array.isArray(m.fotosRef)) m.fotosRef=[];
+                const quedan=[];
+                for(const foto of inline){
+                    pintar(`📦 Moviendo fotos… ${movidas+1} de ${total} — "${m.nombre}" (${b.nombre})`);
+                    try{
+                        const fid=await _subirFotoInv(foto, `${m.nombre} · ${b.nombre}`);
+                        // ✅ verificar que quedó guardada ANTES de sacarla de aquí
+                        const check=await window._fbLeerFoto(fid);
+                        if(check && check.length>50){ m.fotosRef.push(fid); movidas++; liberado+=foto.length; }
+                        else { quedan.push(foto); fallidas++; }
+                    }catch(e){ quedan.push(foto); fallidas++; console.warn('Foto no migrada:', e.message||e); }
+                }
+                m.fotos = quedan;   // solo se quedan las que NO se pudieron mover
+            }
+            await save();   // guardar bodega por bodega: si se interrumpe, lo hecho queda hecho
+        }
+        pintar(`✅ Listo: ${movidas} foto(s) movida(s)${fallidas?` · ${fallidas} no se pudieron mover (siguen en su sitio)`:''}`);
+        logMsg(`Fotos movidas fuera de la base: ${movidas}`);
+        alert(`✅ MIGRACIÓN TERMINADA\n\n`
+            + `• Fotos movidas: ${movidas}\n`
+            + `• Espacio liberado en la base: ${(liberado/1048576).toFixed(2)} MB\n`
+            + (fallidas?`• No se pudieron mover: ${fallidas} (siguen guardadas donde estaban, no se perdió ninguna)\n`:'')
+            + `\nLas fotos se siguen viendo igual. Los guardados deberían volver a funcionar.`);
+        renderTab('auditoria');
+    }catch(e){
+        pintar(`❌ Se interrumpió: ${e.message||e}`);
+        alert('❌ La migración se interrumpió.\n\n'+(e.message||e)+'\n\nLo que alcanzó a moverse quedó guardado; puedes volver a darle al botón para continuar.');
+    }
+}
+window.migrarFotosFueraDeLaBase = migrarFotosFueraDeLaBase;
+
+// ════════════════════════════════════════════════════════════════════════════
+// 📦 ALIGERAR LA BASE (v81) — mueve el historial viejo a documentos aparte.
+// LA CAUSA REAL del problema de guardado: inventario/datos llegó a 0.98 MB del
+// máximo de 1 MB que permite Firestore, y a partir de ahí NINGÚN cambio se
+// guarda (por eso las solicitudes aprobadas reaparecían). Lo que más pesa NO
+// son las fotos: son las listas de historial que crecen sin parar —
+// consumos ya confirmados, instalaciones viejas y recuperados ya integrados.
+// Esto los mueve a un archivo por año. NO SE BORRA NADA: quedan guardados y se
+// pueden consultar desde el mismo módulo.
+// ════════════════════════════════════════════════════════════════════════════
+function _fechaDeRegistroInv(x){
+    return x && (x.confirmadoFecha || x.rechazadoFecha || x.integradoFecha || x.fecha || x.reg || null);
+}
+function _diasDeInv(x){
+    const f=_fechaDeRegistroInv(x); if(!f) return null;
+    const d=new Date(f); if(isNaN(d.getTime())) return null;
+    return Math.floor((Date.now()-d.getTime())/86400000);
+}
+function _anioDeInv(x){
+    const f=_fechaDeRegistroInv(x); const d=f?new Date(f):null;
+    return (d && !isNaN(d.getTime())) ? d.getFullYear() : new Date().getFullYear();
+}
+// Qué se puede archivar de cada lista (lo pendiente NUNCA se archiva)
+const _REGLAS_ARCHIVO_INV = [
+    { campo:'consumosPendientes', etiqueta:'consumos ya resueltos', dias:45,
+      archivable:(x)=> x && x.estado && x.estado!=='pendiente' },
+    { campo:'instalaciones', etiqueta:'instalaciones antiguas', dias:120,
+      archivable:(x)=> !!x },
+    { campo:'recuperados', etiqueta:'recuperados ya integrados', dias:45,
+      archivable:(x)=> x && x.estado && x.estado!=='pendiente' }
+];
+function _calcularAligerado(){
+    const plan=[];
+    _REGLAS_ARCHIVO_INV.forEach(r=>{
+        const lista=Array.isArray(DB[r.campo])?DB[r.campo]:[];
+        const mover=lista.filter(x=>{ if(!r.archivable(x)) return false; const d=_diasDeInv(x); return d!==null && d>r.dias; });
+        if(mover.length){
+            const kb=Math.round(new Blob([JSON.stringify(mover)]).size/1024);
+            plan.push({...r, mover, kb, quedan:lista.length-mover.length});
+        }
+    });
+    return plan;
+}
+async function aligerarBaseInventario(){
+    if(USER.role!=='admin') return alert('Solo el administrador puede hacer esto.');
+    if(!window._fbGuardarArchivoInv) return alert('⚠️ La conexión con la nube aún no está lista. Espera unos segundos.');
+    const plan=_calcularAligerado();
+    if(!plan.length) return alert('✅ No hay historial viejo para archivar: la base ya está lo más liviana posible por este lado.');
+    const totalKb=plan.reduce((s,p)=>s+p.kb,0);
+    const detalle=plan.map(p=>`• ${p.mover.length} ${p.etiqueta} (más de ${p.dias} días) — ${p.kb} KB`).join('\n');
+    if(!confirm(`📦 ALIGERAR LA BASE\n\nSe va a mover a un archivo aparte:\n\n${detalle}\n\nTOTAL a liberar: ${totalKb} KB\n\n`
+        + `⚠️ NO SE BORRA NADA: todo queda guardado en la nube y se puede consultar con el botón "Ver archivo".\n`
+        + `Lo PENDIENTE (sin confirmar) nunca se archiva.\n\n¿Continuar?`)) return;
+
+    let movidos=0, liberadoKb=0; const errores=[];
+    try{
+        for(const p of plan){
+            // agrupar por año para que ningún archivo crezca sin control
+            const porAnio={};
+            p.mover.forEach(x=>{ const a=_anioDeInv(x); (porAnio[a]=porAnio[a]||[]).push(x); });
+            const idsGuardados=new Set();
+            for(const [anio, items] of Object.entries(porAnio)){
+                const nombreDoc=`archivo_${p.campo}_${anio}`;
+                try{
+                    const actual=await window._fbLeerArchivoInv(nombreDoc);
+                    const previos=Array.isArray(actual.items)?actual.items:[];
+                    const idsPrev=new Set(previos.map(x=>x&&x.id).filter(Boolean));
+                    const nuevos=items.filter(x=>!(x&&x.id&&idsPrev.has(x.id)));
+                    await window._fbGuardarArchivoInv(nombreDoc, { items: previos.concat(nuevos), campo:p.campo, anio:Number(anio) });
+                    // ✅ verificar que quedó guardado ANTES de sacarlo de la base
+                    const check=await window._fbLeerArchivoInv(nombreDoc);
+                    const idsCheck=new Set((Array.isArray(check.items)?check.items:[]).map(x=>x&&x.id).filter(Boolean));
+                    items.forEach(x=>{ if(x&&x.id&&idsCheck.has(x.id)) idsGuardados.add(x.id); });
+                }catch(e){ errores.push(`${p.campo} ${anio}: ${e.message||e}`); }
+            }
+            if(idsGuardados.size){
+                const antes=new Blob([JSON.stringify(DB[p.campo])]).size;
+                DB[p.campo]=(DB[p.campo]||[]).filter(x=>!(x&&x.id&&idsGuardados.has(x.id)));
+                liberadoKb+=Math.round((antes-new Blob([JSON.stringify(DB[p.campo])]).size)/1024);
+                movidos+=idsGuardados.size;
+            }
+        }
+        await save();
+        logMsg(`Base aligerada: ${movidos} registro(s) al archivo histórico`);
+        alert(`✅ BASE ALIGERADA\n\n• Registros movidos al archivo: ${movidos}\n• Espacio liberado: ${liberadoKb} KB\n`
+            + (errores.length?`\n⚠️ Con problemas (siguen en la base, no se perdió nada):\n${errores.slice(0,4).join('\n')}\n`:'')
+            + `\nTodo quedó guardado y consultable con "Ver archivo". Los guardados deberían volver a funcionar.`);
+        renderTab('auditoria');
+    }catch(e){
+        alert('❌ Se interrumpió el aligerado.\n\n'+(e.message||e)+'\n\nLo que alcanzó a archivarse quedó guardado; puedes volver a darle al botón.');
+    }
+}
+window.aligerarBaseInventario = aligerarBaseInventario;
+
+// 👁️ Consultar lo archivado (para que nada quede escondido)
+async function verArchivoHistoricoInv(){
+    if(!window._fbLeerArchivoInv) return alert('⚠️ La conexión aún no está lista.');
+    const anioActual=new Date().getFullYear();
+    const anios=[anioActual, anioActual-1, anioActual-2];
+    let html='', total=0;
+    for(const r of _REGLAS_ARCHIVO_INV){
+        for(const a of anios){
+            try{
+                const d=await window._fbLeerArchivoInv(`archivo_${r.campo}_${a}`);
+                const items=Array.isArray(d.items)?d.items:[];
+                if(!items.length) continue;
+                total+=items.length;
+                html+=`<div style="margin-bottom:14px;">
+                    <strong>${r.etiqueta} · ${a}</strong> <span class="text-muted">(${items.length} registro(s))</span>
+                    <div class="table-wrap" style="max-height:220px;overflow:auto;margin-top:6px;"><table><tbody>
+                    ${items.slice(-60).reverse().map(x=>`<tr>
+                        <td style="font-size:0.78rem;white-space:nowrap;">${String(_fechaDeRegistroInv(x)||'').slice(0,10)}</td>
+                        <td style="font-size:0.78rem;">${x.cliente||x.cuadrilla||x.nom||x.nombre||'—'}</td>
+                        <td style="font-size:0.78rem;">${x.estado||''}</td>
+                    </tr>`).join('')}
+                    </tbody></table></div>
+                    ${items.length>60?`<small class="text-muted">Mostrando los 60 más recientes de ${items.length}.</small>`:''}
+                </div>`;
+            }catch(e){}
+        }
+    }
+    openModal('📦 Archivo histórico', total? html : '<p class="text-muted">Aún no hay nada archivado.</p>',
+        `<button class="btn btn-primary" onclick="closeModal()">Cerrar</button>`);
+}
+window.verArchivoHistoricoInv = verArchivoHistoricoInv;
+
+// ════════════════════════════════════════════════════════════════════════════
 // 🩺 AUDITORÍA DE INVENTARIO (v78) — revisa los DATOS REALES y reporta lo que
 // no cuadra: stock negativo, seriales repetidos, el mismo equipo en dos lugares,
 // desajustes entre cantidad y seriales, artículos duplicados, y material que
@@ -786,10 +1036,48 @@ function renderAuditoria(c){
         </table></div>` : '';
     const totalArt=(DB.bodegas||[]).reduce((s,b)=>s+((b.materiales||[]).length),0);
     const totalUds=(DB.bodegas||[]).reduce((s,b)=>s+(b.materiales||[]).reduce((x,m)=>x+(parseInt(m.cantidad)||0),0),0);
+    // 📏 v81: PANEL DE ESPACIO — qué tan cerca está la base del tope de 1 MB de
+    // Firestore y QUÉ es lo que pesa. Cuando se pasa, Firebase deja de guardar y
+    // los cambios se pierden en silencio (era la causa de las solicitudes que
+    // reaparecían). Muestra las dos palancas: aligerar historial y mover fotos.
+    let _nFotos=0, _bytesFotos=0;
+    (DB.bodegas||[]).forEach(b=>(b.materiales||[]).forEach(m=>{
+        (m.fotos||[]).forEach(f=>{ if(f&&typeof f==='string'&&f.startsWith('data:')){ _nFotos++; _bytesFotos+=f.length; } });
+    }));
+    const _kbFotos=Math.round(_bytesFotos/1024);
+    const _planAlig=_calcularAligerado();
+    const _kbAlig=_planAlig.reduce((s,p)=>s+p.kb,0);
+    const _nAlig=_planAlig.reduce((s,p)=>s+p.mover.length,0);
+    // peso por sección (lo que se escribe en el documento principal)
+    let _secciones=[];
+    try{
+        ['consumosPendientes','bodegas','instalaciones','recuperados','cuadrillas','equiposDanados','equiposPendientesTecnico']
+            .forEach(k=>{ const kb=Math.round(new Blob([JSON.stringify(DB[k]||[])]).size/1024); if(kb>5) _secciones.push({k,kb}); });
+        _secciones.sort((a,b)=>b.kb-a.kb);
+    }catch(e){}
+    const _kbTotal=_secciones.reduce((s,x)=>s+x.kb,0);
+    const _pct=Math.min(100, Math.round(_kbTotal/10.24));
+    const _critico=_kbTotal>800;
+    const panelEspacio = `
+        <div style="background:${_critico?'#fef2f2':'#f0fdf4'};border:1px solid ${_critico?'#fecaca':'#bbf7d0'};border-radius:8px;padding:12px 14px;margin-bottom:14px;">
+            <strong style="color:${_critico?'#991b1b':'#166534'};">${_critico?'🚨':'✅'} Espacio de la base: ${_kbTotal} KB de 1024 KB permitidos (${_pct}%)</strong>
+            <div style="background:#e5e7eb;border-radius:6px;height:10px;margin:8px 0;overflow:hidden;">
+                <div style="width:${_pct}%;height:100%;background:${_critico?'#ef4444':_pct>60?'#f59e0b':'#10b981'};"></div>
+            </div>
+            ${_critico?`<p style="margin:0 0 8px;font-size:0.83rem;color:#991b1b;"><strong>Firebase rechaza cualquier base de más de 1 MB.</strong> Mientras esté así, los cambios pueden NO guardarse: apruebas una solicitud, se ve aplicada, y al rato vuelve a aparecer.</p>`:''}
+            <p class="text-muted" style="margin:0 0 8px;font-size:0.8rem;">Lo que más pesa: ${_secciones.slice(0,5).map(s=>`<strong>${s.k}</strong> ${s.kb} KB`).join(' · ')||'—'}</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                ${_nAlig>0?`<button class="btn btn-danger btn-sm" onclick="aligerarBaseInventario()">📦 Archivar historial viejo (${_nAlig} registros · ~${_kbAlig} KB)</button>`:''}
+                ${_nFotos>0?`<button class="btn btn-warning btn-sm" onclick="migrarFotosFueraDeLaBase()">🖼️ Mover ${_nFotos} foto(s) fuera (~${_kbFotos} KB)</button>`:''}
+                <button class="btn btn-outline btn-sm" onclick="verArchivoHistoricoInv()">👁️ Ver archivo</button>
+            </div>
+            ${(_nAlig>0||_nFotos>0)?`<p class="text-muted" style="margin:8px 0 0;font-size:0.78rem;">Nada se borra: el historial queda consultable y las fotos se siguen viendo igual. Lo pendiente sin confirmar nunca se archiva.</p>`:''}
+        </div>`;
     c.innerHTML = `<div class="card">
         <div class="card-header"><h2>🩺 Auditoría de Inventario</h2>
             <button class="btn btn-primary btn-sm" onclick="renderTab('auditoria')">🔄 Volver a revisar</button>
         </div>
+        ${panelEspacio}
         <p class="text-muted" style="font-size:0.86rem;margin:0 0 12px;">Revisión automática de TUS datos: ${totalArt} artículo(s) · ${totalUds.toLocaleString('es-CO')} unidad(es) · ${(DB.cuadrillas||[]).length} cuadrilla(s). Esta pantalla no cambia nada: solo señala lo que no cuadra.</p>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:6px;">
             <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px;text-align:center;">
@@ -834,7 +1122,7 @@ function renderTab(tab) { const main=id('main-content'); if(!main) return; try {
             case 'reportes': renderReportes(main); break;
             case 'ventas': renderVentas(main); break;
             case 'cuartos': renderCuartos(main); break;
-            case 'delete_req': renderDeleteReq(main); break; case 'auditoria': renderAuditoria(main); break; case 'admin': renderAdmin(main); break; } } catch(e) { console.error(e); } }
+            case 'delete_req': renderDeleteReq(main); break; case 'auditoria': renderAuditoria(main); break; case 'admin': renderAdmin(main); break; } try{ if(window._hidratarFotosInv) setTimeout(window._hidratarFotosInv, 60); }catch(eH){} } catch(e) { console.error(e); } }
 
 // ── Exponer funciones clave al scope global para que el módulo Firebase pueda accederlas ──
 window.DB = DB;
@@ -4819,7 +5107,7 @@ function renderBodegas(c) {
                 ${b.materiales.length?`<table><thead><tr><th>Artículo / Categoría</th><th>Tipo</th><th>Cant</th><th>Unidad</th><th>SNs</th><th>Acción</th></tr></thead><tbody>
                 ${b.materiales.map(m=>`<tr>
                     <td>
-                        ${m.fotos&&m.fotos.length?`<img class="img-thumb" src="${m.fotos[0]}" onclick="openLightbox('${m.fotos[0]}')" style="margin-right:5px;">`:``}
+                        ${_tieneFotos(m)?_imgFotoInv(_fotosDeMaterial(m)[0], 'class="img-thumb" style="margin-right:5px;"'):``}
                         <strong>${m.nombre}</strong>
                         <span class="${m.categoria==='equipo'?'cat-badge-eq':'cat-badge-mat'}">${m.categoria==='equipo'?'🖥️ Equipo':'📦 Material'}</span>
                         ${m.observaciones?`<br><small class="text-muted">${m.observaciones}</small>`:''}
@@ -5074,9 +5362,9 @@ function modalEditMat(bId, mId) {
         <div class="form-group">
             <label>📷 Imágenes actuales <small class="text-muted">(marca las que quieres eliminar)</small></label>
             <div class="foto-gallery" id="editFotosActuales">
-                ${(m.fotos||[]).length ? (m.fotos||[]).map((foto,i)=>`
+                ${_fotosDeMaterial(m).length ? _fotosDeMaterial(m).map((it,i)=>`
                     <div class="foto-thumb" id="editFotoThumb_${i}">
-                        <img src="${foto}" onclick="openLightbox('${foto}')">
+                        ${_imgFotoInv(it,'')}
                         <button class="del-foto" onclick="marcarFotoEliminar(${i})" title="Eliminar">✕</button>
                     </div>`).join('') : '<p class="text-muted" style="font-size:0.82rem;">Sin imágenes</p>'}
             </div>
@@ -5142,10 +5430,15 @@ function modalEditMat(bId, mId) {
             if(isNaN(nuevoCant)||nuevoCant<0) return alert('Cantidad inválida.');
             if(!isAdmin&&!motivo) return alert('El motivo es obligatorio.');
 
-            // Handle photos: remove marked ones, add new ones
+            // 🖼️ v80: las fotos ya no se incrustan en el documento principal.
+            // Los índices marcados corresponden a la lista unificada (viejas + por código).
             const fotosEliminar = TempLists.editFotosEliminar || [];
             const fotosNuevas   = TempLists.editFotosNuevas   || [];
-            const fotosFinales  = (m.fotos||[]).filter((_,i)=>!fotosEliminar.includes(i)).concat(fotosNuevas);
+            const _listaFotos   = _fotosDeMaterial(m);
+            const _quedan       = _listaFotos.filter((_,i)=>!fotosEliminar.includes(i));
+            const fotosFinales  = _quedan.filter(x=>x.tipo==='inline').map(x=>x.v);   // viejas que sobreviven
+            const refsFinales   = _quedan.filter(x=>x.tipo==='ref').map(x=>x.v);      // las que ya están aparte
+            window._fotosNuevasPend = fotosNuevas;   // se suben al confirmar (abajo)
 
             const cambios = [];
             if(m.nombre!==nuevoNom) cambios.push(`nombre: "${m.nombre}"→"${nuevoNom}"`);
@@ -5181,7 +5474,18 @@ function modalEditMat(bId, mId) {
                 m.categoria    = nuevoCat;
                 m.observaciones= nuevoObs;
                 m.fotos        = fotosFinales;
+                m.fotosRef     = refsFinales;
                 m.snes         = snesPropuestos;
+                // subir las fotos nuevas a su propio documento (no al doc principal)
+                if(fotosNuevas.length){
+                    (async()=>{
+                        for(const f of fotosNuevas){
+                            try{ const fid=await _subirFotoInv(f, m.nombre); if(!Array.isArray(m.fotosRef)) m.fotosRef=[]; m.fotosRef.push(fid); }
+                            catch(e){ console.warn('Foto no subida:', e.message||e); if(!Array.isArray(m.fotos)) m.fotos=[]; m.fotos.push(f); }
+                        }
+                        await save(); renderTab('bodegas');
+                    })();
+                }
                 // Admin: apply immediately
                 const logEntry = `Admin editó "${nuevoNom}" en ${b.nombre}: ${cambios.join(' | ')}`;
                 if(cambios.length) { logMsg(logEntry); registrarMovimiento(bId, mId, 'ajuste', 0, logEntry); }
@@ -5204,7 +5508,7 @@ function modalEditMat(bId, mId) {
                     datos: {
                         nombre: nuevoNom, cantidad: nuevoCant, tipo: nuevoTipo,
                         unidad: nuevoUnd, stockMin: nuevoMin, categoria: nuevoCat,
-                        observaciones: nuevoObs, fotos: fotosFinales,
+                        observaciones: nuevoObs, fotos: fotosFinales, fotosRef: refsFinales,
                         snes: snesPropuestos
                     },
                     fecha: new Date().toISOString(),
@@ -8276,7 +8580,7 @@ window._ejecutarImport=_ejecutarImport;
 
 <script type="module">
 import { initializeApp, getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getFirestore, doc, getDoc, setDoc, onSnapshot, runTransaction } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, runTransaction } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 const FB_KEY = 'invPro_firebaseConfig';
 // ⚙️ CONFIG INTEGRADA (v72): la misma base de Oficinas/Técnicos. La app se conecta
@@ -8296,7 +8600,7 @@ const HISTORIAL_DOC = 'inventario/historial';
 // Campos que SOLO escribe Inventario (Técnicos no los toca) y que solo crecen.
 // Se guardan en un documento aparte para que inventario/datos no llegue al tope de 1MB.
 const HISTORIAL_FIELDS = ['editRequests','entregas','cuartos','logs','transfers','deleteRequests','ventas'];
-const APP_VERSION_INV = 79; // ⬆️ Subir en cada versión publicada de Inventario (v79: LAS SOLICITUDES APROBADAS/RECHAZADAS YA NO REAPARECEN. Causa: el snapshot de Firebase REEMPLAZA la lista completa con lo que hay en la nube; si el guardado aun no habia terminado —o FALLO, como cuando Firebase responde 'write stream exhausted maximum allowed queued writes'— la solicitud volvia a salir como pendiente. Tres correcciones: [1] BLINDAJE DE DECISIONES: toda decision tomada en esta sesion (aprobar, rechazar, aceptar/rechazar transferencia) se vuelve a imponer sobre el snapshot durante 3 minutos, hasta que quede confirmada en la nube. [2] EL GUARDADO FALLIDO YA NO ES INVISIBLE: antes solo se pintaba un indicador chiquito y se escribia en la consola, asi que el usuario creia que su cambio habia quedado; ahora avisa claro que NO se guardo y REINTENTA solo hasta 3 veces. [3] DIAGNOSTICO DE TAMANO: Firestore rechaza documentos de mas de 1 MB y no habia forma de enterarse; ahora se mide en cada guardado, se avisa en consola desde 800 KB y con alerta si pasa el limite, indicando que seccion pesa mas. Incluye v78: (v78: AUDITORIA GENERAL DEL INVENTARIO + correcciones de flujo. NUEVA PANTALLA 🩺 Auditoria (admin): revisa TUS datos reales y reporta stock negativo, seriales repetidos dentro de un articulo, el MISMO equipo registrado en dos lugares a la vez, desajustes entre cantidad y seriales, articulos duplicados en una bodega, cuadrillas con material sin bodega asignada, y material EN EL LIMBO (transferencias sin aceptar, consumos de tecnicos sin confirmar, recuperados sin integrar, solicitudes sin decidir), ordenado por gravedad y exportable a Excel. CORRECCIONES: [1] enviar transferencia validaba articulo por articulo mientras descontaba — si el stock habia cambiado quedaba NEGATIVO, y si el articulo ya no existia reventaba a mitad dejando material descontado SIN transferencia creada (perdido); ahora valida todo primero y no toca nada si algo falla. [2] aceptar/rechazar transferencia agregaba los seriales con push SIN comprobar si ya estaban (el mismo equipo dos veces en la bodega), reventaba si la bodega destino u origen ya no existia (material en el limbo) y al rechazar buscaba por NOMBRE creando duplicados si lo habian renombrado. [3] misma duplicacion de seriales corregida en recuperados integrados, devoluciones de cuadrilla y entregas. [4] KARDEX: ventas, transferencias, entregas, devoluciones y recuperados no dejaban NINGUN rastro en el historial del articulo; ahora si. [5] agregar seriales avisa si estan repetidos o si superan el stock. Incluye v77: (v77: SOLICITUDES DE CAMBIO Y ELIMINACION CORREGIDAS — cuatro fallas: [1] la EDICION de una bodega se aplicaba al material ANTES de mirar el rol, asi que el cambio quedaba hecho sin aprobacion y RECHAZARLO no revertia nada (la aprobacion era decorativa); ahora la bodega solo PROPONE y el material no se toca hasta que el admin apruebe. [2] ELIMINAR UNA VENTA no devolvia el material a la bodega aunque vender SI lo descuenta: el stock desaparecia sin venta que lo justificara; ahora se devuelve cantidad y seriales, con registro en el kardex, y si el articulo ya no existe se vuelve a crear (aplica tambien al borrado directo del admin). [3] RECHAZAR una eliminacion RESUCITABA material fantasma con la cantidad vieja cuando el articulo ya no estaba (agotado, transferido o borrado aparte); ahora rechazar no toca la bodega y, si el articulo falta, se le PREGUNTA al admin. [4] Aprobar eliminacion borraba el articulo SIN dejar rastro en el kardex y sin avisar si la cantidad habia cambiado desde la solicitud; ahora registra la salida y avisa. Ademas approveEdit avisa si la cantidad cambio antes de pisarla, y ya no cierra solicitudes en silencio cuando la bodega o el articulo ya no existen. Incluye v76: CUARTOS DE EQUIPOS — puertos huerfanos y conexiones protegidas: aviso ambar en el equipo cuando hay puertos OCUPADOS sin conexion que los respalde + boton 🧹 Liberarlos (respeta enlaces inter-sede); boton ✏️ para EDITAR conexiones (mover puertos con selector real, cable, color, notas); y TODA modificacion de conexiones (crear/editar/eliminar/liberar) va por TRANSACCION con validacion fresca — dos sesiones ya no se pisan y un puerto no puede ocuparse dos veces. Incluye v75: GUARDADO MAS RAPIDO — la fusion usa la copia del listener cuando tiene <15s (cero descargas extra, misma proteccion); si esta vieja, lee de la red como siempre. Incluye v74: FUSION UNIVERSAL ENTRE SESIONES — el trabajo simultaneo de varias bodegas y tecnicos ya no se pisa: al guardar se fusiona con la nube fresca (datos + historial), lo de otras sesiones se incorpora, los borrados propios dejan LAPIDA y no reviven, las decisiones ajenas (confirmados/integrados/aceptados) se respetan, y un snapshot ya no borra de la pantalla lo recien creado (se conserva y reenvia solo). ENTREGAS ahora con TRANSACCION multi-documento: valida el stock y los seriales sobre datos FRESCOS (si otra sesion entrego mientras tanto, avisa claro), descuenta bodega + suma cuadrilla + registra la entrega de forma atomica. Incluye v73: al CONFIRMAR un consumo de cliente, el material queda anotado AUTOMATICAMENTE en la ficha del cliente — seccion "🧰 Material instalado" — emparejando primero por CEDULA (que ahora envia el tecnico v69) y si no por nombre; si no se encuentra el cliente, avisa claro y el boton "Sincronizar material con clientes" (tambien mejorado con cedula) queda como red de seguridad. Incluye v72: [1] confirmación de consumos con TRANSACCIÓN — el descuento a la cuadrilla ya no se puede revertir por una sincronización cruzada; [2] config Firebase integrada — no vuelve a pedirla; [3] login con ojito 👁️ y Enter; [4] BLINDAJE: guardas anti-borrado de clientes (carga incompleta o encogimiento drástico NO reescriben la nube), firma para no reescribir chunks sin cambios, carga de clientes en paralelo con reintentos, COLA de guardado (nunca se solapan), fusión de envíos recientes de técnicos antes de guardar, y fotos pequeñas ya no se recomprimen)
+const APP_VERSION_INV = 81; // ⬆️ Subir en cada versión publicada de Inventario (v81: CAUSA REAL DEL PROBLEMA DE GUARDADO — la base llego a 0.98 MB del maximo de 1 MB que permite Firestore, y pasado ese tope Firebase deja de guardar: por eso las solicitudes aprobadas reaparecian. El diagnostico de la v79 mostro que lo mas pesado NO son las fotos sino las listas de historial que crecen sin parar: consumosPendientes 370KB, bodegas 348KB, instalaciones 161KB, recuperados 81KB. NUEVO en 🩺 Auditoria: panel de espacio con barra de uso y desglose por seccion, boton ARCHIVAR HISTORIAL VIEJO (mueve a documentos por año los consumos ya resueltos de mas de 45 dias, las instalaciones de mas de 120 y los recuperados ya integrados; lo PENDIENTE nunca se archiva), boton para mover las fotos, y boton VER ARCHIVO para consultar lo guardado. Nada se borra y todo se verifica en la nube ANTES de sacarlo de la base. Incluye v80: (v80: LAS FOTOS DE MATERIALES SALEN DE LA BASE PRINCIPAL — esta era la causa de fondo de que los guardados fallaran y las solicitudes reaparecieran. Las fotos se guardaban DENTRO de inventario/datos como texto base64; entre todas hacian que el documento pasara el limite de 1 MB de Firestore, y a partir de ahi NINGUN cambio se guardaba. Ahora cada foto vive en su propio documento (inventario/foto_XXX) y el material solo guarda su codigo; se ven exactamente igual, se cargan solas al abrir la pantalla y las fotos nuevas ya no engordan la base. NUEVO en 🩺 Auditoria: panel de espacio que muestra cuanto pesa la base y cuantos MB ocupan las fotos incrustadas, con boton para MOVERLAS todas: va una por una, comprueba que quedo guardada ANTES de sacarla (ninguna se pierde), guarda bodega por bodega y se puede retomar si se interrumpe. Incluye v79: (v79: LAS SOLICITUDES APROBADAS/RECHAZADAS YA NO REAPARECEN. Causa: el snapshot de Firebase REEMPLAZA la lista completa con lo que hay en la nube; si el guardado aun no habia terminado —o FALLO, como cuando Firebase responde 'write stream exhausted maximum allowed queued writes'— la solicitud volvia a salir como pendiente. Tres correcciones: [1] BLINDAJE DE DECISIONES: toda decision tomada en esta sesion (aprobar, rechazar, aceptar/rechazar transferencia) se vuelve a imponer sobre el snapshot durante 3 minutos, hasta que quede confirmada en la nube. [2] EL GUARDADO FALLIDO YA NO ES INVISIBLE: antes solo se pintaba un indicador chiquito y se escribia en la consola, asi que el usuario creia que su cambio habia quedado; ahora avisa claro que NO se guardo y REINTENTA solo hasta 3 veces. [3] DIAGNOSTICO DE TAMANO: Firestore rechaza documentos de mas de 1 MB y no habia forma de enterarse; ahora se mide en cada guardado, se avisa en consola desde 800 KB y con alerta si pasa el limite, indicando que seccion pesa mas. Incluye v78: (v78: AUDITORIA GENERAL DEL INVENTARIO + correcciones de flujo. NUEVA PANTALLA 🩺 Auditoria (admin): revisa TUS datos reales y reporta stock negativo, seriales repetidos dentro de un articulo, el MISMO equipo registrado en dos lugares a la vez, desajustes entre cantidad y seriales, articulos duplicados en una bodega, cuadrillas con material sin bodega asignada, y material EN EL LIMBO (transferencias sin aceptar, consumos de tecnicos sin confirmar, recuperados sin integrar, solicitudes sin decidir), ordenado por gravedad y exportable a Excel. CORRECCIONES: [1] enviar transferencia validaba articulo por articulo mientras descontaba — si el stock habia cambiado quedaba NEGATIVO, y si el articulo ya no existia reventaba a mitad dejando material descontado SIN transferencia creada (perdido); ahora valida todo primero y no toca nada si algo falla. [2] aceptar/rechazar transferencia agregaba los seriales con push SIN comprobar si ya estaban (el mismo equipo dos veces en la bodega), reventaba si la bodega destino u origen ya no existia (material en el limbo) y al rechazar buscaba por NOMBRE creando duplicados si lo habian renombrado. [3] misma duplicacion de seriales corregida en recuperados integrados, devoluciones de cuadrilla y entregas. [4] KARDEX: ventas, transferencias, entregas, devoluciones y recuperados no dejaban NINGUN rastro en el historial del articulo; ahora si. [5] agregar seriales avisa si estan repetidos o si superan el stock. Incluye v77: (v77: SOLICITUDES DE CAMBIO Y ELIMINACION CORREGIDAS — cuatro fallas: [1] la EDICION de una bodega se aplicaba al material ANTES de mirar el rol, asi que el cambio quedaba hecho sin aprobacion y RECHAZARLO no revertia nada (la aprobacion era decorativa); ahora la bodega solo PROPONE y el material no se toca hasta que el admin apruebe. [2] ELIMINAR UNA VENTA no devolvia el material a la bodega aunque vender SI lo descuenta: el stock desaparecia sin venta que lo justificara; ahora se devuelve cantidad y seriales, con registro en el kardex, y si el articulo ya no existe se vuelve a crear (aplica tambien al borrado directo del admin). [3] RECHAZAR una eliminacion RESUCITABA material fantasma con la cantidad vieja cuando el articulo ya no estaba (agotado, transferido o borrado aparte); ahora rechazar no toca la bodega y, si el articulo falta, se le PREGUNTA al admin. [4] Aprobar eliminacion borraba el articulo SIN dejar rastro en el kardex y sin avisar si la cantidad habia cambiado desde la solicitud; ahora registra la salida y avisa. Ademas approveEdit avisa si la cantidad cambio antes de pisarla, y ya no cierra solicitudes en silencio cuando la bodega o el articulo ya no existen. Incluye v76: CUARTOS DE EQUIPOS — puertos huerfanos y conexiones protegidas: aviso ambar en el equipo cuando hay puertos OCUPADOS sin conexion que los respalde + boton 🧹 Liberarlos (respeta enlaces inter-sede); boton ✏️ para EDITAR conexiones (mover puertos con selector real, cable, color, notas); y TODA modificacion de conexiones (crear/editar/eliminar/liberar) va por TRANSACCION con validacion fresca — dos sesiones ya no se pisan y un puerto no puede ocuparse dos veces. Incluye v75: GUARDADO MAS RAPIDO — la fusion usa la copia del listener cuando tiene <15s (cero descargas extra, misma proteccion); si esta vieja, lee de la red como siempre. Incluye v74: FUSION UNIVERSAL ENTRE SESIONES — el trabajo simultaneo de varias bodegas y tecnicos ya no se pisa: al guardar se fusiona con la nube fresca (datos + historial), lo de otras sesiones se incorpora, los borrados propios dejan LAPIDA y no reviven, las decisiones ajenas (confirmados/integrados/aceptados) se respetan, y un snapshot ya no borra de la pantalla lo recien creado (se conserva y reenvia solo). ENTREGAS ahora con TRANSACCION multi-documento: valida el stock y los seriales sobre datos FRESCOS (si otra sesion entrego mientras tanto, avisa claro), descuenta bodega + suma cuadrilla + registra la entrega de forma atomica. Incluye v73: al CONFIRMAR un consumo de cliente, el material queda anotado AUTOMATICAMENTE en la ficha del cliente — seccion "🧰 Material instalado" — emparejando primero por CEDULA (que ahora envia el tecnico v69) y si no por nombre; si no se encuentra el cliente, avisa claro y el boton "Sincronizar material con clientes" (tambien mejorado con cedula) queda como red de seguridad. Incluye v72: [1] confirmación de consumos con TRANSACCIÓN — el descuento a la cuadrilla ya no se puede revertir por una sincronización cruzada; [2] config Firebase integrada — no vuelve a pedirla; [3] login con ojito 👁️ y Enter; [4] BLINDAJE: guardas anti-borrado de clientes (carga incompleta o encogimiento drástico NO reescriben la nube), firma para no reescribir chunks sin cambios, carga de clientes en paralelo con reintentos, COLA de guardado (nunca se solapan), fusión de envíos recientes de técnicos antes de guardar, y fotos pequeñas ya no se recomprimen)
 const CHUNK_SIZE = 800; // clients per document - allows ~10000 clients
 
 // Helper: split array into chunks
@@ -8314,6 +8618,8 @@ async function prepareDbCopy() {
     // guardado: cada pasada degradaba un poco más la calidad y hacía lento el guardado.
     for(const b of dbCopy.bodegas) {
         for(const m of b.materiales) {
+            // v80: m.fotosRef son solo códigos (no pesan); aquí solo quedan las
+            // fotos viejas aún incrustadas, mientras no se corra la migración.
             if(m.fotos && m.fotos.length) {
                 const compressed = [];
                 for(const foto of m.fotos) {
@@ -8731,6 +9037,40 @@ async function startFirebase(config) {
     // + registra la entrega). Todo se lee FRESCO y se escribe atómico: si otra
     // sesión escribe al tiempo, Firestore reintenta solo.
     const refHist = doc(fsDB, HISTORIAL_DOC);
+    // ════════════════════════════════════════════════════════════════
+    // 🖼️ v80 — FOTOS FUERA DEL DOCUMENTO PRINCIPAL.
+    // Las fotos de los materiales se guardaban DENTRO de inventario/datos como
+    // texto base64. Cada foto pesa decenas de KB, y Firestore RECHAZA cualquier
+    // documento de más de 1 MB: por eso los guardados empezaron a fallar y los
+    // cambios (aprobar solicitudes, mover material) se perdían.
+    // Ahora cada foto vive en SU PROPIO documento (inventario/foto_XXX) y el
+    // material solo guarda su código. Es el mismo sistema que ya usa la app de
+    // Oficinas para los archivos adjuntos, así que no hace falta nada nuevo:
+    // ni cuentas de Google, ni permisos, ni servicios aparte.
+    // ════════════════════════════════════════════════════════════════
+    window._fbGuardarFoto = async function(fid, dataURL, etiqueta){
+        await setDoc(doc(fsDB, 'inventario/foto_'+fid), { data:dataURL, etiqueta:etiqueta||'', creado:Date.now() });
+        return fid;
+    };
+    window._fbLeerFoto = async function(fid){
+        const s = await getDoc(doc(fsDB, 'inventario/foto_'+fid));
+        return (s.exists() && s.data().data) ? s.data().data : '';
+    };
+    window._fbBorrarFoto = async function(fid){
+        try{ await deleteDoc(doc(fsDB, 'inventario/foto_'+fid)); return true; }catch(e){ return false; }
+    };
+
+    // 📦 v81: archivo histórico — cada tipo en su propio documento y por año,
+    // para que la base principal no crezca sin fin y no reviente el límite de 1 MB.
+    window._fbLeerArchivoInv = async function(nombre){
+        try{ const s=await getDoc(doc(fsDB, 'inventario/'+nombre)); return s.exists()? (s.data()||{}) : {}; }
+        catch(e){ throw new Error('No se pudo leer el archivo histórico: '+(e.message||e)); }
+    };
+    window._fbGuardarArchivoInv = async function(nombre, datos){
+        await setDoc(doc(fsDB, 'inventario/'+nombre), { ...datos, actualizado:Date.now() });
+        return true;
+    };
+
     window._fbTransaccionInvMulti = async function(modifFn){
         return await runTransaction(fsDB, async (tx)=>{
             const [sD, sH] = [await tx.get(ref), await tx.get(refHist)];
