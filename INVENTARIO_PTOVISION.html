@@ -5416,12 +5416,14 @@ function approveDeleteVenta(reqId, accion) {
         }
         DB.ventas.splice(idx, 1);
         req.estado = accion;
+        if(window._marcarDecisionInv) window._marcarDecisionInv('deleteRequests', req.id, accion);
         detalle = dev.ok
             ? `\n\n📦 Devuelto a ${dev.bodega}: ${dev.cantidad} ${dev.unidad} de "${dev.nombre}"${dev.recreado?' (el artículo se volvió a crear)':''}`
             : '\n\n⚠️ El material NO se devolvió a la bodega.';
         logMsg(`Admin aprobó eliminación de venta: ${v.nombre} x${v.cantidad} — $${v.total||0}${dev.ok?' · material devuelto a '+dev.bodega:' · SIN devolución'}`);
     } else {
         req.estado = accion;
+        if(window._marcarDecisionInv) window._marcarDecisionInv('deleteRequests', req.id, accion);
         logMsg(`Admin rechazó eliminación de venta: ${req.materialNombre}`);
     }
     save();
@@ -5460,6 +5462,7 @@ function approveEdit(reqId, accion) {
 
         Object.assign(m, req.datos);
         req.estado = accion;
+        if(window._marcarDecisionInv) window._marcarDecisionInv('editRequests', req.id, accion);
         const cantNueva = parseInt(m.cantidad)||0;
         const dif = cantNueva - cantHoy;
         logMsg(`Admin aprobó edición de "${req.materialNombre}" en ${req.bodegaNombre}`);
@@ -5473,6 +5476,7 @@ function approveEdit(reqId, accion) {
 
     // RECHAZADA: no hay nada que revertir — con la v77 el material nunca se tocó
     req.estado = accion;
+    if(window._marcarDecisionInv) window._marcarDecisionInv('editRequests', req.id, accion);
     logMsg(`Admin rechazó edición de "${req.materialNombre}" en ${req.bodegaNombre}`);
     _refrescar();
     alert(`✅ Solicitud rechazada.\n\nEl artículo "${req.materialNombre}" queda EXACTAMENTE como estaba en ${req.bodegaNombre}.`);
@@ -5504,6 +5508,7 @@ function approveDelete(reqId, act) {
             `Eliminación aprobada por Admin${req.obs?' — Motivo: '+req.obs:''}`);
         b.materiales = b.materiales.filter(m=>m.id!==req.materialId);
         req.estado = act;
+        if(window._marcarDecisionInv) window._marcarDecisionInv('deleteRequests', req.id, act);
         logMsg(`Admin aprobó eliminación de "${req.materialNombre}" (${cantHoy} ${mActual.unidad||''}) en ${req.bodegaNombre}`);
         _refrescar();
         return alert(`✅ Solicitud aprobada.\n\n🗑️ "${req.materialNombre}" eliminado de ${req.bodegaNombre} (${cantHoy} ${mActual.unidad||''}).`);
@@ -5520,6 +5525,7 @@ function approveDelete(reqId, act) {
     // artículo ya no está, se le PREGUNTA al admin en vez de inventarlo.
     // ════════════════════════════════════════════════════════════════════
     req.estado = act;
+    if(window._marcarDecisionInv) window._marcarDecisionInv('deleteRequests', req.id, act);
     let extra='';
     if(b && !mActual){
         if(confirm(`Se rechazará la solicitud.\n\n`
@@ -5628,6 +5634,7 @@ function procTrans(tId,act) {
         });
     }
     t.estado=act;
+    if(window._marcarDecisionInv) window._marcarDecisionInv('transfers', t.id, act);
     logMsg(`Transferencia ${act}`); save(); renderTab('transfer');
 }
 
@@ -8289,7 +8296,7 @@ const HISTORIAL_DOC = 'inventario/historial';
 // Campos que SOLO escribe Inventario (Técnicos no los toca) y que solo crecen.
 // Se guardan en un documento aparte para que inventario/datos no llegue al tope de 1MB.
 const HISTORIAL_FIELDS = ['editRequests','entregas','cuartos','logs','transfers','deleteRequests','ventas'];
-const APP_VERSION_INV = 78; // ⬆️ Subir en cada versión publicada de Inventario (v78: AUDITORIA GENERAL DEL INVENTARIO + correcciones de flujo. NUEVA PANTALLA 🩺 Auditoria (admin): revisa TUS datos reales y reporta stock negativo, seriales repetidos dentro de un articulo, el MISMO equipo registrado en dos lugares a la vez, desajustes entre cantidad y seriales, articulos duplicados en una bodega, cuadrillas con material sin bodega asignada, y material EN EL LIMBO (transferencias sin aceptar, consumos de tecnicos sin confirmar, recuperados sin integrar, solicitudes sin decidir), ordenado por gravedad y exportable a Excel. CORRECCIONES: [1] enviar transferencia validaba articulo por articulo mientras descontaba — si el stock habia cambiado quedaba NEGATIVO, y si el articulo ya no existia reventaba a mitad dejando material descontado SIN transferencia creada (perdido); ahora valida todo primero y no toca nada si algo falla. [2] aceptar/rechazar transferencia agregaba los seriales con push SIN comprobar si ya estaban (el mismo equipo dos veces en la bodega), reventaba si la bodega destino u origen ya no existia (material en el limbo) y al rechazar buscaba por NOMBRE creando duplicados si lo habian renombrado. [3] misma duplicacion de seriales corregida en recuperados integrados, devoluciones de cuadrilla y entregas. [4] KARDEX: ventas, transferencias, entregas, devoluciones y recuperados no dejaban NINGUN rastro en el historial del articulo; ahora si. [5] agregar seriales avisa si estan repetidos o si superan el stock. Incluye v77: (v77: SOLICITUDES DE CAMBIO Y ELIMINACION CORREGIDAS — cuatro fallas: [1] la EDICION de una bodega se aplicaba al material ANTES de mirar el rol, asi que el cambio quedaba hecho sin aprobacion y RECHAZARLO no revertia nada (la aprobacion era decorativa); ahora la bodega solo PROPONE y el material no se toca hasta que el admin apruebe. [2] ELIMINAR UNA VENTA no devolvia el material a la bodega aunque vender SI lo descuenta: el stock desaparecia sin venta que lo justificara; ahora se devuelve cantidad y seriales, con registro en el kardex, y si el articulo ya no existe se vuelve a crear (aplica tambien al borrado directo del admin). [3] RECHAZAR una eliminacion RESUCITABA material fantasma con la cantidad vieja cuando el articulo ya no estaba (agotado, transferido o borrado aparte); ahora rechazar no toca la bodega y, si el articulo falta, se le PREGUNTA al admin. [4] Aprobar eliminacion borraba el articulo SIN dejar rastro en el kardex y sin avisar si la cantidad habia cambiado desde la solicitud; ahora registra la salida y avisa. Ademas approveEdit avisa si la cantidad cambio antes de pisarla, y ya no cierra solicitudes en silencio cuando la bodega o el articulo ya no existen. Incluye v76: CUARTOS DE EQUIPOS — puertos huerfanos y conexiones protegidas: aviso ambar en el equipo cuando hay puertos OCUPADOS sin conexion que los respalde + boton 🧹 Liberarlos (respeta enlaces inter-sede); boton ✏️ para EDITAR conexiones (mover puertos con selector real, cable, color, notas); y TODA modificacion de conexiones (crear/editar/eliminar/liberar) va por TRANSACCION con validacion fresca — dos sesiones ya no se pisan y un puerto no puede ocuparse dos veces. Incluye v75: GUARDADO MAS RAPIDO — la fusion usa la copia del listener cuando tiene <15s (cero descargas extra, misma proteccion); si esta vieja, lee de la red como siempre. Incluye v74: FUSION UNIVERSAL ENTRE SESIONES — el trabajo simultaneo de varias bodegas y tecnicos ya no se pisa: al guardar se fusiona con la nube fresca (datos + historial), lo de otras sesiones se incorpora, los borrados propios dejan LAPIDA y no reviven, las decisiones ajenas (confirmados/integrados/aceptados) se respetan, y un snapshot ya no borra de la pantalla lo recien creado (se conserva y reenvia solo). ENTREGAS ahora con TRANSACCION multi-documento: valida el stock y los seriales sobre datos FRESCOS (si otra sesion entrego mientras tanto, avisa claro), descuenta bodega + suma cuadrilla + registra la entrega de forma atomica. Incluye v73: al CONFIRMAR un consumo de cliente, el material queda anotado AUTOMATICAMENTE en la ficha del cliente — seccion "🧰 Material instalado" — emparejando primero por CEDULA (que ahora envia el tecnico v69) y si no por nombre; si no se encuentra el cliente, avisa claro y el boton "Sincronizar material con clientes" (tambien mejorado con cedula) queda como red de seguridad. Incluye v72: [1] confirmación de consumos con TRANSACCIÓN — el descuento a la cuadrilla ya no se puede revertir por una sincronización cruzada; [2] config Firebase integrada — no vuelve a pedirla; [3] login con ojito 👁️ y Enter; [4] BLINDAJE: guardas anti-borrado de clientes (carga incompleta o encogimiento drástico NO reescriben la nube), firma para no reescribir chunks sin cambios, carga de clientes en paralelo con reintentos, COLA de guardado (nunca se solapan), fusión de envíos recientes de técnicos antes de guardar, y fotos pequeñas ya no se recomprimen)
+const APP_VERSION_INV = 79; // ⬆️ Subir en cada versión publicada de Inventario (v79: LAS SOLICITUDES APROBADAS/RECHAZADAS YA NO REAPARECEN. Causa: el snapshot de Firebase REEMPLAZA la lista completa con lo que hay en la nube; si el guardado aun no habia terminado —o FALLO, como cuando Firebase responde 'write stream exhausted maximum allowed queued writes'— la solicitud volvia a salir como pendiente. Tres correcciones: [1] BLINDAJE DE DECISIONES: toda decision tomada en esta sesion (aprobar, rechazar, aceptar/rechazar transferencia) se vuelve a imponer sobre el snapshot durante 3 minutos, hasta que quede confirmada en la nube. [2] EL GUARDADO FALLIDO YA NO ES INVISIBLE: antes solo se pintaba un indicador chiquito y se escribia en la consola, asi que el usuario creia que su cambio habia quedado; ahora avisa claro que NO se guardo y REINTENTA solo hasta 3 veces. [3] DIAGNOSTICO DE TAMANO: Firestore rechaza documentos de mas de 1 MB y no habia forma de enterarse; ahora se mide en cada guardado, se avisa en consola desde 800 KB y con alerta si pasa el limite, indicando que seccion pesa mas. Incluye v78: (v78: AUDITORIA GENERAL DEL INVENTARIO + correcciones de flujo. NUEVA PANTALLA 🩺 Auditoria (admin): revisa TUS datos reales y reporta stock negativo, seriales repetidos dentro de un articulo, el MISMO equipo registrado en dos lugares a la vez, desajustes entre cantidad y seriales, articulos duplicados en una bodega, cuadrillas con material sin bodega asignada, y material EN EL LIMBO (transferencias sin aceptar, consumos de tecnicos sin confirmar, recuperados sin integrar, solicitudes sin decidir), ordenado por gravedad y exportable a Excel. CORRECCIONES: [1] enviar transferencia validaba articulo por articulo mientras descontaba — si el stock habia cambiado quedaba NEGATIVO, y si el articulo ya no existia reventaba a mitad dejando material descontado SIN transferencia creada (perdido); ahora valida todo primero y no toca nada si algo falla. [2] aceptar/rechazar transferencia agregaba los seriales con push SIN comprobar si ya estaban (el mismo equipo dos veces en la bodega), reventaba si la bodega destino u origen ya no existia (material en el limbo) y al rechazar buscaba por NOMBRE creando duplicados si lo habian renombrado. [3] misma duplicacion de seriales corregida en recuperados integrados, devoluciones de cuadrilla y entregas. [4] KARDEX: ventas, transferencias, entregas, devoluciones y recuperados no dejaban NINGUN rastro en el historial del articulo; ahora si. [5] agregar seriales avisa si estan repetidos o si superan el stock. Incluye v77: (v77: SOLICITUDES DE CAMBIO Y ELIMINACION CORREGIDAS — cuatro fallas: [1] la EDICION de una bodega se aplicaba al material ANTES de mirar el rol, asi que el cambio quedaba hecho sin aprobacion y RECHAZARLO no revertia nada (la aprobacion era decorativa); ahora la bodega solo PROPONE y el material no se toca hasta que el admin apruebe. [2] ELIMINAR UNA VENTA no devolvia el material a la bodega aunque vender SI lo descuenta: el stock desaparecia sin venta que lo justificara; ahora se devuelve cantidad y seriales, con registro en el kardex, y si el articulo ya no existe se vuelve a crear (aplica tambien al borrado directo del admin). [3] RECHAZAR una eliminacion RESUCITABA material fantasma con la cantidad vieja cuando el articulo ya no estaba (agotado, transferido o borrado aparte); ahora rechazar no toca la bodega y, si el articulo falta, se le PREGUNTA al admin. [4] Aprobar eliminacion borraba el articulo SIN dejar rastro en el kardex y sin avisar si la cantidad habia cambiado desde la solicitud; ahora registra la salida y avisa. Ademas approveEdit avisa si la cantidad cambio antes de pisarla, y ya no cierra solicitudes en silencio cuando la bodega o el articulo ya no existen. Incluye v76: CUARTOS DE EQUIPOS — puertos huerfanos y conexiones protegidas: aviso ambar en el equipo cuando hay puertos OCUPADOS sin conexion que los respalde + boton 🧹 Liberarlos (respeta enlaces inter-sede); boton ✏️ para EDITAR conexiones (mover puertos con selector real, cable, color, notas); y TODA modificacion de conexiones (crear/editar/eliminar/liberar) va por TRANSACCION con validacion fresca — dos sesiones ya no se pisan y un puerto no puede ocuparse dos veces. Incluye v75: GUARDADO MAS RAPIDO — la fusion usa la copia del listener cuando tiene <15s (cero descargas extra, misma proteccion); si esta vieja, lee de la red como siempre. Incluye v74: FUSION UNIVERSAL ENTRE SESIONES — el trabajo simultaneo de varias bodegas y tecnicos ya no se pisa: al guardar se fusiona con la nube fresca (datos + historial), lo de otras sesiones se incorpora, los borrados propios dejan LAPIDA y no reviven, las decisiones ajenas (confirmados/integrados/aceptados) se respetan, y un snapshot ya no borra de la pantalla lo recien creado (se conserva y reenvia solo). ENTREGAS ahora con TRANSACCION multi-documento: valida el stock y los seriales sobre datos FRESCOS (si otra sesion entrego mientras tanto, avisa claro), descuenta bodega + suma cuadrilla + registra la entrega de forma atomica. Incluye v73: al CONFIRMAR un consumo de cliente, el material queda anotado AUTOMATICAMENTE en la ficha del cliente — seccion "🧰 Material instalado" — emparejando primero por CEDULA (que ahora envia el tecnico v69) y si no por nombre; si no se encuentra el cliente, avisa claro y el boton "Sincronizar material con clientes" (tambien mejorado con cedula) queda como red de seguridad. Incluye v72: [1] confirmación de consumos con TRANSACCIÓN — el descuento a la cuadrilla ya no se puede revertir por una sincronización cruzada; [2] config Firebase integrada — no vuelve a pedirla; [3] login con ojito 👁️ y Enter; [4] BLINDAJE: guardas anti-borrado de clientes (carga incompleta o encogimiento drástico NO reescriben la nube), firma para no reescribir chunks sin cambios, carga de clientes en paralelo con reintentos, COLA de guardado (nunca se solapan), fusión de envíos recientes de técnicos antes de guardar, y fotos pequeñas ya no se recomprimen)
 const CHUNK_SIZE = 800; // clients per document - allows ~10000 clients
 
 // Helper: split array into chunks
@@ -8600,10 +8607,29 @@ async function _fbSaveCore(conOverlay) {
         } catch(eM){ console.warn('Fusión universal (no crítico):', eM); }
 
         const { dbCopy, clientes, historial } = await prepareDbCopy();
+        // 📏 v79 — DIAGNÓSTICO DE TAMAÑO: Firestore RECHAZA cualquier documento de
+        // más de 1 MB. Si inventario/datos se pasa, TODOS los guardados fallan y los
+        // cambios (aprobar solicitudes, mover material) se pierden en silencio.
+        // Antes no había forma de enterarse; ahora se avisa antes de que sea tarde.
+        try{
+            const _bytes = new Blob([JSON.stringify(dbCopy)]).size;
+            window._tamDocInv = _bytes;
+            if(_bytes > 800*1024){
+                const _pesos = Object.keys(dbCopy||{})
+                    .map(k=>({k, kb: Math.round((new Blob([JSON.stringify(dbCopy[k]||null)]).size)/1024)}))
+                    .filter(x=>x.kb>20).sort((a,b)=>b.kb-a.kb).slice(0,6);
+                console.warn(`⚠️ inventario/datos pesa ${(_bytes/1048576).toFixed(2)} MB (el límite de Firestore es 1 MB). Más pesados: ${_pesos.map(p=>p.k+' '+p.kb+'KB').join(' · ')}`);
+                if(_bytes > 1000*1024 && !window._avisoTamInv){
+                    window._avisoTamInv = true;
+                    setTimeout(()=>alert(`🚨 ATENCIÓN: la base del inventario pesa ${(_bytes/1048576).toFixed(2)} MB y el límite de Firebase es 1 MB.\n\nPor eso los cambios NO se están guardando (aprobar solicitudes, mover material...).\n\nLo más pesado: ${_pesos.map(p=>p.k+' ('+p.kb+' KB)').join(', ')}.\n\nAvísale a soporte con este dato para aligerarlo.`), 600);
+                }
+            }
+        }catch(eT){}
         await setDoc(doc(fsDB, DB_DOC), dbCopy);
         await saveClienteChunks(clientes);
         await saveHistorial(historial);
         showSync('ok','Guardado ✓');
+        window._fallosSaveInv=0; // v79: se guardó bien → se reinicia el contador de fallos
         try{ window._fotoIdsRemotosInv(dbCopy, historial); }catch(eF){} // v74: lo recién escrito ES el estado remoto
         try{ window._cacheRemDatosInv={data:dbCopy, ts:Date.now()}; window._cacheRemHistInv={data:JSON.parse(JSON.stringify(historial)), ts:Date.now()}; }catch(eC){} // v75
         try{ // v75: marcar mis creaciones (contra pisadas ajenas sin lápida)
@@ -8617,6 +8643,29 @@ async function _fbSaveCore(conOverlay) {
         if(conOverlay && window.ocultarOverlayGuardado) window.ocultarOverlayGuardado(true);
     } catch(e) {
         showSync('err','Error al guardar');
+        // 🚨 v79 — EL GUARDADO FALLIDO YA NO ES INVISIBLE.
+        // Antes solo se pintaba un indicador chiquito y se escribía en la consola:
+        // el usuario creía que su cambio había quedado, la nube seguía igual y al
+        // llegar el siguiente snapshot todo volvía atrás (solicitudes que reaparecen).
+        // Ahora se avisa claro y se REINTENTA solo hasta 3 veces.
+        try{
+            const _msg=String((e&&e.message)||e);
+            window._fallosSaveInv=(window._fallosSaveInv||0)+1;
+            const _cupo=/resource-exhausted|exhausted maximum|quota/i.test(_msg);
+            const _grande=/maximum.*size|too large|invalid-argument/i.test(_msg);
+            if(window._fallosSaveInv<=3){
+                console.warn(`🔁 Guardado fallido (intento ${window._fallosSaveInv}) — reintentando en ${window._fallosSaveInv*3}s…`);
+                setTimeout(()=>{ try{ _ejecutarSaveInv(false); }catch(eR){} }, window._fallosSaveInv*3000);
+            }
+            if(window._fallosSaveInv===2 && !window._avisoSaveInv){
+                window._avisoSaveInv=true;
+                setTimeout(()=>{ window._avisoSaveInv=false; alert('⚠️ NO SE PUDO GUARDAR EN LA NUBE.\n\n'
+                    + (_cupo ? 'Firebase está rechazando las escrituras (cola saturada). '
+                       : _grande ? 'La base del inventario superó el tamaño máximo de Firebase. '
+                       : 'Puede ser la conexión a internet. ')
+                    + '\n\n⛔ Los últimos cambios (aprobaciones, movimientos de material) NO quedaron guardados y pueden volver atrás.\n\nLa app está reintentando sola. Si el aviso se repite, espera un minuto y vuelve a intentar; si sigue, avísale a soporte.\n\nDetalle: '+_msg.substring(0,180)); }, 400);
+            }
+        }catch(eA){}
         if(conOverlay && window.ocultarOverlayGuardado) window.ocultarOverlayGuardado(false);
         console.error(e);
         if(conOverlay) throw e;
@@ -8760,8 +8809,44 @@ async function startFirebase(config) {
         if(r1.inc+r2.inc+r1.tn+r2.tn+r1.sol+r2.sol>0)
             console.log(`🤝 Fusión: ${r1.inc+r2.inc} registro(s) de otras sesiones incorporado(s) · ${r1.tn+r2.tn} lápida(s) por borrados propios · ${r1.sol+r2.sol} soltado(s) por borrados ajenos.`);
     };
+    // ════════════════════════════════════════════════════════════════
+    // 🛡️ v79 — BLINDAJE DE DECISIONES (aprobar / rechazar / integrar).
+    // EL BUG QUE RESUELVE: el snapshot REEMPLAZA la lista completa con lo que hay
+    // en la nube. Si el guardado aún no ha terminado —o falló, como cuando Firebase
+    // responde "write stream exhausted"— la solicitud que acababas de aprobar volvía
+    // a aparecer como PENDIENTE, porque en la nube seguía pendiente. Ahora, toda
+    // decisión tomada aquí en los últimos 3 minutos se vuelve a imponer sobre el
+    // snapshot hasta que quede confirmada en la nube.
+    // ════════════════════════════════════════════════════════════════
+    window._decisionesMiasInv = window._decisionesMiasInv || new Map();
+    window._marcarDecisionInv = function(col, id, estado){
+        try{
+            if(!col||!id) return;
+            window._decisionesMiasInv.set(col+'│'+id, {estado, ts:Date.now()});
+            window._decisionesMiasInv.forEach((v,k)=>{ if(Date.now()-v.ts>180000) window._decisionesMiasInv.delete(k); });
+        }catch(e){}
+    };
+    window._reimponerDecisionesInv = function(entrante, cols){
+        let repuestas=0;
+        try{
+            cols.forEach(col=>{
+                const arr=Array.isArray(entrante[col])?entrante[col]:null;
+                if(!arr) return;
+                arr.forEach(item=>{
+                    if(!item||!item.id) return;
+                    const d=window._decisionesMiasInv.get(col+'│'+item.id);
+                    if(!d) return;
+                    if(Date.now()-d.ts>180000){ window._decisionesMiasInv.delete(col+'│'+item.id); return; }
+                    if(item.estado!==d.estado){ item.estado=d.estado; repuestas++; }
+                });
+            });
+            if(repuestas>0) console.log(`🛡️ ${repuestas} decisión(es) tuya(s) protegida(s): la nube aún no las tenía (guardado en curso o fallido).`);
+        }catch(e){}
+        return repuestas;
+    };
     window._protegerSnapshotInv = function(entrante, cols, fotoLado, tumbas){
         let preservados=0;
+        window._reimponerDecisionesInv(entrante, cols);
         cols.forEach(col=>{
             const arrEnt=Array.isArray(entrante[col])?entrante[col]:[];
             const idsEnt=new Set(arrEnt.map(x=>x&&x.id).filter(Boolean));
