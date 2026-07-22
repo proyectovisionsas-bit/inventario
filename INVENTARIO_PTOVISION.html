@@ -384,6 +384,7 @@
                 <button class="nav-btn" data-tab="busqueda">🔍 Búsqueda Global</button>
                 <button class="nav-btn" data-tab="reportes">📊 Reportes Excel</button>
                 <button class="nav-btn admin-only" data-tab="delete_req" style="color:#ef4444;">🗑️ Solicitudes</button>
+                <button class="nav-btn admin-only" data-tab="auditoria" style="color:#0ea5e9;">🩺 Auditoría</button>
                 <button class="nav-btn admin-only" data-tab="admin" style="color:#f59e0b;">⚙️ Configuración</button>
             </div>
         </div>
@@ -638,11 +639,202 @@ function setupNav() {
     });
 }
 function navigate(tab) { document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active')); document.querySelector(`.nav-btn[data-tab="${tab}"]`)?.classList.add('active'); renderTab(tab); }
+// ════════════════════════════════════════════════════════════════════════════
+// 🩺 AUDITORÍA DE INVENTARIO (v78) — revisa los DATOS REALES y reporta lo que
+// no cuadra: stock negativo, seriales repetidos, el mismo equipo en dos lugares,
+// desajustes entre cantidad y seriales, artículos duplicados, y material que
+// quedó "en el limbo" (transferencias, consumos o solicitudes sin resolver).
+// No corrige nada por su cuenta: muestra el problema, dónde está y qué revisar.
+// ════════════════════════════════════════════════════════════════════════════
+function _audNorm(s){ return (s||'').toString().toLowerCase().trim().replace(/\s+/g,' '); }
+function _audDias(fecha){
+    if(!fecha) return null;
+    const d=new Date(fecha);
+    if(isNaN(d.getTime())) return null;
+    return Math.floor((Date.now()-d.getTime())/86400000);
+}
+function auditarInventario(){
+    const H=[];   // hallazgos: {sev:'alta'|'media'|'baja', grupo, titulo, detalle, donde}
+    const add=(sev,grupo,titulo,detalle,donde)=>H.push({sev,grupo,titulo,detalle,donde});
+    const bodegas=Array.isArray(DB.bodegas)?DB.bodegas:[];
+    const cuadrillas=Array.isArray(DB.cuadrillas)?DB.cuadrillas:[];
+
+    // ── Índice global de seriales: dónde está cada uno ──
+    const snMapa=new Map();   // serial → [{lugar, tipoLugar, articulo}]
+    const anotarSN=(sn,lugar,tipoLugar,articulo)=>{
+        const k=(sn||'').toString().trim().toUpperCase();
+        if(!k) return;
+        if(!snMapa.has(k)) snMapa.set(k,[]);
+        snMapa.get(k).push({lugar,tipoLugar,articulo});
+    };
+
+    // ═══ 1. BODEGAS: stock, seriales y duplicados ═══
+    bodegas.forEach(b=>{
+        const mats=Array.isArray(b.materiales)?b.materiales:[];
+        const porNombre=new Map();
+        mats.forEach(m=>{
+            const cant=parseInt(m.cantidad);
+            const snes=Array.isArray(m.snes)?m.snes:[];
+            // stock negativo
+            if(!isNaN(cant) && cant<0)
+                add('alta','stock','Stock NEGATIVO',`"${m.nombre}" tiene ${cant} ${m.unidad||''} — eso es imposible: hubo una salida que no validó el stock.`,`Bodega ${b.nombre}`);
+            if(isNaN(cant))
+                add('alta','stock','Cantidad dañada',`"${m.nombre}" tiene una cantidad que no es un número (${m.cantidad}).`,`Bodega ${b.nombre}`);
+            // seriales repetidos DENTRO del mismo artículo
+            const vistos=new Set(), reps=new Set();
+            snes.forEach(sn=>{ const k=(sn||'').toString().trim().toUpperCase(); if(!k) return; if(vistos.has(k)) reps.add(k); vistos.add(k); });
+            if(reps.size)
+                add('alta','seriales','Serial repetido en el mismo artículo',`"${m.nombre}": ${[...reps].join(', ')} aparece(n) más de una vez — infla el inventario.`,`Bodega ${b.nombre}`);
+            // cantidad vs seriales
+            if(snes.length && !isNaN(cant) && snes.length!==cant)
+                add(snes.length>cant?'alta':'media','seriales','Cantidad y seriales no coinciden',`"${m.nombre}": stock dice ${cant} pero hay ${snes.length} serial(es) registrado(s).`,`Bodega ${b.nombre}`);
+            snes.forEach(sn=>anotarSN(sn,`Bodega ${b.nombre}`,'bodega',m.nombre));
+            // artículos duplicados (misma bodega, mismo nombre y tipo)
+            const k=_audNorm(m.nombre)+'│'+(m.tipo||'');
+            if(!porNombre.has(k)) porNombre.set(k,[]);
+            porNombre.get(k).push(m);
+        });
+        porNombre.forEach((lista,k)=>{
+            if(lista.length>1)
+                add('media','duplicados','Artículo duplicado en la bodega',`"${lista[0].nombre}" aparece ${lista.length} veces como filas separadas (${lista.map(x=>x.cantidad).join(' + ')} ${lista[0].unidad||''}). Conviene unificarlas.`,`Bodega ${b.nombre}`);
+        });
+        if(!mats.length) add('baja','estructura','Bodega sin material','Esta bodega no tiene ningún artículo registrado.',`Bodega ${b.nombre}`);
+    });
+
+    // ═══ 2. CUADRILLAS (técnicos): material en poder de la gente ═══
+    cuadrillas.forEach(c=>{
+        const mats=Array.isArray(c.materiales)?c.materiales:[];
+        const bod=bodegas.find(b=>b.id===c.bodegaId);
+        if(!bod && mats.some(m=>(parseInt(m.cantidad)||0)>0))
+            add('alta','estructura','Cuadrilla con material y SIN bodega',`"${c.nombre}" tiene material en su poder pero no está asignada a ninguna bodega: sus devoluciones no tienen a dónde volver.`,`Cuadrilla ${c.nombre}`);
+        mats.forEach(m=>{
+            const cant=parseInt(m.cantidad);
+            const snes=Array.isArray(m.snes)?m.snes:[];
+            if(!isNaN(cant) && cant<0)
+                add('alta','stock','Stock NEGATIVO en cuadrilla',`"${m.nombre}" en ${c.nombre}: ${cant}.`,`Cuadrilla ${c.nombre}`);
+            if(snes.length && !isNaN(cant) && snes.length!==cant)
+                add('media','seriales','Cantidad y seriales no coinciden (cuadrilla)',`"${m.nombre}" en ${c.nombre}: ${cant} unidad(es) pero ${snes.length} serial(es).`,`Cuadrilla ${c.nombre}`);
+            snes.forEach(sn=>anotarSN(sn,`Cuadrilla ${c.nombre}`,'cuadrilla',m.nombre));
+        });
+    });
+
+    // ═══ 3. EL MISMO SERIAL EN DOS LUGARES ═══
+    snMapa.forEach((lugares,sn)=>{
+        const unicos=[...new Set(lugares.map(l=>l.lugar))];
+        if(unicos.length>1)
+            add('alta','seriales','El mismo equipo aparece en DOS lugares',`Serial ${sn} está registrado en: ${unicos.join(' y ')} (${[...new Set(lugares.map(l=>l.articulo))].join(' / ')}). Solo puede estar en uno.`,unicos.join(' · '));
+    });
+
+    // ═══ 4. MATERIAL EN EL LIMBO: transferencias pendientes ═══
+    (Array.isArray(DB.transfers)?DB.transfers:[]).filter(x=>x.estado==='pendiente').forEach(tr=>{
+        const dias=_audDias(tr.fecha);
+        const uds=(tr.mats||[]).reduce((s,m)=>s+(parseInt(m.cant)||0),0);
+        add(dias!==null&&dias>7?'alta':'media','limbo','Transferencia sin resolver',
+            `${uds} unidad(es) salieron de ${tr.oriName} hacia ${tr.desName}${dias!==null?` hace ${dias} día(s)`:''} y nadie la ha aceptado ni rechazado: ese material no está en ninguna de las dos bodegas.`,
+            `${tr.oriName} → ${tr.desName}`);
+    });
+
+    // ═══ 5. Consumos de técnicos sin confirmar ═══
+    (Array.isArray(DB.consumosPendientes)?DB.consumosPendientes:[]).filter(x=>x.estado!=='confirmado').forEach(cp=>{
+        const dias=_audDias(cp.fecha||cp.reg);
+        if(dias!==null && dias>5)
+            add(dias>15?'alta':'media','limbo','Consumo de técnico sin confirmar',
+                `El material que reportó ${cp.cuadrilla||cp.tecnico||'un técnico'}${cp.cliente?' para '+cp.cliente:''} lleva ${dias} día(s) sin confirmarse: hasta que se confirme, sigue contando como si el técnico lo tuviera.`,
+                cp.cuadrilla||cp.tecnico||'—');
+    });
+
+    // ═══ 6. Recuperados y solicitudes sin resolver ═══
+    (Array.isArray(DB.recuperados)?DB.recuperados:[]).filter(r=>r.estado==='pendiente').forEach(r=>{
+        const dias=_audDias(r.fecha);
+        if(dias!==null && dias>7)
+            add('media','limbo','Equipo recuperado sin integrar',`"${r.nom}" (${r.cant||0}) lleva ${dias} día(s) recuperado y sin volver al inventario de la bodega.`,r.bodegaNombre||'—');
+    });
+    const pendSol=(Array.isArray(DB.deleteRequests)?DB.deleteRequests:[]).filter(r=>r.estado==='pendiente').length
+                + (Array.isArray(DB.editRequests)?DB.editRequests:[]).filter(r=>r.estado==='pendiente').length;
+    if(pendSol>0) add('baja','limbo','Solicitudes esperando decisión',`Hay ${pendSol} solicitud(es) de cambio o eliminación pendientes de aprobar o rechazar.`,'Módulo 🗑️ Solicitudes');
+
+    // ═══ 7. Stock bajo el mínimo (operativo) ═══
+    bodegas.forEach(b=>{
+        (b.materiales||[]).forEach(m=>{
+            const min=parseInt(m.stockMin)||0, cant=parseInt(m.cantidad)||0;
+            if(min>0 && cant<min)
+                add('baja','stock','Stock por debajo del mínimo',`"${m.nombre}": ${cant} ${m.unidad||''} (mínimo definido: ${min}).`,`Bodega ${b.nombre}`);
+        });
+    });
+
+    const orden={alta:0,media:1,baja:2};
+    H.sort((a,b)=>orden[a.sev]-orden[b.sev] || a.grupo.localeCompare(b.grupo));
+    return H;
+}
+window.auditarInventario = auditarInventario;
+
+function renderAuditoria(c){
+    if(USER.role!=='admin') return navigate('dash');
+    const H=auditarInventario();
+    const alta=H.filter(h=>h.sev==='alta'), media=H.filter(h=>h.sev==='media'), baja=H.filter(h=>h.sev==='baja');
+    const color={alta:'#ef4444', media:'#d97706', baja:'#6b7280'};
+    const icono={alta:'🔴', media:'🟡', baja:'⚪'};
+    const bloque=(lista,titulo,sev)=> lista.length ? `
+        <h3 style="margin:18px 0 8px;color:${color[sev]};">${icono[sev]} ${titulo} (${lista.length})</h3>
+        <div class="table-wrap"><table>
+            <thead><tr><th style="width:190px;">Problema</th><th>Detalle</th><th style="width:170px;">Dónde</th></tr></thead>
+            <tbody>${lista.map(h=>`<tr>
+                <td><strong style="color:${color[sev]};">${h.titulo}</strong><br><small class="text-muted">${h.grupo}</small></td>
+                <td style="font-size:0.85rem;">${h.detalle}</td>
+                <td style="font-size:0.82rem;">${h.donde}</td>
+            </tr>`).join('')}</tbody>
+        </table></div>` : '';
+    const totalArt=(DB.bodegas||[]).reduce((s,b)=>s+((b.materiales||[]).length),0);
+    const totalUds=(DB.bodegas||[]).reduce((s,b)=>s+(b.materiales||[]).reduce((x,m)=>x+(parseInt(m.cantidad)||0),0),0);
+    c.innerHTML = `<div class="card">
+        <div class="card-header"><h2>🩺 Auditoría de Inventario</h2>
+            <button class="btn btn-primary btn-sm" onclick="renderTab('auditoria')">🔄 Volver a revisar</button>
+        </div>
+        <p class="text-muted" style="font-size:0.86rem;margin:0 0 12px;">Revisión automática de TUS datos: ${totalArt} artículo(s) · ${totalUds.toLocaleString('es-CO')} unidad(es) · ${(DB.cuadrillas||[]).length} cuadrilla(s). Esta pantalla no cambia nada: solo señala lo que no cuadra.</p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:6px;">
+            <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px;text-align:center;">
+                <div style="font-size:1.8rem;font-weight:800;color:#ef4444;">${alta.length}</div>
+                <div style="font-size:0.75rem;color:#991b1b;font-weight:700;">🔴 GRAVES</div>
+                <div style="font-size:0.68rem;color:#7f1d1d;">plata o equipos en juego</div>
+            </div>
+            <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px;text-align:center;">
+                <div style="font-size:1.8rem;font-weight:800;color:#d97706;">${media.length}</div>
+                <div style="font-size:0.75rem;color:#92400e;font-weight:700;">🟡 REVISAR</div>
+                <div style="font-size:0.68rem;color:#78350f;">desorden que confunde</div>
+            </div>
+            <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px;text-align:center;">
+                <div style="font-size:1.8rem;font-weight:800;color:#6b7280;">${baja.length}</div>
+                <div style="font-size:0.75rem;color:#374151;font-weight:700;">⚪ AVISOS</div>
+                <div style="font-size:0.68rem;color:#4b5563;">informativos</div>
+            </div>
+        </div>
+        ${H.length===0 ? '<div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:20px;text-align:center;margin-top:14px;"><div style="font-size:2rem;">✅</div><strong style="color:#065f46;">Todo cuadra.</strong><p class="text-muted" style="margin:6px 0 0;font-size:0.85rem;">No se encontraron inconsistencias en el inventario.</p></div>' : ''}
+        ${bloque(alta,'Problemas graves','alta')}
+        ${bloque(media,'Para revisar','media')}
+        ${bloque(baja,'Avisos','baja')}
+        ${H.length?`<div style="margin-top:16px;"><button class="btn btn-outline btn-sm" onclick="exportarAuditoria()">📊 Descargar en Excel</button></div>`:''}
+    </div>`;
+}
+window.renderAuditoria = renderAuditoria;
+
+function exportarAuditoria(){
+    const H=auditarInventario();
+    if(!H.length) return alert('No hay hallazgos que exportar.');
+    const filas=[['Gravedad','Grupo','Problema','Detalle','Dónde']];
+    H.forEach(h=>filas.push([h.sev.toUpperCase(),h.grupo,h.titulo,h.detalle,h.donde]));
+    const ws=XLSX.utils.aoa_to_sheet(filas);
+    ws['!cols']=[{wch:10},{wch:14},{wch:34},{wch:80},{wch:26}];
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Auditoría');
+    XLSX.writeFile(wb,`Auditoria_Inventario_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+window.exportarAuditoria = exportarAuditoria;
+
 function renderTab(tab) { const main=id('main-content'); if(!main) return; try { switch(tab) { case 'dash': renderDash(main); break; case 'panel': renderPanelControl(main); break; case 'bodegas': renderBodegas(main); break; case 'clientes': renderClientes(main); break; case 'vista_global': renderVistaGlobal(main); break; case 'inv_global': renderInvGlobal(main); break; case 'transfer': renderTransfer(main); break; case 'recuperados': renderRecuperados(main); break; case 'consumos': renderConsumos(main); break; case 'danados': renderEquiposDanados(main); break; case 'cuads': renderCuads(main); break; case 'entregas': renderEntregas(main); break; case 'inst': renderInst(main); break; case 'busqueda': renderBusquedaGlobal(main); break;
             case 'reportes': renderReportes(main); break;
             case 'ventas': renderVentas(main); break;
             case 'cuartos': renderCuartos(main); break;
-            case 'delete_req': renderDeleteReq(main); break; case 'admin': renderAdmin(main); break; } } catch(e) { console.error(e); } }
+            case 'delete_req': renderDeleteReq(main); break; case 'auditoria': renderAuditoria(main); break; case 'admin': renderAdmin(main); break; } } catch(e) { console.error(e); } }
 
 // ── Exponer funciones clave al scope global para que el módulo Firebase pueda accederlas ──
 window.DB = DB;
@@ -2132,6 +2324,8 @@ function modalNewVenta() {
             // Descontar de bodega
             mat.cantidad -= cant;
             mat.snes = (mat.snes||[]).filter(s=>!snChecked.includes(s));
+            // v78: la venta ahora queda en el kardex del artículo (antes no dejaba rastro)
+            registrarMovimiento(bodId, mat.id, 'salida', cant, `Venta${comprador?' a '+comprador:''} — $${(precio*cant).toLocaleString('es-CO')}`);
 
             // Registrar venta
             if(!DB.ventas) DB.ventas=[];
@@ -2184,10 +2378,14 @@ function solicitarEliminarVenta(idx) {
     const v = DB.ventas[idx];
     if(!v) return;
     if(USER.role === 'admin') {
-        if(!confirm(`¿Eliminar venta de "${v.nombre}" x${v.cantidad} — $${(v.total||0).toLocaleString()}?`)) return;
+        if(!confirm(`¿Eliminar venta de "${v.nombre}" x${v.cantidad} — $${(v.total||0).toLocaleString()}?\n\nEl material se DEVOLVERÁ a la bodega ${v.bodegaNombre||''}.`)) return;
+        // ✅ v77: devolver primero el material (vender lo descontó); antes se perdía
+        const dev = _devolverVentaABodega(v);
+        if(!dev.ok && !confirm(`⚠️ ${dev.msg}\n\n¿Eliminar la venta de todas formas?`)) return;
         DB.ventas.splice(idx, 1);
-        logMsg(`Admin eliminó venta: ${v.nombre} x${v.cantidad} de ${v.bodegaNombre} — $${v.total||0}`);
+        logMsg(`Admin eliminó venta: ${v.nombre} x${v.cantidad} de ${v.bodegaNombre} — $${v.total||0}${dev.ok?' · material devuelto':' · SIN devolución'}`);
         save(); renderTab('ventas');
+        alert(dev.ok ? `✅ Venta eliminada.\n\n📦 Devuelto a ${dev.bodega}: ${dev.cantidad} ${dev.unidad} de "${dev.nombre}"${dev.recreado?' (el artículo se volvió a crear)':''}` : '✅ Venta eliminada (sin devolución a bodega).');
     } else {
         const motivo = prompt('Motivo de la solicitud de eliminación:');
         if(!motivo) return;
@@ -4771,7 +4969,7 @@ function saveBodegaImport() {
 function modalNewBodega() { openModal('Nueva Bodega', `<div class="form-group"><label>Nombre</label><input id="bNom" class="form-control"></div><div class="form-group"><label>Ubicación</label><input id="bUbic" class="form-control"></div><div class="form-group"><label>Jefe</label><input id="bJefe" class="form-control"></div><div class="form-group"><label>Contraseña</label><input id="bPass" type="password" class="form-control"></div>`, ()=>{const n=id('bNom').value,j=id('bJefe').value,p=id('bPass').value;if(!n||!j||!p)return alert('Complete campos');DB.bodegas.push({id:Date.now().toString(),nombre:n,ubicacion:id('bUbic').value,responsable:j,password:p,materiales:[]});logMsg(`Bodega "${n}" creada`);save();closeModal();renderTab('bodegas');}); }
 function modalEditPass(bId) { openModal('Cambiar Contraseña', `<input type="hidden" id="editBId" value="${bId}"><div class="form-group"><label>Nueva Contraseña</label><input id="newPass" type="password" class="form-control"></div>`, ()=>{const p=id('newPass').value;if(!p)return alert('Ingrese contraseña');DB.bodegas.find(x=>x.id===id('editBId').value).password=p;save();closeModal();alert('✅ Actualizada');}); }
 function delBodega(bId) { if(!confirm('¿Borrar bodega?')) return; DB.bodegas=DB.bodegas.filter(x=>x.id!==bId); DB.cuadrillas=DB.cuadrillas.filter(x=>x.bodegaId!==bId); save(); renderTab('bodegas'); }
-function modalAddSN(bId, mId) { const b=DB.bodegas.find(x=>x.id===bId), m=b.materiales.find(x=>x.id===mId); openModal(`➕ Agregar Serial: ${m.nombre}`, `<p>Stock: ${m.cantidad} ${m.unidad}</p><div class="form-group"><label>Nuevos SN</label><textarea id="newSNs" class="form-control"></textarea></div>`, ()=>{ const raw=id('newSNs').value.trim(); if(!raw) return alert('Ingrese SN'); const sns=raw.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean); m.snes.push(...sns); logMsg(`SN agregado a "${m.nombre}"`); save(); closeModal(); renderTab('bodegas'); }); }
+function modalAddSN(bId, mId) { const b=DB.bodegas.find(x=>x.id===bId), m=b.materiales.find(x=>x.id===mId); openModal(`➕ Agregar Serial: ${m.nombre}`, `<p>Stock: ${m.cantidad} ${m.unidad}</p><div class="form-group"><label>Nuevos SN</label><textarea id="newSNs" class="form-control"></textarea></div>`, ()=>{ const raw=id('newSNs').value.trim(); if(!raw) return alert('Ingrese SN'); const sns=raw.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean); if(!Array.isArray(m.snes)) m.snes=[]; const _rep=sns.filter(s=>m.snes.includes(s)); const _nuevos=sns.filter(s=>!m.snes.includes(s)); if(_rep.length) alert(`⚠️ Estos seriales YA estaban registrados y no se repitieron:\n\n${_rep.join(', ')}`); if(!_nuevos.length) return; m.snes.push(..._nuevos); if(m.snes.length>(m.cantidad||0)) alert(`⚠️ OJO: "${m.nombre}" queda con ${m.snes.length} serial(es) pero el stock dice ${m.cantidad}.\n\nRevisa la cantidad — con seriales de más, las entregas y ventas se comportan raro.`); logMsg(`SN agregado a "${m.nombre}"`); save(); closeModal(); renderTab('bodegas'); }); }
 function modalAddMat(bId) {
     TempLists.addMatFotos = [];
     openModal('📦 Agregar Material / Equipo',
@@ -4962,20 +5160,28 @@ function modalEditMat(bId, mId) {
 
             if(!cambios.length && m.categoria===nuevoCat && m.observaciones===(nuevoObs||'')) { closeModal(); return; }
 
-            m.nombre       = nuevoNom;
-            m.cantidad     = nuevoCant;
-            m.tipo         = nuevoTipo;
-            m.unidad       = nuevoUnd;
-            m.stockMin     = nuevoMin;
-            m.categoria    = nuevoCat;
-            m.observaciones= nuevoObs;
-            m.fotos        = fotosFinales;
-            m.snes         = m.snes.filter(sn=>!snToDelete.includes(sn));
-            m.snes.push(...newSNs.filter(sn=>!m.snes.includes(sn)));
-
-            if(!cambios.length && m.categoria===nuevoCat && m.observaciones===(nuevoObs||'')) { closeModal(); return; }
+            // ════════════════════════════════════════════════════════════════════
+            // 🛠️ v77 — LOS CAMBIOS SOLO SE APLICAN SI HAY PERMISO.
+            // EL BUG QUE RESUELVE: el material se modificaba AQUÍ, ANTES de mirar el
+            // rol. Así que cuando una bodega mandaba una "solicitud de edición", el
+            // cambio YA quedaba aplicado sin aprobación... y si el admin la RECHAZABA,
+            // no se revertía nada (approveEdit solo escribía en el log). La aprobación
+            // era decorativa. Ahora: el admin aplica de una; la bodega solo PROPONE y
+            // el material NO se toca hasta que se apruebe.
+            // ════════════════════════════════════════════════════════════════════
+            const snesPropuestos = m.snes.filter(sn=>!snToDelete.includes(sn))
+                                         .concat(newSNs.filter(sn=>!m.snes.includes(sn)));
 
             if(isAdmin) {
+                m.nombre       = nuevoNom;
+                m.cantidad     = nuevoCant;
+                m.tipo         = nuevoTipo;
+                m.unidad       = nuevoUnd;
+                m.stockMin     = nuevoMin;
+                m.categoria    = nuevoCat;
+                m.observaciones= nuevoObs;
+                m.fotos        = fotosFinales;
+                m.snes         = snesPropuestos;
                 // Admin: apply immediately
                 const logEntry = `Admin editó "${nuevoNom}" en ${b.nombre}: ${cambios.join(' | ')}`;
                 if(cambios.length) { logMsg(logEntry); registrarMovimiento(bId, mId, 'ajuste', 0, logEntry); }
@@ -4992,18 +5198,21 @@ function modalEditMat(bId, mId) {
                     materialNombre: m.nombre,
                     cambios: cambios,
                     motivo: motivo,
+                    // 📸 v77: foto del estado ACTUAL, para que al aprobar se pueda avisar
+                    // si el material cambió mientras tanto (entregas, ventas, consumos).
+                    datosAntes: { nombre:m.nombre, cantidad:m.cantidad, unidad:m.unidad, snes:[...(m.snes||[])] },
                     datos: {
                         nombre: nuevoNom, cantidad: nuevoCant, tipo: nuevoTipo,
                         unidad: nuevoUnd, stockMin: nuevoMin, categoria: nuevoCat,
                         observaciones: nuevoObs, fotos: fotosFinales,
-                        snes: m.snes.filter(sn=>!snToDelete.includes(sn)).concat(newSNs.filter(sn=>!m.snes.includes(sn)))
+                        snes: snesPropuestos
                     },
                     fecha: new Date().toISOString(),
                     estado: 'pendiente'
                 });
                 logMsg(`Solicitud de edición "${m.nombre}" enviada al Admin`);
                 save(); closeModal();
-                alert('✅ Solicitud enviada al administrador para aprobación.');
+                alert('✅ Solicitud enviada al administrador.\n\n⚠️ OJO: el material NO cambia hasta que el administrador la APRUEBE.');
                 renderTab('bodegas');
             }
         });
@@ -5143,24 +5352,81 @@ function renderDeleteReq(c) {
     </div>`;
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// 📦 v77 — DEVOLVER A LA BODEGA EL MATERIAL DE UNA VENTA ELIMINADA.
+// EL BUG QUE RESUELVE: registrar una venta DESCUENTA el stock (cantidad y seriales),
+// pero al eliminar la venta —tanto por solicitud aprobada como por borrado directo
+// del admin— el registro desaparecía y el material NUNCA volvía a la bodega. El
+// inventario quedaba con menos unidades y sin ninguna venta que lo justificara.
+// Ahora la devolución es automática: suma la cantidad, devuelve los seriales y lo
+// anota en el kardex del artículo. Si el material ya no existe (quedó en 0 y se
+// eliminó), se vuelve a crear con los datos de la venta.
+// ════════════════════════════════════════════════════════════════════════════
+function _devolverVentaABodega(v){
+    if(!v) return {ok:false, msg:'La venta ya no existe.'};
+    const b = DB.bodegas.find(x=>x.id===v.bodegaId);
+    if(!b) return {ok:false, msg:`La bodega "${v.bodegaNombre||''}" ya no existe: el material NO se pudo devolver.`};
+    if(!Array.isArray(b.materiales)) b.materiales=[];
+    const norm = s => String(s||'').trim().toLowerCase();
+    const cant = parseInt(v.cantidad)||0;
+    const snes = Array.isArray(v.snes)?v.snes:[];
+    // La venta no guarda el id del material: se busca por nombre (+unidad para desempatar)
+    let m = b.materiales.find(x=> norm(x.nombre)===norm(v.nombre) && norm(x.unidad)===norm(v.unidad))
+         || b.materiales.find(x=> norm(x.nombre)===norm(v.nombre));
+    if(m){
+        m.cantidad = (parseInt(m.cantidad)||0) + cant;
+        if(snes.length){
+            if(!Array.isArray(m.snes)) m.snes=[];
+            snes.forEach(sn=>{ if(!m.snes.includes(sn)) m.snes.push(sn); });
+        }
+        registrarMovimiento(b.id, m.id, 'entrada', cant, `Devolución por venta eliminada${v.comprador?' — comprador: '+v.comprador:''}`);
+        return {ok:true, recreado:false, nombre:m.nombre, cantidad:cant, unidad:m.unidad||v.unidad||'und', bodega:b.nombre};
+    }
+    // Ya no está en la bodega (se agotó y lo borraron): se vuelve a crear
+    const nuevo = {
+        id: Date.now().toString()+Math.random().toString(36).slice(2,6),
+        nombre: v.nombre, cantidad: cant, tipo: v.tipo||'', unidad: v.unidad||'und',
+        snes: [...snes], stockMin: 0, categoria: 'material',
+        observaciones: 'Recreado al eliminar una venta', fotos: [],
+        fecha: new Date().toLocaleDateString(), historial: []
+    };
+    b.materiales.push(nuevo);
+    registrarMovimiento(b.id, nuevo.id, 'entrada', cant, 'Devolución por venta eliminada — el artículo se recreó en la bodega');
+    return {ok:true, recreado:true, nombre:nuevo.nombre, cantidad:cant, unidad:nuevo.unidad, bodega:b.nombre};
+}
+window._devolverVentaABodega = _devolverVentaABodega;
+
 function approveDeleteVenta(reqId, accion) {
     const req = DB.deleteRequests.find(r=>r.id===reqId);
     if(!req || req.estado!=='pendiente') return;
-    req.estado = accion;
+    let detalle='';
     if(accion === 'aprobada') {
-        // Find and remove the venta
         const idx = DB.ventas.findIndex(v=>v.id===req.ventaId);
-        if(idx > -1) {
-            const v = DB.ventas[idx];
-            DB.ventas.splice(idx, 1);
-            logMsg(`Admin aprobó eliminación de venta: ${v.nombre} x${v.cantidad} — $${v.total||0}`);
+        if(idx === -1){
+            req.estado = accion;
+            save();
+            renderDeleteReq(document.getElementById('main-content') || document.getElementById('adminInvContent'));
+            return alert('⚠️ Esa venta ya no existe (alguien la eliminó antes).\n\nLa solicitud queda cerrada y NO se tocó ninguna bodega.');
         }
+        const v = DB.ventas[idx];
+        // ✅ v77: primero DEVOLVER el material a la bodega, y solo si eso sale bien, borrar la venta
+        const dev = _devolverVentaABodega(v);
+        if(!dev.ok){
+            if(!confirm(`⚠️ ${dev.msg}\n\n¿Eliminar la venta de todas formas? (el material NO se devolverá a ninguna bodega)`)) return;
+        }
+        DB.ventas.splice(idx, 1);
+        req.estado = accion;
+        detalle = dev.ok
+            ? `\n\n📦 Devuelto a ${dev.bodega}: ${dev.cantidad} ${dev.unidad} de "${dev.nombre}"${dev.recreado?' (el artículo se volvió a crear)':''}`
+            : '\n\n⚠️ El material NO se devolvió a la bodega.';
+        logMsg(`Admin aprobó eliminación de venta: ${v.nombre} x${v.cantidad} — $${v.total||0}${dev.ok?' · material devuelto a '+dev.bodega:' · SIN devolución'}`);
     } else {
+        req.estado = accion;
         logMsg(`Admin rechazó eliminación de venta: ${req.materialNombre}`);
     }
     save();
-    renderDeleteReq(document.getElementById('main-content'));
-    alert(`✅ Solicitud ${accion === 'aprobada' ? 'aprobada — venta eliminada' : 'rechazada'}`);
+    renderDeleteReq(document.getElementById('main-content') || document.getElementById('adminInvContent'));
+    alert(`✅ Solicitud ${accion === 'aprobada' ? 'aprobada — venta eliminada' : 'rechazada — la venta queda como estaba'}${detalle}`);
 }
 window.approveDeleteVenta = approveDeleteVenta;
 
@@ -5168,60 +5434,127 @@ function approveEdit(reqId, accion) {
     if(!DB.editRequests) return;
     const req = DB.editRequests.find(r=>r.id===reqId);
     if(!req || req.estado!=='pendiente') return;
-    req.estado = accion;
+    const _refrescar = ()=>{ save(); renderDeleteReq(document.getElementById('main-content') || document.getElementById('adminInvContent')); };
+
     if(accion === 'aprobada') {
         const b = DB.bodegas.find(x=>x.id===req.bodegaId);
         const m = b?.materiales.find(x=>x.id===req.materialId);
-        if(m && req.datos) {
-            Object.assign(m, req.datos);
-            logMsg(`Admin aprobó edición de "${req.materialNombre}" en ${req.bodegaNombre}`);
-            registrarMovimiento(req.bodegaId, req.materialId, 'ajuste', 0, `Edición aprobada: ${req.cambios.join(' | ')}`);
+        // 🛡️ v77: antes, si el material o la bodega ya no existían, la solicitud se
+        // marcaba como APROBADA igual y no se aplicaba NADA — en silencio.
+        if(!b){ req.estado=accion; _refrescar(); return alert(`⚠️ La bodega "${req.bodegaNombre}" ya no existe.\n\nLa solicitud queda cerrada SIN aplicar cambios.`); }
+        if(!m){ req.estado=accion; _refrescar(); return alert(`⚠️ El artículo "${req.materialNombre}" ya no está en ${req.bodegaNombre} (lo eliminaron o se agotó).\n\nLa solicitud queda cerrada SIN aplicar cambios.`); }
+        if(!req.datos){ req.estado=accion; _refrescar(); return alert('⚠️ La solicitud no trae los datos a aplicar. Queda cerrada sin cambios.'); }
+
+        // ⚠️ v77: si la cantidad cambió DESDE que se pidió (entregas, ventas, consumos
+        // de otras sesiones), avisar antes de pisarla — aprobar a ciegas borraba esos
+        // movimientos sin que nadie se enterara.
+        const antes = req.datosAntes;
+        const cantHoy = parseInt(m.cantidad)||0;
+        if(antes && antes.cantidad!=null && (parseInt(antes.cantidad)||0)!==cantHoy){
+            if(!confirm(`⚠️ OJO: la cantidad de "${m.nombre}" CAMBIÓ desde que se hizo la solicitud.\n\n`
+                + `• Cuando se pidió había: ${antes.cantidad}\n`
+                + `• Ahora en bodega hay: ${cantHoy}\n`
+                + `• Si apruebas quedará: ${req.datos.cantidad}\n\n`
+                + `Aprobar puede borrar movimientos hechos mientras tanto (entregas, ventas, consumos).\n\n¿Aplicar de todas formas?`)) return;
         }
-    } else {
-        logMsg(`Admin rechazó edición de "${req.materialNombre}" en ${req.bodegaNombre}`);
+
+        Object.assign(m, req.datos);
+        req.estado = accion;
+        const cantNueva = parseInt(m.cantidad)||0;
+        const dif = cantNueva - cantHoy;
+        logMsg(`Admin aprobó edición de "${req.materialNombre}" en ${req.bodegaNombre}`);
+        // Kardex real: si la cantidad se movió, queda como entrada/salida (antes: siempre 'ajuste 0')
+        registrarMovimiento(req.bodegaId, req.materialId,
+            dif===0?'ajuste':(dif>0?'entrada':'salida'), Math.abs(dif),
+            `Edición aprobada por Admin: ${(req.cambios||[]).join(' | ')}${req.motivo?' — Motivo: '+req.motivo:''}`);
+        _refrescar();
+        return alert(`✅ Solicitud aprobada y aplicada en ${req.bodegaNombre}.${dif!==0?`\n\n📦 "${m.nombre}": ${cantHoy} → ${cantNueva} ${m.unidad||''}`:''}`);
     }
-    save();
-    renderDeleteReq(document.getElementById('main-content') || document.getElementById('adminInvContent'));
-    alert(`✅ Solicitud ${accion === 'aprobada' ? 'aprobada' : 'rechazada'}`);
+
+    // RECHAZADA: no hay nada que revertir — con la v77 el material nunca se tocó
+    req.estado = accion;
+    logMsg(`Admin rechazó edición de "${req.materialNombre}" en ${req.bodegaNombre}`);
+    _refrescar();
+    alert(`✅ Solicitud rechazada.\n\nEl artículo "${req.materialNombre}" queda EXACTAMENTE como estaba en ${req.bodegaNombre}.`);
 }
 window.approveEdit = approveEdit;
 function approveDelete(reqId, act) {
     const req = DB.deleteRequests.find(r=>r.id===reqId);
     if(!req || req.estado!=='pendiente') return;
-    req.estado = act;
+    const b = DB.bodegas.find(x=>x.id===req.bodegaId);
+    const mActual = b?.materiales.find(m=>m.id===req.materialId);
+    const _refrescar = ()=>{ save(); renderDeleteReq(document.getElementById('main-content') || document.getElementById('adminInvContent')); };
+
     if(act === 'aprobada') {
-        // Remove material from bodega
-        const b = DB.bodegas.find(x=>x.id===req.bodegaId);
-        if(b) b.materiales = b.materiales.filter(m=>m.id!==req.materialId);
-        logMsg(`Admin aprobó eliminación de "${req.materialNombre}" en ${req.bodegaNombre}`);
-    } else {
-        // Rejected: restore material to bodega if it was removed
-        const b = DB.bodegas.find(x=>x.id===req.bodegaId);
-        if(b) {
-            const exists = b.materiales.find(m=>m.id===req.materialId);
-            if(!exists) {
-                // Material was removed, restore it
-                b.materiales.push({
-                    id: req.materialId,
-                    nombre: req.materialNombre,
-                    cantidad: req.cantidad,
-                    tipo: req.tipo,
-                    unidad: req.unidad,
-                    snes: req.snes||[],
-                    stockMin: req.stockMin||0,
-                    categoria: req.categoria||'material',
-                    observaciones: req.observaciones||'',
-                    fotos: req.fotos||[],
-                    fecha: req.fechaMat||new Date().toLocaleDateString()
-                });
-            }
+        if(!b){ req.estado=act; _refrescar(); return alert(`⚠️ La bodega "${req.bodegaNombre}" ya no existe.\n\nLa solicitud queda cerrada SIN cambios.`); }
+        if(!mActual){ req.estado=act; _refrescar(); return alert(`El artículo "${req.materialNombre}" ya NO está en ${req.bodegaNombre} (se agotó, se transfirió o lo eliminaron aparte).\n\nLa solicitud queda cerrada, sin tocar la bodega.`); }
+
+        // ⚠️ v77: avisar si la cantidad cambió desde que se pidió — se elimina el
+        // artículo COMPLETO, así que el admin debe saber cuántas unidades se van.
+        const cantPedida = parseInt(req.cantidad);
+        const cantHoy = parseInt(mActual.cantidad)||0;
+        if(!isNaN(cantPedida) && cantPedida!==cantHoy){
+            if(!confirm(`⚠️ OJO: la cantidad cambió desde que se pidió la eliminación.\n\n`
+                + `• Cuando se pidió había: ${cantPedida} ${mActual.unidad||''}\n`
+                + `• Ahora en bodega hay: ${cantHoy} ${mActual.unidad||''}\n\n`
+                + `Se eliminará el artículo COMPLETO con las ${cantHoy} unidades actuales.\n\n¿Continuar?`)) return;
         }
-        logMsg(`Admin rechazó eliminación de "${req.materialNombre}" en ${req.bodegaNombre} — material restaurado`);
+        // 🧾 v77: dejar rastro en el kardex ANTES de borrar (antes desaparecía sin registro)
+        registrarMovimiento(req.bodegaId, req.materialId, 'salida', cantHoy,
+            `Eliminación aprobada por Admin${req.obs?' — Motivo: '+req.obs:''}`);
+        b.materiales = b.materiales.filter(m=>m.id!==req.materialId);
+        req.estado = act;
+        logMsg(`Admin aprobó eliminación de "${req.materialNombre}" (${cantHoy} ${mActual.unidad||''}) en ${req.bodegaNombre}`);
+        _refrescar();
+        return alert(`✅ Solicitud aprobada.\n\n🗑️ "${req.materialNombre}" eliminado de ${req.bodegaNombre} (${cantHoy} ${mActual.unidad||''}).`);
     }
-    save();
-    renderDeleteReq(document.getElementById('main-content') || document.getElementById('adminInvContent'));
-    alert(`✅ Solicitud ${act === 'aprobada' ? 'aprobada' : 'rechazada — material restaurado en bodega'}`);
+
+    // ════════════════════════════════════════════════════════════════════
+    // RECHAZADA — v77: YA NO RESUCITA MATERIAL FANTASMA.
+    // EL BUG QUE RESUELVE: pedir la eliminación NUNCA quitó nada de la bodega
+    // (solo crea la solicitud). Pero al rechazar, el código "restauraba" el
+    // material si no lo encontraba... y eso solo pasa cuando el artículo se
+    // agotó, se transfirió o el admin lo borró aparte. Resultado: rechazar
+    // RESUCITABA el artículo con la cantidad VIEJA de la solicitud → stock
+    // fantasma que nadie pidió. Ahora rechazar no toca la bodega; si el
+    // artículo ya no está, se le PREGUNTA al admin en vez de inventarlo.
+    // ════════════════════════════════════════════════════════════════════
+    req.estado = act;
+    let extra='';
+    if(b && !mActual){
+        if(confirm(`Se rechazará la solicitud.\n\n`
+            + `Nota: "${req.materialNombre}" ya NO está en ${req.bodegaNombre} (se agotó, se transfirió o lo eliminaron aparte).\n\n`
+            + `¿Quieres RESTAURARLO con los datos que tenía cuando se pidió la eliminación (${req.cantidad} ${req.unidad||''})?\n\n`
+            + `• Aceptar = restaurarlo\n• Cancelar = dejar la bodega como está (recomendado)`)){
+            b.materiales.push({
+                id: req.materialId,
+                nombre: req.materialNombre,
+                cantidad: req.cantidad,
+                tipo: req.tipo,
+                unidad: req.unidad,
+                snes: req.snes||[],
+                stockMin: req.stockMin||0,
+                categoria: req.categoria||'material',
+                observaciones: req.observaciones||'',
+                fotos: req.fotos||[],
+                fecha: req.fechaMat||new Date().toLocaleDateString(),
+                historial: []
+            });
+            registrarMovimiento(req.bodegaId, req.materialId, 'entrada', parseInt(req.cantidad)||0, 'Restaurado por el Admin al rechazar la solicitud de eliminación');
+            logMsg(`Admin rechazó eliminación de "${req.materialNombre}" — material RESTAURADO a pedido del Admin`);
+            extra = `\n\n📦 "${req.materialNombre}" fue restaurado en ${req.bodegaNombre}.`;
+        } else {
+            logMsg(`Admin rechazó eliminación de "${req.materialNombre}" en ${req.bodegaNombre}`);
+            extra = `\n\nLa bodega quedó como estaba (no se restauró nada).`;
+        }
+    } else {
+        logMsg(`Admin rechazó eliminación de "${req.materialNombre}" en ${req.bodegaNombre}`);
+        extra = `\n\nEl artículo sigue en ${req.bodegaNombre} tal como estaba.`;
+    }
+    _refrescar();
+    alert(`✅ Solicitud rechazada.${extra}`);
 }
+window.approveDelete = approveDelete;
 
 // TRANSFERENCIAS
 function renderTransfer(c) { let ts=DB.transfers; if(USER.role==='bodega') ts=ts.filter(t=>t.oriId===USER.id||t.desId===USER.id); ts.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)); c.innerHTML=`<div class="card"><div class="card-header"><h2>🔄 Transferencias</h2>${USER.role==='bodega'&&canDo('transfer','enviar')?`<button class="btn btn-primary btn-sm" onclick="modalSendTrans()">📤 Enviar</button>`:''}</div>${ts.length?ts.map(t=>`<div style="border:1px solid #eee; border-radius:8px; padding:15px; margin-bottom:10px; background:${t.estado==='pendiente'?'#fff':'#f9f9f9'}"><div class="flex"><strong>🔄 ${t.oriName} ➜ ${t.desName}</strong><span class="badge ${t.estado==='pendiente'?'badge-pend':t.estado==='aceptada'?'badge-ok':'badge-rej'}">${t.estado.toUpperCase()}</span></div><div class="text-muted" style="font-size:0.85rem; margin:5px 0;">📅 ${t.fecha}</div><div style="margin-bottom:10px;">${t.mats.map(m=>`<span class="sn-tag">${m.nom}: ${m.cant} ${m.unidad}${m.snes.length?' [SN:'+m.snes.join(', ')+']':''}</span>`).join(' ')}</div>${t.estado==='pendiente'&&t.desId===USER.id?`<div class="flex"><button class="btn btn-success btn-sm" onclick="procTrans('${t.id}','aceptada')">✅</button><button class="btn btn-danger btn-sm" onclick="procTrans('${t.id}','rechazada')">❌</button></div>`:''}</div>`).join(''):'<p class="text-center text-muted">Sin transferencias</p>'}</div>`; }
@@ -5231,13 +5564,77 @@ function showTransferSNBox() { const mId=id('tMat').value, box=id('tSNArea'), ms
 function updateTSelection(q) { const checked = document.querySelectorAll('#tSNArea input[type="checkbox"]:checked').length; TempLists.tSelectedSNs = {}; document.querySelectorAll('#tSNArea input[type="checkbox"]:checked').forEach(cb=>TempLists.tSelectedSNs[cb.value]=true); document.querySelectorAll('#tSNArea .sn-check').forEach(el=>{ const cb=el.querySelector('input[type="checkbox"]'); el.classList.toggle('selected',cb.checked); }); const msg=id('tMsg'); if(q>0) { if(checked===q){msg.style.color='var(--secondary)';msg.textContent='✅ Correcto.';}else if(checked>q){msg.style.color='var(--danger)';msg.textContent=`⚠️ ${checked}/${q}`;}else{msg.style.color='var(--warning)';msg.textContent=`⏳ ${checked}/${q}`;} } }
 function addTransItem() { const mId=id('tMat').value, q=parseInt(id('tCant').value); if(!mId||!q) return alert('Datos inválidos'); const m=DB.bodegas.find(x=>x.id===USER.id)?.materiales.find(x=>x.id===mId); if(!m) return; let snes=[]; if(m.snes.length>0){snes=Object.keys(TempLists.tSelectedSNs);if(snes.length!==q) return alert(`Seleccione ${q} SNs`);} const inList=TempLists.transItems.find(x=>x.id===mId)?.cant||0; if(q+inList>m.cantidad) return alert('Stock insuficiente'); const exist=TempLists.transItems.find(x=>x.id===mId); if(exist){exist.cant+=q;exist.snes.push(...snes);} else TempLists.transItems.push({id:m.id,nom:m.nombre,cant:q,tipo:m.tipo,unidad:m.unidad,snes:snes}); TempLists.tSelectedSNs={}; showTransferSNBox(); renderTList(); }
 function renderTList() { const el=id('tList'); if(!el) return; el.innerHTML=TempLists.transItems.map((it,i)=>`<div class="item-list-item"><span><strong>${it.nom}</strong> x${it.cant} ${it.unidad}${it.snes.length?' [SN:'+it.snes.join(', ')+']':''}</span><button class="btn btn-danger btn-sm" onclick="TempLists.transItems.splice(${i},1);renderTList();">✕</button></div>`).join('')||'<p class="text-muted">Vacío</p>'; }
-function sendTransLogic() { const ori=DB.bodegas.find(x=>x.id===USER.id), des=DB.bodegas.find(x=>x.id===id('tDest').value); TempLists.transItems.forEach(it => { const m=ori.materiales.find(x=>x.id===it.id); m.cantidad-=it.cant; it.snes.forEach(s=>{const idx=m.snes.indexOf(s);if(idx>-1)m.snes.splice(idx,1);}); }); DB.transfers.push({id:Date.now().toString(),oriId:USER.id,oriName:ori.nombre,desId:des.id,desName:des.nombre,fecha:new Date().toLocaleDateString(),estado:'pendiente',obs:id('tObs').value,mats:[...TempLists.transItems]}); logMsg(`Transferencia a ${des.nombre}`); save(); closeModal(); renderTab('transfer'); }
-function procTrans(tId,act) { const t=DB.transfers.find(x=>x.id===tId); if(!t||t.estado!=='pendiente') return; t.estado=act; if(act==='aceptada'){const des=DB.bodegas.find(x=>x.id===t.desId);t.mats.forEach(it=>{const ex=des.materiales.find(m=>m.nombre===it.nom&&m.tipo===it.tipo);if(ex){ex.cantidad+=it.cant;if(it.snes.length)ex.snes.push(...it.snes);}else des.materiales.push({id:Date.now().toString(),nombre:it.nom,cantidad:it.cant,tipo:it.tipo,unidad:it.unidad,snes:it.snes,fecha:new Date().toLocaleDateString()});});}else{const ori=DB.bodegas.find(x=>x.id===t.oriId);t.mats.forEach(it=>{let m=ori.materiales.find(x=>x.nombre===it.nom&&x.tipo===it.tipo);if(!m){m={id:Date.now().toString(),nombre:it.nom,cantidad:0,tipo:it.tipo,unidad:it.unidad,snes:[],fecha:new Date().toLocaleDateString()};ori.materiales.push(m);}m.cantidad+=it.cant;if(it.snes.length)m.snes.push(...it.snes);});} logMsg(`Transferencia ${act}`); save(); renderTab('transfer'); }
+// 🔄 v78 — ENVIAR TRANSFERENCIA: se valida TODO antes de descontar nada.
+// EL BUG QUE RESUELVE: descontaba artículo por artículo sin volver a mirar el
+// stock. Si entre armar la lista y darle enviar el material se había entregado,
+// vendido o eliminado (otra sesión, otra pestaña), quedaba stock NEGATIVO; y si
+// el artículo ya no existía, reventaba a mitad del recorrido dejando unos
+// descontados y SIN crear la transferencia → material perdido sin rastro.
+function sendTransLogic() {
+    const ori=DB.bodegas.find(x=>x.id===USER.id), des=DB.bodegas.find(x=>x.id===id('tDest').value);
+    if(!ori) return alert('❌ No se encontró tu bodega.');
+    if(!des) return alert('❌ La bodega de destino ya no existe.');
+    // 1) Validar TODO primero (nada se toca hasta que todo cuadre)
+    const problemas=[];
+    TempLists.transItems.forEach(it=>{
+        const m=ori.materiales.find(x=>x.id===it.id);
+        if(!m){ problemas.push(`"${it.nom}" ya no está en tu bodega.`); return; }
+        if((m.cantidad||0) < it.cant) problemas.push(`"${it.nom}": vas a enviar ${it.cant} y solo quedan ${m.cantidad||0}.`);
+        (it.snes||[]).forEach(sn=>{ if(!(m.snes||[]).includes(sn)) problemas.push(`El serial ${sn} de "${it.nom}" ya no está en tu bodega.`); });
+    });
+    if(problemas.length) return alert('❌ No se envió la transferencia — el stock cambió mientras la preparabas:\n\n• '+problemas.join('\n• ')+'\n\nCierra, vuelve a abrir y ármala de nuevo.');
+    // 2) Ahora sí, aplicar
+    TempLists.transItems.forEach(it => {
+        const m=ori.materiales.find(x=>x.id===it.id);
+        m.cantidad-=it.cant;
+        (it.snes||[]).forEach(s=>{const idx=m.snes.indexOf(s);if(idx>-1)m.snes.splice(idx,1);});
+        registrarMovimiento(ori.id, m.id, 'salida', it.cant, `Transferencia enviada a ${des.nombre}`);
+    });
+    DB.transfers.push({id:Date.now().toString(),oriId:USER.id,oriName:ori.nombre,desId:des.id,desName:des.nombre,fecha:new Date().toLocaleDateString(),estado:'pendiente',obs:id('tObs').value,mats:[...TempLists.transItems]});
+    logMsg(`Transferencia a ${des.nombre}`); save(); closeModal(); renderTab('transfer');
+}
+// 🔄 v78 — ACEPTAR / RECHAZAR TRANSFERENCIA.
+// BUGS QUE RESUELVE: [1] los seriales se agregaban con push() SIN comprobar si ya
+// estaban → el mismo equipo quedaba DOS veces en la bodega (stock fantasma).
+// [2] si la bodega destino (o la de origen al rechazar) ya no existía, reventaba
+// y el material se quedaba en el limbo: fuera del origen y sin llegar a ningún
+// lado. [3] al rechazar buscaba por NOMBRE: si el artículo se había renombrado,
+// creaba un duplicado en vez de devolverlo a su fila. Ahora busca por id primero.
+function procTrans(tId,act) {
+    const t=DB.transfers.find(x=>x.id===tId);
+    if(!t||t.estado!=='pendiente') return;
+    const _sumarSeriales=(m,snes)=>{ if(!Array.isArray(m.snes)) m.snes=[]; (snes||[]).forEach(sn=>{ if(!m.snes.includes(sn)) m.snes.push(sn); }); };
+    if(act==='aceptada'){
+        const des=DB.bodegas.find(x=>x.id===t.desId);
+        if(!des) return alert(`❌ La bodega de destino "${t.desName}" ya no existe.\n\nLa transferencia queda PENDIENTE para no perder el material. Recréala o recházala para devolverlo al origen.`);
+        t.mats.forEach(it=>{
+            const ex=des.materiales.find(m=>m.id===it.id) || des.materiales.find(m=>m.nombre===it.nom&&m.tipo===it.tipo);
+            if(ex){ ex.cantidad=(ex.cantidad||0)+it.cant; _sumarSeriales(ex, it.snes); registrarMovimiento(des.id, ex.id, 'entrada', it.cant, `Transferencia recibida de ${t.oriName}`); }
+            else {
+                const nuevo={id:Date.now().toString()+Math.random().toString(36).slice(2,5),nombre:it.nom,cantidad:it.cant,tipo:it.tipo,unidad:it.unidad,snes:[...(it.snes||[])],stockMin:0,categoria:'material',observaciones:`Recibido de ${t.oriName}`,fotos:[],fecha:new Date().toLocaleDateString(),historial:[]};
+                des.materiales.push(nuevo);
+                registrarMovimiento(des.id, nuevo.id, 'entrada', it.cant, `Transferencia recibida de ${t.oriName}`);
+            }
+        });
+    } else {
+        const ori=DB.bodegas.find(x=>x.id===t.oriId);
+        if(!ori) return alert(`❌ La bodega de origen "${t.oriName}" ya no existe: no hay a dónde devolver el material.\n\nLa transferencia queda PENDIENTE. Acéptala en el destino para que el material no se pierda.`);
+        t.mats.forEach(it=>{
+            let m=ori.materiales.find(x=>x.id===it.id) || ori.materiales.find(x=>x.nombre===it.nom&&x.tipo===it.tipo);
+            if(!m){ m={id:it.id||Date.now().toString(),nombre:it.nom,cantidad:0,tipo:it.tipo,unidad:it.unidad,snes:[],stockMin:0,categoria:'material',observaciones:'Devuelto de transferencia rechazada',fotos:[],fecha:new Date().toLocaleDateString(),historial:[]}; ori.materiales.push(m); }
+            m.cantidad=(m.cantidad||0)+it.cant;
+            _sumarSeriales(m, it.snes);
+            registrarMovimiento(ori.id, m.id, 'entrada', it.cant, `Transferencia rechazada por ${t.desName} — material devuelto`);
+        });
+    }
+    t.estado=act;
+    logMsg(`Transferencia ${act}`); save(); renderTab('transfer');
+}
 
 // RECUPERADOS
 function renderRecuperados(c) { let items=DB.recuperados||[]; if(USER.role==='bodega') items=items.filter(r=>r.bodegaId===USER.id); c.innerHTML=`<div class="card"><div class="card-header"><h2>♻️ Recuperados</h2>${canDo('recuperados','registrar')?`<button class="btn btn-primary btn-sm" onclick="modalAddRecuperado()">➕ Registrar</button>`:''}</div>${items.length?`<table><thead><tr><th>Fecha</th><th>${USER.role==='admin'?'Bodega':'Origen'}</th><th>Artículo</th><th>Cant</th><th>Unidad</th><th>Tipo</th><th>SNs</th><th>Estado</th><th></th></tr></thead><tbody>${items.map((r,i)=>{const snes=Array.isArray(r.snes)?r.snes:[];return `<tr><td>${r.fecha||'-'}</td><td>${USER.role==='admin'?(r.bodegaNombre||'-'):(r.origen||'-')}</td><td><strong>${r.nom||'-'}</strong></td><td>${r.cant||0}</td><td>${r.unidad||''}</td><td><span class="badge ${r.tipo==='nuevo'?'badge-new':'badge-used'}">${r.tipo||''}</span></td><td>${snes.length?snes.map(s=>`<span class="sn-tag">${s}</span>`).join(' '):'-'}</td><td><span class="badge ${r.estado==='pendiente'?'badge-pend':'badge-ok'}">${r.estado||''}</span></td><td>${r.estado==='pendiente'?`<button class="btn btn-success btn-sm" onclick="integrarRecuperado(${DB.recuperados.indexOf(r)})">✅</button>`:'-'}</td></tr>`;}).join('')}</tbody></table>`:'<p class="text-muted">Vacío</p>'}</div>`; }
 function modalAddRecuperado() { const bs=DB.bodegas.map(b=>`<option value="${b.id}" ${USER.role==='bodega'&&b.id===USER.id?'selected':''}>${b.nombre}</option>`).join(''); openModal('Registrar Recuperado', `<div class="form-group"><label>Bodega</label><select id="recBod" class="form-control">${bs}</select></div><div class="form-row"><div class="form-group"><label>Artículo</label><input id="recNom" class="form-control"></div><div class="form-group"><label>Cantidad</label><input id="recCant" type="number" value="1" min="1" class="form-control"></div></div><div class="form-row"><div class="form-group"><label>Tipo</label><select id="recTipo" class="form-control"><option value="usado">🟡 Usado</option><option value="nuevo">🟢 Nuevo</option></select></div><div class="form-group"><label>Unidad</label><select id="recUnidad" class="form-control">${getUnidadesOptions()}</select></div></div><div class="form-group"><label>Origen</label><input id="recOrigen" class="form-control"></div><div class="form-group"><label>SNs</label><textarea id="recSNs" class="form-control"></textarea></div><div class="form-group"><label>Fecha</label><input id="recFecha" type="date" value="${new Date().toISOString().split('T')[0]}" class="form-control"></div>`, ()=>{ const nom=id('recNom').value,cant=parseInt(id('recCant').value),tipo=id('recTipo').value,unid=id('recUnidad').value,origen=id('recOrigen').value,rawSN=id('recSNs').value.trim(),fecha=id('recFecha').value,bId=id('recBod').value; if(!nom||!cant||!origen||!bId) return alert('Complete campos'); DB.recuperados.push({id:Date.now().toString(),bodegaId:bId,bodegaNombre:DB.bodegas.find(x=>x.id===bId)?.nombre,nom,cant,tipo,unidad:unid,origen,snes:rawSN?rawSN.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean):[],fecha,estado:'pendiente'}); logMsg(`Recuperado: ${nom}`); save(); closeModal(); renderTab('recuperados'); }); }
-function integrarRecuperado(idx) { const r=DB.recuperados[idx]; if(!r||r.estado!=='pendiente') return; const b=DB.bodegas.find(x=>x.id===r.bodegaId); if(!b) return alert("Bodega no existe"); const snes=Array.isArray(r.snes)?r.snes:[]; if(!Array.isArray(b.materiales)) b.materiales=[]; const ex=b.materiales.find(m=>m.nombre===r.nom&&m.tipo===r.tipo); if(ex){ex.cantidad=(ex.cantidad||0)+(r.cant||0);if(snes.length){if(!Array.isArray(ex.snes))ex.snes=[];ex.snes.push(...snes);}}else b.materiales.push({id:Date.now().toString(),nombre:r.nom,cantidad:r.cant||0,tipo:r.tipo,unidad:r.unidad,snes:snes,fecha:r.fecha}); r.estado='integrado'; logMsg(`Integrado "${r.nom}"`); save(); renderTab('recuperados'); }
+function integrarRecuperado(idx) { const r=DB.recuperados[idx]; if(!r||r.estado!=='pendiente') return; const b=DB.bodegas.find(x=>x.id===r.bodegaId); if(!b) return alert("Bodega no existe"); const snes=Array.isArray(r.snes)?r.snes:[]; if(!Array.isArray(b.materiales)) b.materiales=[]; const ex=b.materiales.find(m=>m.nombre===r.nom&&m.tipo===r.tipo); if(ex){ex.cantidad=(ex.cantidad||0)+(r.cant||0);if(snes.length){if(!Array.isArray(ex.snes))ex.snes=[];snes.forEach(sn=>{ if(!ex.snes.includes(sn)) ex.snes.push(sn); });} registrarMovimiento(b.id, ex.id, 'entrada', r.cant||0, `Equipo recuperado integrado${r.cliente?' — '+r.cliente:''}`);}else{ const _nv={id:Date.now().toString(),nombre:r.nom,cantidad:r.cant||0,tipo:r.tipo,unidad:r.unidad,snes:snes,stockMin:0,categoria:'material',observaciones:'Recuperado en campo',fotos:[],fecha:r.fecha,historial:[]}; b.materiales.push(_nv); registrarMovimiento(b.id, _nv.id, 'entrada', r.cant||0, 'Equipo recuperado integrado'); } r.estado='integrado'; logMsg(`Integrado "${r.nom}"`); save(); renderTab('recuperados'); }
 window.integrarRecuperado=integrarRecuperado;
 window.modalAddRecuperado=modalAddRecuperado;
 window.renderRecuperados=renderRecuperados;
@@ -5774,15 +6171,19 @@ function modalDevolverMat(cId) {
                 const ex = bodega.materiales.find(bm=>bm.nombre===m.nombre&&bm.tipo===m.tipo);
                 if(ex) {
                     ex.cantidad += q;
-                    ex.snes.push(...snsDevolver);
+                    // v78: no duplicar seriales que ya estaban en la bodega
+                    if(!Array.isArray(ex.snes)) ex.snes=[];
+                    snsDevolver.forEach(sn=>{ if(!ex.snes.includes(sn)) ex.snes.push(sn); });
+                    registrarMovimiento(bodega.id, ex.id, 'entrada', q, `Devolución de la cuadrilla ${cu.nombre}`);
                 } else {
                     bodega.materiales.push({
                         id: Date.now().toString()+Math.random().toString(36).substr(2,4),
                         nombre:m.nombre, cantidad:q, tipo:m.tipo, unidad:m.unidad,
                         snes:snsDevolver, stockMin:0, categoria:m.categoria||'material',
                         observaciones:`Devuelto de cuadrilla ${cu.nombre}`,
-                        fotos:[], fecha:new Date().toLocaleDateString()
+                        fotos:[], fecha:new Date().toLocaleDateString(), historial:[]
                     });
+                    registrarMovimiento(bodega.id, bodega.materiales[bodega.materiales.length-1].id, 'entrada', q, `Devolución de la cuadrilla ${cu.nombre}`);
                 }
                 devuelto += q;
             });
@@ -6010,7 +6411,7 @@ async function saveEntregaLogic() {
                 (it.snes||[]).forEach(s=>{ const ix=(m.snes||[]).indexOf(s); if(ix>-1)m.snes.splice(ix,1); });
                 if(!c.materiales) c.materiales=[];
                 const ex=c.materiales.find(x=>x.nombre===it.nom&&x.tipo===it.tipo);
-                if(ex){ ex.cantidad+=it.cant; if((it.snes||[]).length){ if(!ex.snes)ex.snes=[]; ex.snes.push(...it.snes); } }
+                if(ex){ ex.cantidad+=it.cant; if((it.snes||[]).length){ if(!ex.snes)ex.snes=[]; it.snes.forEach(sn=>{ if(!ex.snes.includes(sn)) ex.snes.push(sn); }); } }
                 else c.materiales.push({id:Date.now().toString()+Math.floor(Math.random()*100),nombre:it.nom,cantidad:it.cant,tipo:it.tipo,unidad:it.unidad,snes:it.snes||[],fecha:new Date().toLocaleDateString()});
             });
             const entregas=Array.isArray(hist.entregas)?hist.entregas:[];
@@ -7888,7 +8289,7 @@ const HISTORIAL_DOC = 'inventario/historial';
 // Campos que SOLO escribe Inventario (Técnicos no los toca) y que solo crecen.
 // Se guardan en un documento aparte para que inventario/datos no llegue al tope de 1MB.
 const HISTORIAL_FIELDS = ['editRequests','entregas','cuartos','logs','transfers','deleteRequests','ventas'];
-const APP_VERSION_INV = 76; // ⬆️ Subir en cada versión publicada de Inventario (v76: CUARTOS DE EQUIPOS — puertos huerfanos y conexiones protegidas: aviso ambar en el equipo cuando hay puertos OCUPADOS sin conexion que los respalde + boton 🧹 Liberarlos (respeta enlaces inter-sede); boton ✏️ para EDITAR conexiones (mover puertos con selector real, cable, color, notas); y TODA modificacion de conexiones (crear/editar/eliminar/liberar) va por TRANSACCION con validacion fresca — dos sesiones ya no se pisan y un puerto no puede ocuparse dos veces. Incluye v75: GUARDADO MAS RAPIDO — la fusion usa la copia del listener cuando tiene <15s (cero descargas extra, misma proteccion); si esta vieja, lee de la red como siempre. Incluye v74: FUSION UNIVERSAL ENTRE SESIONES — el trabajo simultaneo de varias bodegas y tecnicos ya no se pisa: al guardar se fusiona con la nube fresca (datos + historial), lo de otras sesiones se incorpora, los borrados propios dejan LAPIDA y no reviven, las decisiones ajenas (confirmados/integrados/aceptados) se respetan, y un snapshot ya no borra de la pantalla lo recien creado (se conserva y reenvia solo). ENTREGAS ahora con TRANSACCION multi-documento: valida el stock y los seriales sobre datos FRESCOS (si otra sesion entrego mientras tanto, avisa claro), descuenta bodega + suma cuadrilla + registra la entrega de forma atomica. Incluye v73: al CONFIRMAR un consumo de cliente, el material queda anotado AUTOMATICAMENTE en la ficha del cliente — seccion "🧰 Material instalado" — emparejando primero por CEDULA (que ahora envia el tecnico v69) y si no por nombre; si no se encuentra el cliente, avisa claro y el boton "Sincronizar material con clientes" (tambien mejorado con cedula) queda como red de seguridad. Incluye v72: [1] confirmación de consumos con TRANSACCIÓN — el descuento a la cuadrilla ya no se puede revertir por una sincronización cruzada; [2] config Firebase integrada — no vuelve a pedirla; [3] login con ojito 👁️ y Enter; [4] BLINDAJE: guardas anti-borrado de clientes (carga incompleta o encogimiento drástico NO reescriben la nube), firma para no reescribir chunks sin cambios, carga de clientes en paralelo con reintentos, COLA de guardado (nunca se solapan), fusión de envíos recientes de técnicos antes de guardar, y fotos pequeñas ya no se recomprimen)
+const APP_VERSION_INV = 78; // ⬆️ Subir en cada versión publicada de Inventario (v78: AUDITORIA GENERAL DEL INVENTARIO + correcciones de flujo. NUEVA PANTALLA 🩺 Auditoria (admin): revisa TUS datos reales y reporta stock negativo, seriales repetidos dentro de un articulo, el MISMO equipo registrado en dos lugares a la vez, desajustes entre cantidad y seriales, articulos duplicados en una bodega, cuadrillas con material sin bodega asignada, y material EN EL LIMBO (transferencias sin aceptar, consumos de tecnicos sin confirmar, recuperados sin integrar, solicitudes sin decidir), ordenado por gravedad y exportable a Excel. CORRECCIONES: [1] enviar transferencia validaba articulo por articulo mientras descontaba — si el stock habia cambiado quedaba NEGATIVO, y si el articulo ya no existia reventaba a mitad dejando material descontado SIN transferencia creada (perdido); ahora valida todo primero y no toca nada si algo falla. [2] aceptar/rechazar transferencia agregaba los seriales con push SIN comprobar si ya estaban (el mismo equipo dos veces en la bodega), reventaba si la bodega destino u origen ya no existia (material en el limbo) y al rechazar buscaba por NOMBRE creando duplicados si lo habian renombrado. [3] misma duplicacion de seriales corregida en recuperados integrados, devoluciones de cuadrilla y entregas. [4] KARDEX: ventas, transferencias, entregas, devoluciones y recuperados no dejaban NINGUN rastro en el historial del articulo; ahora si. [5] agregar seriales avisa si estan repetidos o si superan el stock. Incluye v77: (v77: SOLICITUDES DE CAMBIO Y ELIMINACION CORREGIDAS — cuatro fallas: [1] la EDICION de una bodega se aplicaba al material ANTES de mirar el rol, asi que el cambio quedaba hecho sin aprobacion y RECHAZARLO no revertia nada (la aprobacion era decorativa); ahora la bodega solo PROPONE y el material no se toca hasta que el admin apruebe. [2] ELIMINAR UNA VENTA no devolvia el material a la bodega aunque vender SI lo descuenta: el stock desaparecia sin venta que lo justificara; ahora se devuelve cantidad y seriales, con registro en el kardex, y si el articulo ya no existe se vuelve a crear (aplica tambien al borrado directo del admin). [3] RECHAZAR una eliminacion RESUCITABA material fantasma con la cantidad vieja cuando el articulo ya no estaba (agotado, transferido o borrado aparte); ahora rechazar no toca la bodega y, si el articulo falta, se le PREGUNTA al admin. [4] Aprobar eliminacion borraba el articulo SIN dejar rastro en el kardex y sin avisar si la cantidad habia cambiado desde la solicitud; ahora registra la salida y avisa. Ademas approveEdit avisa si la cantidad cambio antes de pisarla, y ya no cierra solicitudes en silencio cuando la bodega o el articulo ya no existen. Incluye v76: CUARTOS DE EQUIPOS — puertos huerfanos y conexiones protegidas: aviso ambar en el equipo cuando hay puertos OCUPADOS sin conexion que los respalde + boton 🧹 Liberarlos (respeta enlaces inter-sede); boton ✏️ para EDITAR conexiones (mover puertos con selector real, cable, color, notas); y TODA modificacion de conexiones (crear/editar/eliminar/liberar) va por TRANSACCION con validacion fresca — dos sesiones ya no se pisan y un puerto no puede ocuparse dos veces. Incluye v75: GUARDADO MAS RAPIDO — la fusion usa la copia del listener cuando tiene <15s (cero descargas extra, misma proteccion); si esta vieja, lee de la red como siempre. Incluye v74: FUSION UNIVERSAL ENTRE SESIONES — el trabajo simultaneo de varias bodegas y tecnicos ya no se pisa: al guardar se fusiona con la nube fresca (datos + historial), lo de otras sesiones se incorpora, los borrados propios dejan LAPIDA y no reviven, las decisiones ajenas (confirmados/integrados/aceptados) se respetan, y un snapshot ya no borra de la pantalla lo recien creado (se conserva y reenvia solo). ENTREGAS ahora con TRANSACCION multi-documento: valida el stock y los seriales sobre datos FRESCOS (si otra sesion entrego mientras tanto, avisa claro), descuenta bodega + suma cuadrilla + registra la entrega de forma atomica. Incluye v73: al CONFIRMAR un consumo de cliente, el material queda anotado AUTOMATICAMENTE en la ficha del cliente — seccion "🧰 Material instalado" — emparejando primero por CEDULA (que ahora envia el tecnico v69) y si no por nombre; si no se encuentra el cliente, avisa claro y el boton "Sincronizar material con clientes" (tambien mejorado con cedula) queda como red de seguridad. Incluye v72: [1] confirmación de consumos con TRANSACCIÓN — el descuento a la cuadrilla ya no se puede revertir por una sincronización cruzada; [2] config Firebase integrada — no vuelve a pedirla; [3] login con ojito 👁️ y Enter; [4] BLINDAJE: guardas anti-borrado de clientes (carga incompleta o encogimiento drástico NO reescriben la nube), firma para no reescribir chunks sin cambios, carga de clientes en paralelo con reintentos, COLA de guardado (nunca se solapan), fusión de envíos recientes de técnicos antes de guardar, y fotos pequeñas ya no se recomprimen)
 const CHUNK_SIZE = 800; // clients per document - allows ~10000 clients
 
 // Helper: split array into chunks
