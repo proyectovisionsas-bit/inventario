@@ -143,7 +143,7 @@ const COLECCION='oficinas_sistema';
 const DOC_ID='main';
 
 // ── CONTROL DE VERSIÓN (bloqueo total si hay versión nueva) ──
-const APP_VERSION_TEC = 70; // ⬆️ Subir en cada versión publicada de Técnicos (v70: nuevo botón ❌ Cancelar en toda orden activa — el motivo es OBLIGATORIO (con detalle si eliges Otro); la orden queda CANCELADA definitivamente con transacción segura, sale de tu lista y la oficina ve quién y por qué la canceló. Incluye v69: cédula del cliente en los consumos)
+const APP_VERSION_TEC = 71; // v71: DEVOLUCION DE MATERIAL CORREGIDA — el material devuelto se enviaba a la bodega pero NUNCA se descontaba del stock del tecnico: quedaba contado dos veces y al integrarlo la bodega sumaba unidades que ya tenia. Ahora la devolucion descuenta de la cuadrilla en la MISMA transaccion, valida sobre datos frescos (cantidad y seriales) y marca el registro para que la bodega no lo descuente otra vez. Ademas: todas las escrituras al inventario van por TRANSACCION (antes leia y escribia en dos pasos, asi que dos tecnicos guardando a la vez se pisaban y un reporte podia desaparecer), y si el guardado falla el tecnico recibe un aviso claro de que su material NO se devolvio.
 
 // 👁️ Ver/ocultar la clave en el login (v68)
 function _toggleVerPassTec(btn){
@@ -217,14 +217,22 @@ async function _actualizarOrdenesSinLeer(modifFn){
 }
 // Actualiza un campo del inventario SIN leer (usa copia en memoria si la hay)
 async function _actualizarInventarioSinLeer(campo, modifFn){
-    // Para inventario no siempre tenemos copia en memoria; intentamos una sola lectura ligera del campo.
-    // Si falla por cuota, propagamos el error (el material quedará pendiente de registrar).
+    // ════════════════════════════════════════════════════════════════
+    // 🔒 v71 — AHORA POR TRANSACCIÓN.
+    // EL BUG QUE RESUELVE: leía el inventario y lo escribía en dos pasos separados.
+    // Si otro técnico (o la bodega) guardaba en ese intervalo, el segundo en escribir
+    // BORRABA lo del primero: reportes de material que desaparecían sin dejar rastro.
+    // Con transacción, si alguien más escribió mientras tanto, Firebase reintenta solo.
+    // ════════════════════════════════════════════════════════════════
     const refI=db.collection('inventario').doc('datos');
-    const snap=await refI.get(); // 1 lectura (si la cuota lo permite)
-    const data=snap.data()||{};
-    const arr = Array.isArray(data[campo]) ? data[campo] : [];
-    modifFn(arr, data);
-    await refI.update({ [campo]: arr });
+    await db.runTransaction(async (tx)=>{
+        const snap=await tx.get(refI);
+        if(!snap.exists) throw new Error('No se encontró el inventario en la nube.');
+        const data=snap.data()||{};
+        const arr = Array.isArray(data[campo]) ? data[campo] : [];
+        modifFn(arr, data);
+        tx.update(refI, { [campo]: arr });
+    });
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1057,50 +1065,88 @@ async function _confirmarDevolverMaterial(){
     try{
         const refI=db.collection('inventario').doc('datos');
         const bodegaId=_cuadrillaTec.bodegaId;
-        const snap=await refI.get();
-        if(!snap.exists) throw new Error('No se encontró el inventario');
-        const data=snap.data();
-        const bod=(data.bodegas||[]).find(b=>String(b.id)===String(bodegaId));
-        const etiqueta = estado==='danado' ? '🔴 DAÑADO' : 'Por confirmar';
-
-        if(estado==='danado'){
-            // Va directo a Equipos Dañados (el jefe de bodega ya lo ve clasificado como dañado)
-            if(!Array.isArray(data.equiposDanados)) data.equiposDanados=[];
-            data.equiposDanados.push({
-                id:Date.now().toString(),
-                fecha:new Date().toLocaleDateString(),
-                fechaISO:new Date().toISOString(),
-                clienteNombre:`(Devolución técnico ${TEC.nombre})`,
-                equipoNombre:mat.nombre,
-                snDanado:snes.join(', '),
-                cantidadDanada:cant,
-                equipoNuevo:'—',
-                snNuevo:'',
-                bodegaId:bodegaId, bodegaNombre:bod?bod.nombre:'',
-                motivo:'Devolución de material dañado',
-                observaciones:obs||`Devuelto por técnico ${TEC.nombre}`,
-                origen:`Devolución técnico ${TEC.nombre}`
-            });
-            await refI.update({ equiposDanados: data.equiposDanados });
-        } else {
-            // Va a Recuperados como pendiente (el jefe de bodega decide bueno/dañado)
-            if(!Array.isArray(data.recuperados)) data.recuperados=[];
-            data.recuperados.push({
-                id:Date.now().toString(),
-                bodegaId:bodegaId, bodegaNombre:bod?bod.nombre:'',
-                nom:mat.nombre, cant:cant, tipo:'usado', unidad:mat.unidad||'unidad',
-                origen:`Devolución técnico ${TEC.nombre}`,
-                snes:snes,
-                fecha:new Date().toLocaleDateString(),
-                estado:'pendiente',
-                obs:obs||`Material devuelto por ${TEC.nombre} para revisión`
-            });
-            await refI.update({ recuperados: data.recuperados });
-        }
+        const etiqueta = estado==='danado' ? '⚠️ DAÑADO' : 'Por confirmar';
+        // ════════════════════════════════════════════════════════════════
+        // 🔧 v71 — LA DEVOLUCIÓN AHORA SÍ DESCUENTA DE LA CUADRILLA.
+        // EL BUG QUE RESUELVE: el material devuelto se agregaba a Recuperados (o a
+        // Equipos Dañados) de la bodega, pero NUNCA se quitaba del stock del técnico.
+        // Resultado: el mismo equipo quedaba contado DOS veces —en poder del técnico
+        // y esperando en la bodega—. Al integrarlo, la bodega sumaba unidades que en
+        // realidad ya tenía, y el inventario se inflaba solo.
+        // Además todo va por TRANSACCIÓN sobre datos frescos: antes se leía y escribía
+        // por separado, así que dos técnicos guardando a la vez se pisaban entre sí.
+        // ════════════════════════════════════════════════════════════════
+        await db.runTransaction(async (tx)=>{
+            const snap=await tx.get(refI);
+            if(!snap.exists) throw new Error('No se encontró el inventario');
+            const data=snap.data();
+            const bod=(data.bodegas||[]).find(b=>String(b.id)===String(bodegaId));
+            const cuads=data.cuadrillas||[];
+            const cuadF=cuads.find(c=>String(c.id)===String(_cuadrillaTec.id));
+            if(!cuadF) throw new Error('Tu cuadrilla ya no existe en el inventario. Avísale a la bodega.');
+            // 1) Verificar sobre datos FRESCOS (pudo cambiar desde que abriste la pantalla)
+            const matF=(cuadF.materiales||[]).find(x=>String(x.nombre)===String(mat.nombre) && String(x.unidad||'')===String(mat.unidad||''))
+                     || (cuadF.materiales||[]).find(x=>String(x.nombre)===String(mat.nombre));
+            if(!matF) throw new Error(`Ya no tienes "${mat.nombre}" asignado. Actualiza la pantalla.`);
+            if((matF.cantidad||0) < cant) throw new Error(`Solo tienes ${matF.cantidad||0} de "${mat.nombre}" (alguien más pudo registrar un consumo). Actualiza e intenta de nuevo.`);
+            const snesF=Array.isArray(matF.snes)?matF.snes:[];
+            const faltan=snes.filter(sn=>!snesF.includes(sn));
+            if(faltan.length) throw new Error(`Estos seriales ya no están a tu nombre: ${faltan.join(', ')}`);
+            // 2) DESCONTAR de la cuadrilla (esto es lo que faltaba)
+            matF.cantidad=(matF.cantidad||0)-cant;
+            if(snes.length) matF.snes=snesF.filter(sn=>!snes.includes(sn));
+            // 3) Enviar a la bodega según el estado
+            if(estado==='danado'){
+                const danados=Array.isArray(data.equiposDanados)?data.equiposDanados:[];
+                danados.push({
+                    id:Date.now().toString(),
+                    fecha:new Date().toLocaleDateString(),
+                    fechaISO:new Date().toISOString(),
+                    clienteNombre:`(Devolución técnico ${TEC.nombre})`,
+                    equipoNombre:mat.nombre,
+                    snDanado:snes.join(', '),
+                    cantidadDanada:cant,
+                    equipoNuevo:'—',
+                    snNuevo:'',
+                    bodegaId:bodegaId, bodegaNombre:bod?bod.nombre:'',
+                    motivo:'Devolución de material dañado',
+                    observaciones:obs||`Devuelto por técnico ${TEC.nombre}`,
+                    origen:`Devolución técnico ${TEC.nombre}`,
+                    cuadrillaId:cuadF.id, cuadrillaNombre:cuadF.nombre,
+                    yaDescontadoDeCuadrilla:true   // 🔑 la bodega NO debe volver a descontar
+                });
+                tx.update(refI, { equiposDanados: danados, cuadrillas: cuads });
+            } else {
+                const recs=Array.isArray(data.recuperados)?data.recuperados:[];
+                recs.push({
+                    id:Date.now().toString(),
+                    bodegaId:bodegaId, bodegaNombre:bod?bod.nombre:'',
+                    nom:mat.nombre, cant:cant, tipo:'usado', unidad:mat.unidad||'unidad',
+                    origen:`Devolución técnico ${TEC.nombre}`,
+                    snes:snes,
+                    fecha:new Date().toLocaleDateString(),
+                    estado:'pendiente',
+                    obs:obs||`Material devuelto por ${TEC.nombre} para revisión`,
+                    cuadrillaId:cuadF.id, cuadrillaNombre:cuadF.nombre,
+                    yaDescontadoDeCuadrilla:true   // 🔑 la bodega NO debe volver a descontar
+                });
+                tx.update(refI, { recuperados: recs, cuadrillas: cuads });
+            }
+        });
         showToast(`✅ Material devuelto (${etiqueta}). La bodega lo revisará.`);
         _cuadrillaTec=null;
         _ocultarGuardando();
-    }catch(e){ console.error(e); showToast('❌ '+(e.message||e), true); _ocultarGuardando(); }
+    }catch(e){
+        console.error(e);
+        _ocultarGuardando();
+        // v71: aviso claro — el técnico DEBE saber que su reporte no quedó guardado
+        const _m=String(e&&e.message||e);
+        const _lleno=/resource-exhausted|maximum.*size|too large|invalid-argument/i.test(_m);
+        alert('❌ NO SE PUDO GUARDAR LA DEVOLUCIÓN.\n\n'
+            + (_lleno ? 'La base del inventario está llena o saturada. Avísale al administrador (tiene que aligerarla desde 🩺 Auditoría).'
+                      : 'Revisa tu conexión a internet e intenta de nuevo.')
+            + '\n\n⚠️ El material NO se devolvió: sigue a tu nombre. Vuelve a intentarlo.\n\nDetalle: '+_m.substring(0,140));
+    }
 }
 window._confirmarDevolverMaterial=_confirmarDevolverMaterial;
 
