@@ -6421,6 +6421,7 @@ function renderCuads(c) {
             <div class="flex" style="margin:10px 0;">
                 ${canDo('cuads','editar_cuadrilla')?`<button class="btn btn-outline btn-sm" onclick="modalEditCuad('${cu.id}')">✏️ Editar</button>`:''}
                 ${canDo('cuads','devolver_material')?`<button class="btn btn-warning btn-sm" onclick="modalDevolverMat('${cu.id}')">↩️ Devolver Material</button>`:''}
+                ${USER.role==='admin'?`<button class="btn btn-primary btn-sm" onclick="modalCorregirCantCuad('${cu.id}')">🔧 Corregir Cantidades</button>`:''}
                 ${USER.role==='admin'?`<button class="btn btn-danger btn-sm" onclick="eliminarCuadrilla('${cu.id}')">🗑️ Eliminar Cuadrilla</button>`:''}
             </div>
             <h4 style="margin:10px 0;">👤 Técnicos</h4>
@@ -6558,6 +6559,98 @@ window.updateDevSNs = function(idx) {
     const q = parseInt(document.getElementById(`dev_${idx}`)?.value)||0;
     const area = document.getElementById(`devSNArea_${idx}`);
     if(area) area.style.display = q>0 ? 'block' : 'none';
+};
+
+// ═══ 🔧 CORREGIR CANTIDADES EN CUADRILLA (solo Admin) — v79 ═══
+// Ajuste manual del stock que figura en poder de la cuadrilla. NO mueve material a
+// ninguna bodega: solo cuadra diferencias detectadas en la 🩺 Auditoría (stock
+// negativo, o cantidad que no coincide con los seriales).
+function modalCorregirCantCuad(cId) {
+    if(USER.role !== 'admin') return alert('Solo el administrador puede corregir cantidades.');
+    const cu = DB.cuadrillas.find(x=>x.id===cId);
+    if(!cu) return;
+    const mats = cu.materiales||[];
+    if(!mats.length) return alert(`La cuadrilla "${cu.nombre}" no tiene materiales registrados.`);
+
+    const filas = mats.map((m,idx)=>{
+        const snes = Array.isArray(m.snes)? m.snes : [];
+        const desc = snes.length>0 && m.cantidad !== snes.length;
+        return `
+        <tr style="${m.cantidad<0?'background:#fdecea;':''}">
+            <td><strong>${m.nombre}</strong> <span class="badge ${m.tipo==='nuevo'?'badge-new':'badge-used'}">${m.tipo}</span>
+                ${desc?`<br><small style="color:#c0392b;">⚠️ ${m.cantidad} uds pero ${snes.length} serial(es)</small>`:''}</td>
+            <td style="text-align:center;white-space:nowrap;">${m.cantidad} <span class="text-muted">${m.unidad||''}</span></td>
+            <td style="width:100px;"><input type="number" class="form-control" id="corr_${idx}" value="${m.cantidad}" style="width:90px;" ${snes.length?`oninput="corrSNHint(${idx})"`:''}></td>
+        </tr>
+        ${snes.length?`<tr><td colspan="3" style="padding-top:0;">
+            <div style="background:#f0f4ff;padding:8px;border-radius:6px;margin:0 0 6px;">
+                <small class="text-muted">Seriales de "${m.nombre}" — <strong>desmarca</strong> el/los que ya no estén con la cuadrilla:</small>
+                <div class="sn-select-area" style="max-height:120px;overflow-y:auto;margin-top:4px;">
+                    ${snes.map(sn=>`<label class="sn-check"><input type="checkbox" class="corrSN_${idx}" value="${sn}" checked onchange="corrSNHint(${idx})"> <span class="sn-label">${sn}</span></label>`).join('')}
+                </div>
+                <small id="corrHint_${idx}" class="text-muted" style="display:block;margin-top:4px;"></small>
+            </div>
+        </td></tr>`:''}`;
+    }).join('');
+
+    openModal(`🔧 Corregir Cantidades — ${cu.nombre}`,
+        `<div style="background:#fff3cd;padding:10px;border-radius:6px;margin-bottom:12px;font-size:0.86rem;line-height:1.45;">
+            ⚙️ <strong>Ajuste manual (solo Admin).</strong> Corrige la cantidad que figura en poder de la cuadrilla.
+            <strong>No mueve material a ninguna bodega</strong>: solo cuadra el stock de la cuadrilla para resolver
+            diferencias de la 🩺 Auditoría (stock negativo o cantidad que no coincide con los seriales).
+        </div>
+        <div class="table-wrap"><table>
+            <thead><tr><th>Artículo</th><th style="text-align:center;">Actual</th><th>Nueva cant.</th></tr></thead>
+            <tbody>${filas}</tbody>
+        </table></div>
+        <small class="text-muted" style="display:block;margin-top:8px;">Un artículo en <strong>0</strong> y sin seriales se quita del inventario de la cuadrilla.</small>`,
+        () => {
+            let cambios = [], error = null;
+            mats.forEach((m,idx)=>{
+                const inp = document.getElementById(`corr_${idx}`);
+                if(!inp) return;
+                const nueva = parseInt(inp.value);
+                if(isNaN(nueva)){ error = `"${m.nombre}": escribe una cantidad válida.`; return; }
+                if(nueva < 0){ error = `"${m.nombre}": la cantidad no puede ser negativa.`; return; }
+                const snes = Array.isArray(m.snes)? m.snes : [];
+                let keptSN = snes;
+                if(snes.length){
+                    keptSN = [...document.querySelectorAll(`.corrSN_${idx}:checked`)].map(cb=>cb.value);
+                    if(nueva < keptSN.length){ error = `"${m.nombre}": deja como máximo ${nueva} serial(es) marcados o sube la cantidad.`; return; }
+                }
+                if(nueva === m.cantidad && keptSN.length === snes.length) return; // sin cambios
+                cambios.push({m, antes:m.cantidad, despues:nueva, snAntes:snes.length, snDespues:keptSN.length, keptSN});
+            });
+            if(error) return alert('⚠️ '+error);
+            if(!cambios.length) return alert('No hiciste ningún cambio.');
+
+            const resumen = cambios.map(c=>`• ${c.m.nombre}: ${c.antes} → ${c.despues}`+(c.snAntes!==c.snDespues?` · SN ${c.snAntes}→${c.snDespues}`:'')).join('\n');
+            if(!confirm(`Vas a corregir el inventario de "${cu.nombre}":\n\n${resumen}\n\n¿Confirmas el ajuste?`)) return;
+
+            cambios.forEach(c=>{ c.m.cantidad = c.despues; if(Array.isArray(c.m.snes)) c.m.snes = c.keptSN; });
+            cu.materiales = cu.materiales.filter(m=> (m.cantidad>0) || ((m.snes||[]).length>0));
+            logMsg(`Admin corrigió stock de cuadrilla "${cu.nombre}": ${cambios.map(c=>`${c.m.nombre} ${c.antes}→${c.despues}`).join('; ')}`);
+            save(); closeModal(); renderTab('cuads');
+        });
+
+    // Inicializa las pistas de seriales
+    mats.forEach((m,idx)=>{ if((m.snes||[]).length && window.corrSNHint) window.corrSNHint(idx); });
+}
+window.modalCorregirCantCuad = modalCorregirCantCuad;
+
+// Pista en vivo: avisa si sobran seriales marcados respecto a la nueva cantidad
+window.corrSNHint = function(idx){
+    const inp = document.getElementById(`corr_${idx}`);
+    const hint = document.getElementById(`corrHint_${idx}`);
+    if(!inp || !hint) return;
+    const nueva = parseInt(inp.value);
+    const total = document.querySelectorAll(`.corrSN_${idx}`).length;
+    const marcados = document.querySelectorAll(`.corrSN_${idx}:checked`).length;
+    if(!isNaN(nueva) && nueva < marcados){
+        hint.innerHTML = `<span style="color:#c0392b;font-weight:bold;">Sobran ${marcados-nueva} serial(es): la cantidad es ${nueva} pero dejas ${marcados} marcados.</span>`;
+    } else {
+        hint.innerHTML = `${marcados} de ${total} serial(es) se conservarán.`+((!isNaN(nueva)&&nueva>marcados)?` <span style="color:#7f8c8d;">(${nueva-marcados} unidad(es) sin serial)</span>`:'');
+    }
 };
 
 function modalVerDotacion(cId, tId) {
