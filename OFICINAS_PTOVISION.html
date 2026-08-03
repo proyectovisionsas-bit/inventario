@@ -12083,7 +12083,10 @@ function renderPagosAdmin(){
                             </div>
                             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
                                 <span class="money ${p.tipo==='ingreso'?'pos':'neg'}" style="font-size:1.05rem;font-weight:800;">${p.tipo==='ingreso'?'+':'-'}${fmtShort(p.valor)}</span>
-                                <button class="btn btn-danger btn-sm" onclick="eliminarPagoAdmin('${p.id}')">🗑️</button>
+                                <div style="display:flex;gap:6px;">
+                                    <button class="btn btn-outline btn-sm" onclick="modalEditarPagoAdmin('${p.id}')" title="Editar valor, forma de pago u otros datos">✏️</button>
+                                    <button class="btn btn-danger btn-sm" onclick="eliminarPagoAdmin('${p.id}')" title="Eliminar pago">🗑️</button>
+                                </div>
                             </div>
                         </div>
                     </div>`;
@@ -12286,6 +12289,120 @@ function eliminarPagoAdmin(pid){
     DB.pagosAdmin=DB.pagosAdmin.filter(p=>p.id!==pid);
     save().then(()=>renderPagosAdmin());
 }
+
+// ═══ ✏️ EDITAR PAGO ADMIN YA REGISTRADO (solo Admin) — v186 ═══════════════
+// Permite corregir un pago del historial (valor, forma de pago, tipo, concepto,
+// descripción, fecha). El cambio se aplica TANTO al historial (DB.pagosAdmin)
+// COMO al/los movimiento(s) reflejado(s) en el registro diario de cada oficina
+// (enlazados por pagoAdminId), para que caja e historial nunca se descuadren.
+// La(s) oficina(s) destinataria(s) NO se cambian aquí (eso implica mover
+// movimientos entre cajas); para eso se elimina el pago y se registra de nuevo.
+function modalEditarPagoAdmin(pid){
+    if(USER.role!=='admin') return alert('Solo el administrador puede editar pagos.');
+    const p=(DB.pagosAdmin||[]).find(x=>x.id===pid);
+    if(!p) return alert('Pago no encontrado.');
+    const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const oNombres=(p.oficinas||[]).map(oid=>(DB.oficinas||[]).find(o=>o.id===oid)?.nombre||oid).join(', ')||'-';
+    const fechaYMD=String(p.fecha||'').slice(0,10);
+    const formas=['Efectivo','Efecty','Cta Bancolombia','Cruce de Cuentas','Transferencia','Otro'];
+    if(p.forma && !formas.includes(p.forma)) formas.unshift(p.forma);
+    const formaOptions=formas.map(f=>`<option value="${esc(f)}" ${p.forma===f?'selected':''}>${esc(f)}</option>`).join('');
+
+    const body=`
+        <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:0.8rem;color:#f59e0b;line-height:1.4;">
+            ✏️ Estás editando un pago <strong>ya registrado</strong>. Los cambios se aplican al historial <u>y</u> al registro diario de: <strong>${esc(oNombres)}</strong>.<br>
+            <span style="font-size:0.74rem;">La(s) oficina(s) destinataria(s) no se cambian aquí; si necesitas cambiarlas, elimina el pago y regístralo de nuevo.</span>
+        </div>
+        <div class="form-row">
+            <div class="form-group-dark">
+                <label>Tipo *</label>
+                <select id="ep_tipo" class="form-control">
+                    <option value="egreso" ${p.tipo!=='ingreso'?'selected':''}>📤 Egreso</option>
+                    <option value="ingreso" ${p.tipo==='ingreso'?'selected':''}>📥 Ingreso</option>
+                </select>
+            </div>
+            <div class="form-group-dark">
+                <label>📅 Fecha *</label>
+                <input type="date" id="ep_fecha" class="form-control" value="${fechaYMD}">
+            </div>
+        </div>
+        <div class="form-group-dark">
+            <label>Concepto *</label>
+            <input id="ep_concepto" class="form-control" value="${esc(p.concepto)}" placeholder="Concepto del pago">
+        </div>
+        <div class="form-group-dark">
+            <label>💳 Forma de pago *</label>
+            <select id="ep_forma" class="form-control">${formaOptions}</select>
+        </div>
+        <div class="form-row">
+            <div class="form-group-dark">
+                <label>💰 Valor (COP) *</label>
+                <input type="number" id="ep_valor" class="form-control" min="0" value="${parseFloat(p.valor||0)}">
+            </div>
+            <div class="form-group-dark">
+                <label>📝 Descripción / Nota</label>
+                <input id="ep_desc" class="form-control" value="${esc(p.descripcion)}" placeholder="Detalle del pago...">
+            </div>
+        </div>`;
+    openModal('✏️ Editar Pago Admin', body,
+        `<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+         <button class="btn btn-primary" onclick="guardarEdicionPagoAdmin('${pid}')">💾 Guardar cambios</button>`);
+}
+window.modalEditarPagoAdmin=modalEditarPagoAdmin;
+
+function guardarEdicionPagoAdmin(pid){
+    if(USER.role!=='admin') return alert('Solo el administrador puede editar pagos.');
+    const pago=(DB.pagosAdmin||[]).find(x=>x.id===pid);
+    if(!pago) return alert('Pago no encontrado.');
+    const tipo=document.getElementById('ep_tipo').value;
+    const concepto=document.getElementById('ep_concepto').value.trim();
+    const forma=document.getElementById('ep_forma').value;
+    const valor=parseFloat(document.getElementById('ep_valor').value||0);
+    const desc=document.getElementById('ep_desc').value.trim();
+    const fechaStr=document.getElementById('ep_fecha').value;
+    if(!concepto) return alert('⚠️ El concepto es obligatorio.');
+    if(isNaN(valor)||valor<0) return alert('⚠️ Ingresa un valor válido (no negativo).');
+    if(!fechaStr) return alert('⚠️ Selecciona una fecha.');
+
+    // Preservar la hora original del pago; solo cambia el día (sin conversión UTC)
+    const _horaOrig=(pago.fecha&&pago.fecha.length>10)?pago.fecha.slice(11,19):'12:00:00';
+    const nuevaFecha=fechaStr+'T'+_horaOrig;
+
+    // Datos anteriores para auditoría
+    const anterior={tipo:pago.tipo,concepto:pago.concepto,forma:pago.forma,valor:pago.valor,descripcion:pago.descripcion,fecha:pago.fecha};
+
+    // 1) Actualizar el historial de pagos admin
+    pago.tipo=tipo; pago.concepto=concepto; pago.forma=forma; pago.valor=valor;
+    pago.descripcion=desc; pago.fecha=nuevaFecha;
+    pago.editadoPor='admin'; pago.editadoEn=now(); pago.anteriorDatos=anterior;
+
+    // 2) Actualizar el/los movimiento(s) reflejado(s) en cada oficina (enlazados por pagoAdminId)
+    const sufijo='Pago registrado por Administrador'+(pago.desdeRecurrente?' (recurrente)':'');
+    let movsActualizados=0;
+    (DB.oficinas||[]).forEach(o=>{
+        (o.movimientos||[]).forEach(m=>{
+            if(m.pagoAdminId===pid){
+                m.tipo=tipo; m.concepto=concepto; m.forma=forma; m.valor=valor;
+                m.descripcion=(desc?desc+' — ':'')+sufijo;
+                m.fecha=nuevaFecha;
+                m.editadoPor='admin'; m.editadoEn=now();
+                movsActualizados++;
+                if(window._sigMovs) delete window._sigMovs[o.id]; // forzar reescritura del bloque en la nube
+            }
+        });
+    });
+
+    try{ registrarLog('EDICION_PAGO_ADMIN',{pagoId:pid,anterior,nuevo:{tipo,concepto,forma,valor,descripcion:desc,fecha:nuevaFecha},movsActualizados}); }catch(e){}
+
+    save().then(()=>{
+        closeModal();
+        renderPagosAdmin();
+        if(typeof renderRegistro==='function' && document.querySelector('[data-tab="registro"].active')) renderRegistro();
+    }).catch(e=>{
+        alert('❌ Error al guardar: '+(e.message||e)+'\nTus datos en la nube siguen intactos. Recarga e intenta de nuevo.');
+    });
+}
+window.guardarEdicionPagoAdmin=guardarEdicionPagoAdmin;
 
 // ═══ ⭐ PAGOS RECURRENTES (v169) ═══════════════════════════════════
 // Registra un pago mensual desde su plantilla: usa la FECHA DE HOY, el valor del
