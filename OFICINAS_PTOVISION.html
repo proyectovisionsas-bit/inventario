@@ -6916,7 +6916,7 @@ function _analizarWisphubMes(periodo, oidFiltro){
     let nuevos=0, cancelados=0, activos=0, totalClientes=0;
     const nuevosPorPlan={};
     const _clNuevos=[], _clCancelados=[], _clActivos=[];
-    const _clInfo=c=>({cliente:c.nombre||c.cliente||c.titular||c.razonSocial||'(sin nombre)', plan:c.plan||'', zona:c.zona||c.zonaWisphub||'', cedula:c.cedula||''});
+    const _clInfo=c=>({cliente:c.nombre||c.cliente||c.titular||c.razonSocial||'(sin nombre)', plan:c.plan||'', zona:c.zona||c.zonaWisphub||'', cedula:c.cedula||'', tarifa:parseFloat(c.tarifaMensual||c.tarifa||0)||0});
     ofis.forEach(o=>{
         if(oidFiltro && o.id!==oidFiltro) return;
         (o.clientes||[]).forEach(c=>{
@@ -6980,7 +6980,7 @@ function _analizarWisphubMes(periodo, oidFiltro){
             // Pendientes (estado actual, sin importar fecha — es la cartera viva)
             if(esPend){
                 pendientes++; montoPendiente+=f.total||0;
-                pendientesLista.push({cliente:h.cliente,zona:h.zona,numero:f.numero,total:f.total||0,fechaVenc:f.fechaVenc});
+                pendientesLista.push({cliente:h.cliente,zona:h.zona,numero:f.numero,total:f.total||0,fechaVenc:f.fechaVenc,concepto:_categoriaConcepto(f.concepto)});
             }
         });
     });
@@ -7258,6 +7258,106 @@ function _desgloseRep(tipo){
 window._desgloseRep=_desgloseRep;
 
 // Vista del reporte WispHub (se inyecta en un contenedor dentro de renderReportes)
+// ═══ ✅ VALIDACIÓN DE TRASLADOS Y USUARIOS NUEVOS (v191) ══════════════════
+// Cruza los clientes NUEVOS del mes (por fecha de instalación) y los TRASLADOS
+// (facturas con concepto "Traslado") contra las facturas PAGADAS del mes en la
+// misma oficina, para responder dos preguntas por oficina/mes:
+//   1) ¿Cuántos traslados y usuarios nuevos hubo?  2) ¿Cuáles YA pagaron?
+// Reutiliza lo que ya calcula _analizarWisphubMes (listas.facPagadas con su
+// concepto, pendientesLista con concepto, y listas.clNuevos con tarifa).
+function _validarTN(R){
+    const norm = s => (s||'').toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
+    const fp = (R.listas&&R.listas.facPagadas)||[];
+
+    // ---- TRASLADOS: pagados en el mes + pendientes (cartera actual) ----
+    const trasPag = fp.filter(f=>f.concepto==='Traslado')
+        .map(f=>({cliente:f.cliente, valor:f.total||0, estado:'pagado', forma:f.forma||'', fecha:f.fecha||''}));
+    const trasPend = ((R.pendientesLista)||[]).filter(f=>f.concepto==='Traslado')
+        .map(f=>({cliente:f.cliente, valor:f.total||0, estado:'pendiente', forma:'', fecha:f.fechaVenc||''}));
+    const traslados = trasPag.concat(trasPend).sort((a,b)=>(b.valor||0)-(a.valor||0));
+    const trasMontoPag  = trasPag.reduce((s,x)=>s+(x.valor||0),0);
+    const trasMontoPend = trasPend.reduce((s,x)=>s+(x.valor||0),0);
+
+    // ---- USUARIOS NUEVOS: ¿tienen algún pago registrado este mes? ----
+    // Se cruza por NOMBRE normalizado contra las facturas pagadas del mes.
+    const pagosPorNombre={};
+    fp.forEach(f=>{ const k=norm(f.cliente); if(!k) return; (pagosPorNombre[k]=pagosPorNombre[k]||[]).push(f); });
+    const nombresPagaron=Object.keys(pagosPorNombre);
+    const matchPagos = nom => {
+        const k=norm(nom); if(!k) return [];
+        if(pagosPorNombre[k]) return pagosPorNombre[k];
+        const hit=nombresPagaron.find(nn=>nn.length>3&&(nn.includes(k)||k.includes(nn))); // respaldo por coincidencia parcial
+        return hit?pagosPorNombre[hit]:[];
+    };
+    const nuevos=((R.listas&&R.listas.clNuevos)||[]).map(c=>{
+        const pgs=matchPagos(c.cliente);
+        const monto=pgs.reduce((s,p)=>s+(p.total||0),0);
+        return {
+            cliente:c.cliente, plan:c.plan||'', tarifa:c.tarifa||0,
+            pago:pgs.length>0, monto,
+            conceptos:[...new Set(pgs.map(p=>p.concepto))],
+            formas:[...new Set(pgs.map(p=>p.forma).filter(Boolean))]
+        };
+    });
+    const nuevosPagaron=nuevos.filter(n=>n.pago).length;
+
+    return {
+        traslados, trasPagN:trasPag.length, trasPendN:trasPend.length, trasMontoPag, trasMontoPend,
+        nuevos, nuevosN:nuevos.length, nuevosPagaron, nuevosSinPago:nuevos.length-nuevosPagaron
+    };
+}
+
+// Sección visual para _vistaReporteWisphub: dos tarjetas (traslados / nuevos)
+function _seccionValidacionTN(R){
+    const V=_validarTN(R);
+    const esc=s=>(s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+
+    const trasRows = V.traslados.length
+      ? V.traslados.map(t=>`<div style="display:flex;justify-content:space-between;gap:8px;font-size:0.76rem;padding:5px 0;border-bottom:1px solid var(--border);">
+            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(t.cliente)||'<span style=\"color:var(--muted)\">(sin nombre)</span>'}</span>
+            <span style="font-weight:700;flex-shrink:0;">${fmtShort(t.valor)}</span>
+            <span style="flex-shrink:0;width:100px;text-align:right;color:${t.estado==='pagado'?'#10b981':'#f59e0b'};font-weight:700;">${t.estado==='pagado'?('✅ '+(esc(t.forma)||'Pagado')):'⏳ Pendiente'}</span>
+        </div>`).join('')
+      : '<div style="font-size:0.78rem;color:var(--muted);padding:6px 0;">No hubo traslados en el mes.</div>';
+
+    const nuevosOrden=V.nuevos.slice().sort((a,b)=>(a.pago?1:0)-(b.pago?1:0)); // primero los que NO pagaron
+    const nuevosRows = V.nuevos.length
+      ? nuevosOrden.map(n=>`<div style="display:flex;justify-content:space-between;gap:8px;font-size:0.76rem;padding:5px 0;border-bottom:1px solid var(--border);${!n.pago?'background:rgba(239,68,68,0.05);':''}">
+            <span style="flex:1;min-width:0;">
+                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;">${esc(n.cliente)}</span>
+                <span style="color:var(--muted);font-size:0.68rem;">${esc(n.plan)||'sin plan'}${n.tarifa?' · '+fmtShort(n.tarifa)+'/mes':''}</span>
+            </span>
+            <span style="flex-shrink:0;width:120px;text-align:right;color:${n.pago?'#10b981':'#ef4444'};font-weight:700;">
+                ${n.pago?('✅ '+fmtShort(n.monto)):'⚠️ Sin pago'}
+                ${n.pago&&n.formas.length?`<br><span style="font-weight:400;color:var(--muted);font-size:0.66rem;">${esc(n.formas.join(', '))}</span>`:''}
+            </span>
+        </div>`).join('')
+      : '<div style="font-size:0.78rem;color:var(--muted);padding:6px 0;">No hubo usuarios nuevos en el mes.</div>';
+
+    return `
+    <div style="font-size:0.82rem;font-weight:800;margin:6px 0 8px;color:var(--muted);">✅ VALIDACIÓN — Traslados y Usuarios Nuevos</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-bottom:6px;">
+        <div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
+            <div style="font-size:0.85rem;font-weight:800;margin-bottom:2px;">🚚 Traslados — ${V.trasPagN} pagado${V.trasPagN===1?'':'s'} en el mes</div>
+            <div style="font-size:0.72rem;color:var(--muted);margin-bottom:8px;">
+                💰 Recaudado ${fmtShort(V.trasMontoPag)} · <span style="color:${V.trasPendN>0?'#f59e0b':'var(--muted)'};font-weight:700;">⏳ ${V.trasPendN} pendiente${V.trasPendN===1?'':'s'} (cartera)</span>${V.trasPendN>0?' '+fmtShort(V.trasMontoPend):''}
+            </div>
+            <div style="max-height:260px;overflow-y:auto;">${trasRows}</div>
+        </div>
+        <div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
+            <div style="font-size:0.85rem;font-weight:800;margin-bottom:2px;">🟢 Usuarios nuevos — ${V.nuevosN} en el mes</div>
+            <div style="font-size:0.72rem;color:var(--muted);margin-bottom:8px;">
+                <span style="color:#10b981;font-weight:700;">✅ ${V.nuevosPagaron} pagaron</span>
+                · <span style="color:${V.nuevosSinPago>0?'#ef4444':'var(--muted)'};font-weight:700;">⚠️ ${V.nuevosSinPago} sin pago registrado</span>
+            </div>
+            <div style="max-height:260px;overflow-y:auto;">${nuevosRows}</div>
+        </div>
+    </div>
+    <div style="font-size:0.68rem;color:var(--muted);margin:0 0 16px;">💡 El pago del usuario nuevo se detecta cruzando su nombre con las facturas pagadas del mes en esta oficina. <b>"Sin pago registrado"</b> = todavía no aparece un pago suyo este mes (puede ser un prorrateo aún pendiente, o un nombre que no coincide exactamente). Los traslados salen de las facturas con concepto <b>"Traslado"</b>.</div>
+    `;
+}
+window._validarTN=_validarTN; window._seccionValidacionTN=_seccionValidacionTN;
+
 function _vistaReporteWisphub(){
     const cont=document.getElementById('repWisphubBox');
     if(!cont) return;
@@ -7355,6 +7455,8 @@ function _vistaReporteWisphub(){
         ${card('🪙','Recaudado',fmtShort(R.facturas.montoPagado),cmp(R.facturas.montoPagado,P.facturas.montoPagado),'cobrado en el mes')}
     </div>
 
+    ${_seccionValidacionTN(R)}
+
     <!-- GASTOS Y GANANCIA (movimientos de caja) -->
     <div style="font-size:0.82rem;font-weight:800;margin:6px 0 8px;color:var(--muted);">💸 GASTOS Y GANANCIA (de caja)</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:10px;">
@@ -7425,6 +7527,18 @@ function _exportarWisphubPDF(){
         <tr style="background:#f3f4f6;"><th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Cliente</th><th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Zona</th><th style="padding:4px 8px;border:1px solid #ddd;">Vence</th><th style="padding:4px 8px;border:1px solid #ddd;text-align:right;">Valor</th></tr>
         ${R.pendientesLista.slice(0,60).map(p=>`<tr><td style="padding:4px 8px;border:1px solid #ddd;">${(p.cliente||'').replace(/</g,'&lt;')}</td><td style="padding:4px 8px;border:1px solid #ddd;">${(p.zona||'').replace(/</g,'&lt;')}</td><td style="padding:4px 8px;border:1px solid #ddd;text-align:center;">${p.fechaVenc||'—'}</td><td style="padding:4px 8px;border:1px solid #ddd;text-align:right;">${fmtShort(p.total)}</td></tr>`).join('')}
         </table>`:'';
+    // ✅ Validación de traslados y usuarios nuevos (v191)
+    const _V=_validarTN(R);
+    const valTablaTras=`<h3 style="margin:14px 0 6px;font-size:13px;">🚚 Traslados — ${_V.trasPagN} pagado(s) en el mes · ⏳ ${_V.trasPendN} pendiente(s)</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:10px;">
+        <tr style="background:#f3f4f6;"><th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Cliente</th><th style="padding:4px 8px;border:1px solid #ddd;text-align:right;">Valor</th><th style="padding:4px 8px;border:1px solid #ddd;">Estado</th></tr>
+        ${_V.traslados.length?_V.traslados.map(t=>`<tr><td style="padding:4px 8px;border:1px solid #ddd;">${(t.cliente||'').replace(/</g,'&lt;')}</td><td style="padding:4px 8px;border:1px solid #ddd;text-align:right;">${fmtShort(t.valor)}</td><td style="padding:4px 8px;border:1px solid #ddd;text-align:center;">${t.estado==='pagado'?('Pagado'+(t.forma?' ('+t.forma+')':'')):'Pendiente'}</td></tr>`).join(''):'<tr><td colspan="3" style="padding:4px 8px;border:1px solid #ddd;text-align:center;color:#888;">Sin traslados en el mes</td></tr>'}
+        </table>`;
+    const valTablaNuevos=`<h3 style="margin:14px 0 6px;font-size:13px;">🟢 Usuarios nuevos — ${_V.nuevosN} en el mes · ✅ ${_V.nuevosPagaron} pagaron · ⚠️ ${_V.nuevosSinPago} sin pago</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:10px;">
+        <tr style="background:#f3f4f6;"><th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Cliente</th><th style="padding:4px 8px;border:1px solid #ddd;text-align:left;">Plan</th><th style="padding:4px 8px;border:1px solid #ddd;text-align:right;">Tarifa</th><th style="padding:4px 8px;border:1px solid #ddd;">¿Pagó?</th></tr>
+        ${_V.nuevos.length?_V.nuevos.slice().sort((a,b)=>(a.pago?1:0)-(b.pago?1:0)).map(n=>`<tr${!n.pago?' style="background:#fef2f2;"':''}><td style="padding:4px 8px;border:1px solid #ddd;">${(n.cliente||'').replace(/</g,'&lt;')}</td><td style="padding:4px 8px;border:1px solid #ddd;">${(n.plan||'').replace(/</g,'&lt;')}</td><td style="padding:4px 8px;border:1px solid #ddd;text-align:right;">${n.tarifa?fmtShort(n.tarifa):'—'}</td><td style="padding:4px 8px;border:1px solid #ddd;text-align:center;font-weight:700;color:${n.pago?'#059669':'#dc2626'};">${n.pago?('Sí ('+fmtShort(n.monto)+')'):'NO'}</td></tr>`).join(''):'<tr><td colspan="4" style="padding:4px 8px;border:1px solid #ddd;text-align:center;color:#888;">Sin usuarios nuevos en el mes</td></tr>'}
+        </table>`;
     const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Análisis WispHub</title></head>
     <body style="font-family:Arial,sans-serif;color:#111;padding:24px;max-width:800px;margin:0 auto;">
         <div style="text-align:center;border-bottom:3px solid #10b981;padding-bottom:10px;margin-bottom:16px;">
@@ -7450,6 +7564,8 @@ function _exportarWisphubPDF(){
         ${tabla('📊 Pagos por concepto',R.porConcepto)}
         ${tabla('💳 Pagos por forma de pago',R.porForma)}
         ${tabla('🧑‍💼 Recaudo por cajero',R.porCajero)}
+        ${valTablaTras}
+        ${valTablaNuevos}
         ${gastosTabla}
         ${carteraTabla}
         <div style="margin-top:20px;text-align:center;" class="noprint">
@@ -7516,6 +7632,16 @@ function _exportarWisphubExcel(){
             R.pendientesLista.forEach(p=>cart.push([p.cliente,p.zona,p.numero,p.fechaVenc||'',p.total]));
             XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(cart), 'Cartera');
         }
+        // Hoja: Traslados y Usuarios Nuevos (validación) — v191
+        const _V=_validarTN(R);
+        const valAoa=[['VALIDACIÓN — TRASLADOS Y USUARIOS NUEVOS'],['Periodo',R.nombreMes],['Oficina',oReal?oReal.nombre:'General (todas)'],[],
+            ['TRASLADOS','Pagados en el mes:',_V.trasPagN,'Recaudado:',_V.trasMontoPag,'Pendientes (cartera):',_V.trasPendN,_V.trasMontoPend],
+            ['Cliente','Valor','Estado','Forma/Fecha']];
+        (_V.traslados.length?_V.traslados:[]).forEach(t=>valAoa.push([t.cliente,t.valor,(t.estado==='pagado'?'Pagado':'Pendiente'),(t.estado==='pagado'?(t.forma||''):(t.fecha||''))]));
+        valAoa.push([],['USUARIOS NUEVOS','Total:',_V.nuevosN,'Con pago:',_V.nuevosPagaron,'Sin pago:',_V.nuevosSinPago],
+            ['Cliente','Plan','Tarifa/mes','¿Pagó?','Monto pagado','Formas','Conceptos']);
+        _V.nuevos.slice().sort((a,b)=>(a.pago?1:0)-(b.pago?1:0)).forEach(n=>valAoa.push([n.cliente,n.plan,n.tarifa,(n.pago?'Sí':'NO'),(n.pago?n.monto:0),(n.formas||[]).join(', '),(n.conceptos||[]).join(', ')]));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(valAoa), 'Traslados y Nuevos');
         const nombre=`Analisis_WispHub_${R.nombreMes.replace(/\s+/g,'_')}${oReal?'_'+oReal.nombre.replace(/\s+/g,'_'):'_General'}.xlsx`;
         XLSX.writeFile(wb, nombre);
     };
