@@ -143,7 +143,7 @@ const COLECCION='oficinas_sistema';
 const DOC_ID='main';
 
 // ── CONTROL DE VERSIÓN (bloqueo total si hay versión nueva) ──
-const APP_VERSION_TEC = 71; // v71: DEVOLUCION DE MATERIAL CORREGIDA — el material devuelto se enviaba a la bodega pero NUNCA se descontaba del stock del tecnico: quedaba contado dos veces y al integrarlo la bodega sumaba unidades que ya tenia. Ahora la devolucion descuenta de la cuadrilla en la MISMA transaccion, valida sobre datos frescos (cantidad y seriales) y marca el registro para que la bodega no lo descuente otra vez. Ademas: todas las escrituras al inventario van por TRANSACCION (antes leia y escribia en dos pasos, asi que dos tecnicos guardando a la vez se pisaban y un reporte podia desaparecer), y si el guardado falla el tecnico recibe un aviso claro de que su material NO se devolvio.
+const APP_VERSION_TEC = 72; // v72: ENLACE POR CEDULA A PRUEBA DE FORMATO — la cedula del tecnico se escribe en dos sistemas distintos (empleados en OFICINAS y tecnicos de la cuadrilla en INVENTARIO, campo de texto libre). Un punto, espacio o guion de diferencia rompia la comparacion exacta: el tecnico veia 'no tienes cuadrilla asignada' y NO podia devolver material ni reportar consumos, sin explicacion. Ahora se comparan solo los digitos (aplica tambien a la busqueda de los equipos del cliente). Incluye v71: DEVOLUCION DE MATERIAL CORREGIDA — el material devuelto se enviaba a la bodega pero NUNCA se descontaba del stock del tecnico: quedaba contado dos veces y al integrarlo la bodega sumaba unidades que ya tenia. Ahora la devolucion descuenta de la cuadrilla en la MISMA transaccion, valida sobre datos frescos (cantidad y seriales) y marca el registro para que la bodega no lo descuente otra vez. Ademas: todas las escrituras al inventario van por TRANSACCION (antes leia y escribia en dos pasos, asi que dos tecnicos guardando a la vez se pisaban y un reporte podia desaparecer), y si el guardado falla el tecnico recibe un aviso claro de que su material NO se devolvio.
 
 // 👁️ Ver/ocultar la clave en el login (v68)
 function _toggleVerPassTec(btn){
@@ -958,8 +958,19 @@ async function _buscarCuadrillaDelTecnico(){
         const ced=String(TEC.documento||'').trim();
         if(!ced) return null;
         const cuads=data.cuadrillas||[];
+        // 🔧 v72 — LA CÉDULA SE COMPARA SOLO POR SUS DÍGITOS.
+        // EL BUG QUE RESUELVE: la cédula del técnico se escribe en DOS sistemas distintos
+        // (empleados en OFICINAS y técnicos de la cuadrilla en INVENTARIO, donde el campo es
+        // texto libre sin formato). Bastaba un punto, un espacio o un guion —"1.117.523" vs
+        // "1117523"— para que la comparación exacta fallara: el técnico veía "no tienes
+        // cuadrilla asignada" y NO podía devolver material ni reportar consumos, sin ninguna
+        // explicación. Ahora se comparan solo los números, así el formato deja de importar.
+        const _soloNum = s => String(s==null?'':s).replace(/\D/g,'');
+        const cedNum = _soloNum(ced);
+        const _coincide = t => { const tc=_soloNum(t&&t.cedula); return !!tc && !!cedNum && tc===cedNum; };
         // Buscar la cuadrilla que tenga un técnico con esta cédula
-        const cuad=cuads.find(c=>(c.tecnicos||[]).some(t=>String(t.cedula||'').trim()===ced));
+        const cuad=cuads.find(c=>(c.tecnicos||[]).some(_coincide))
+                || cuads.find(c=>(c.tecnicos||[]).some(t=>String(t.cedula||'').trim()===ced)); // respaldo: comparación exacta de siempre
         if(!cuad) return null;
         const bodega=(data.bodegas||[]).find(b=>String(b.id)===String(cuad.bodegaId));
         return { cuad, bodega };
@@ -1840,8 +1851,14 @@ function _norm(s){ return (s||'').toString().toLowerCase().trim().replace(/\s+/g
 function _buscarClienteInv(orden){
     const ced=_norm(orden.cedula);
     const nom=_norm(orden.cliente);
-    // 1) por cédula
-    if(ced){ const m=_invClientes.find(c=>_norm(c.cedula||c.documento)===ced); if(m) return m; }
+    // 1) por cédula — v72: comparando SOLO los dígitos, para que un punto o un guion
+    // ("1.117.523" vs "1117523") no impida encontrar los equipos del cliente.
+    if(ced){
+        const _soloNum = s => String(s==null?'':s).replace(/\D/g,'');
+        const cedNum = _soloNum(orden.cedula);
+        if(cedNum){ const m=_invClientes.find(c=>_soloNum(c.cedula||c.documento)===cedNum); if(m) return m; }
+        const m=_invClientes.find(c=>_norm(c.cedula||c.documento)===ced); if(m) return m;
+    }
     // 2) por nombre exacto
     if(nom){ const m=_invClientes.find(c=>_norm(c.nombre)===nom); if(m) return m; }
     // 3) por nombre parcial
