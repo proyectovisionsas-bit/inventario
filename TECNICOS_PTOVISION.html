@@ -143,7 +143,7 @@ const COLECCION='oficinas_sistema';
 const DOC_ID='main';
 
 // ── CONTROL DE VERSIÓN (bloqueo total si hay versión nueva) ──
-const APP_VERSION_TEC = 72; // v72: ENLACE POR CEDULA A PRUEBA DE FORMATO — la cedula del tecnico se escribe en dos sistemas distintos (empleados en OFICINAS y tecnicos de la cuadrilla en INVENTARIO, campo de texto libre). Un punto, espacio o guion de diferencia rompia la comparacion exacta: el tecnico veia 'no tienes cuadrilla asignada' y NO podia devolver material ni reportar consumos, sin explicacion. Ahora se comparan solo los digitos (aplica tambien a la busqueda de los equipos del cliente). Incluye v71: DEVOLUCION DE MATERIAL CORREGIDA — el material devuelto se enviaba a la bodega pero NUNCA se descontaba del stock del tecnico: quedaba contado dos veces y al integrarlo la bodega sumaba unidades que ya tenia. Ahora la devolucion descuenta de la cuadrilla en la MISMA transaccion, valida sobre datos frescos (cantidad y seriales) y marca el registro para que la bodega no lo descuente otra vez. Ademas: todas las escrituras al inventario van por TRANSACCION (antes leia y escribia en dos pasos, asi que dos tecnicos guardando a la vez se pisaban y un reporte podia desaparecer), y si el guardado falla el tecnico recibe un aviso claro de que su material NO se devolvio.
+const APP_VERSION_TEC = 73; // v73: REINTENTO AUTOMATICO CUANDO FIREBASE ESTA SATURADO. Firebase limita cuanta escritura acepta por segundo y respondia 'This database has exceeded their maximum bandwidth for writes': el error salia en rojo, la orden NO se finalizaba y el tecnico tenia que reintentar a mano (muchas veces creyendo que si habia quedado). Ahora toda operacion se reintenta sola esperando cada vez mas (1s, 2s, 4s, 8s, 16s), que es justo lo que pide Firebase, avisando en pantalla mientras tanto. Incluye v72: ENLACE POR CEDULA A PRUEBA DE FORMATO — la cedula del tecnico se escribe en dos sistemas distintos (empleados en OFICINAS y tecnicos de la cuadrilla en INVENTARIO, campo de texto libre). Un punto, espacio o guion de diferencia rompia la comparacion exacta: el tecnico veia 'no tienes cuadrilla asignada' y NO podia devolver material ni reportar consumos, sin explicacion. Ahora se comparan solo los digitos (aplica tambien a la busqueda de los equipos del cliente). Incluye v71: DEVOLUCION DE MATERIAL CORREGIDA — el material devuelto se enviaba a la bodega pero NUNCA se descontaba del stock del tecnico: quedaba contado dos veces y al integrarlo la bodega sumaba unidades que ya tenia. Ahora la devolucion descuenta de la cuadrilla en la MISMA transaccion, valida sobre datos frescos (cantidad y seriales) y marca el registro para que la bodega no lo descuente otra vez. Ademas: todas las escrituras al inventario van por TRANSACCION (antes leia y escribia en dos pasos, asi que dos tecnicos guardando a la vez se pisaban y un reporte podia desaparecer), y si el guardado falla el tecnico recibe un aviso claro de que su material NO se devolvio.
 
 // 👁️ Ver/ocultar la clave en el login (v68)
 function _toggleVerPassTec(btn){
@@ -213,7 +213,9 @@ async function _actualizarOrdenesSinLeer(modifFn){
     const ordenes = (DATA.ordenesTrabajo||[]).map(o=>Object.assign({},o)); // copia desde memoria
     modifFn(ordenes);
     DATA.ordenesTrabajo = ordenes; // reflejar en memoria local de inmediato
-    await db.collection(COLECCION).doc(DOC_ID).update({ ordenesTrabajo: ordenes });
+    await (window._conReintentoTec
+        ? window._conReintentoTec(()=>db.collection(COLECCION).doc(DOC_ID).update({ ordenesTrabajo: ordenes }), 'órdenes (emergencia)')
+        : db.collection(COLECCION).doc(DOC_ID).update({ ordenesTrabajo: ordenes }));
 }
 // Actualiza un campo del inventario SIN leer (usa copia en memoria si la hay)
 async function _actualizarInventarioSinLeer(campo, modifFn){
@@ -304,6 +306,41 @@ function initFB(){
     try{
         firebase.initializeApp(firebaseConfig);
         db=firebase.firestore();
+        // ════════════════════════════════════════════════════════════════════
+        // ⏳ v73 — REINTENTO AUTOMÁTICO CUANDO FIREBASE ESTÁ SATURADO.
+        // Firebase limita cuánta escritura acepta por segundo. Cuando varias oficinas y
+        // técnicos guardan al tiempo —y más aún porque cada guardado reescribe un documento
+        // grande— responde: "This database has exceeded their maximum bandwidth for writes,
+        // please retry with exponential backoff". Antes ese error salía en rojo, la orden NO
+        // se finalizaba y el técnico tenía que volver a intentar a mano (muchas veces creyendo
+        // que sí había quedado). Ahora se reintenta solo, esperando cada vez un poco más
+        // (1s, 2s, 4s, 8s, 16s), que es exactamente lo que pide Firebase. Solo si después de
+        // varios intentos sigue saturado se avisa del error.
+        // Se envuelve aquí, en un solo punto, para que TODAS las operaciones queden cubiertas.
+        (function _envolverConReintento(){
+            if(!db || db.__reintentoOK) return;
+            db.__reintentoOK = true;
+            const _esTransitorio = e => {
+                const t = String((e && (e.code || e.message)) || '');
+                return /bandwidth|resource[-_ ]?exhausted|unavailable|aborted|deadline|contention|quota|exceeded|too many|429|503/i.test(t);
+            };
+            const _conReintento = async (fn, etiqueta) => {
+                const MAX = 5;
+                for(let intento = 0; ; intento++){
+                    try { return await fn(); }
+                    catch(e){
+                        if(!_esTransitorio(e) || intento >= MAX) throw e;
+                        const espera = Math.min(1000 * Math.pow(2, intento), 16000) + Math.floor(Math.random()*400);
+                        console.warn(`⏳ Firebase saturado (${etiqueta}): ${String((e&&(e.message||e.code))||'').substring(0,90)} — reintento ${intento+1}/${MAX} en ${Math.round(espera/1000)}s`);
+                        try{ showToast(`⏳ La base está ocupada. Reintentando (${intento+1}/${MAX})… no cierres la app`); }catch(_e){}
+                        await new Promise(r=>setTimeout(r, espera));
+                    }
+                }
+            };
+            window._conReintentoTec = _conReintento;
+            const _txOrig = db.runTransaction.bind(db);
+            db.runTransaction = fn => _conReintento(()=>_txOrig(fn), 'transacción');
+        })();
         // Activar persistencia offline: guarda copia local, permite abrir con datos aunque
         // la red/cuota de Firebase falle (clave para el modo emergencia).
         try { db.enablePersistence({synchronizeTabs:true}).catch(e=>console.warn('persistencia:',e.code)); }
