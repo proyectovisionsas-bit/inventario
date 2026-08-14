@@ -8,8 +8,8 @@ autónomas, sin proceso de compilación: se editan directamente y se publican ta
 | Archivo | Para quién | Versión | Tamaño |
 |---|---|---|---|
 | `index.html` | Portal de entrada, solo enlaces | — | 152 líneas |
-| `OFICINAS_PTOVISION.html` | Personal de oficina: caja, cartera, facturas, clientes | `APP_VERSION = 223` | 25.048 líneas, 703 funciones |
-| `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 83` | 9.623 líneas, 319 funciones |
+| `OFICINAS_PTOVISION.html` | Personal de oficina: caja, cartera, facturas, clientes | `APP_VERSION = 223` | 24.444 líneas, 674 funciones |
+| `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 83` | 9.415 líneas, 318 funciones |
 | `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 74` | 2.279 líneas, 68 funciones |
 | `wisphub-explorador.html` | Herramienta aparte para explorar la API de WispHub | — | 18 KB |
 
@@ -68,6 +68,23 @@ Las claves se guardan **en texto plano** en el campo `tecnicoPass`.
 - **Google Apps Script** — endpoint `/macros/s/.../exec`.
 - **Cloudflare Worker** — `intermediario-wisphub.proyectovisions-a-s.workers.dev`, intermediario hacia WispHub.
 - **SheetJS (xlsx)** y **Chart.js** por CDN — exportar a Excel y gráficas.
+
+## Limpiezas hechas (rama `limpieza-rrhh`, 14 Ago 2026)
+
+Se eliminó código duplicado que no se ejecutaba. En ambos casos había dos
+definiciones con el mismo nombre, y en JavaScript **la última pisa a la
+anterior en silencio** — la copia vieja quedaba inalcanzable.
+
+- **OFICINAS**: el módulo de RRHH estaba dos veces (~38 KB, 28 funciones
+  muertas). Se conservó `iniciales()`, que vivía en el bloque viejo pero la
+  usa el render de avatares de otro módulo.
+- **INVENTARIO**: `modalDiagramaCompleto` estaba dos veces (~11,5 KB).
+
+**Función huérfana sin resolver:** `descargarDiagramaSVG` en INVENTARIO sigue
+definida pero **nadie la llama**. Su único invocador estaba dentro de la copia
+muerta del modal de diagrama. Es decir: el modal viejo permitía descargar el
+diagrama como imagen y el nuevo no. Se dejó en el archivo por si conviene
+volver a conectarla.
 
 ## Cómo trabajar en este repo
 
