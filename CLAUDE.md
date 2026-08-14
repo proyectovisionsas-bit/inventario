@@ -69,6 +69,32 @@ Las claves se guardan **en texto plano** en el campo `tecnicoPass`.
 - **Cloudflare Worker** — `intermediario-wisphub.proyectovisions-a-s.workers.dev`, intermediario hacia WispHub.
 - **SheetJS (xlsx)** y **Chart.js** por CDN — exportar a Excel y gráficas.
 
+## Contrato de estados de una orden (OFICINAS ↔ TECNICOS)
+
+Las dos apps definen **cada una su propio** `ORDEN_ESTADOS`. Deben mantenerse
+sincronizadas a mano: si se agrega un estado en una, hay que agregarlo en la otra.
+
+| Estado | Significado |
+|---|---|
+| `pendiente` | recién creada, el técnico aún no la toma |
+| `aceptada` | el técnico la tomó |
+| `proceso` | trabajo en curso |
+| `reagendar` | no se pudo; vuelve a `aceptada` |
+| `finalizada` | terminal |
+| `cancelada` | terminal; la escriben **ambas** apps |
+
+Las dos resuelven con `ORDEN_ESTADOS[o.estado] || ORDEN_ESTADOS.pendiente`. Ese
+respaldo evita que un estado desconocido rompa la pantalla, pero **lo disfraza de
+`pendiente`** — con su botón de avance. Un estado que se escriba y no esté en el
+mapa se ve como pendiente y se puede reactivar por error.
+
+Al cancelar, ambas apps guardan los mismos campos: `motivoCancelacion`,
+`canceladaPor`, `canceladaEn`. (Ojo: `fechaCancelacion` es otra cosa — pertenece
+a los **clientes** que cancelan el servicio, no a las órdenes.)
+
+TECNICOS itera el mapa en 0 sitios; OFICINAS lo recorre en 1 (arma el desplegable
+de filtro por estado), así que agregar un estado allí **sí** cambia esa lista.
+
 ## Limpiezas hechas (rama `limpieza-rrhh`, 14 Ago 2026)
 
 Se eliminó código duplicado que no se ejecutaba. En ambos casos había dos
