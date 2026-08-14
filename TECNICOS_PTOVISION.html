@@ -143,7 +143,7 @@ const COLECCION='oficinas_sistema';
 const DOC_ID='main';
 
 // ── CONTROL DE VERSIÓN (bloqueo total si hay versión nueva) ──
-const APP_VERSION_TEC = 73; // v73: REINTENTO AUTOMATICO CUANDO FIREBASE ESTA SATURADO. Firebase limita cuanta escritura acepta por segundo y respondia 'This database has exceeded their maximum bandwidth for writes': el error salia en rojo, la orden NO se finalizaba y el tecnico tenia que reintentar a mano (muchas veces creyendo que si habia quedado). Ahora toda operacion se reintenta sola esperando cada vez mas (1s, 2s, 4s, 8s, 16s), que es justo lo que pide Firebase, avisando en pantalla mientras tanto. Incluye v72: ENLACE POR CEDULA A PRUEBA DE FORMATO — la cedula del tecnico se escribe en dos sistemas distintos (empleados en OFICINAS y tecnicos de la cuadrilla en INVENTARIO, campo de texto libre). Un punto, espacio o guion de diferencia rompia la comparacion exacta: el tecnico veia 'no tienes cuadrilla asignada' y NO podia devolver material ni reportar consumos, sin explicacion. Ahora se comparan solo los digitos (aplica tambien a la busqueda de los equipos del cliente). Incluye v71: DEVOLUCION DE MATERIAL CORREGIDA — el material devuelto se enviaba a la bodega pero NUNCA se descontaba del stock del tecnico: quedaba contado dos veces y al integrarlo la bodega sumaba unidades que ya tenia. Ahora la devolucion descuenta de la cuadrilla en la MISMA transaccion, valida sobre datos frescos (cantidad y seriales) y marca el registro para que la bodega no lo descuente otra vez. Ademas: todas las escrituras al inventario van por TRANSACCION (antes leia y escribia en dos pasos, asi que dos tecnicos guardando a la vez se pisaban y un reporte podia desaparecer), y si el guardado falla el tecnico recibe un aviso claro de que su material NO se devolvio.
+const APP_VERSION_TEC = 74; // v74: MENSAJE DEL DIA al iniciar sesion. Ademas del saludo, aparece una frase corta para arrancar labores, elegida segun el DIA DE LA SEMANA y estable durante toda la jornada (cambia al dia siguiente, no en cada recarga). Escritas para el trabajo de campo. Uno de cada tres dias se suma un recordatorio practico (arnes y escalera, foto del trabajo terminado, registrar material, agua y gorra, dejar la senal medida). Las frases se editan en las listas FRASES_DIA_TEC y TIPS_DIA_TEC. Incluye v73: REINTENTO AUTOMATICO CUANDO FIREBASE ESTA SATURADO. Firebase limita cuanta escritura acepta por segundo y respondia 'This database has exceeded their maximum bandwidth for writes': el error salia en rojo, la orden NO se finalizaba y el tecnico tenia que reintentar a mano (muchas veces creyendo que si habia quedado). Ahora toda operacion se reintenta sola esperando cada vez mas (1s, 2s, 4s, 8s, 16s), que es justo lo que pide Firebase, avisando en pantalla mientras tanto. Incluye v72: ENLACE POR CEDULA A PRUEBA DE FORMATO — la cedula del tecnico se escribe en dos sistemas distintos (empleados en OFICINAS y tecnicos de la cuadrilla en INVENTARIO, campo de texto libre). Un punto, espacio o guion de diferencia rompia la comparacion exacta: el tecnico veia 'no tienes cuadrilla asignada' y NO podia devolver material ni reportar consumos, sin explicacion. Ahora se comparan solo los digitos (aplica tambien a la busqueda de los equipos del cliente). Incluye v71: DEVOLUCION DE MATERIAL CORREGIDA — el material devuelto se enviaba a la bodega pero NUNCA se descontaba del stock del tecnico: quedaba contado dos veces y al integrarlo la bodega sumaba unidades que ya tenia. Ahora la devolucion descuenta de la cuadrilla en la MISMA transaccion, valida sobre datos frescos (cantidad y seriales) y marca el registro para que la bodega no lo descuente otra vez. Ademas: todas las escrituras al inventario van por TRANSACCION (antes leia y escribia en dos pasos, asi que dos tecnicos guardando a la vez se pisaban y un reporte podia desaparecer), y si el guardado falla el tecnico recibe un aviso claro de que su material NO se devolvio.
 
 // 👁️ Ver/ocultar la clave en el login (v68)
 function _toggleVerPassTec(btn){
@@ -410,17 +410,87 @@ function enterApp(){
     }, err=>{ console.error('snapshot',err); document.getElementById('hSync').style.color='#ef4444'; });
 }
 
+// ════════════════════════════════════════════════════════════════════
+// 💬 v74 — MENSAJE DEL DÍA para arrancar labores.
+// No es una frase suelta al azar: se elige según el DÍA DE LA SEMANA (el lunes
+// no se arranca igual que un viernes o un sábado) y cambia cada día, pero se
+// mantiene igual durante toda la jornada — si cambiara en cada recarga se
+// volvería ruido. Están escritas para el trabajo de campo de la empresa: poste,
+// altura, cliente, cuadrilla. Para agregar o quitar frases basta con editar
+// estas listas.
+// ════════════════════════════════════════════════════════════════════
+const FRASES_DIA_TEC = {
+    1: [ // Lunes
+        'Arranca la semana. Una orden bien hecha hoy es un cliente tranquilo toda la semana.',
+        'Semana nueva, red nueva. Vamos con calma y con todo.',
+        'El lunes se gana temprano. ¡Buen inicio, equipo!'
+    ],
+    2: [ // Martes
+        'Paso firme. Lo que dejaste listo ayer ya está trabajando por ti.',
+        'Hoy es de los días que rinden. Aprovechémoslo.',
+        'Cada instalación bien terminada es un cliente que no vuelve a llamar.'
+    ],
+    3: [ // Miércoles
+        'Mitad de semana: ya llevas más de lo que te falta.',
+        'El trabajo bien hecho no se ve, se nota. Buen miércoles.',
+        'Vamos a mitad de camino y con buen ritmo.'
+    ],
+    4: [ // Jueves
+        'Un empujón más. El jueves es el que define la semana.',
+        'Lo difícil ya pasó. A rematar bien.',
+        'Cierra bien tus órdenes hoy y el viernes te lo agradece.'
+    ],
+    5: [ // Viernes
+        'Último jalón de la semana. ¡A cerrarla con todo!',
+        'Viernes: dejemos todo entregado y sin pendientes.',
+        'Terminemos bien, que un buen viernes se disfruta el fin de semana.'
+    ],
+    6: [ // Sábado
+        'Sábado corto, trabajo efectivo. ¡Vamos con energía!',
+        'Media jornada, toda la actitud.',
+        'Hoy rendimos temprano y salimos a tiempo.'
+    ],
+    0: [ // Domingo
+        'Gracias por estar hoy. Lo que haces sostiene el servicio.',
+        'Domingo de guardia: la red no descansa, pero tú sí mereces descansar después.',
+        'Hoy toca cuidar el servicio. Gracias por responder.'
+    ]
+};
+// Recordatorios prácticos, no motivacionales: se muestran de vez en cuando.
+const TIPS_DIA_TEC = [
+    '🦺 Antes de subir: revisa escalera, arnés y que el poste esté firme.',
+    '📸 Una foto del trabajo terminado te evita reclamos después.',
+    '📦 Registra el material al terminar la orden: así tu cuadrilla siempre cuadra.',
+    '💧 Lleva agua y gorra. El sol del Caquetá no perdona.',
+    '📶 Deja siempre la señal medida y anotada antes de irte.'
+];
+function _mensajeDelDiaTec(){
+    const hoy=new Date();
+    const dia=hoy.getDay();
+    // Semilla estable por fecha: la misma frase durante todo el día, distinta mañana
+    const semilla=hoy.getFullYear()*10000 + (hoy.getMonth()+1)*100 + hoy.getDate();
+    const lista=FRASES_DIA_TEC[dia]||FRASES_DIA_TEC[1];
+    const frase=lista[semilla % lista.length];
+    // Uno de cada tres días se muestra además un recordatorio práctico
+    const tip=(semilla % 3===0) ? TIPS_DIA_TEC[semilla % TIPS_DIA_TEC.length] : '';
+    return {frase, tip};
+}
+
 function _saludarTecnico(){
     const h=new Date().getHours();
     let saludo='Buenas noches', emoji='🌙';
     if(h>=5 && h<12){ saludo='Buenos días'; emoji='☀️'; }
     else if(h>=12 && h<19){ saludo='Buenas tardes'; emoji='🌤️'; }
     const primerNombre=(TEC.nombre||'').split(' ')[0];
+    const {frase, tip}=_mensajeDelDiaTec();
     const ban=document.createElement('div');
     ban.style.cssText='position:fixed;top:0;left:0;right:0;z-index:100050;display:flex;justify-content:center;pointer-events:none;';
     ban.innerHTML=`<div style="margin-top:14px;background:linear-gradient(135deg,#0ea5e9,#0891b2);color:#fff;padding:13px 24px;border-radius:14px;box-shadow:0 10px 40px rgba(0,0,0,0.4);font-weight:700;font-size:1rem;display:flex;align-items:center;gap:10px;animation:saludoIn 0.5s ease;max-width:92vw;text-align:center;">
         <span style="font-size:1.5rem;">${emoji}</span>
-        <span>${saludo}${primerNombre?', '+primerNombre:''} 👋<br><span style="font-weight:500;font-size:0.82rem;opacity:0.95;">Bienvenido a la App de Técnicos</span></span>
+        <span>${saludo}${primerNombre?', '+primerNombre:''} 👋<br><span style="font-weight:500;font-size:0.82rem;opacity:0.95;">Bienvenido a la App de Técnicos</span>
+        <span style="display:block;margin-top:7px;padding-top:7px;border-top:1px solid rgba(255,255,255,0.25);font-weight:600;font-size:0.8rem;line-height:1.35;">${frase}</span>
+        ${tip?`<span style="display:block;margin-top:5px;font-weight:500;font-size:0.72rem;opacity:0.9;line-height:1.3;">${tip}</span>`:''}
+        </span>
     </div>`;
     if(!document.getElementById('saludoKeyframes')){
         const st=document.createElement('style'); st.id='saludoKeyframes';
@@ -428,7 +498,8 @@ function _saludarTecnico(){
         document.head.appendChild(st);
     }
     document.body.appendChild(ban);
-    setTimeout(()=>{ ban.firstElementChild.style.animation='saludoOut 0.5s ease forwards'; setTimeout(()=>ban.remove(),500); }, 4000);
+    // Un poco más de tiempo en pantalla, ahora que hay algo que leer
+    setTimeout(()=>{ ban.firstElementChild.style.animation='saludoOut 0.5s ease forwards'; setTimeout(()=>ban.remove(),500); }, tip?7000:6000);
 }
 
 function _nombresOficinas(ids){
