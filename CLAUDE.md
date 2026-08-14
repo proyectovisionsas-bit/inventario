@@ -69,6 +69,48 @@ Las claves se guardan **en texto plano** en el campo `tecnicoPass`.
 - **Cloudflare Worker** — `intermediario-wisphub.proyectovisions-a-s.workers.dev`, intermediario hacia WispHub.
 - **SheetJS (xlsx)** y **Chart.js** por CDN — exportar a Excel y gráficas.
 
+## Flujo de material: bodega → cuadrilla → cliente
+
+El técnico **nunca descuenta stock**. Reporta a `consumosPendientes` con
+`estado:'pendiente'` y la bodega confirma. `confirmarConsumo` valida existencias
+antes de descontar y bloquea si no alcanzan. Esa separación entre *reportar* y
+*aprobar* es correcta y no debe eliminarse.
+
+Las operaciones críticas van por transacción, envueltas en `_fbTransaccionInv`
+(lee fresco → aplica → escribe atómico, con reintento de Firestore):
+`confirmarConsumo`, `rechazarConsumo`, `saveEntregaLogic`, `_cuartosTx`.
+Buscar `runTransaction` a secas engaña: casi todas pasan por el envoltorio.
+
+TECNICOS escribe `cuadrillas` (stock de la cuadrilla) en dos flujos:
+`tx.update(refI, { recuperados: recs, cuadrillas: cuads })` y el equivalente con
+`equiposDanados`.
+
+### ⚠️ Límite conocido de la fusión (sin resolver)
+
+`_ejecutarSaveInv` sobreescribe el documento, pero antes llama a
+`_fusionarConNubeInv` para incorporar lo de otras sesiones. En
+`_fusionarListasInv`, un registro que existe en **ambos** lados se resuelve así:
+
+```javascript
+if(loc.estado==='pendiente' && item.estado && item.estado!=='pendiente') Object.assign(loc, item);
+return; // demás conflictos: gana esta sesión
+```
+
+Una cuadrilla **no tiene campo `estado`**, así que la excepción nunca aplica y
+siempre gana la copia local. Si un técnico descuenta material de su cuadrilla y
+esta sesión guarda antes de que el listener refresque esa cuadrilla, el descuento
+se revierte: el material queda en `recuperados` (camino a la bodega) **y** en el
+stock de la cuadrilla. Contado dos veces — la misma clase de bug que arregló la v71.
+
+La ventana es corta (hay 6 listeners en tiempo real), pero es sistemática.
+
+**Por qué no se ha arreglado:** INVENTARIO también modifica `cuadrillas` y
+`bodegas` fuera de transacción (`delMat`, `modalSendTrans`, `eliminarCuadrilla`,
+`modalNewCuad`, `delBodega`), así que "gana la nube" descartaría el trabajo de la
+bodega. La solución correcta es sellar esos registros con marca de tiempo en
+**ambas** apps y que gane el más reciente — pero sellar solo algunos caminos crea
+un bug peor. Requiere prueba con dos sesiones concurrentes antes de publicar.
+
 ## Contrato de estados de una orden (OFICINAS ↔ TECNICOS)
 
 Las dos apps definen **cada una su propio** `ORDEN_ESTADOS`. Deben mantenerse
