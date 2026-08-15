@@ -51,21 +51,30 @@ configuración y el prellenado se generan de esa lista.
   llena lo que esté vacío o en cero**: nunca pisa lo que el asesor ya escribió.
 - Editan el admin (cualquier oficina) y el rol `oficina` (solo la suya).
 
-### Datos disponibles para prellenar (medido sobre los 3.672 clientes)
+### ⚠️ Hay DOS listas de clientes — no confundirlas
 
-| Campo | Cobertura |
-|---|---|
-| nombre, direccion, telefono, email, fechaInstalacion, bodegaId | 100% |
-| plan | 87% |
-| cedula | **73%** — unos 1.000 clientes sin documento |
-| barrio | 44% |
-| **tarifaMensual** | **0%** |
+| | Dónde | Cuántos | Para qué |
+|---|---|---|---|
+| **Comercial** | `oficinas_sistema/clientes_<ofiId>_<i>`, cargados en `oficina.clientes` por `_cargarClientesChunks` | **2.711** | la que ve el módulo de clientes de OFICINAS y la que usa el contrato |
+| Técnica | `inventario/clientes_<i>` | 3.672 | equipos, ONU, señal |
 
-Dos avisos: el contrato pide nombres y apellidos por separado y el cliente los
-tiene en un solo campo `nombre` (partirlo automáticamente es adivinar);
-y `tarifaMensual` **no está guardada en ningún cliente**, pese a que el código
-la sincroniza desde WispHub (`precio_plan`) en `_agregarNuevosDeWisphub` y
-`sincronizarTodasOficinas`. Si hace falta la tarifa, hay que traerla de WispHub.
+La comercial es mucho más completa. Cobertura medida:
+
+| Campo | Comercial | Técnica |
+|---|---|---|
+| nombre, direccion, telefono, plan, fechaInstalacion, estado | 100% | 87–100% |
+| **tarifaMensual** | **100%** | 0% |
+| **cedula** | **99%** | 73% |
+| **barrio** | **99%** | 44% |
+| email | — | 100% |
+
+El correo solo está en la técnica; la tarifa y la cédula, solo completas en la
+comercial. El contrato usa la **comercial**.
+
+El contrato pide nombres y apellidos por separado y el cliente los tiene en un
+solo campo `nombre`. `_partirNombre` asume dos apellidos (lo habitual en
+Colombia), pero con tres palabras o partículas ("DE LA") se equivoca: es una
+**propuesta editable**, nunca se guarda partida.
 
 ## Publicación
 

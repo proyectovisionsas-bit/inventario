@@ -894,7 +894,7 @@ let db = null;
 const DOC_ID = 'main'; // documento único en colección "oficinas_sistema"
 // ─── CONTROL DE VERSIÓN ───
 // Incrementa este número cada vez que publiques una actualización.
-const APP_VERSION = 226; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 227; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -909,7 +909,7 @@ const APP_VERSION = 226; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b', 'meta-llama/llama-4-maverick-17b-128e-instruct', 'meta-llama/llama-4-scout-17b-16e-instruct'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '14 Ago 2026 (v226 - CONDICIONES DEL CONTRATO POR OFICINA. Los valores del contrato cambian segun la oficina: antes el costo de conexion y el descuento estaban fijos en el codigo (360000) y los demas se tecleaban en cada contrato. Ahora cada oficina guarda sus 12 valores una sola vez con el boton Condiciones, y el formulario llega prellenado. El asesor puede cambiar cualquier valor en un contrato puntual sin afectar los de la oficina. El prellenado NO pisa lo ya escrito: solo completa lo vacio. Editan el admin (cualquier oficina) y la propia oficina (solo la suya). Incluye v225: el contrato se movio a contrato.js compartido con TECNICOS.)';
+const APP_VERSION_FECHA = '14 Ago 2026 (v227 - CONTRATOS GUARDADOS POR CLIENTE. Cada ficha de cliente tiene ahora un boton Contratos: lista los suyos y permite reimprimir cualquiera tal como se genero. Al generar un contrato desde la ficha, este queda guardado como UN documento en oficinas_sistema/contrato_<id> (no hizo falta cambiar reglas de Firestore, y al ser un documento por contrato nunca se choca con el limite de 1 MiB). Un cliente puede tener varios contratos. El formulario llega prellenado con los datos del cliente (nombre partido en nombres y apellidos como PROPUESTA editable, cedula, direccion, barrio, zona, celular, plan, tarifa y fecha de instalacion) y con las condiciones de la oficina. El prellenado nunca pisa lo ya escrito. Si el cliente no tiene cedula se avisa, porque los contratos se buscan por cedula. Incluye v226: condiciones por oficina. v225: contrato.js compartido.)';
 const LOGO_PV = (typeof PV_LOGO !== 'undefined') ? PV_LOGO : ''; // el base64 vive en contrato.js
 
 
@@ -5953,6 +5953,7 @@ function _filtrarClientesUI(){
                 <div style="display:flex;gap:6px;flex-direction:column;align-items:flex-end;">
                     <button class="btn btn-outline btn-sm" onclick="modalVerCliente('${oid}','${c.id}')">👁️ Ver</button>
                     <button class="btn btn-outline btn-sm" onclick="modalEditarCliente('${oid}','${c.id}')">✏️ Editar</button>
+                    <button class="btn btn-outline btn-sm" onclick="modalContratosCliente('${oid}','${c.id}')" title="Contratos guardados de este cliente">📄 Contratos</button>
                     ${USER.role==='admin'?`<button class="btn btn-danger btn-sm" onclick="eliminarCliente('${oid}','${c.id}')">🗑️</button>`:
                     `<button class="btn btn-outline btn-sm" onclick="solicitarEditarCliente('${oid}','${c.id}')">📝 Solicitar cambio</button>`}
                 </div>
@@ -16493,7 +16494,185 @@ function guardarConfigContrato(oid){
     else alert('✅ Condiciones guardadas.');
 }
 
-function modalGenerarContrato(oid){
+// ═══════════════════════════════════════════════════════════════
+// CONTRATOS GUARDADOS POR CLIENTE (v227)
+// Cada contrato es UN documento en oficinas_sistema/contrato_<id>.
+// No hace falta cambiar las reglas de Firestore: ya permiten cualquier
+// documento de esa colección, y como es uno por contrato nunca se choca
+// con el límite de 1 MiB por documento.
+// Un cliente puede tener varios contratos (renovaciones, cambios de plan).
+// ═══════════════════════════════════════════════════════════════
+
+function _clienteDeOficina(oid, cid){
+    const o=getOficina(oid);
+    if(!o||!Array.isArray(o.clientes)) return null;
+    return o.clientes.find(c=>String(c.id)===String(cid))||null;
+}
+
+// El cliente guarda el nombre completo en un solo campo y el contrato pide
+// nombres y apellidos aparte. En Colombia lo habitual son dos apellidos, así
+// que se parte por ahí — pero es una PROPUESTA: queda en campos editables y
+// el asesor corrige antes de imprimir. Por eso no se guarda partido.
+function _partirNombre(nombre){
+    const p=(nombre||'').trim().split(/\s+/).filter(Boolean);
+    if(!p.length)      return {nombres:'',apellidos:''};
+    if(p.length===1)   return {nombres:p[0],apellidos:''};
+    if(p.length===2)   return {nombres:p[0],apellidos:p[1]};
+    if(p.length===3)   return {nombres:p[0],apellidos:p.slice(1).join(' ')};
+    return {nombres:p.slice(0,p.length-2).join(' '),apellidos:p.slice(-2).join(' ')};
+}
+
+// Número de contrato sugerido: PV-<año>-<consecutivo por oficina>.
+function _numeroContratoSugerido(oid){
+    const o=getOficina(oid);
+    const pre=(o&&o.nombre?o.nombre.substring(0,3):'PV').toUpperCase().replace(/[^A-Z]/g,'');
+    const n=((o&&o.contratoConsecutivo)||0)+1;
+    return `${pre||'PV'}-${new Date().getFullYear()}-${String(n).padStart(4,'0')}`;
+}
+
+// Vuelca los datos del cliente sobre el formulario abierto.
+// Igual que las condiciones de oficina: solo llena lo vacío, nunca pisa
+// lo que el asesor ya escribió.
+function _aplicarClienteAlContrato(oid, cid){
+    const c=_clienteDeOficina(oid,cid);
+    if(!c) return false;
+    const set=(id,v)=>{
+        const el=document.getElementById(id);
+        if(!el) return;
+        const actual=(el.value||'').trim();
+        if(actual!=='' && actual!=='0') return;
+        if(v===undefined||v===null||v==='') return;
+        el.value=v;
+    };
+    const {nombres,apellidos}=_partirNombre(c.nombre);
+    set('ctr_nombres',nombres);
+    set('ctr_apellidos',apellidos);
+    set('ctr_num_doc',c.cedula);
+    set('ctr_tipo_doc','CC');
+    set('ctr_direccion',c.direccion);
+    set('ctr_barrio',c.barrio);
+    set('ctr_zona',c.zona);
+    set('ctr_celular',c.telefono);
+    set('ctr_email',c.email||c.correo);
+    set('ctr_plan',c.plan);
+    set('ctr_total_mensual',c.tarifaMensual);
+    set('ctr_valor_min',c.tarifaMensual);
+    if(c.fechaInstalacion){
+        const f=String(c.fechaInstalacion).substring(0,10);
+        if(/^\d{4}-\d{2}-\d{2}$/.test(f)) set('ctr_fecha_activacion',f);
+    }
+    set('ctr_numero',_numeroContratoSugerido(oid));
+    return true;
+}
+
+// ─── Guardado ───
+async function _guardarContratoCliente(oid, cid, data){
+    if(!db) throw new Error('Sin conexión con la base de datos.');
+    const c=_clienteDeOficina(oid,cid);
+    const id='contrato_'+Date.now().toString(36)+Math.random().toString(36).substring(2,7);
+    const doc={
+        tipo:'contrato',
+        oficinaId:String(oid),
+        clienteId:cid?String(cid):'',
+        clienteCedula:String((c&&c.cedula)||data.numDoc||'').trim(),
+        clienteNombre:(c&&c.nombre)||`${data.nombres||''} ${data.apellidos||''}`.trim(),
+        numero:data.numero||'',
+        datos:data,
+        estado:'sin_firma',
+        firmaUrl:'',
+        pdfUrl:'',
+        creadoEn:Date.now(),
+        creadoPor:(USER&&(USER.nombre||USER.role))||''
+    };
+    await db.collection('oficinas_sistema').doc(id).set(doc);
+
+    // Consecutivo de la oficina, para el siguiente número sugerido.
+    const o=getOficina(oid);
+    if(o){
+        const m=/-(\d+)$/.exec(data.numero||'');
+        const n=m?parseInt(m[1],10):((o.contratoConsecutivo||0)+1);
+        if(!isNaN(n) && n>(o.contratoConsecutivo||0)){ o.contratoConsecutivo=n; save(); }
+    }
+    return {id,...doc};
+}
+
+// ─── Consulta ───
+// Una sola condición de igualdad: Firestore no pide índice compuesto.
+// Los demás documentos (main, app_version…) no tienen clienteCedula, así
+// que no aparecen y no se descargan.
+async function _contratosDeCliente(oid, cid){
+    if(!db) return [];
+    const c=_clienteDeOficina(oid,cid);
+    const ced=String((c&&c.cedula)||'').trim();
+    if(!ced) return [];
+    const snap=await db.collection('oficinas_sistema').where('clienteCedula','==',ced).get();
+    const out=[];
+    snap.forEach(d=>{ const v=d.data(); if(v&&v.tipo==='contrato') out.push({id:d.id,...v}); });
+    return out.sort((a,b)=>(b.creadoEn||0)-(a.creadoEn||0));
+}
+
+window._contratosCache=window._contratosCache||{};
+
+async function modalContratosCliente(oid, cid){
+    const c=_clienteDeOficina(oid,cid);
+    if(!c){ alert('No se encontró el cliente.'); return; }
+
+    openModal('📄 Contratos de '+(c.nombre||''),
+        '<div style="text-align:center;padding:30px;color:var(--muted);">Buscando contratos…</div>','');
+
+    let lista=[];
+    try{ lista=await _contratosDeCliente(oid,cid); }
+    catch(e){
+        openModal('📄 Contratos de '+(c.nombre||''),
+            `<div style="padding:16px;color:#f87171;">No se pudieron consultar los contratos.<br><small>${(e.message||e)}</small></div>`,
+            '<button class="btn btn-outline" onclick="closeModal()">Cerrar</button>');
+        return;
+    }
+    window._contratosCache[cid]=lista;
+
+    const sinCedula=!String(c.cedula||'').trim();
+    const cuerpo = sinCedula
+        ? `<div style="padding:14px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:10px;color:#f59e0b;font-size:0.85rem;">
+             Este cliente no tiene cédula registrada. Los contratos se buscan y se guardan por cédula, así que primero hay que completarla en “✏️ Editar”.
+           </div>`
+        : lista.length===0
+        ? `<div style="text-align:center;padding:26px;color:var(--muted);">
+             <div style="font-size:2.2rem;margin-bottom:8px;">📄</div>
+             Este cliente todavía no tiene contratos guardados.<br>
+             <small>Genera el primero y quedará disponible para reimprimir cuando lo necesite.</small>
+           </div>`
+        : lista.map((k,i)=>`
+            <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px;">
+                <div style="font-size:0.85rem;">
+                    <div style="font-weight:700;">N° ${k.numero||'(sin número)'}</div>
+                    <div style="color:var(--muted);font-size:0.76rem;">
+                        ${k.creadoEn?new Date(k.creadoEn).toLocaleDateString('es-CO'):''}
+                        ${k.creadoPor?' · '+k.creadoPor:''}
+                        ${k.estado==='firmado'?' · ✅ firmado':' · ⏳ sin firma'}
+                    </div>
+                </div>
+                <button class="btn btn-outline btn-sm" onclick="_reimprimirContrato('${cid}',${i})">🖨️ Ver / Imprimir</button>
+            </div>`).join('');
+
+    const pie = sinCedula
+        ? '<button class="btn btn-outline" onclick="closeModal()">Cerrar</button>'
+        : `<button class="btn btn-outline" onclick="closeModal()">Cerrar</button>
+           <button class="btn btn-primary" onclick="modalGenerarContrato('${oid}','${cid}')" style="background:#a855f7;">➕ Generar contrato nuevo</button>`;
+
+    openModal('📄 Contratos de '+(c.nombre||''), cuerpo, pie);
+}
+
+// Reimprime un contrato guardado: se vuelve a armar con los MISMOS datos,
+// así que sale idéntico al día que se generó.
+function _reimprimirContrato(cid, idx){
+    const lista=window._contratosCache[cid]||[];
+    const k=lista[idx];
+    if(!k||!k.datos){ alert('No se encontraron los datos de ese contrato.'); return; }
+    if(typeof PV_CONTRATO==='undefined'){ alert('No se pudo cargar el contrato (contrato.js). Recarga la página.'); return; }
+    PV_CONTRATO.abrirParaImprimir(k.datos);
+}
+
+function modalGenerarContrato(oid, cid){
     const o=DB.oficinas.find(x=>x.id===oid)||getOficina(oid);
     const hoy=hoyLocal();
     const html=`
@@ -16618,10 +16797,12 @@ function modalGenerarContrato(oid){
 
     const footer=`
         <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
-        <button class="btn btn-primary" onclick="_imprimirContrato('${oid}')" style="background:#a855f7;">🖨️ Generar e imprimir</button>`;
+        <button class="btn btn-primary" onclick="_imprimirContrato('${oid}', window._contratoClienteActual)" style="background:#a855f7;">🖨️ Generar e imprimir</button>`;
 
     openModal('📄 Generar Contrato', html, footer);
-    _aplicarConfigContrato(oid); // condiciones guardadas de la oficina
+    _aplicarConfigContrato(oid);            // condiciones guardadas de la oficina
+    if(cid) _aplicarClienteAlContrato(oid, cid); // datos del cliente, si viene de su ficha
+    window._contratoClienteActual = cid || '';
 }
 
 
@@ -16673,7 +16854,7 @@ function _imprimirContratoEnBlanco(){
     });
 }
 
-function _imprimirContrato(oid){
+function _imprimirContrato(oid, cid){
     // Recoger todos los datos del formulario
     const get=(id)=>document.getElementById(id)?.value?.trim()||'';
     const getN=(id)=>parseFloat(document.getElementById(id)?.value||0);
@@ -16728,6 +16909,12 @@ function _imprimirContrato(oid){
 
     _generarPDFContrato(data);
     closeModal();
+    // Queda guardado para poder reimprimirlo cuando el cliente lo pida.
+    if(cid){
+        _guardarContratoCliente(oid, cid, data)
+            .then(()=>{ if(typeof showToastMini==='function') showToastMini('✅ Contrato guardado en la ficha del cliente'); })
+            .catch(e=>alert('⚠️ El contrato se imprimió, pero NO se pudo guardar:\n\n'+(e.message||e)+'\n\nVuelve a generarlo cuando haya conexión.'));
+    }
 }
 
 function _generarPDFContrato(data){
