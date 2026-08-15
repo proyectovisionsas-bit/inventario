@@ -13,6 +13,34 @@ autónomas, sin proceso de compilación: se editan directamente y se publican ta
 | `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 74` | 2.279 líneas, 68 funciones |
 | `wisphub-explorador.html` | Herramienta aparte para explorar la API de WispHub | — | 18 KB |
 
+## Flujo del contrato de servicio
+
+| Dónde | Qué puede hacer |
+|---|---|
+| OFICINAS · ficha del cliente | 📄 Contratos: ver, reimprimir, firmar, PDF |
+| OFICINAS · barra de clientes | ⚙️ Condiciones: precios de esa oficina |
+| TECNICOS · orden con cliente | 📄 Contrato: generar, firmar y compartir en el sitio |
+
+Un contrato = **un documento** `oficinas_sistema/contrato_<id>` con
+`tipo:'contrato'`. Se buscan con una sola condición de igualdad sobre
+`clienteCedula`, así que Firestore no pide índice compuesto y los demás
+documentos de la colección (incluido `main`) ni se descargan. La firma va
+dentro del documento (~4 KB); el documento completo ronda los 6 KB de 1024.
+
+**No hizo falta cambiar las reglas de Firestore**: `match /oficinas_sistema/{docId}`
+ya cubre cualquier documento de esa colección.
+
+### Compartir el PDF
+
+`PV_CONTRATO.compartirPDF(data)` devuelve `'archivo'`, `'descarga'` o `'cancelado'`.
+
+- **Celular** (TECNICOS es una PWA en Android): `navigator.share` adjunta el PDF
+  de verdad; WhatsApp recibe el archivo, no un enlace.
+- **Computador**: el navegador no permite adjuntar, así que se descarga y se
+  avisa al usuario. No es un fallo: es el límite de la plataforma.
+
+`jsPDF` y `html2canvas` se cargan **solo al pedir un PDF**, no en cada arranque.
+
 ## `contrato.js` — código compartido entre apps
 
 Es el primer archivo que **comparten** dos aplicaciones. Contiene el generador del
