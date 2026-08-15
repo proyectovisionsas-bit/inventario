@@ -13,6 +13,29 @@ autónomas, sin proceso de compilación: se editan directamente y se publican ta
 | `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 74` | 2.279 líneas, 68 funciones |
 | `wisphub-explorador.html` | Herramienta aparte para explorar la API de WispHub | — | 18 KB |
 
+## `contrato.js` — código compartido entre apps
+
+Es el primer archivo que **comparten** dos aplicaciones. Contiene el generador del
+contrato de servicio y el logo institucional:
+
+```
+PV_CONTRATO.generarHTML(data)       -> devuelve el HTML del contrato
+PV_CONTRATO.abrirParaImprimir(data) -> lo abre en pestaña nueva para imprimir
+PV_LOGO                             -> logo en base64 (8.491 caracteres)
+```
+
+Se carga con `<script src="contrato.js?v=1"></script>`. En OFICINAS,
+`_generarPDFContrato` es solo un delegado y `LOGO_PV` referencia a `PV_LOGO`,
+así que el base64 existe **una sola vez** en todo el proyecto.
+
+**Reglas al tocarlo:**
+- **Nunca copiar su contenido dentro de un HTML.** El motivo de que exista es
+  evitar lo que pasó con el módulo RRHH: dos copias que divergen en silencio.
+- Al cambiarlo, **subir el `?v=N`** en las etiquetas `<script>` de todas las apps
+  que lo cargan, o los navegadores servirán la copia vieja en caché.
+- No debe depender de `DB`, `USER` ni de nada propio de una app: recibe `data` y
+  devuelve HTML. Esa pureza es lo que permite usarlo desde TECNICOS.
+
 ## Publicación
 
 GitHub Pages: <https://proyectovisionsas-bit.github.io/inventario/index.html>
