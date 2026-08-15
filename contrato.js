@@ -43,6 +43,15 @@
     const blanco = data.esEnBlanco || false;
     const linea = '________________';
     const lineaCorta = '__________';
+
+    // Firma del suscriptor. Si el contrato trae firma (data.firma, una imagen
+    // en base64 capturada presencialmente), se dibuja sobre la línea y el hueco
+    // en blanco se reduce. Sin firma, la salida queda EXACTAMENTE igual que
+    // antes de existir esta funcionalidad: ambas variables valen ''.
+    const _firmaImg = data.firma
+        ? `<div style="text-align:center;padding-top:2px;"><img src="${data.firma}" alt="Firma del suscriptor" style="max-height:52px;max-width:60%;display:inline-block;"></div>\n        `
+        : '';
+    const _firmaEstilo = data.firma ? ' style="margin-top:2px;"' : '';
     const fmt=n=>{
         if(blanco) return '$ ' + linea;
         return n?'$'+Number(n).toLocaleString('es-CO'):'';
@@ -297,7 +306,7 @@ p { margin:4px 0; font-size:8px; text-align:justify; line-height:1.35; }
 
     <div class="firma-box">
         <p style="text-align:center;font-weight:bold;font-size:9px;margin-bottom:6px;">Aceptación contrato mediante firma o cualquier otro medio válido</p>
-        <div class="firma-line">
+        ${_firmaImg}<div class="firma-line"${_firmaEstilo}>
             <span><strong>C.C.</strong> ${txt(data.numDoc)}</span>
             <span><strong>Fecha:</strong> ${blanco?'_____/_____/_____':`${fechaAct.d}/${fechaAct.m}/${fechaAct.a}`}</span>
         </div>

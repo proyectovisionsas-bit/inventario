@@ -894,7 +894,7 @@ let db = null;
 const DOC_ID = 'main'; // documento único en colección "oficinas_sistema"
 // ─── CONTROL DE VERSIÓN ───
 // Incrementa este número cada vez que publiques una actualización.
-const APP_VERSION = 227; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 228; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -909,7 +909,7 @@ const APP_VERSION = 227; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b', 'meta-llama/llama-4-maverick-17b-128e-instruct', 'meta-llama/llama-4-scout-17b-16e-instruct'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '14 Ago 2026 (v227 - CONTRATOS GUARDADOS POR CLIENTE. Cada ficha de cliente tiene ahora un boton Contratos: lista los suyos y permite reimprimir cualquiera tal como se genero. Al generar un contrato desde la ficha, este queda guardado como UN documento en oficinas_sistema/contrato_<id> (no hizo falta cambiar reglas de Firestore, y al ser un documento por contrato nunca se choca con el limite de 1 MiB). Un cliente puede tener varios contratos. El formulario llega prellenado con los datos del cliente (nombre partido en nombres y apellidos como PROPUESTA editable, cedula, direccion, barrio, zona, celular, plan, tarifa y fecha de instalacion) y con las condiciones de la oficina. El prellenado nunca pisa lo ya escrito. Si el cliente no tiene cedula se avisa, porque los contratos se buscan por cedula. Incluye v226: condiciones por oficina. v225: contrato.js compartido.)';
+const APP_VERSION_FECHA = '14 Ago 2026 (v228 - FIRMA PRESENCIAL DEL CONTRATO. En la lista de contratos del cliente, los que no esten firmados muestran el boton Firmar: se abre un recuadro donde el cliente firma con el dedo (tablet o celular) o con el mouse. La firma se recorta automaticamente (se quita el espacio en blanco alrededor) y se limita a 120 px de alto, asi que pesa unos 4 KB. Se guarda DENTRO del documento del contrato, que queda en unos 6 KB de los 1024 permitidos. Al reimprimir, el contrato sale firmado. Un contrato sin firma se imprime exactamente igual que antes. Incluye v227: contratos guardados por cliente. v226: condiciones por oficina. v225: contrato.js compartido.)';
 const LOGO_PV = (typeof PV_LOGO !== 'undefined') ? PV_LOGO : ''; // el base64 vive en contrato.js
 
 
@@ -16613,6 +16613,146 @@ async function _contratosDeCliente(oid, cid){
 
 window._contratosCache=window._contratosCache||{};
 
+// ═══════════════════════════════════════════════════════════════
+// FIRMA PRESENCIAL DEL CONTRATO (v228)
+// El cliente firma con el dedo (tablet/celular) o con el mouse. La firma
+// se guarda como imagen dentro del propio documento del contrato: pesa
+// entre 5 y 30 KB contra un límite de 1 MiB por documento, así que cabe
+// de sobra y viaja con el contrato al reimprimirlo.
+// Se usan eventos de puntero: sirven igual para dedo, lápiz y mouse.
+// ═══════════════════════════════════════════════════════════════
+
+window._firmaEstado = null;
+
+function _firmaIniciarLienzo(){
+    const cv=document.getElementById('firmaCanvas');
+    if(!cv) return;
+    const cont=cv.parentElement;
+    const dpr=window.devicePixelRatio||1;
+    const ancho=Math.max(280, cont.clientWidth-4), alto=180;
+
+    cv.width=ancho*dpr; cv.height=alto*dpr;
+    cv.style.width=ancho+'px'; cv.style.height=alto+'px';
+    cv.style.touchAction='none';           // sin esto, el dedo desplaza la página
+
+    const ctx=cv.getContext('2d');
+    ctx.scale(dpr,dpr);
+    ctx.lineWidth=2.2; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.strokeStyle='#111';
+
+    const est={cv,ctx,dpr,ancho,alto,trazos:0,dibujando:false};
+    window._firmaEstado=est;
+
+    const pos=(e)=>{ const r=cv.getBoundingClientRect(); return {x:e.clientX-r.left, y:e.clientY-r.top}; };
+
+    cv.addEventListener('pointerdown',e=>{
+        e.preventDefault(); cv.setPointerCapture(e.pointerId);
+        est.dibujando=true; est.trazos++;
+        const p=pos(e); ctx.beginPath(); ctx.moveTo(p.x,p.y);
+    });
+    cv.addEventListener('pointermove',e=>{
+        if(!est.dibujando) return;
+        e.preventDefault();
+        const p=pos(e); ctx.lineTo(p.x,p.y); ctx.stroke();
+    });
+    const soltar=e=>{ if(est.dibujando){ est.dibujando=false; try{cv.releasePointerCapture(e.pointerId);}catch(_){} } };
+    cv.addEventListener('pointerup',soltar);
+    cv.addEventListener('pointercancel',soltar);
+    cv.addEventListener('pointerleave',soltar);
+}
+
+function _firmaLimpiar(){
+    const est=window._firmaEstado;
+    if(!est) return;
+    est.ctx.clearRect(0,0,est.cv.width,est.cv.height);
+    est.trazos=0;
+}
+
+// Recorta el espacio en blanco alrededor de la firma. Sin esto se guardaría
+// el lienzo entero (mucho más pesado) y la firma saldría diminuta en el contrato.
+function _firmaRecortada(){
+    const est=window._firmaEstado;
+    if(!est || est.trazos===0) return null;
+    const {cv,dpr}=est;
+    const ctx=cv.getContext('2d');
+    const img=ctx.getImageData(0,0,cv.width,cv.height).data;
+    let x0=cv.width, y0=cv.height, x1=0, y1=0, hay=false;
+    for(let y=0;y<cv.height;y++){
+        for(let x=0;x<cv.width;x++){
+            if(img[(y*cv.width+x)*4+3]>10){
+                hay=true;
+                if(x<x0)x0=x; if(x>x1)x1=x;
+                if(y<y0)y0=y; if(y>y1)y1=y;
+            }
+        }
+    }
+    if(!hay) return null;
+    const m=Math.round(6*dpr);
+    x0=Math.max(0,x0-m); y0=Math.max(0,y0-m);
+    x1=Math.min(cv.width-1,x1+m); y1=Math.min(cv.height-1,y1+m);
+
+    const w=x1-x0+1, h=y1-y0+1;
+    const destino=document.createElement('canvas');
+    // Altura máxima 120 px reales: suficiente para el contrato y mantiene el peso bajo.
+    const escala=Math.min(1, 120/h);
+    destino.width=Math.round(w*escala); destino.height=Math.round(h*escala);
+    destino.getContext('2d').drawImage(cv, x0,y0,w,h, 0,0,destino.width,destino.height);
+    return destino.toDataURL('image/png');
+}
+
+function modalFirmarContrato(cid, idx){
+    const lista=(window._contratosCache&&window._contratosCache[cid])||[];
+    const k=lista[idx];
+    if(!k){ alert('No se encontró ese contrato.'); return; }
+
+    const html=`
+    <div style="background:rgba(168,85,247,0.08);border:1px solid rgba(168,85,247,0.25);border-radius:10px;padding:12px;margin-bottom:12px;font-size:0.82rem;">
+        <p style="font-weight:700;color:#a855f7;margin-bottom:4px;">✍️ Firma del suscriptor</p>
+        <p style="color:var(--muted);">Contrato N° ${k.numero||'(sin número)'} · ${k.clienteNombre||''}</p>
+        <p style="color:var(--muted);margin-top:6px;font-size:0.76rem;">Entrega el equipo al cliente para que firme con el dedo. Con mouse, firma manteniendo pulsado.</p>
+    </div>
+    <div style="background:#fff;border:2px dashed #9ca3af;border-radius:10px;padding:2px;">
+        <canvas id="firmaCanvas" style="display:block;background:#fff;border-radius:8px;cursor:crosshair;"></canvas>
+    </div>
+    <div style="text-align:center;color:var(--muted);font-size:0.74rem;margin-top:6px;">Firme dentro del recuadro</div>`;
+
+    const footer=`
+        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-outline" onclick="_firmaLimpiar()">🧹 Borrar y repetir</button>
+        <button class="btn btn-primary" onclick="_confirmarFirmaContrato('${cid}',${idx})" style="background:#10b981;">✅ Guardar firma</button>`;
+
+    openModal('✍️ Firmar contrato', html, footer);
+    setTimeout(_firmaIniciarLienzo, 60);   // el lienzo necesita el ancho ya pintado
+}
+
+async function _confirmarFirmaContrato(cid, idx){
+    const lista=(window._contratosCache&&window._contratosCache[cid])||[];
+    const k=lista[idx];
+    if(!k){ alert('No se encontró ese contrato.'); return; }
+
+    const firma=_firmaRecortada();
+    if(!firma){ alert('Todavía no hay ninguna firma en el recuadro.'); return; }
+    const kb=Math.round(firma.length*0.75/1024);
+    if(kb>200){ alert('La firma quedó demasiado pesada ('+kb+' KB). Bórrala e inténtalo de nuevo con trazos más simples.'); return; }
+
+    if(!db){ alert('Sin conexión con la base de datos. Intenta de nuevo en un momento.'); return; }
+
+    try{
+        const datos=Object.assign({}, k.datos||{}, {firma});
+        await db.collection('oficinas_sistema').doc(k.id).update({
+            firma, datos,
+            estado:'firmado',
+            firmadoEn:Date.now(),
+            firmadoPor:(USER&&(USER.nombre||USER.role))||''
+        });
+        k.firma=firma; k.datos=datos; k.estado='firmado'; k.firmadoEn=Date.now();
+        closeModal();
+        if(typeof showToastMini==='function') showToastMini('✅ Contrato firmado ('+kb+' KB)');
+        else alert('✅ Contrato firmado.');
+    }catch(e){
+        alert('❌ No se pudo guardar la firma.\n\n'+(e.message||e)+'\n\nLa firma NO quedó registrada: inténtalo otra vez.');
+    }
+}
+
 async function modalContratosCliente(oid, cid){
     const c=_clienteDeOficina(oid,cid);
     if(!c){ alert('No se encontró el cliente.'); return; }
@@ -16642,7 +16782,7 @@ async function modalContratosCliente(oid, cid){
              <small>Genera el primero y quedará disponible para reimprimir cuando lo necesite.</small>
            </div>`
         : lista.map((k,i)=>`
-            <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px;">
+            <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
                 <div style="font-size:0.85rem;">
                     <div style="font-weight:700;">N° ${k.numero||'(sin número)'}</div>
                     <div style="color:var(--muted);font-size:0.76rem;">
@@ -16652,6 +16792,7 @@ async function modalContratosCliente(oid, cid){
                     </div>
                 </div>
                 <button class="btn btn-outline btn-sm" onclick="_reimprimirContrato('${cid}',${i})">🖨️ Ver / Imprimir</button>
+                    ${k.estado==='firmado'?'':`<button class="btn btn-outline btn-sm" onclick="modalFirmarContrato('${cid}',${i})" style="background:rgba(16,185,129,0.12);color:#10b981;border-color:rgba(16,185,129,0.3);">✍️ Firmar</button>`}
             </div>`).join('');
 
     const pie = sinCedula
