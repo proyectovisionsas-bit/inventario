@@ -6,8 +6,20 @@
 // quedan actualizadas. No duplicar este archivo dentro de un HTML.
 //
 // API:
-//   PV_CONTRATO.generarHTML(data)      -> devuelve el HTML del contrato
-//   PV_CONTRATO.abrirParaImprimir(data)-> lo abre en pestaña nueva para imprimir
+//   PV_CONTRATO.generarHTML(data)        -> devuelve el HTML del contrato
+//   PV_CONTRATO.abrirParaImprimir(data)  -> lo abre en pestaña nueva para imprimir
+//   PV_CONTRATO.generarPDF(data)         -> Blob del PDF (necesita jsPDF y html2canvas)
+//   PV_CONTRATO.compartirPDF(data)       -> comparte el PDF; devuelve 'archivo',
+//                                           'descarga' o 'cancelado'
+//   PV_CONTRATO.puedeCompartirArchivos() -> true si el equipo puede adjuntar el PDF
+//                                           (celular). En computador suele ser false.
+//   PV_CONTRATO.firma.iniciar(canvas)    -> prepara el lienzo para firmar
+//   PV_CONTRATO.firma.limpiar()          -> borra el trazo
+//   PV_CONTRATO.firma.vacia()            -> true si aún no han firmado
+//   PV_CONTRATO.firma.obtener(altoMax)   -> imagen recortada de la firma (base64)
+//
+// Si data.firma trae una imagen, el contrato sale firmado. Sin ella, el HTML
+// es idéntico al que se generaba antes de existir esta funcionalidad.
 //
 // 'data' es el objeto que arma _imprimirContrato en OFICINAS:
 //   { numero, vigencia, valorMin, fechaActivacion, internet, television,
@@ -331,6 +343,209 @@ p { margin:4px 0; font-size:8px; text-align:justify; line-height:1.35; }
         return true;
     }
 
+
+    // ════════════════════════════════════════════════════════════════
+    // FIRMA PRESENCIAL
+    // Eventos de puntero: sirven igual para dedo, lápiz y mouse.
+    // Vive aquí y no en cada app para que OFICINAS y TECNICOS usen lo mismo.
+    // ════════════════════════════════════════════════════════════════
+    var _fEstado = null;
+
+    function firmaIniciar(canvas, altoCss) {
+        if (!canvas) return null;
+        var cont = canvas.parentElement || canvas;
+        var dpr = global.devicePixelRatio || 1;
+        var ancho = Math.max(260, (cont.clientWidth || 320) - 4);
+        var alto = altoCss || 180;
+
+        canvas.width = ancho * dpr;
+        canvas.height = alto * dpr;
+        canvas.style.width = ancho + 'px';
+        canvas.style.height = alto + 'px';
+        canvas.style.touchAction = 'none';   // sin esto el dedo desplaza la página
+
+        var ctx = canvas.getContext('2d');
+        ctx.scale(dpr, dpr);
+        ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#111';
+
+        var est = { canvas: canvas, ctx: ctx, dpr: dpr, trazos: 0, dibujando: false };
+        _fEstado = est;
+
+        function pos(e) { var r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+        canvas.addEventListener('pointerdown', function (e) {
+            e.preventDefault();
+            try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+            est.dibujando = true; est.trazos++;
+            var p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y);
+        });
+        canvas.addEventListener('pointermove', function (e) {
+            if (!est.dibujando) return;
+            e.preventDefault();
+            var p = pos(e); ctx.lineTo(p.x, p.y); ctx.stroke();
+        });
+        function soltar(e) {
+            if (!est.dibujando) return;
+            est.dibujando = false;
+            try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+        }
+        canvas.addEventListener('pointerup', soltar);
+        canvas.addEventListener('pointercancel', soltar);
+        canvas.addEventListener('pointerleave', soltar);
+        return est;
+    }
+
+    function firmaLimpiar() {
+        if (!_fEstado) return;
+        _fEstado.ctx.clearRect(0, 0, _fEstado.canvas.width, _fEstado.canvas.height);
+        _fEstado.trazos = 0;
+    }
+
+    function firmaVacia() { return !_fEstado || _fEstado.trazos === 0; }
+
+    // Recorta el blanco alrededor del trazo. Sin esto se guardaría el lienzo
+    // entero: mucho más pesado y la firma saldría diminuta en el contrato.
+    function firmaObtener(altoMax) {
+        if (firmaVacia()) return null;
+        var cv = _fEstado.canvas, dpr = _fEstado.dpr;
+        var datos = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+        var x0 = cv.width, y0 = cv.height, x1 = 0, y1 = 0, hay = false;
+        for (var y = 0; y < cv.height; y++) {
+            for (var x = 0; x < cv.width; x++) {
+                if (datos[(y * cv.width + x) * 4 + 3] > 10) {
+                    hay = true;
+                    if (x < x0) x0 = x; if (x > x1) x1 = x;
+                    if (y < y0) y0 = y; if (y > y1) y1 = y;
+                }
+            }
+        }
+        if (!hay) return null;
+        var m = Math.round(6 * dpr);
+        x0 = Math.max(0, x0 - m); y0 = Math.max(0, y0 - m);
+        x1 = Math.min(cv.width - 1, x1 + m); y1 = Math.min(cv.height - 1, y1 + m);
+
+        var w = x1 - x0 + 1, h = y1 - y0 + 1;
+        var esc = Math.min(1, (altoMax || 120) / h);
+        var dest = document.createElement('canvas');
+        dest.width = Math.round(w * esc); dest.height = Math.round(h * esc);
+        dest.getContext('2d').drawImage(cv, x0, y0, w, h, 0, 0, dest.width, dest.height);
+        return dest.toDataURL('image/png');
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // PDF Y COMPARTIR
+    // El contrato se dibuja en una ventana oculta, se captura con
+    // html2canvas y se arma un PDF carta con jsPDF, cortándolo en páginas.
+    // Ambas librerías deben estar cargadas por la app que llame.
+    // ════════════════════════════════════════════════════════════════
+    var LIB_JSPDF = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    var LIB_H2C = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+
+    function _cargarScript(url) {
+        return new Promise(function (res, rej) {
+            var s = document.createElement('script');
+            s.src = url;
+            s.onload = function () { res(); };
+            s.onerror = function () { rej(new Error('No se pudo cargar ' + url)); };
+            document.head.appendChild(s);
+        });
+    }
+
+    function _hayPdf() { return !!((global.jspdf && global.jspdf.jsPDF) || global.jsPDF); }
+
+    // Se cargan solo cuando alguien pide un PDF: así ninguna app carga ~400 KB
+    // de librerías en cada arranque. OFICINAS ya hacía lo mismo con jsPDF.
+    async function _asegurarLibs() {
+        var faltan = [];
+        if (!_hayPdf()) faltan.push(_cargarScript(LIB_JSPDF));
+        if (typeof global.html2canvas === 'undefined') faltan.push(_cargarScript(LIB_H2C));
+        if (faltan.length) await Promise.all(faltan);
+        if (!_hayPdf() || typeof global.html2canvas === 'undefined') {
+            throw new Error('No se pudieron cargar las librerías de PDF. Revisa la conexión a internet.');
+        }
+    }
+
+    function _nuevoPDF() {
+        var C = (global.jspdf && global.jspdf.jsPDF) || global.jsPDF;
+        return new C({ unit: 'pt', format: 'letter', orientation: 'portrait' });
+    }
+
+    async function generarPDF(data) {
+        await _asegurarLibs();
+
+        var caja = document.createElement('div');
+        caja.style.cssText = 'position:fixed;left:-10000px;top:0;width:816px;background:#fff;z-index:-1;';
+        caja.innerHTML = generarHTML(data)
+            .replace(/^[\s\S]*?<body[^>]*>/i, '')
+            .replace(/<\/body>[\s\S]*$/i, '')
+            .replace(/<button[\s\S]*?<\/button>/gi, '');   // fuera el botón de imprimir
+        document.body.appendChild(caja);
+
+        try {
+            var lienzo = await global.html2canvas(caja, { scale: 2, backgroundColor: '#fff', logging: false, useCORS: true });
+            var pdf = _nuevoPDF();
+            var anchoPt = pdf.internal.pageSize.getWidth();
+            var altoPt = pdf.internal.pageSize.getHeight();
+            var altoPagPx = Math.floor(lienzo.width * (altoPt / anchoPt));
+            var paginas = Math.max(1, Math.ceil(lienzo.height / altoPagPx));
+
+            for (var p = 0; p < paginas; p++) {
+                var trozo = document.createElement('canvas');
+                trozo.width = lienzo.width;
+                trozo.height = Math.min(altoPagPx, lienzo.height - p * altoPagPx);
+                var c = trozo.getContext('2d');
+                c.fillStyle = '#fff'; c.fillRect(0, 0, trozo.width, trozo.height);
+                c.drawImage(lienzo, 0, -p * altoPagPx);
+                if (p > 0) pdf.addPage();
+                pdf.addImage(trozo.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0,
+                    anchoPt, trozo.height * (anchoPt / trozo.width));
+            }
+            return pdf.output('blob');
+        } finally {
+            caja.remove();
+        }
+    }
+
+    function _nombreArchivo(data) {
+        var n = (data && data.numero ? String(data.numero) : 'contrato').replace(/[^A-Za-z0-9_-]+/g, '_');
+        return 'Contrato_' + n + '.pdf';
+    }
+
+    // Devuelve cómo se compartió: 'archivo' (adjunto real, típico en celular),
+    // 'descarga' (el navegador no permite adjuntar) o 'cancelado'.
+    async function compartirPDF(data) {
+        var blob = await generarPDF(data);
+        var nombre = _nombreArchivo(data);
+        var archivo = new File([blob], nombre, { type: 'application/pdf' });
+
+        if (navigator.canShare && navigator.canShare({ files: [archivo] }) && navigator.share) {
+            try {
+                await navigator.share({ files: [archivo], title: nombre });
+                return 'archivo';
+            } catch (e) {
+                if (e && e.name === 'AbortError') return 'cancelado';
+            }
+        }
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url; a.download = nombre;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+        return 'descarga';
+    }
+
+    function puedeCompartirArchivos() {
+        try { return !!(navigator.canShare && navigator.share &&
+            navigator.canShare({ files: [new File([new Blob(['x'])], 'x.pdf', { type: 'application/pdf' })] })); }
+        catch (e) { return false; }
+    }
+
     global.PV_LOGO = PV_LOGO;
-    global.PV_CONTRATO = { generarHTML: generarHTML, abrirParaImprimir: abrirParaImprimir };
+    global.PV_CONTRATO = {
+        generarHTML: generarHTML,
+        abrirParaImprimir: abrirParaImprimir,
+        generarPDF: generarPDF,
+        compartirPDF: compartirPDF,
+        puedeCompartirArchivos: puedeCompartirArchivos,
+        firma: { iniciar: firmaIniciar, limpiar: firmaLimpiar, vacia: firmaVacia, obtener: firmaObtener }
+    };
 })(typeof window !== 'undefined' ? window : globalThis);

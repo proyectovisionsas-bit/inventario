@@ -9,7 +9,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
 <!-- Contrato de servicio: código compartido con TECNICOS. Editar contrato.js, no copiarlo aquí. -->
-<script src="contrato.js?v=1"></script>
+<script src="contrato.js?v=2"></script>
     <!-- ░░ PWA: instalable en celulares (sin archivos extra) ░░ -->
     <meta name="theme-color" content="#16a34a">
     <meta name="mobile-web-app-capable" content="yes">
@@ -894,7 +894,7 @@ let db = null;
 const DOC_ID = 'main'; // documento único en colección "oficinas_sistema"
 // ─── CONTROL DE VERSIÓN ───
 // Incrementa este número cada vez que publiques una actualización.
-const APP_VERSION = 228; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 229; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -909,7 +909,7 @@ const APP_VERSION = 228; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b', 'meta-llama/llama-4-maverick-17b-128e-instruct', 'meta-llama/llama-4-scout-17b-16e-instruct'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '14 Ago 2026 (v228 - FIRMA PRESENCIAL DEL CONTRATO. En la lista de contratos del cliente, los que no esten firmados muestran el boton Firmar: se abre un recuadro donde el cliente firma con el dedo (tablet o celular) o con el mouse. La firma se recorta automaticamente (se quita el espacio en blanco alrededor) y se limita a 120 px de alto, asi que pesa unos 4 KB. Se guarda DENTRO del documento del contrato, que queda en unos 6 KB de los 1024 permitidos. Al reimprimir, el contrato sale firmado. Un contrato sin firma se imprime exactamente igual que antes. Incluye v227: contratos guardados por cliente. v226: condiciones por oficina. v225: contrato.js compartido.)';
+const APP_VERSION_FECHA = '14 Ago 2026 (v229 - PDF DEL CONTRATO Y COMPARTIR. En la lista de contratos del cliente aparece el boton PDF: genera el contrato en PDF real (3 paginas carta) y lo comparte. Desde CELULAR abre el menu nativo con el archivo ADJUNTO, WhatsApp incluido; desde computador el navegador no permite adjuntar, asi que se descarga y se avisa. Ademas la firma se movio a contrato.js para que TECNICOS use la misma, sin copias. Las librerias de PDF (jsPDF y html2canvas) se cargan solo cuando se pide un PDF, no en cada arranque. Incluye v228: firma presencial. v227: contratos por cliente. v226: condiciones por oficina. v225: contrato.js compartido.)';
 const LOGO_PV = (typeof PV_LOGO !== 'undefined') ? PV_LOGO : ''; // el base64 vive en contrato.js
 
 
@@ -16622,81 +16622,16 @@ window._contratosCache=window._contratosCache||{};
 // Se usan eventos de puntero: sirven igual para dedo, lápiz y mouse.
 // ═══════════════════════════════════════════════════════════════
 
-window._firmaEstado = null;
-
+// La firma vive en contrato.js, compartida con TECNICOS.
 function _firmaIniciarLienzo(){
     const cv=document.getElementById('firmaCanvas');
-    if(!cv) return;
-    const cont=cv.parentElement;
-    const dpr=window.devicePixelRatio||1;
-    const ancho=Math.max(280, cont.clientWidth-4), alto=180;
-
-    cv.width=ancho*dpr; cv.height=alto*dpr;
-    cv.style.width=ancho+'px'; cv.style.height=alto+'px';
-    cv.style.touchAction='none';           // sin esto, el dedo desplaza la página
-
-    const ctx=cv.getContext('2d');
-    ctx.scale(dpr,dpr);
-    ctx.lineWidth=2.2; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.strokeStyle='#111';
-
-    const est={cv,ctx,dpr,ancho,alto,trazos:0,dibujando:false};
-    window._firmaEstado=est;
-
-    const pos=(e)=>{ const r=cv.getBoundingClientRect(); return {x:e.clientX-r.left, y:e.clientY-r.top}; };
-
-    cv.addEventListener('pointerdown',e=>{
-        e.preventDefault(); cv.setPointerCapture(e.pointerId);
-        est.dibujando=true; est.trazos++;
-        const p=pos(e); ctx.beginPath(); ctx.moveTo(p.x,p.y);
-    });
-    cv.addEventListener('pointermove',e=>{
-        if(!est.dibujando) return;
-        e.preventDefault();
-        const p=pos(e); ctx.lineTo(p.x,p.y); ctx.stroke();
-    });
-    const soltar=e=>{ if(est.dibujando){ est.dibujando=false; try{cv.releasePointerCapture(e.pointerId);}catch(_){} } };
-    cv.addEventListener('pointerup',soltar);
-    cv.addEventListener('pointercancel',soltar);
-    cv.addEventListener('pointerleave',soltar);
+    if(cv && typeof PV_CONTRATO!=='undefined') PV_CONTRATO.firma.iniciar(cv, 180);
 }
-
 function _firmaLimpiar(){
-    const est=window._firmaEstado;
-    if(!est) return;
-    est.ctx.clearRect(0,0,est.cv.width,est.cv.height);
-    est.trazos=0;
+    if(typeof PV_CONTRATO!=='undefined') PV_CONTRATO.firma.limpiar();
 }
-
-// Recorta el espacio en blanco alrededor de la firma. Sin esto se guardaría
-// el lienzo entero (mucho más pesado) y la firma saldría diminuta en el contrato.
 function _firmaRecortada(){
-    const est=window._firmaEstado;
-    if(!est || est.trazos===0) return null;
-    const {cv,dpr}=est;
-    const ctx=cv.getContext('2d');
-    const img=ctx.getImageData(0,0,cv.width,cv.height).data;
-    let x0=cv.width, y0=cv.height, x1=0, y1=0, hay=false;
-    for(let y=0;y<cv.height;y++){
-        for(let x=0;x<cv.width;x++){
-            if(img[(y*cv.width+x)*4+3]>10){
-                hay=true;
-                if(x<x0)x0=x; if(x>x1)x1=x;
-                if(y<y0)y0=y; if(y>y1)y1=y;
-            }
-        }
-    }
-    if(!hay) return null;
-    const m=Math.round(6*dpr);
-    x0=Math.max(0,x0-m); y0=Math.max(0,y0-m);
-    x1=Math.min(cv.width-1,x1+m); y1=Math.min(cv.height-1,y1+m);
-
-    const w=x1-x0+1, h=y1-y0+1;
-    const destino=document.createElement('canvas');
-    // Altura máxima 120 px reales: suficiente para el contrato y mantiene el peso bajo.
-    const escala=Math.min(1, 120/h);
-    destino.width=Math.round(w*escala); destino.height=Math.round(h*escala);
-    destino.getContext('2d').drawImage(cv, x0,y0,w,h, 0,0,destino.width,destino.height);
-    return destino.toDataURL('image/png');
+    return (typeof PV_CONTRATO!=='undefined') ? PV_CONTRATO.firma.obtener(120) : null;
 }
 
 function modalFirmarContrato(cid, idx){
@@ -16792,6 +16727,7 @@ async function modalContratosCliente(oid, cid){
                     </div>
                 </div>
                 <button class="btn btn-outline btn-sm" onclick="_reimprimirContrato('${cid}',${i})">🖨️ Ver / Imprimir</button>
+                    <button class="btn btn-outline btn-sm" onclick="_compartirContratoPDF('${cid}',${i},this)" style="background:rgba(37,211,102,0.12);color:#25d366;border-color:rgba(37,211,102,0.3);">📤 PDF</button>
                     ${k.estado==='firmado'?'':`<button class="btn btn-outline btn-sm" onclick="modalFirmarContrato('${cid}',${i})" style="background:rgba(16,185,129,0.12);color:#10b981;border-color:rgba(16,185,129,0.3);">✍️ Firmar</button>`}
             </div>`).join('');
 
@@ -16801,6 +16737,30 @@ async function modalContratosCliente(oid, cid){
            <button class="btn btn-primary" onclick="modalGenerarContrato('${oid}','${cid}')" style="background:#a855f7;">➕ Generar contrato nuevo</button>`;
 
     openModal('📄 Contratos de '+(c.nombre||''), cuerpo, pie);
+}
+
+
+// Comparte el contrato en PDF. En celular abre el menú nativo con el archivo
+// adjunto (WhatsApp incluido); en computador no existe esa opción, así que
+// se descarga y el usuario lo adjunta a mano.
+async function _compartirContratoPDF(cid, idx, boton){
+    const lista=(window._contratosCache&&window._contratosCache[cid])||[];
+    const k=lista[idx];
+    if(!k||!k.datos){ alert('No se encontraron los datos de ese contrato.'); return; }
+    if(typeof PV_CONTRATO==='undefined'){ alert('No se pudo cargar el contrato (contrato.js). Recarga la página.'); return; }
+
+    const txtPrevio=boton?boton.textContent:'';
+    if(boton){ boton.disabled=true; boton.textContent='⏳ Generando…'; }
+    try{
+        const como=await PV_CONTRATO.compartirPDF(k.datos);
+        if(como==='descarga'){
+            alert('📄 El PDF se descargó a tu equipo.\n\nEste navegador no permite adjuntarlo directamente a WhatsApp: adjúntalo desde la conversación. Desde el celular sí se puede compartir de una vez.');
+        }
+    }catch(e){
+        alert('❌ No se pudo generar el PDF.\n\n'+(e.message||e));
+    }finally{
+        if(boton){ boton.disabled=false; boton.textContent=txtPrevio; }
+    }
 }
 
 // Reimprime un contrato guardado: se vuelve a armar con los MISMOS datos,
