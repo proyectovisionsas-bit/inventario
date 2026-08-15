@@ -36,6 +36,37 @@ así que el base64 existe **una sola vez** en todo el proyecto.
 - No debe depender de `DB`, `USER` ni de nada propio de una app: recibe `data` y
   devuelve HTML. Esa pureza es lo que permite usarlo desde TECNICOS.
 
+## Condiciones del contrato por oficina
+
+Los valores del contrato **cambian según la oficina** (hay 4: YESCENIA, ESNEIDER,
+NATALIA, THOMAS). Cada una guarda los suyos en `oficina.contratoConfig`, y el
+formulario de contrato llega prellenado.
+
+`CONTRATO_CAMPOS` en OFICINAS es la única fuente de verdad: relaciona cada valor
+guardado con su campo del formulario (`ctr_*`) y su valor por defecto. **Para
+agregar un campo nuevo basta con añadir una fila ahí** — el modal de
+configuración y el prellenado se generan de esa lista.
+
+- `_aplicarConfigContrato(oid)` corre al abrir el modal de contrato y **solo
+  llena lo que esté vacío o en cero**: nunca pisa lo que el asesor ya escribió.
+- Editan el admin (cualquier oficina) y el rol `oficina` (solo la suya).
+
+### Datos disponibles para prellenar (medido sobre los 3.672 clientes)
+
+| Campo | Cobertura |
+|---|---|
+| nombre, direccion, telefono, email, fechaInstalacion, bodegaId | 100% |
+| plan | 87% |
+| cedula | **73%** — unos 1.000 clientes sin documento |
+| barrio | 44% |
+| **tarifaMensual** | **0%** |
+
+Dos avisos: el contrato pide nombres y apellidos por separado y el cliente los
+tiene en un solo campo `nombre` (partirlo automáticamente es adivinar);
+y `tarifaMensual` **no está guardada en ningún cliente**, pese a que el código
+la sincroniza desde WispHub (`precio_plan`) en `_agregarNuevosDeWisphub` y
+`sincronizarTodasOficinas`. Si hace falta la tarifa, hay que traerla de WispHub.
+
 ## Publicación
 
 GitHub Pages: <https://proyectovisionsas-bit.github.io/inventario/index.html>

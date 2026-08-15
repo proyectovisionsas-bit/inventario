@@ -894,7 +894,7 @@ let db = null;
 const DOC_ID = 'main'; // documento único en colección "oficinas_sistema"
 // ─── CONTROL DE VERSIÓN ───
 // Incrementa este número cada vez que publiques una actualización.
-const APP_VERSION = 225; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 226; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -909,7 +909,7 @@ const APP_VERSION = 225; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b', 'meta-llama/llama-4-maverick-17b-128e-instruct', 'meta-llama/llama-4-scout-17b-16e-instruct'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '14 Ago 2026 (v225 - El contrato de servicio se movio a contrato.js, un archivo compartido que tambien usara la app de TECNICOS. Una sola copia: si cambia una clausula se cambia ahi y las dos apps quedan al dia. El HTML generado es identico al anterior, verificado caracter por caracter. El logo institucional vive ahora en ese archivo y OFICINAS lo referencia, sin copias duplicadas. Sin cambios visibles.)';
+const APP_VERSION_FECHA = '14 Ago 2026 (v226 - CONDICIONES DEL CONTRATO POR OFICINA. Los valores del contrato cambian segun la oficina: antes el costo de conexion y el descuento estaban fijos en el codigo (360000) y los demas se tecleaban en cada contrato. Ahora cada oficina guarda sus 12 valores una sola vez con el boton Condiciones, y el formulario llega prellenado. El asesor puede cambiar cualquier valor en un contrato puntual sin afectar los de la oficina. El prellenado NO pisa lo ya escrito: solo completa lo vacio. Editan el admin (cualquier oficina) y la propia oficina (solo la suya). Incluye v225: el contrato se movio a contrato.js compartido con TECNICOS.)';
 const LOGO_PV = (typeof PV_LOGO !== 'undefined') ? PV_LOGO : ''; // el base64 vive en contrato.js
 
 
@@ -5879,6 +5879,7 @@ function renderClientes(){
                 <button class="btn btn-outline btn-sm" onclick="modalCompararInventario('${oid}')" style="background:rgba(59,130,246,0.1);color:#3b82f6;border-color:rgba(59,130,246,0.3);">🔗 Comparar con Inventario</button>
                 <button class="btn btn-outline btn-sm" onclick="_imprimirContratoEnBlanco()" style="background:rgba(107,114,128,0.1);color:#6b7280;border-color:rgba(107,114,128,0.3);">📄 Contrato en blanco</button>
                 <button class="btn btn-outline btn-sm" onclick="modalGenerarContrato('${oid}')" style="background:rgba(168,85,247,0.1);color:#a855f7;border-color:rgba(168,85,247,0.3);">📄 Generar Contrato</button>
+                <button class="btn btn-outline btn-sm" onclick="modalConfigContrato('${oid}')" title="Costos y vigencia que se prellenan en los contratos de esta oficina" style="background:rgba(168,85,247,0.06);color:#a855f7;border-color:rgba(168,85,247,0.25);">⚙️ Condiciones</button>
                 <button class="btn btn-primary" onclick="modalAgregarCliente('${oid}')">➕ Nuevo Cliente</button>
             </div>
         </div>
@@ -16366,6 +16367,132 @@ function _exportarLogsExcel(){
 // CONTRATO DIGITAL — Diligenciar e imprimir
 // ═══════════════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════
+// CONDICIONES DEL CONTRATO POR OFICINA (v226)
+// Los valores del contrato cambian según la oficina. Antes estaban fijos
+// en el código (costo de conexión y descuento en 360000) y el resto se
+// tecleaba en cada contrato. Ahora cada oficina guarda los suyos una vez
+// en o.contratoConfig y el formulario llega prellenado.
+// Para agregar un campo nuevo basta con añadir una fila aquí.
+// ═══════════════════════════════════════════════════════════════
+const CONTRATO_CAMPOS = [
+    { clave:'vigencia',      campo:'ctr_vigencia',       etiqueta:'Vigencia (meses)',        defecto:12,     tipo:'meses' },
+    { clave:'valorMin',      campo:'ctr_valor_min',      etiqueta:'Valor mínimo mensual',    defecto:0,      tipo:'pesos' },
+    { clave:'costoConexion', campo:'ctr_costo_conexion', etiqueta:'Costo de conexión',       defecto:360000, tipo:'pesos' },
+    { clave:'descuento',     campo:'ctr_descuento',      etiqueta:'Valor de descuento',      defecto:360000, tipo:'pesos' },
+    { clave:'instInternet',  campo:'ctr_inst_internet',  etiqueta:'Instalación internet',    defecto:0,      tipo:'pesos' },
+    { clave:'instTvbox',     campo:'ctr_inst_tvbox',     etiqueta:'Instalación TV Box',      defecto:0,      tipo:'pesos' },
+    { clave:'ontValor',      campo:'ctr_ont_valor',      etiqueta:'Valor ONT',               defecto:0,      tipo:'pesos' },
+    { clave:'tvboxValor',    campo:'ctr_tvbox_valor',    etiqueta:'Valor TV Box',            defecto:0,      tipo:'pesos' },
+    { clave:'tvBasica',      campo:'ctr_tv_basica',      etiqueta:'TV básica / mes',         defecto:0,      tipo:'pesos' },
+    { clave:'tvPremium',     campo:'ctr_tv_premium',     etiqueta:'TV premium / mes',        defecto:0,      tipo:'pesos' },
+    { clave:'arrTvbox',      campo:'ctr_arr_tvbox',      etiqueta:'Arriendo TV Box / mes',   defecto:0,      tipo:'pesos' },
+    { clave:'ptsAdic',       campo:'ctr_pts_adic',       etiqueta:'Punto adicional / mes',   defecto:0,      tipo:'pesos' }
+];
+
+// ¿Puede este usuario editar las condiciones de esta oficina?
+// Mismo criterio que currentOficinas(): el admin ve todas, la oficina solo la suya.
+function _puedeEditarContrato(oid){
+    if(!USER) return false;
+    if(USER.role==='admin') return true;
+    return USER.role==='oficina' && String(USER.id)===String(oid);
+}
+
+// Condiciones guardadas de una oficina, completadas con los valores por defecto.
+function _configContratoOficina(oid){
+    const o=getOficina(oid);
+    const guardado=(o&&o.contratoConfig)||{};
+    const cfg={};
+    CONTRATO_CAMPOS.forEach(c=>{
+        const v=guardado[c.clave];
+        cfg[c.clave]=(v===undefined||v===null||v==='')?c.defecto:v;
+    });
+    cfg._configurado=!!(o&&o.contratoConfig);
+    cfg._actualizadoEn=guardado.actualizadoEn||null;
+    cfg._actualizadoPor=guardado.actualizadoPor||'';
+    return cfg;
+}
+
+// Vuelca las condiciones de la oficina sobre el formulario ya abierto.
+// No pisa nada que el asesor haya escrito: solo llena lo que esté vacío o en cero.
+function _aplicarConfigContrato(oid){
+    const cfg=_configContratoOficina(oid);
+    CONTRATO_CAMPOS.forEach(c=>{
+        const el=document.getElementById(c.campo);
+        if(!el) return;
+        const actual=(el.value||'').trim();
+        if(actual==='' || actual==='0'){
+            const v=cfg[c.clave];
+            if(v!==undefined && v!==null && v!=='' && v!==0) el.value=v;
+            else if(c.clave==='vigencia') el.value=cfg.vigencia;
+        }
+    });
+}
+
+function modalConfigContrato(oid){
+    if(!_puedeEditarContrato(oid)){
+        alert('Solo el administrador o la propia oficina pueden cambiar estas condiciones.');
+        return;
+    }
+    const o=getOficina(oid);
+    if(!o){ alert('No se encontró la oficina.'); return; }
+    const cfg=_configContratoOficina(oid);
+
+    const filas=CONTRATO_CAMPOS.map(c=>`
+        <div class="form-group-dark">
+            <label>${c.etiqueta}${c.tipo==='pesos'?' $':''}</label>
+            <input id="cfgctr_${c.clave}" type="number" class="form-control"
+                   value="${cfg[c.clave]}" placeholder="${c.defecto}">
+        </div>`).join('');
+
+    const sello=cfg._actualizadoEn
+        ? `Última actualización: ${new Date(cfg._actualizadoEn).toLocaleString('es-CO')}${cfg._actualizadoPor?' · '+cfg._actualizadoPor:''}`
+        : 'Todavía sin configurar: se están usando los valores por defecto.';
+
+    const html=`
+    <div style="background:rgba(168,85,247,0.08);border:1px solid rgba(168,85,247,0.25);border-radius:10px;padding:12px;margin-bottom:14px;font-size:0.82rem;">
+        <p style="font-weight:700;color:#a855f7;margin-bottom:4px;">⚙️ Condiciones del contrato · ${o.nombre||''}</p>
+        <p style="color:var(--muted);">Estos valores llegarán prellenados cada vez que generes un contrato en esta oficina. Puedes cambiarlos en cualquier contrato puntual sin afectar los de aquí.</p>
+        <p style="color:var(--muted);margin-top:6px;font-size:0.76rem;">${sello}</p>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;">
+        ${filas}
+    </div>`;
+
+    const footer=`
+        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="guardarConfigContrato('${oid}')" style="background:#a855f7;">💾 Guardar condiciones</button>`;
+
+    openModal('⚙️ Condiciones del contrato', html, footer);
+}
+
+function guardarConfigContrato(oid){
+    if(!_puedeEditarContrato(oid)){
+        alert('Solo el administrador o la propia oficina pueden cambiar estas condiciones.');
+        return;
+    }
+    const o=getOficina(oid);
+    if(!o){ alert('No se encontró la oficina.'); return; }
+
+    const nuevo={};
+    for(const c of CONTRATO_CAMPOS){
+        const el=document.getElementById('cfgctr_'+c.clave);
+        const n=parseFloat((el&&el.value)||0)||0;
+        if(n<0){ alert(`"${c.etiqueta}" no puede ser negativo.`); return; }
+        nuevo[c.clave]=n;
+    }
+    if(nuevo.vigencia<1){ alert('La vigencia debe ser de al menos 1 mes.'); return; }
+
+    nuevo.actualizadoEn=Date.now();
+    nuevo.actualizadoPor=(USER&&(USER.nombre||USER.role))||'';
+    o.contratoConfig=nuevo;
+
+    save();
+    closeModal();
+    if(typeof showToastMini==='function') showToastMini('✅ Condiciones guardadas para '+(o.nombre||'la oficina'));
+    else alert('✅ Condiciones guardadas.');
+}
+
 function modalGenerarContrato(oid){
     const o=DB.oficinas.find(x=>x.id===oid)||getOficina(oid);
     const hoy=hoyLocal();
@@ -16494,6 +16621,7 @@ function modalGenerarContrato(oid){
         <button class="btn btn-primary" onclick="_imprimirContrato('${oid}')" style="background:#a855f7;">🖨️ Generar e imprimir</button>`;
 
     openModal('📄 Generar Contrato', html, footer);
+    _aplicarConfigContrato(oid); // condiciones guardadas de la oficina
 }
 
 
