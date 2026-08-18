@@ -183,6 +183,36 @@ Estado de las cuentas (medido el 17 Ago 2026): las 4 oficinas tienen cuenta,
 3 cuentas distintas, ESNEIDER y NATALIA comparten una **y ambas tienen zonas**.
 Ninguna oficina en riesgo de mezclar carteras.
 
+### Volumen real y filtros de la API (medido el 17 Ago 2026)
+
+Los topes de paginación **no son un problema**, contra lo que se advirtió antes.
+Se aplican **por cuenta**, y estas son las cifras reales:
+
+| Cuenta | Oficinas | Facturas | Clientes |
+|---|---|---|---|
+| #1 | YESCENIA | 940 | 793 |
+| #2 | ESNEIDER + NATALIA | 3.799 | 2.348 |
+| #3 | THOMAS | 1.077 | 743 |
+
+La cuenta mayor usa **3.799 de 60.000** facturas (6%) y **2.348 de 15.000**
+clientes (16%). WispHub no acumula el histórico completo, así que la
+estimación de "32.500 facturas al año" que motivó la alarma era falsa.
+El aviso de truncamiento de la v231 se queda como red de seguridad: no cuesta
+nada y solo aparecería si la situación cambiara mucho.
+
+**Filtros de fecha que acepta `/api/facturas/`** (probados contra la API real):
+
+| Filtro | ¿Funciona? |
+|---|---|
+| `fecha_emision=YYYY-MM-DD` | sí, fecha exacta |
+| `fecha_vencimiento=YYYY-MM-DD` | sí, fecha exacta |
+| `fecha_pago=YYYY-MM-DD` | sí, fecha exacta |
+| `fecha_emision__gte=...` (rangos) | **no, lo ignora** |
+
+Solo fecha exacta: **no hay rangos**. Si algún día se hace el refresco
+automático de cartera, hay que ir día por día como ya hace
+`_wisphubTraerDiaPagos`, no con un rango.
+
 ### La sincronización automática (una sola)
 
 `_programarSyncRapida` → `sincronizarRapidaPagos`, que `enterApp` arranca:
