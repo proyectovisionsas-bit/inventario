@@ -8,9 +8,10 @@ autónomas, sin proceso de compilación: se editan directamente y se publican ta
 | Archivo | Para quién | Versión | Tamaño |
 |---|---|---|---|
 | `index.html` | Portal de entrada, solo enlaces | — | 152 líneas |
-| `OFICINAS_PTOVISION.html` | Personal de oficina: caja, cartera, facturas, clientes | `APP_VERSION = 223` | 24.444 líneas, 674 funciones |
-| `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 83` | 9.415 líneas, 318 funciones |
-| `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 74` | 2.279 líneas, 68 funciones |
+| `OFICINAS_PTOVISION.html` | Personal de oficina: caja, cartera, facturas, clientes | `APP_VERSION = 229` | ~23.900 líneas |
+| `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 86` | ~9.000 líneas |
+| `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 76` | ~2.400 líneas |
+| `contrato.js` | Contrato de servicio: **compartido** por OFICINAS y TECNICOS | `?v=2` | ~550 líneas |
 | `wisphub-explorador.html` | Herramienta aparte para explorar la API de WispHub | — | 18 KB |
 
 ## Flujo del contrato de servicio
@@ -47,12 +48,16 @@ Es el primer archivo que **comparten** dos aplicaciones. Contiene el generador d
 contrato de servicio y el logo institucional:
 
 ```
-PV_CONTRATO.generarHTML(data)       -> devuelve el HTML del contrato
-PV_CONTRATO.abrirParaImprimir(data) -> lo abre en pestaña nueva para imprimir
-PV_LOGO                             -> logo en base64 (8.491 caracteres)
+PV_CONTRATO.generarHTML(data)        -> HTML del contrato
+PV_CONTRATO.abrirParaImprimir(data)  -> lo abre en pestaña nueva para imprimir
+PV_CONTRATO.generarPDF(data)         -> Blob del PDF
+PV_CONTRATO.compartirPDF(data)       -> 'archivo' | 'descarga' | 'cancelado'
+PV_CONTRATO.puedeCompartirArchivos() -> true si el equipo puede adjuntar
+PV_CONTRATO.firma.{iniciar,limpiar,vacia,obtener}
+PV_LOGO                              -> logo en base64 (8.491 caracteres)
 ```
 
-Se carga con `<script src="contrato.js?v=1"></script>`. En OFICINAS,
+Se carga con `<script src="contrato.js?v=2"></script>`. En OFICINAS,
 `_generarPDFContrato` es solo un delegado y `LOGO_PV` referencia a `PV_LOGO`,
 así que el base64 existe **una sola vez** en todo el proyecto.
 
@@ -143,13 +148,17 @@ No se usa Firebase Auth. El login es propio: el navegador descarga
 (`empleados.find(e => e.documento === doc && e.tecnicoPass === pass)`).
 Las claves se guardan **en texto plano** en el campo `tecnicoPass`.
 
-> **ADVERTENCIA DE SEGURIDAD — sin resolver (verificado el 14 Ago 2026)**
-> Las reglas de Firestore permiten **lectura sin autenticar**. Una petición
-> anónima a `oficinas_sistema/main` responde HTTP 200 y entrega ~4,5 MB.
-> Como la `apiKey` está en el código de un sitio público, cualquier persona en
-> internet puede descargar toda la base: empleados, claves en texto plano,
-> clientes y facturación. **Falta verificar si también permite escritura.**
-> Corregir esto tiene prioridad sobre cualquier función nueva.
+> **ADVERTENCIA DE SEGURIDAD — sin resolver (verificado el 17 Ago 2026)**
+> Las reglas son `allow read, write: if true;` en las tres colecciones.
+> Comprobado: una petición anónima a `oficinas_sistema/main` responde HTTP 200
+> y entrega ~4,5 MB. La `apiKey` está en el código de un sitio público, así que
+> cualquier persona en internet puede **leer** toda la base (empleados, claves
+> en texto plano, clientes, facturación) y **escribir o borrar** en ella.
+>
+> Cerrar las reglas exige primero poner autenticación real: hoy nadie se
+> autentica ante Firebase, así que `if request.auth != null` tumbaría las tres
+> apps de inmediato. El plan acordado es migración progresiva — los dos métodos
+> conviviendo, cada empleado migrándose al entrar — y cerrar las reglas al final.
 
 ## Servicios externos
 
@@ -176,31 +185,31 @@ TECNICOS escribe `cuadrillas` (stock de la cuadrilla) en dos flujos:
 `tx.update(refI, { recuperados: recs, cuadrillas: cuads })` y el equivalente con
 `equiposDanados`.
 
-### ⚠️ Límite conocido de la fusión (sin resolver)
+### Conflictos en `cuadrillas` y `bodegas` — resuelto en v88
 
-`_ejecutarSaveInv` sobreescribe el documento, pero antes llama a
-`_fusionarConNubeInv` para incorporar lo de otras sesiones. En
-`_fusionarListasInv`, un registro que existe en **ambos** lados se resuelve así:
+En estas dos colecciones un conflicto no es cosmético: es material que aparece o
+desaparece. Antes había dos reglas fijas, y ninguna era correcta en ambos sentidos:
 
-```javascript
-if(loc.estado==='pendiente' && item.estado && item.estado!=='pendiente') Object.assign(loc, item);
-return; // demás conflictos: gana esta sesión
-```
+- el **listener** hacía `Object.assign(DB, entrante)` → la nube pisaba una edición
+  local todavía sin guardar;
+- **`_fusionarListasInv`** se quedaba con la copia local → revertía el descuento
+  que un técnico acababa de hacer, dejando el material en `recuperados` **y** en
+  la cuadrilla. Contado dos veces.
 
-Una cuadrilla **no tiene campo `estado`**, así que la excepción nunca aplica y
-siempre gana la copia local. Si un técnico descuenta material de su cuadrilla y
-esta sesión guarda antes de que el listener refresque esa cuadrilla, el descuento
-se revierte: el material queda en `recuperados` (camino a la bodega) **y** en el
-stock de la cuadrilla. Contado dos veces — la misma clase de bug que arregló la v71.
+Ahora la pregunta no es quién llegó último sino **quién tocó el registro**.
+`_guardarBaseStockInv` guarda el contenido de cada registro tal como estaba en la
+última sincronía (mismo momento en que se toma la foto de ids: tras guardar, al
+arrancar y al recibir snapshot). `_sesionTocoInv(col, item)` compara contra esa
+base y responde si esta sesión lo modificó.
 
-La ventana es corta (hay 6 listeners en tiempo real), pero es sistemática.
+- **No lo tocó** → entra lo de la nube (en el listener y en la fusión).
+- **Sí lo tocó** → se conserva lo local.
+- **Sin base o registro desconocido** → gana lo local, igual que antes. Si algún
+  camino se escapa, degrada al comportamiento anterior en vez de perder datos.
 
-**Por qué no se ha arreglado:** INVENTARIO también modifica `cuadrillas` y
-`bodegas` fuera de transacción (`delMat`, `modalSendTrans`, `eliminarCuadrilla`,
-`modalNewCuad`, `delBodega`), así que "gana la nube" descartaría el trabajo de la
-bodega. La solución correcta es sellar esos registros con marca de tiempo en
-**ambas** apps y que gane el más reciente — pero sellar solo algunos caminos crea
-un bug peor. Requiere prueba con dos sesiones concurrentes antes de publicar.
+Aplica **solo** a `COLS_STOCK_INV = ['cuadrillas','bodegas']`; el resto de
+colecciones conserva su regla. Las decisiones ajenas (`pendiente` →
+`confirmado`/`integrado`) se siguen respetando por delante de todo esto.
 
 ## Contrato de estados de una orden (OFICINAS ↔ TECNICOS)
 
@@ -228,7 +237,7 @@ a los **clientes** que cancelan el servicio, no a las órdenes.)
 TECNICOS itera el mapa en 0 sitios; OFICINAS lo recorre en 1 (arma el desplegable
 de filtro por estado), así que agregar un estado allí **sí** cambia esa lista.
 
-## Limpiezas hechas (rama `limpieza-rrhh`, 14 Ago 2026)
+## Limpiezas hechas (rama `limpieza-rrhh`, 17 Ago 2026)
 
 Se eliminó código duplicado que no se ejecutaba. En ambos casos había dos
 definiciones con el mismo nombre, y en JavaScript **la última pisa a la
