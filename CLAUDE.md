@@ -183,19 +183,29 @@ Estado de las cuentas (medido el 17 Ago 2026): las 4 oficinas tienen cuenta,
 3 cuentas distintas, ESNEIDER y NATALIA comparten una **y ambas tienen zonas**.
 Ninguna oficina en riesgo de mezclar carteras.
 
-### ⚠️ La sincronización automática está APAGADA
+### Hay DOS sincronizaciones automáticas y solo una está activa
 
-```javascript
-function iniciarAutoSyncWisphub(){
-    // DESACTIVADO temporalmente — solo sincronización manual por ahora
-    return;
-```
+| | Qué trae | Estado |
+|---|---|---|
+| `_programarSyncRapida` → `sincronizarRapidaPagos` | **pagos de los últimos 4 días** | ✅ **activa**: 9 s después de abrir y cada 12 min |
+| `iniciarAutoSyncWisphub` → `_autoSyncWisphubTick` | clientes nuevos + todas las facturas | ❌ desactivada |
 
-`enterApp` la llama, pero retorna de inmediato. Todo lo que sigue —un intervalo
-de 15 minutos— es inalcanzable, y con ello `_autoSyncWisphubTick` y
-`_mostrarNotifSync`, que **solo se invocan desde ahí**. Es decir: hoy toda
-sincronización es manual. Está sin decidir si se reactiva o se elimina el
-código muerto; no tocar sin preguntar.
+La activa es la que el usuario ve al abrir ("varios pagos se registraron").
+Está bien construida y **no tiene el problema de truncamiento**: usa
+`_wisphubTraerDiaPagos`, que pagina con un bucle sin tope. Además:
+
+- salta las facturas ya aplicadas (`movimiento.facturaWisphub`) → es idempotente;
+- si un día falla lo anota en `DB.config._diasSyncPend[cuenta]` y lo reintenta
+  en la siguiente pasada → se cura sola tras un corte de red;
+- aplica el mismo filtro de zona y el rescate de clientes que la sync manual.
+
+La desactivada sí lo está de verdad: `iniciarAutoSyncWisphub` retorna en la
+primera línea, así que su intervalo de 15 minutos nunca corre y
+`_autoSyncWisphubTick` y `_mostrarNotifSync` son **código muerto** (solo se
+invocan desde ahí). Sin decidir si se reactiva o se borra; no tocar sin preguntar.
+
+**No confundir con el mensaje "Sincronizando con la nube, no cierres la
+ventana"**: ese es el guardado en Firestore, no WispHub.
 
 ## Servicios externos
 
