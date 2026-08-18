@@ -183,26 +183,30 @@ Estado de las cuentas (medido el 17 Ago 2026): las 4 oficinas tienen cuenta,
 3 cuentas distintas, ESNEIDER y NATALIA comparten una **y ambas tienen zonas**.
 Ninguna oficina en riesgo de mezclar carteras.
 
-### Hay DOS sincronizaciones automáticas y solo una está activa
+### La sincronización automática (una sola)
 
-| | Qué trae | Estado |
-|---|---|---|
-| `_programarSyncRapida` → `sincronizarRapidaPagos` | **pagos de los últimos 4 días** | ✅ **activa**: 9 s después de abrir y cada 12 min |
-| `iniciarAutoSyncWisphub` → `_autoSyncWisphubTick` | clientes nuevos + todas las facturas | ❌ desactivada |
+`_programarSyncRapida` → `sincronizarRapidaPagos`, que `enterApp` arranca:
+corre 9 s después de abrir y **cada 12 minutos**, trayendo los **pagos de los
+últimos 4 días**. Es lo que el usuario ve al entrar ("varios pagos se registraron").
 
-La activa es la que el usuario ve al abrir ("varios pagos se registraron").
-Está bien construida y **no tiene el problema de truncamiento**: usa
-`_wisphubTraerDiaPagos`, que pagina con un bucle sin tope. Además:
+Consulta por `?fecha_pago=<día>`, **no** por fecha de emisión: una factura de
+hace un año pagada hoy entra igual. Esa es la razón de que baste con 4 días.
+Además:
 
 - salta las facturas ya aplicadas (`movimiento.facturaWisphub`) → es idempotente;
 - si un día falla lo anota en `DB.config._diasSyncPend[cuenta]` y lo reintenta
   en la siguiente pasada → se cura sola tras un corte de red;
-- aplica el mismo filtro de zona y el rescate de clientes que la sync manual.
+- pagina con un bucle sin tope, así que **no** le aplica el truncamiento.
 
-La desactivada sí lo está de verdad: `iniciarAutoSyncWisphub` retorna en la
-primera línea, así que su intervalo de 15 minutos nunca corre y
-`_autoSyncWisphubTick` y `_mostrarNotifSync` son **código muerto** (solo se
-invocan desde ahí). Sin decidir si se reactiva o se borra; no tocar sin preguntar.
+**El historial de facturas (`DB.facturasHistorial`, la cartera) NO lo toca**:
+eso solo lo actualiza `_aplicarFacturasWisphub`, desde los botones manuales.
+En esta empresa se sincroniza a diario, y por eso alcanza.
+
+En la v234 se eliminó una segunda sincronización automática que llevaba tiempo
+desactivada (`iniciarAutoSyncWisphub`, `_autoSyncWisphubTick`,
+`_mostrarNotifSync`, `_mostrarNotifFacturas`): traía el histórico COMPLETO de
+facturas cada 15 minutos y por oficina. Si alguna vez hace falta refrescar la
+cartera sola, hacerla **incremental** como la de pagos — no revivir aquella.
 
 **No confundir con el mensaje "Sincronizando con la nube, no cierres la
 ventana"**: ese es el guardado en Firestore, no WispHub.
