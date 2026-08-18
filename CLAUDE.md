@@ -185,31 +185,31 @@ TECNICOS escribe `cuadrillas` (stock de la cuadrilla) en dos flujos:
 `tx.update(refI, { recuperados: recs, cuadrillas: cuads })` y el equivalente con
 `equiposDanados`.
 
-### ⚠️ Límite conocido de la fusión (sin resolver)
+### Conflictos en `cuadrillas` y `bodegas` — resuelto en v88
 
-`_ejecutarSaveInv` sobreescribe el documento, pero antes llama a
-`_fusionarConNubeInv` para incorporar lo de otras sesiones. En
-`_fusionarListasInv`, un registro que existe en **ambos** lados se resuelve así:
+En estas dos colecciones un conflicto no es cosmético: es material que aparece o
+desaparece. Antes había dos reglas fijas, y ninguna era correcta en ambos sentidos:
 
-```javascript
-if(loc.estado==='pendiente' && item.estado && item.estado!=='pendiente') Object.assign(loc, item);
-return; // demás conflictos: gana esta sesión
-```
+- el **listener** hacía `Object.assign(DB, entrante)` → la nube pisaba una edición
+  local todavía sin guardar;
+- **`_fusionarListasInv`** se quedaba con la copia local → revertía el descuento
+  que un técnico acababa de hacer, dejando el material en `recuperados` **y** en
+  la cuadrilla. Contado dos veces.
 
-Una cuadrilla **no tiene campo `estado`**, así que la excepción nunca aplica y
-siempre gana la copia local. Si un técnico descuenta material de su cuadrilla y
-esta sesión guarda antes de que el listener refresque esa cuadrilla, el descuento
-se revierte: el material queda en `recuperados` (camino a la bodega) **y** en el
-stock de la cuadrilla. Contado dos veces — la misma clase de bug que arregló la v71.
+Ahora la pregunta no es quién llegó último sino **quién tocó el registro**.
+`_guardarBaseStockInv` guarda el contenido de cada registro tal como estaba en la
+última sincronía (mismo momento en que se toma la foto de ids: tras guardar, al
+arrancar y al recibir snapshot). `_sesionTocoInv(col, item)` compara contra esa
+base y responde si esta sesión lo modificó.
 
-La ventana es corta (hay 6 listeners en tiempo real), pero es sistemática.
+- **No lo tocó** → entra lo de la nube (en el listener y en la fusión).
+- **Sí lo tocó** → se conserva lo local.
+- **Sin base o registro desconocido** → gana lo local, igual que antes. Si algún
+  camino se escapa, degrada al comportamiento anterior en vez de perder datos.
 
-**Por qué no se ha arreglado:** INVENTARIO también modifica `cuadrillas` y
-`bodegas` fuera de transacción (`delMat`, `modalSendTrans`, `eliminarCuadrilla`,
-`modalNewCuad`, `delBodega`), así que "gana la nube" descartaría el trabajo de la
-bodega. La solución correcta es sellar esos registros con marca de tiempo en
-**ambas** apps y que gane el más reciente — pero sellar solo algunos caminos crea
-un bug peor. Requiere prueba con dos sesiones concurrentes antes de publicar.
+Aplica **solo** a `COLS_STOCK_INV = ['cuadrillas','bodegas']`; el resto de
+colecciones conserva su regla. Las decisiones ajenas (`pendiente` →
+`confirmado`/`integrado`) se siguen respetando por delante de todo esto.
 
 ## Contrato de estados de una orden (OFICINAS ↔ TECNICOS)
 
