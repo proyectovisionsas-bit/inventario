@@ -51,7 +51,24 @@ Corregido en la v89 con `_msDeFechaInv`, que resuelve `DD/MM/AAAA` a mano
 **1 a 458** (216 KB). OFICINAS no tenía el problema porque usa marcas de tiempo
 numéricas (`creada: Date.now()`).
 
-**El archivado sigue siendo manual**: hay que entrar como admin y pulsar el botón.
+### El archivado corre solo (v90)
+
+OFICINAS ya lo hacía: `_aligerarSolicitudes` y `_aligerarOrdenes` corren dentro
+de su guardado desde la v170, precisamente tras chocar con el límite de 1 MB.
+INVENTARIO se había quedado solo con el botón manual — de ahí la acumulación.
+
+Ahora `_aligerarAutoInv()` corre en `_fbSaveCore`, antes de armar `dbCopy`.
+Es barato: `_calcularAligerado()` es puro en memoria y devuelve vacío casi
+siempre, así que un guardado normal no paga nada; solo hay E/S cuando hay
+historial viejo, y una vez movido no se repite.
+
+**La propiedad de seguridad**, heredada del diseño original: escribe el archivo,
+lo vuelve a **leer para confirmar**, y solo entonces saca los registros de la
+base. Si la escritura falla, o si la verificación vuelve vacía, **no se quita
+nada**. Verificado con ambos fallos simulados.
+
+El botón manual sigue existiendo y ahora comparte el mismo núcleo
+(`_archivarInv`) en lugar de duplicar la lógica.
 
 ## Flujo del contrato de servicio
 
