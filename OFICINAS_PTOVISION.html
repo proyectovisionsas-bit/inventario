@@ -894,7 +894,7 @@ let db = null;
 const DOC_ID = 'main'; // documento único en colección "oficinas_sistema"
 // ─── CONTROL DE VERSIÓN ───
 // Incrementa este número cada vez que publiques una actualización.
-const APP_VERSION = 230; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 231; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -909,7 +909,7 @@ const APP_VERSION = 230; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b', 'meta-llama/llama-4-maverick-17b-128e-instruct', 'meta-llama/llama-4-scout-17b-16e-instruct'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '17 Ago 2026 (v230 - Se acotaron los escalones de bonificacion: parseInt(valor)||0 no atrapa negativos, y son valores de dinero. v229 - PDF DEL CONTRATO Y COMPARTIR. En la lista de contratos del cliente aparece el boton PDF: genera el contrato en PDF real (3 paginas carta) y lo comparte. Desde CELULAR abre el menu nativo con el archivo ADJUNTO, WhatsApp incluido; desde computador el navegador no permite adjuntar, asi que se descarga y se avisa. Ademas la firma se movio a contrato.js para que TECNICOS use la misma, sin copias. Las librerias de PDF (jsPDF y html2canvas) se cargan solo cuando se pide un PDF, no en cada arranque. Incluye v228: firma presencial. v227: contratos por cliente. v226: condiciones por oficina. v225: contrato.js compartido.)';
+const APP_VERSION_FECHA = '17 Ago 2026 (v231 - WISPHUB: DOS SILENCIOS QUE AHORA AVISAN. [1] La paginacion tiene topes (15.000 clientes, 60.000 facturas). Si WispHub tenia mas, devolvia menos SIN DECIR NADA y los informes salian incompletos pareciendo correctos; ahora avisa cuantos faltan. Con 2.711 clientes hay margen de sobra, pero a ~32.500 facturas al ano el tope de facturas se alcanza en menos de dos anos. [2] Una oficina sin zonas configuradas se trae TODOS los clientes de su cuenta; si la comparte con otra oficina, eso mezcla las carteras. Hoy ninguna esta asi (ESNEIDER y NATALIA comparten cuenta pero ambas tienen zonas), pero nada lo impedia: ahora avisa antes de mezclar. v230 - Se acotaron los escalones de bonificacion: parseInt(valor)||0 no atrapa negativos, y son valores de dinero. v229 - PDF DEL CONTRATO Y COMPARTIR. En la lista de contratos del cliente aparece el boton PDF: genera el contrato en PDF real (3 paginas carta) y lo comparte. Desde CELULAR abre el menu nativo con el archivo ADJUNTO, WhatsApp incluido; desde computador el navegador no permite adjuntar, asi que se descarga y se avisa. Ademas la firma se movio a contrato.js para que TECNICOS use la misma, sin copias. Las librerias de PDF (jsPDF y html2canvas) se cargan solo cuando se pide un PDF, no en cada arranque. Incluye v228: firma presencial. v227: contratos por cliente. v226: condiciones por oficina. v225: contrato.js compartido.)';
 const LOGO_PV = (typeof PV_LOGO !== 'undefined') ? PV_LOGO : ''; // el base64 vive en contrato.js
 
 
@@ -21142,7 +21142,23 @@ function _filtrarPorZonaOficina(o, items, getZona){
     // Normaliza: minúsculas, sin espacios, sin caracteres de control invisibles (incluido U+007F que WispHub mete al final)
     const norm = s => (s||'').toString().toLowerCase().replace(/[\s\u00A0\u200B-\u200D\uFEFF\u0000-\u001F\u007F]+/g,' ').trim();
     const zonas = (o.zonasWisphub||[]).map(norm).filter(z=>z);
-    if(zonas.length === 0) return items; // sin filtro de zona, trae todo
+    if(zonas.length === 0){
+        // Sin zonas se trae todo. Eso es correcto si la cuenta es solo de esta
+        // oficina, pero si la comparte con otra se traería también su cartera,
+        // y el reparto quedaría mal sin que nadie lo note.
+        try{
+            if(_cuentaWisphubCompartida(o) && !window._avisoZonasWisp){
+                window._avisoZonasWisp=true;
+                const msg='⚠️ ESTA OFICINA NO TIENE ZONAS CONFIGURADAS\n\n'
+                    + 'La oficina "'+(o.nombre||'')+'" comparte la cuenta de WispHub con otra, '
+                    + 'y sin zonas se trae TODOS los clientes de la cuenta — incluidos los de la otra oficina.\n\n'
+                    + 'Configura las zonas de esta oficina antes de sincronizar.';
+                console.warn(msg);
+                setTimeout(()=>{ alert(msg); window._avisoZonasWisp=false; }, 300);
+            }
+        }catch(e){}
+        return items;
+    }
     return items.filter(item=>{
         const z = norm(getZona(item));
         return zonas.includes(z);
@@ -21287,7 +21303,18 @@ async function _wisphubTraerPaginado(recurso, cuenta, onProgreso, maxPaginas=200
     if(p0.error||p0.es404) throw new Error(`No se pudo traer ${recurso} de WispHub (${p0.error||'404'}). Reintenta en un momento.`);
     const total=p0.data.count||((p0.data.results||[]).length);
     const paginas=[p0.data.results||[]];
-    const nPag=Math.min(maxPaginas, Math.max(1, Math.ceil(total/LIMIT)));
+    const paginasNecesarias=Math.max(1, Math.ceil(total/LIMIT));
+    const nPag=Math.min(maxPaginas, paginasNecesarias);
+    if(paginasNecesarias > maxPaginas){
+        // Antes se truncaba en silencio y el resultado parecía completo.
+        const traeran=maxPaginas*LIMIT;
+        const msg='⚠️ WISPHUB: DATOS INCOMPLETOS\n\n'
+            + 'Hay '+total+' registros de "'+recurso+'" y esta sincronización solo puede traer '+traeran+'.\n\n'
+            + 'Se van a traer '+traeran+' y faltarán '+(total-traeran)+'. Los informes que dependan de esto saldrán incompletos.\n\n'
+            + 'Avísale a soporte: hay que subir el tope o filtrar por fecha.';
+        console.warn(msg);
+        try{ if(!window._avisoTruncWisp){ window._avisoTruncWisp=true; setTimeout(()=>{ alert(msg); window._avisoTruncWisp=false; }, 300); } }catch(e){}
+    }
     if(onProgreso) onProgreso(paginas[0].length, total);
     const offsets=[]; for(let p=1;p<nPag;p++) offsets.push(p*LIMIT);
     let traidos=paginas[0].length;

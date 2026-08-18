@@ -160,6 +160,43 @@ Las claves se guardan **en texto plano** en el campo `tecnicoPass`.
 > apps de inmediato. El plan acordado es migración progresiva — los dos métodos
 > conviviendo, cada empleado migrándose al entrar — y cerrar las reglas al final.
 
+## WispHub (facturación) — solo en OFICINAS
+
+702 menciones en OFICINAS, **cero** en INVENTARIO y TECNICOS. 32 funciones.
+Todas las llamadas pasan por un Worker de Cloudflare
+(`intermediario-wisphub.proyectovisions-a-s.workers.dev`) con la cuenta en la
+cabecera `X-Cuenta`; la clave nunca está en el navegador.
+
+- `_fetchWispJson` — 4 intentos con espera creciente, trata el 404 aparte.
+- `_wisphubTraerPaginado` — 300 por página, en lotes de 6 en paralelo.
+  **Lanza error si una página falla**, nunca la omite. Topes: 50 páginas para
+  clientes (15.000) y 200 para facturas (60.000). Si el total los supera,
+  **avisa** que los datos quedaron incompletos (antes truncaba en silencio).
+- `_filtrarPorZonaOficina` — reparte los clientes de una cuenta entre oficinas
+  por zona. Normaliza agresivamente, incluido el **U+007F que WispHub añade al
+  final** de los nombres de zona. Sin zonas configuradas trae todo; si además la
+  cuenta es compartida, ahora avisa antes de mezclar carteras.
+- Pagos: `_aplicarPagosWisphubEnMemoria` no los duplica — compara contra
+  `movimiento.facturaWisphub` usando `String(f.id_factura).trim()` en ambos lados.
+
+Estado de las cuentas (medido el 17 Ago 2026): las 4 oficinas tienen cuenta,
+3 cuentas distintas, ESNEIDER y NATALIA comparten una **y ambas tienen zonas**.
+Ninguna oficina en riesgo de mezclar carteras.
+
+### ⚠️ La sincronización automática está APAGADA
+
+```javascript
+function iniciarAutoSyncWisphub(){
+    // DESACTIVADO temporalmente — solo sincronización manual por ahora
+    return;
+```
+
+`enterApp` la llama, pero retorna de inmediato. Todo lo que sigue —un intervalo
+de 15 minutos— es inalcanzable, y con ello `_autoSyncWisphubTick` y
+`_mostrarNotifSync`, que **solo se invocan desde ahí**. Es decir: hoy toda
+sincronización es manual. Está sin decidir si se reactiva o se elimina el
+código muerto; no tocar sin preguntar.
+
 ## Servicios externos
 
 - **Groq** (`api.groq.com`) — IA para lectura de comprobantes. La clave la pone el usuario.
