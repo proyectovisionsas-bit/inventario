@@ -160,6 +160,53 @@ Las claves se guardan **en texto plano** en el campo `tecnicoPass`.
 > apps de inmediato. El plan acordado es migración progresiva — los dos métodos
 > conviviendo, cada empleado migrándose al entrar — y cerrar las reglas al final.
 
+## WispHub (facturación) — solo en OFICINAS
+
+702 menciones en OFICINAS, **cero** en INVENTARIO y TECNICOS. 32 funciones.
+Todas las llamadas pasan por un Worker de Cloudflare
+(`intermediario-wisphub.proyectovisions-a-s.workers.dev`) con la cuenta en la
+cabecera `X-Cuenta`; la clave nunca está en el navegador.
+
+- `_fetchWispJson` — 4 intentos con espera creciente, trata el 404 aparte.
+- `_wisphubTraerPaginado` — 300 por página, en lotes de 6 en paralelo.
+  **Lanza error si una página falla**, nunca la omite. Topes: 50 páginas para
+  clientes (15.000) y 200 para facturas (60.000). Si el total los supera,
+  **avisa** que los datos quedaron incompletos (antes truncaba en silencio).
+- `_filtrarPorZonaOficina` — reparte los clientes de una cuenta entre oficinas
+  por zona. Normaliza agresivamente, incluido el **U+007F que WispHub añade al
+  final** de los nombres de zona. Sin zonas configuradas trae todo; si además la
+  cuenta es compartida, ahora avisa antes de mezclar carteras.
+- Pagos: `_aplicarPagosWisphubEnMemoria` no los duplica — compara contra
+  `movimiento.facturaWisphub` usando `String(f.id_factura).trim()` en ambos lados.
+
+Estado de las cuentas (medido el 17 Ago 2026): las 4 oficinas tienen cuenta,
+3 cuentas distintas, ESNEIDER y NATALIA comparten una **y ambas tienen zonas**.
+Ninguna oficina en riesgo de mezclar carteras.
+
+### Hay DOS sincronizaciones automáticas y solo una está activa
+
+| | Qué trae | Estado |
+|---|---|---|
+| `_programarSyncRapida` → `sincronizarRapidaPagos` | **pagos de los últimos 4 días** | ✅ **activa**: 9 s después de abrir y cada 12 min |
+| `iniciarAutoSyncWisphub` → `_autoSyncWisphubTick` | clientes nuevos + todas las facturas | ❌ desactivada |
+
+La activa es la que el usuario ve al abrir ("varios pagos se registraron").
+Está bien construida y **no tiene el problema de truncamiento**: usa
+`_wisphubTraerDiaPagos`, que pagina con un bucle sin tope. Además:
+
+- salta las facturas ya aplicadas (`movimiento.facturaWisphub`) → es idempotente;
+- si un día falla lo anota en `DB.config._diasSyncPend[cuenta]` y lo reintenta
+  en la siguiente pasada → se cura sola tras un corte de red;
+- aplica el mismo filtro de zona y el rescate de clientes que la sync manual.
+
+La desactivada sí lo está de verdad: `iniciarAutoSyncWisphub` retorna en la
+primera línea, así que su intervalo de 15 minutos nunca corre y
+`_autoSyncWisphubTick` y `_mostrarNotifSync` son **código muerto** (solo se
+invocan desde ahí). Sin decidir si se reactiva o se borra; no tocar sin preguntar.
+
+**No confundir con el mensaje "Sincronizando con la nube, no cierres la
+ventana"**: ese es el guardado en Firestore, no WispHub.
+
 ## Servicios externos
 
 - **Groq** (`api.groq.com`) — IA para lectura de comprobantes. La clave la pone el usuario.
