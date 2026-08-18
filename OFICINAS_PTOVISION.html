@@ -894,7 +894,7 @@ let db = null;
 const DOC_ID = 'main'; // documento único en colección "oficinas_sistema"
 // ─── CONTROL DE VERSIÓN ───
 // Incrementa este número cada vez que publiques una actualización.
-const APP_VERSION = 234; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 236; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -903,13 +903,19 @@ const APP_VERSION = 234; // ⬆️ Subir en cada nueva versión publicada
 // el próximo cambio sea de UNA línea y NO haya que buscar por todo el código,
 // TODAS las llamadas de IA usan esta lista: se intenta el primero y, si Groq
 // responde que no existe (404) o no está disponible (400), pasa SOLO al siguiente.
-// Fuente: https://console.groq.com/docs/vision  ·  Revisado: 18 jul 2026.
-// El primero es el de visión vigente; los demás son respaldos.
+// Fuente: https://console.groq.com/docs/vision  ·  Revisado: 17 ago 2026.
+// HOY SOLO HAY UN MODELO DE VISIÓN EN GROQ, así que la lista tiene uno solo.
+// Se quitaron los dos que figuraban como "respaldo" porque ya estaban RETIRADOS
+// cuando se anotaron: llama-4-maverick el 9 mar 2026 y llama-4-scout el 17 jul
+// 2026 (la revisión anterior es del 18 jul, un día después). Devolvían 404, así
+// que cada fallo del primero costaba dos llamadas inútiles antes de rendirse.
+// Si Groq publica otro modelo con entrada de imágenes, agregarlo AQUÍ y el bucle
+// lo usará solo. Comprobar en la fuente de arriba antes de añadir nada.
 // ════════════════════════════════════════════════════════════════════════════
-const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b', 'meta-llama/llama-4-maverick-17b-128e-instruct', 'meta-llama/llama-4-scout-17b-16e-instruct'];
+const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '17 Ago 2026 (v234 - SE ELIMINO LA SINCRONIZACION AUTOMATICA GRANDE, que llevaba tiempo desactivada (retornaba en la primera linea) y arrastraba tres funciones inalcanzables. Traia el historico COMPLETO de facturas cada 15 minutos y por cada oficina, sin filtro de fecha: casi seguro el motivo de que alguien la apagara. Ya no aporta nada, porque la sincronizacion de pagos que si corre consulta por fecha_pago y no por fecha de emision, asi que trae los pagos aunque la factura sea de hace un ano, y el historial de facturas se sincroniza a diario desde los botones manuales. Si alguna vez hace falta refrescar la cartera sola, hay que hacerla incremental como la de pagos. v233 - COMPROBANTES CON IA EN PAGOS DEL ADMIN. Boton nuevo: se cargan varias imagenes o PDF, la IA lee el valor y la fecha de cada uno, y el admin revisa fila por fila que valor tiene y a que oficinas pertenece antes de guardar. Un comprobante = un pago, y todo el lote se guarda de una sola vez. Los PDF antes no los leia la IA (se saltaban por no ser imagen): ahora se dibuja su primera pagina con pdf.js, que se carga solo cuando hace falta. Para no duplicar la logica de dinero se extrajo el nucleo de guardarPagoAdmin a _registrarPagoAdminCore, que usan tanto el formulario de siempre como la carga por lote; el formulario quedo verificado con el mismo comportamiento de antes. v232 - [1] LA SINCRONIZACION YA NO BORRA LO QUE SE ESTA ESCRIBIENDO. Al llegar datos de otra sesion, _recargarVistaSilenciosa redibujaba la vista activa y con ella el formulario a medio llenar (reportado en Pagos del admin, pero pasaba en cualquier vista). Ahora, si hay algo escribiendose, el redibujado se APLAZA y se reintenta a los 5 segundos. La regla es si esta escribiendo AHORA (cursor en un campo, un modal abierto, o tecleo hace menos de 45 segundos), no si hay texto: de lo contrario un buscador con texto olvidado congelaria la vista para siempre. [2] LA CALCULADORA FUNCIONA CON TECLADO, incluido el numerico: digitos, + - * /, Enter o = para calcular, Backspace para borrar, Escape para limpiar, coma o punto como decimal y % en la de Pagos. No intercepta teclas si el cursor esta en un campo ni con Ctrl/Alt/Cmd. v231 - WISPHUB. Nota: SI hay sincronizacion automatica de pagos (_programarSyncRapida corre 9 segundos despues de abrir y cada 12 minutos, trayendo los pagos de los ultimos 4 dias); la que esta desactivada es la OTRA, la de clientes y facturas completas. La rapida no tiene el problema de truncamiento porque pagina sin tope, salta facturas ya aplicadas y reintenta los dias que fallaron. DOS SILENCIOS QUE AHORA AVISAN. [1] La paginacion tiene topes (15.000 clientes, 60.000 facturas). Si WispHub tenia mas, devolvia menos SIN DECIR NADA y los informes salian incompletos pareciendo correctos; ahora avisa cuantos faltan. Con 2.711 clientes hay margen de sobra, pero a ~32.500 facturas al ano el tope de facturas se alcanza en menos de dos anos. [2] Una oficina sin zonas configuradas se trae TODOS los clientes de su cuenta; si la comparte con otra oficina, eso mezcla las carteras. Hoy ninguna esta asi (ESNEIDER y NATALIA comparten cuenta pero ambas tienen zonas), pero nada lo impedia: ahora avisa antes de mezclar. v230 - Se acotaron los escalones de bonificacion: parseInt(valor)||0 no atrapa negativos, y son valores de dinero. v229 - PDF DEL CONTRATO Y COMPARTIR. En la lista de contratos del cliente aparece el boton PDF: genera el contrato en PDF real (3 paginas carta) y lo comparte. Desde CELULAR abre el menu nativo con el archivo ADJUNTO, WhatsApp incluido; desde computador el navegador no permite adjuntar, asi que se descarga y se avisa. Ademas la firma se movio a contrato.js para que TECNICOS use la misma, sin copias. Las librerias de PDF (jsPDF y html2canvas) se cargan solo cuando se pide un PDF, no en cada arranque. Incluye v228: firma presencial. v227: contratos por cliente. v226: condiciones por oficina. v225: contrato.js compartido.)';
+const APP_VERSION_FECHA = '17 Ago 2026 (v236 - SE ELIMINARON 30 FUNCIONES MUERTAS (53 KB). Eran versiones anteriores que quedaron al lado de las que si se usan, el mismo patron del modulo RRHH: un modulo viejo de comisiones, y los modales de importar morosos, cargar cierre de dia y enlazar comprobantes, cada uno con su reemplazo vivo (modalConfigRecogidas, modalBorrarCierre, modalComprobantes). Al quitarlos, sus ayudantes se quedaron sin quien los llamara, asi que el borrado se hizo en cascada hasta que no aparecieron mas: 16 en la primera ronda, 13 en la segunda, 1 en la tercera. Verificado que no hay invocacion dinamica (window[...], eval, setTimeout con cadenas) que pudiera ocultar un uso. Se conservo init, que parecia muerta pero es una funcion auto-ejecutada que arranca la app. v235 - SE QUITARON LOS MODELOS DE IA RETIRADOS. La lista de vision tenia tres: qwen3.6-27b (vivo) y como respaldos llama-4-maverick y llama-4-scout, que Groq ya habia retirado el 9 de marzo y el 17 de julio de 2026. Estaban muertos incluso el dia que se anotaron como respaldos (la revision anterior decia 18 jul, un dia despues del retiro de scout). Devolvian 404, asi que cada fallo del modelo principal costaba dos llamadas inutiles antes de rendirse. Hoy la lista tiene uno solo porque qwen3.6-27b es el UNICO modelo con entrada de imagenes que ofrece Groq. El modelo de texto llama-3.3-70b-versatile sigue activo y no se toco. v234 - SE ELIMINO LA SINCRONIZACION AUTOMATICA GRANDE, que llevaba tiempo desactivada (retornaba en la primera linea) y arrastraba tres funciones inalcanzables. Traia el historico COMPLETO de facturas cada 15 minutos y por cada oficina, sin filtro de fecha: casi seguro el motivo de que alguien la apagara. Ya no aporta nada, porque la sincronizacion de pagos que si corre consulta por fecha_pago y no por fecha de emision, asi que trae los pagos aunque la factura sea de hace un ano, y el historial de facturas se sincroniza a diario desde los botones manuales. Si alguna vez hace falta refrescar la cartera sola, hay que hacerla incremental como la de pagos. v233 - COMPROBANTES CON IA EN PAGOS DEL ADMIN. Boton nuevo: se cargan varias imagenes o PDF, la IA lee el valor y la fecha de cada uno, y el admin revisa fila por fila que valor tiene y a que oficinas pertenece antes de guardar. Un comprobante = un pago, y todo el lote se guarda de una sola vez. Los PDF antes no los leia la IA (se saltaban por no ser imagen): ahora se dibuja su primera pagina con pdf.js, que se carga solo cuando hace falta. Para no duplicar la logica de dinero se extrajo el nucleo de guardarPagoAdmin a _registrarPagoAdminCore, que usan tanto el formulario de siempre como la carga por lote; el formulario quedo verificado con el mismo comportamiento de antes. v232 - [1] LA SINCRONIZACION YA NO BORRA LO QUE SE ESTA ESCRIBIENDO. Al llegar datos de otra sesion, _recargarVistaSilenciosa redibujaba la vista activa y con ella el formulario a medio llenar (reportado en Pagos del admin, pero pasaba en cualquier vista). Ahora, si hay algo escribiendose, el redibujado se APLAZA y se reintenta a los 5 segundos. La regla es si esta escribiendo AHORA (cursor en un campo, un modal abierto, o tecleo hace menos de 45 segundos), no si hay texto: de lo contrario un buscador con texto olvidado congelaria la vista para siempre. [2] LA CALCULADORA FUNCIONA CON TECLADO, incluido el numerico: digitos, + - * /, Enter o = para calcular, Backspace para borrar, Escape para limpiar, coma o punto como decimal y % en la de Pagos. No intercepta teclas si el cursor esta en un campo ni con Ctrl/Alt/Cmd. v231 - WISPHUB. Nota: SI hay sincronizacion automatica de pagos (_programarSyncRapida corre 9 segundos despues de abrir y cada 12 minutos, trayendo los pagos de los ultimos 4 dias); la que esta desactivada es la OTRA, la de clientes y facturas completas. La rapida no tiene el problema de truncamiento porque pagina sin tope, salta facturas ya aplicadas y reintenta los dias que fallaron. DOS SILENCIOS QUE AHORA AVISAN. [1] La paginacion tiene topes (15.000 clientes, 60.000 facturas). Si WispHub tenia mas, devolvia menos SIN DECIR NADA y los informes salian incompletos pareciendo correctos; ahora avisa cuantos faltan. Con 2.711 clientes hay margen de sobra, pero a ~32.500 facturas al ano el tope de facturas se alcanza en menos de dos anos. [2] Una oficina sin zonas configuradas se trae TODOS los clientes de su cuenta; si la comparte con otra oficina, eso mezcla las carteras. Hoy ninguna esta asi (ESNEIDER y NATALIA comparten cuenta pero ambas tienen zonas), pero nada lo impedia: ahora avisa antes de mezclar. v230 - Se acotaron los escalones de bonificacion: parseInt(valor)||0 no atrapa negativos, y son valores de dinero. v229 - PDF DEL CONTRATO Y COMPARTIR. En la lista de contratos del cliente aparece el boton PDF: genera el contrato en PDF real (3 paginas carta) y lo comparte. Desde CELULAR abre el menu nativo con el archivo ADJUNTO, WhatsApp incluido; desde computador el navegador no permite adjuntar, asi que se descarga y se avisa. Ademas la firma se movio a contrato.js para que TECNICOS use la misma, sin copias. Las librerias de PDF (jsPDF y html2canvas) se cargan solo cuando se pide un PDF, no en cada arranque. Incluye v228: firma presencial. v227: contratos por cliente. v226: condiciones por oficina. v225: contrato.js compartido.)';
 const LOGO_PV = (typeof PV_LOGO !== 'undefined') ? PV_LOGO : ''; // el base64 vive en contrato.js
 
 
@@ -4326,16 +4332,8 @@ function doLogout(){
 // ─── HELPERS ────────────────────────────────────────────────────────────────
 function getOficina(id){ return DB.oficinas.find(o=>o.id===(id||USER?.id)); }
 function currentOficinas(){ return USER?.role==='admin' ? DB.oficinas : DB.oficinas.filter(o=>o.id===USER.id); }
-function getMovimientosOficina(oid, tipo='ambos'){
-    const o=DB.oficinas.find(x=>x.id===oid);
-    if(!o||!o.movimientos) return [];
-    if(tipo==='ing') return o.movimientos.filter(m=>m.tipo==='ingreso');
-    if(tipo==='egr') return o.movimientos.filter(m=>m.tipo==='egreso');
-    return o.movimientos;
-}
-function sumOficina(oid, tipo){
-    return getMovimientosOficina(oid,tipo).reduce((s,m)=>s+parseFloat(m.valor||0),0);
-}
+
+
 // ── CAJA — Regla de clientes especiales ──────────────────────────────────────
 // Un movimiento ligado a un abono de cliente especial (vinculadoAbono) NO suma a
 // la caja del cajero, SALVO que provenga de un pago real de WispHub. Así los
@@ -8566,7 +8564,7 @@ function _exportarReporteExcel(o, periodo){
 }
 
 // Keep old function name as alias
-function exportarReporte(oid,periodo){ exportarReporteExcel(oid,periodo); }
+
 
 // ─── ADMINISTRACIÓN ──────────────────────────────────────────────────────────// ─── ADMINISTRACIÓN ──────────────────────────────────────────────────────────
 // Activa/desactiva el modo emergencia para TODAS las apps (se guarda en el doc principal)
@@ -9482,16 +9480,7 @@ function renderVendedores(){
 }
 
 // Calcula comisiones de un vendedor leyendo desde DB.ventas (fuente única)
-function calcComisionesVendedor(vid){
-    const mes=new Date().getMonth(), año=new Date().getFullYear();
-    return (DB.ventas||[]).filter(v=>{
-        if(v.vendedorId!==vid) return false;
-        const d=new Date(v.fecha);
-        return d.getMonth()===mes&&d.getFullYear()===año;
-    }).reduce((s,v)=>{
-        return s+(v.comisionInst||0)+(v.comisionM1||0)+(v.comisionM2||0);
-    },0);
-}
+
 
 // Estadísticas completas de un vendedor desde DB.ventas
 function statsVendedor(vid){
@@ -9519,111 +9508,11 @@ function statsVendedor(vid){
     return {totalVentas,instaladas,m1,m2,comInst,comM1,comM2,total,pendiente,ventasMes};
 }
 
-function renderTablaComisiones(filtOfi){
-    const mes=new Date().getMonth(), año=new Date().getFullYear();
-    let todasComisiones=[];
-    (DB.vendedores||[]).forEach(v=>{
-        if(USER.role==='oficina'&&!((v.oficinas||[]).includes(USER.id))&&v.oficinas?.length>0) return;
-        (v.comisiones||[]).filter(c=>{
-            const d=new Date(c.fecha);
-            return d.getMonth()===mes&&d.getFullYear()===año;
-        }).forEach(c=>{
-            todasComisiones.push({...c, vendedorNombre:v.nombre, vendedorId:v.id});
-        });
-    });
-    todasComisiones.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
-    if(todasComisiones.length===0) return '<p style="color:var(--muted);text-align:center;padding:20px;">Sin comisiones registradas este mes.</p>';
 
-    const totalPend=todasComisiones.filter(c=>!c.pagado).reduce((s,c)=>s+parseFloat(c.valor||0),0);
-    const totalPag=todasComisiones.filter(c=>c.pagado).reduce((s,c)=>s+parseFloat(c.valor||0),0);
 
-    return `
-    <div style="display:flex;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
-        <div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);border-radius:8px;padding:10px 16px;">
-            <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;">⏳ Por pagar</div>
-            <div style="font-size:1.15rem;font-weight:800;color:#f59e0b;">${fmtShort(totalPend)}</div>
-        </div>
-        <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.25);border-radius:8px;padding:10px 16px;">
-            <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;">✅ Pagado</div>
-            <div style="font-size:1.15rem;font-weight:800;color:#10b981;">${fmtShort(totalPag)}</div>
-        </div>
-        <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:10px 16px;display:flex;align-items:center;">
-            <span style="font-size:0.72rem;color:var(--muted);">💡 Haz click en el estado para cambiar el pago</span>
-        </div>
-    </div>
-    <div class="table-wrap"><table>
-        <thead><tr><th>Vendedor</th><th>Tipo</th><th>Cliente</th><th>Plan</th><th>Valor</th><th>Estado — click para cambiar</th><th>Fecha</th><th></th></tr></thead>
-        <tbody>${todasComisiones.map(c=>`<tr>
-            <td><strong>${c.vendedorNombre}</strong></td>
-            <td><span class="tag ${c.tipo==='instalacion'?'tag-ing':c.tipo==='primer_mes'?'tag-banc':'tag-ef'}">${c.tipo==='instalacion'?'🔧 Instalación':c.tipo==='primer_mes'?'📅 1er Mes':'📅 2do Mes'}</span></td>
-            <td>${c.cliente||'-'}</td>
-            <td style="font-size:0.78rem;color:var(--muted)">${c.plan||'-'}</td>
-            <td class="money pos">${fmtShort(c.valor)}</td>
-            <td>
-                <span onclick="clickEstadoComision('${c.vendedorId}','${c.id}',${c.pagado})"
-                    title="${c.pagado?'Click para marcar pendiente':'Click para confirmar pago'}"
-                    style="cursor:pointer;display:inline-flex;align-items:center;gap:5px;padding:5px 14px;border-radius:20px;font-size:0.75rem;font-weight:700;transition:0.15s;user-select:none;
-                    ${c.pagado
-                        ? 'background:rgba(16,185,129,0.15);color:#10b981;border:1.5px solid rgba(16,185,129,0.35);'
-                        : 'background:rgba(245,158,11,0.15);color:#f59e0b;border:1.5px dashed rgba(245,158,11,0.5);'}">
-                    ${c.pagado?'✅ Pagada':'⏳ Pendiente'}
-                </span>
-            </td>
-            <td style="font-size:0.75rem;color:var(--muted)">${new Date(c.fecha).toLocaleDateString('es-CO')}</td>
-            <td><button class="btn btn-danger btn-sm" title="Eliminar" onclick="eliminarComisionTabla('${c.vendedorId}','${c.id}')">🗑️</button></td>
-        </tr>`).join('')}</tbody>
-    </table></div>`;
-}
 
-function clickEstadoComision(vid, cid, esPagada){
-    const v=DB.vendedores.find(x=>x.id===vid);
-    const c=(v?.comisiones||[]).find(x=>x.id===cid);
-    if(!c) return;
-    if(esPagada){
-        if(!confirm('¿Marcar esta comisión como pendiente?')) return;
-        c.pagado=false;
-        // Sincronizar con cliente
-        if(c.clienteId&&c.oid){
-            const o=DB.oficinas.find(x=>x.id===c.oid);
-            const cl=(o?.clientes||[]).find(x=>x.id===c.clienteId);
-            if(cl?.comisionesEstado){
-                const k=c.tipo==='instalacion'?'instalacion':c.tipo==='primer_mes'?'primerMes':'segundoMes';
-                cl.comisionesEstado[k]='generada';
-            }
-        }
-    } else {
-        const label=c.tipo==='instalacion'?'🔧 Instalación':c.tipo==='primer_mes'?'📅 1er Mes':'📅 2do Mes';
-        if(!confirm(`¿Confirmar pago de comisión?\n${label} — ${c.cliente||''} — ${fmtShort(c.valor)}`)) return;
-        c.pagado=true;
-        // Sincronizar con cliente
-        if(c.clienteId&&c.oid){
-            const o=DB.oficinas.find(x=>x.id===c.oid);
-            const cl=(o?.clientes||[]).find(x=>x.id===c.clienteId);
-            if(cl?.comisionesEstado){
-                const k=c.tipo==='instalacion'?'instalacion':c.tipo==='primer_mes'?'primerMes':'segundoMes';
-                cl.comisionesEstado[k]='pagada';
-            }
-        }
-    }
-    save().then(()=>renderVendedores());
-}
 
-function eliminarComisionTabla(vid, cid){
-    if(!confirm('¿Eliminar este registro de comisión?')) return;
-    const v=DB.vendedores.find(x=>x.id===vid);
-    if(!v) return;
-    const c=(v.comisiones||[]).find(x=>x.id===cid);
-    if(c?.clienteId&&c?.oid){
-        const o=DB.oficinas.find(x=>x.id===c.oid);
-        const cl=(o?.clientes||[]).find(x=>x.id===c.clienteId);
-        if(cl?.comisionesEstado){
-            const k=c.tipo==='instalacion'?'instalacion':c.tipo==='primer_mes'?'primerMes':'segundoMes';
-            cl.comisionesEstado[k]='pendiente';
-        }
-    }
-    v.comisiones=(v.comisiones||[]).filter(x=>x.id!==cid);
-    save().then(()=>renderVendedores());
-}
+
 
 function modalAgregarVendedor(){
     openModal('➕ Nuevo Vendedor',`
@@ -9802,166 +9691,22 @@ function modalVerVendedor(vid){
     `,'');
 }
 
-function modalRegistrarComision(){
-    const vendedores=(DB.vendedores||[]).filter(v=>{
-        if(USER.role==='oficina') return (v.oficinas||[]).includes(USER.id)||!v.oficinas||v.oficinas.length===0;
-        return true;
-    });
-    if(vendedores.length===0) return alert('No hay vendedores registrados.');
-    openModal('➕ Registrar Comisión',`
-    <div class="form-row">
-        <div class="form-group-dark"><label>Vendedor *</label>
-            <select id="rc_vend" class="form-control" onchange="calcularComisionAuto()">
-                <option value="">Seleccionar...</option>
-                ${vendedores.map(v=>`<option value="${v.id}">${v.nombre}</option>`).join('')}
-            </select>
-        </div>
-        <div class="form-group-dark"><label>Tipo de Comisión *</label>
-            <select id="rc_tipo" class="form-control" onchange="calcularComisionAuto()">
-                <option value="instalacion">🔧 Al instalar</option>
-                <option value="primer_mes">📅 1er mes pagado</option>
-                <option value="segundo_mes">📅 2do mes pagado</option>
-            </select>
-        </div>
-    </div>
-    <div class="form-row">
-        <div class="form-group-dark"><label>Nombre del Cliente</label><input id="rc_cliente" class="form-control" placeholder="Nombre del cliente instalado"></div>
-        <div class="form-group-dark"><label>Plan</label>
-            <select id="rc_plan" class="form-control">${['Internet 10Mb','Internet 20Mb','Internet 30Mb','Internet 50Mb','Internet + TV Básico','Internet + TV Premium','Solo TV','Otro'].map(p=>`<option>${p}</option>`).join('')}</select>
-        </div>
-    </div>
-    <div class="form-row">
-        <div class="form-group-dark"><label>Valor del Plan (COP/mes)</label>
-            <input type="number" id="rc_plan_valor" class="form-control" placeholder="Ej: 50000" oninput="calcularComisionAuto()">
-        </div>
-        <div class="form-group-dark"><label>Valor Comisión (calculado)</label>
-            <input type="number" id="rc_valor" class="form-control" placeholder="Se calcula automático">
-        </div>
-    </div>
-    <p id="rc_calc_info" style="font-size:0.78rem;color:var(--accent);margin-top:-6px;margin-bottom:10px;"></p>
-    `,`<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
-       <button class="btn btn-primary" onclick="guardarComision()">✅ Registrar</button>`);
-}
 
-function calcularComisionAuto(){
-    const vid=document.getElementById('rc_vend')?.value;
-    const tipo=document.getElementById('rc_tipo')?.value;
-    const planValor=parseFloat(document.getElementById('rc_plan_valor')?.value||0);
-    if(!vid||!planValor) return;
-    const v=(DB.vendedores||[]).find(x=>x.id===vid);
-    if(!v) return;
-    const pct=tipo==='instalacion'?v.pctInstalacion:tipo==='primer_mes'?v.pct1Mes:v.pct2Mes;
-    const calc=(planValor*(pct/100));
-    document.getElementById('rc_valor').value=calc.toFixed(0);
-    document.getElementById('rc_calc_info').textContent=`${pct}% de ${fmtShort(planValor)} = ${fmtShort(calc)}`;
-}
 
-function guardarComision(){
-    const vid=document.getElementById('rc_vend').value;
-    const tipo=document.getElementById('rc_tipo').value;
-    const valor=parseFloat(document.getElementById('rc_valor').value||0);
-    if(!vid) return alert('Selecciona un vendedor');
-    if(!valor||valor<=0) return alert('Ingresa un valor válido');
-    const v=DB.vendedores.find(x=>x.id===vid);
-    if(!v) return;
-    if(!v.comisiones) v.comisiones=[];
-    v.comisiones.push({
-        id:uid(), tipo, valor,
-        cliente:document.getElementById('rc_cliente').value.trim(),
-        plan:document.getElementById('rc_plan').value,
-        planValor:parseFloat(document.getElementById('rc_plan_valor').value||0),
-        pagado:false, fecha:now()
-    });
-    save(); closeModal(); renderVendedores();
-}
 
-function togglePagoComision(vid,cid){
-    const v=DB.vendedores.find(x=>x.id===vid);
-    const c=(v?.comisiones||[]).find(x=>x.id===cid);
-    if(!c) return;
-    c.pagado=!c.pagado;
-    save().then(()=>renderVendedores());
-}
+
+
+
+
 
 // revertirComision() integrada en accionComision()
 
 // Comisión rápida desde el botón del vendedor
-function modalRegistrarComisionVendedor(vid){
-    const v=(DB.vendedores||[]).find(x=>x.id===vid);
-    if(!v) return;
-    openModal('💰 Registrar Comisión — '+v.nombre,`
-    <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:0.82rem;">
-        <strong style="color:var(--accent);">Porcentajes de ${v.nombre}:</strong>
-        🔧 Instalación: <strong>${v.pctInstalacion||0}%</strong> &nbsp;|&nbsp;
-        📅 1er Mes: <strong>${v.pct1Mes||0}%</strong> &nbsp;|&nbsp;
-        📅 2do Mes: <strong>${v.pct2Mes||0}%</strong>
-    </div>
-    <div class="form-row">
-        <div class="form-group-dark"><label>Tipo de Comisión *</label>
-            <select id="rcv_tipo" class="form-control" onchange="calcComisionVendedor('${v.id}')">
-                <option value="instalacion">🔧 Al instalar</option>
-                <option value="primer_mes">📅 1er mes pagado</option>
-                <option value="segundo_mes">📅 2do mes pagado</option>
-            </select>
-        </div>
-        <div class="form-group-dark"><label>Nombre del Cliente</label>
-            <input id="rcv_cliente" class="form-control" placeholder="Nombre del cliente">
-        </div>
-    </div>
-    <div class="form-row">
-        <div class="form-group-dark"><label>Plan</label>
-            <select id="rcv_plan" class="form-control">${['Internet 10Mb','Internet 20Mb','Internet 30Mb','Internet 50Mb','Internet + TV Básico','Internet + TV Premium','Solo TV','Otro'].map(p=>'<option>'+p+'</option>').join('')}</select>
-        </div>
-        <div class="form-group-dark"><label>Valor del Plan (COP/mes)</label>
-            <input type="number" id="rcv_plan_valor" class="form-control" placeholder="Ej: 50000" oninput="calcComisionVendedor('${v.id}')">
-        </div>
-    </div>
-    <div class="form-row">
-        <div class="form-group-dark"><label>Valor Comisión (COP)</label>
-            <input type="number" id="rcv_valor" class="form-control" placeholder="Se calcula automático o ingresa manual">
-        </div>
-        <div class="form-group-dark"><label>¿Ya fue pagada?</label>
-            <select id="rcv_pagado" class="form-control">
-                <option value="false">⏳ Pendiente</option>
-                <option value="true">✅ Ya pagada</option>
-            </select>
-        </div>
-    </div>
-    <p id="rcv_info" style="font-size:0.78rem;color:var(--accent);margin-top:-6px;"></p>
-    `,`<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
-       <button class="btn btn-primary" onclick="guardarComisionVendedor('${v.id}')">✅ Registrar</button>`);
-}
 
-function calcComisionVendedor(vid){
-    const v=(DB.vendedores||[]).find(x=>x.id===vid);
-    if(!v) return;
-    const tipo=document.getElementById('rcv_tipo')?.value;
-    const planValor=parseFloat(document.getElementById('rcv_plan_valor')?.value||0);
-    if(!planValor) return;
-    const pct=tipo==='instalacion'?v.pctInstalacion:tipo==='primer_mes'?v.pct1Mes:v.pct2Mes;
-    const calc=(planValor*(pct/100));
-    document.getElementById('rcv_valor').value=calc.toFixed(0);
-    document.getElementById('rcv_info').textContent=`${pct}% de ${fmtShort(planValor)} = ${fmtShort(calc)}`;
-}
 
-function guardarComisionVendedor(vid){
-    const tipo=document.getElementById('rcv_tipo').value;
-    const valor=parseFloat(document.getElementById('rcv_valor').value||0);
-    const pagado=document.getElementById('rcv_pagado').value==='true';
-    const v=DB.vendedores.find(x=>x.id===vid);
-    if(!v) return;
-    if(!v.comisiones) v.comisiones=[];
-    v.comisiones.push({
-        id:uid(), tipo, valor,
-        cliente:document.getElementById('rcv_cliente').value.trim(),
-        plan:document.getElementById('rcv_plan').value,
-        planValor:parseFloat(document.getElementById('rcv_plan_valor').value||0),
-        pagado, fecha:now()
-    });
-    // Verificar si gana algún incentivo con esta acción
-    verificarIncentivosVendedor(vid);
-    save(); closeModal(); renderVendedores();
-}
+
+
+
 
 function verificarIncentivosVendedor(vid){
     const v=DB.vendedores.find(x=>x.id===vid);
@@ -13684,31 +13429,9 @@ function _progHTML(msg, pct, done=false){
     </div>`;
 }
 
-async function _imagesToPDF(imageFiles, mid, onProgress){
-    // Use canvas to combine images into a single PDF (manual PDF generation)
-    const pages=[];
-    for(let i=0;i<imageFiles.length;i++){
-        if(onProgress) onProgress(i+1,imageFiles.length);
-        const img=await _loadImage(imageFiles[i]);
-        pages.push(img);
-    }
-    // Build minimal PDF with all images as pages
-    return _buildPDF(pages);
-}
 
-function _loadImage(file){
-    return new Promise((res,rej)=>{
-        const reader=new FileReader();
-        reader.onload=e=>{
-            const img=new Image();
-            img.onload=()=>res(img);
-            img.onerror=rej;
-            img.src=e.target.result;
-        };
-        reader.onerror=rej;
-        reader.readAsDataURL(file);
-    });
-}
+
+
 
 function _buildPDF(images){
     // Build a valid PDF manually using canvas for each image
@@ -14173,14 +13896,7 @@ Donde "cuadra" es true solo si la diferencia es 0 o menor a $100.`;
     if(btnEl){ btnEl.disabled=false; btnEl.textContent='🔍 Re-verificar'; }
 }
 
-function _blobToBase64(blob){
-    return new Promise((res,rej)=>{
-        const reader=new FileReader();
-        reader.onload=e=>res(e.target.result);
-        reader.onerror=rej;
-        reader.readAsDataURL(blob);
-    });
-}
+
 
 function _iaLoadingHTML(){
     return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;font-size:0.82rem;color:var(--muted);">
@@ -14759,17 +14475,7 @@ function _buscarPosibleDuplicado(oid, valor, fechaStr, forma){
 }
 
 // CONTROL 7: Buscar imagen duplicada por hash
-function _buscarHashDuplicado(oid, hash){
-    if(!hash) return null;
-    const o=DB.oficinas.find(x=>x.id===oid);
-    if(!o?.movimientos) return null;
-    for(const m of o.movimientos){
-        for(const c of (m.comprobantes||[])){
-            if(c.hashImagen===hash) return {movimiento:m, comprobante:c};
-        }
-    }
-    return null;
-}
+
 
 // CONTROL 7b: Buscar la huella en TODAS las oficinas y en las dos formas de guardarla
 // (hashImagen = carga masiva con IA; hashesImagenes[] = adjuntar 📎 directo al movimiento).
@@ -19053,12 +18759,7 @@ function _parseFechaWisphub(str){
 }
 
 // Helper: días de mora desde una fecha DD/MM/YYYY
-function _diasMora(fechaVencStr){
-    const f=_parseFechaWisphub(fechaVencStr);
-    if(!f) return 0;
-    const hoy=new Date(); hoy.setHours(0,0,0,0);
-    return Math.floor((hoy-f)/(1000*60*60*24));
-}
+
 
 // Helper: extraer ID de servicio y estado del campo "Estado Servicio"
 function _parseEstadoServicio(str){
@@ -19729,330 +19430,13 @@ function renderRecogidas(){
 
 
 // ─── IMPORTAR MOROSOS DESDE EXCEL DE WISPHUB ───
-function modalImportarMorosos(){
-    const esAdmin=USER.role==='admin';
-    const cfg=DB.recogidasConfig||{minFacturas:2,minDias:0,soloSuspendidos:false};
-    const html=`
-    <div style="background:rgba(234,88,12,0.08);border:1px solid rgba(234,88,12,0.25);border-radius:10px;padding:12px;margin-bottom:14px;font-size:0.82rem;">
-        <p style="font-weight:700;color:#ea580c;margin-bottom:4px;">📥 Importar morosos de WispHub</p>
-        <p style="color:var(--muted);">Exporta el Excel de facturas desde WispHub (con las columnas estándar) y súbelo aquí. El sistema identificará los morosos según las reglas configuradas.</p>
-    </div>
 
-    <div class="form-group-dark">
-        <label>¿De qué oficina es este Excel? *</label>
-        <select id="imp_oficina" class="form-control">
-            ${esAdmin?DB.oficinas.map(o=>`<option value="${o.id}">${o.nombre}</option>`).join(''):`<option value="${USER.id}">${(DB.oficinas.find(o=>o.id===USER.id)||{}).nombre||'Mi oficina'}</option>`}
-        </select>
-    </div>
-
-    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;margin:10px 0;font-size:0.78rem;">
-        <p style="font-weight:600;margin-bottom:6px;">📋 Reglas activas para marcar como "por recoger":</p>
-        <div style="color:var(--muted);">
-            • Mínimo <strong>${cfg.minFacturas}</strong> factura(s) pendiente(s)<br>
-            ${cfg.minDias>0?`• Y/O más de <strong>${cfg.minDias}</strong> días de mora<br>`:''}
-            ${cfg.soloSuspendidos?'• Solo servicios <strong>Suspendidos</strong><br>':''}
-        </div>
-        ${esAdmin?'<p style="font-size:0.72rem;color:var(--muted);margin-top:6px;">Cambia las reglas con el botón ⚙️ Reglas</p>':''}
-    </div>
-
-    <div class="form-group-dark">
-        <label>Archivo Excel de WispHub *</label>
-        <div style="border:2px dashed var(--border);border-radius:8px;padding:20px;text-align:center;"
-            ondragover="event.preventDefault();this.style.borderColor='#ea580c'"
-            ondragleave="this.style.borderColor='var(--border)'"
-            ondrop="event.preventDefault();this.style.borderColor='var(--border)';_procesarExcelMorosos(event.dataTransfer.files[0])">
-            <input type="file" id="imp_file" accept=".xlsx,.xls" style="display:none" onchange="_procesarExcelMorosos(this.files[0])">
-            <button type="button" class="btn btn-outline" onclick="document.getElementById('imp_file').click()">📂 Seleccionar Excel</button>
-            <p style="font-size:0.72rem;color:var(--muted);margin-top:6px;">O arrastra el archivo .xlsx aquí</p>
-        </div>
-    </div>
-
-    <div id="imp_resultado" style="margin-top:12px;"></div>`;
-
-    openModal('📥 Importar Morosos', html, `
-        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
-        <button class="btn btn-primary" id="btn_confirmar_imp" onclick="_confirmarImportacion()" style="background:#ea580c;display:none;">✅ Confirmar importación</button>`);
-}
 
 let _morososProcesados=null;
 
-async function _procesarExcelMorosos(file){
-    if(!file) return;
-    const resultado=document.getElementById('imp_resultado');
-    resultado.innerHTML='<p style="text-align:center;color:var(--muted);padding:20px;">⏳ Procesando Excel...</p>';
 
-    // Cargar SheetJS si no está
-    if(typeof XLSX==='undefined'){
-        await new Promise((res,rej)=>{
-            const s=document.createElement('script');
-            s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-            s.onload=res; s.onerror=rej;
-            document.head.appendChild(s);
-        });
-    }
 
-    try{
-        const data=await file.arrayBuffer();
-        const wb=XLSX.read(data,{type:'array'});
-        const ws=wb.Sheets[wb.SheetNames[0]];
-        const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
 
-        // Buscar la fila de encabezados (donde está "#Factura" o "Cliente")
-        let headerRow=-1;
-        for(let i=0;i<Math.min(10,rows.length);i++){
-            const fila=rows[i].map(c=>String(c).trim());
-            if(fila.includes('#Factura')||fila.includes('Cliente')||fila.includes('DNI/C.I./C.C./IFE')){
-                headerRow=i; break;
-            }
-        }
-        if(headerRow<0){
-            resultado.innerHTML='<p style="color:#ef4444;padding:12px;">❌ No se encontraron las columnas esperadas. Verifica que el Excel tenga las columnas de WispHub (#Factura, Cliente, etc.)</p>';
-            return;
-        }
-
-        const headers=rows[headerRow].map(c=>String(c).trim());
-        const idx=(nombre)=>headers.indexOf(nombre);
-        const col={
-            factura:idx('#Factura'),
-            cliente:idx('Cliente'),
-            cedula:idx('DNI/C.I./C.C./IFE'),
-            fechaVenc:idx('Fecha Vencimiento'),
-            fechaEmision:idx('Fecha Emisión'),
-            estado:idx('Estado'),
-            zona:idx('Zona'),
-            total:idx('Total'),
-            direccion:idx('Dirección'),
-            barrio:idx('Barrio/Localidad'),
-            telefono:idx('Telefono'),
-            estadoServicio:idx('Estado Servicio'),
-            ipServicio:idx('IP Servicio')
-        };
-
-        // Procesar filas de datos
-        const facturas=[];
-        // Para el cruce de pagos: capturar el estado de TODAS las facturas por servicio
-        const fechaPagoCol=headers.indexOf('Fecha Pago');
-        const estadoPagos={}; // servicioId -> {pendientes, pagadas, montoPend, ultPendFecha, ultPagFecha, servicioEstado, cliente, cedula}
-
-        for(let i=headerRow+1;i<rows.length;i++){
-            const f=rows[i];
-            if(!f||f.length===0) continue;
-            const estadoRaw=String(f[col.estado]||'').trim();
-            const estado=estadoRaw.toLowerCase();
-            const es=_parseEstadoServicio(f[col.estadoServicio]);
-            const total=parseFloat(String(f[col.total]||'0').replace(/[^0-9.-]/g,''))||0;
-            const sid=es.id||(String(f[col.cedula]||'').trim());
-
-            // Acumular estado de pago para TODAS las facturas (pagadas y pendientes)
-            if(sid){
-                if(!estadoPagos[sid]) estadoPagos[sid]={
-                    pendientes:0, pagadas:0, montoPend:0,
-                    ultPendFecha:null, ultPagFecha:null,
-                    servicioEstado:es.estado, cliente:String(f[col.cliente]||'').trim(),
-                    cedula:String(f[col.cedula]||'').trim()
-                };
-                const ep=estadoPagos[sid];
-                const fVenc=_parseFechaWisphub(f[col.fechaVenc]);
-                const fPago=fechaPagoCol>=0?_parseFechaWisphub(f[fechaPagoCol]):null;
-                if(estado.includes('pendiente')){
-                    ep.pendientes++; ep.montoPend+=total;
-                    if(fVenc&&(!ep.ultPendFecha||fVenc>ep.ultPendFecha)) ep.ultPendFecha=fVenc;
-                } else if(estado.includes('pagad')){
-                    ep.pagadas++;
-                    if(fPago&&(!ep.ultPagFecha||fPago>ep.ultPagFecha)) ep.ultPagFecha=fPago;
-                }
-                ep.servicioEstado=es.estado;
-            }
-
-            // Para recogidas: solo pendientes (como antes)
-            if(!estado.includes('pendiente')) continue;
-            facturas.push({
-                factura:String(f[col.factura]||'').trim(),
-                cliente:String(f[col.cliente]||'').trim(),
-                cedula:String(f[col.cedula]||'').trim(),
-                fechaVenc:String(f[col.fechaVenc]||'').trim(),
-                zona:String(f[col.zona]||'').trim(),
-                total:total,
-                direccion:String(f[col.direccion]||'').trim(),
-                barrio:String(f[col.barrio]||'').trim(),
-                telefono:String(f[col.telefono]||'').trim(),
-                servicioId:es.id,
-                servicioEstado:es.estado,
-                ipServicio:String(f[col.ipServicio]||'').trim()
-            });
-        }
-
-        // Agrupar por servicio (servicioId, o cédula+zona si no hay id)
-        const cfg=DB.recogidasConfig||{minFacturas:2,minDias:0,soloSuspendidos:false};
-        const porServicio={};
-        facturas.forEach(f=>{
-            const key=f.servicioId||(f.cedula+'_'+f.zona);
-            if(!porServicio[key]){
-                porServicio[key]={
-                    servicioId:f.servicioId, cedula:f.cedula, cliente:f.cliente,
-                    zona:f.zona, direccion:f.direccion, barrio:f.barrio,
-                    telefono:f.telefono, servicioEstado:f.servicioEstado,
-                    ipServicio:f.ipServicio,
-                    facturas:[], montoTotal:0, fechaVencAntigua:null
-                };
-            }
-            const s=porServicio[key];
-            s.facturas.push(f.factura);
-            s.montoTotal+=f.total;
-            const fv=_parseFechaWisphub(f.fechaVenc);
-            if(fv&&(!s.fechaVencAntigua||fv<s.fechaVencAntigua)) s.fechaVencAntigua=fv;
-        });
-
-        // Aplicar reglas
-        const candidatos=Object.values(porServicio).filter(s=>{
-            const numFact=s.facturas.length;
-            const dias=s.fechaVencAntigua?Math.floor((new Date()-s.fechaVencAntigua)/(1000*60*60*24)):0;
-            let cumple=false;
-            if(numFact>=cfg.minFacturas) cumple=true;
-            if(cfg.minDias>0&&dias>=cfg.minDias) cumple=true;
-            if(cfg.soloSuspendidos&&s.servicioEstado!=='Suspendido') cumple=false;
-            return cumple;
-        }).map(s=>({
-            ...s,
-            numFacturas:s.facturas.length,
-            diasMora:s.fechaVencAntigua?Math.floor((new Date()-s.fechaVencAntigua)/(1000*60*60*24)):0
-        }));
-
-        _morososProcesados={candidatos, totalFacturasPend:facturas.length, totalServicios:Object.keys(porServicio).length, estadoPagos};
-
-        // Mostrar resumen
-        resultado.innerHTML=`
-        <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:8px;padding:12px;">
-            <p style="font-weight:700;color:#10b981;margin-bottom:8px;">✅ Excel procesado</p>
-            <div style="font-size:0.82rem;color:var(--muted);line-height:1.6;">
-                • Facturas pendientes encontradas: <strong style="color:var(--text);">${facturas.length}</strong><br>
-                • Servicios distintos: <strong style="color:var(--text);">${Object.keys(porServicio).length}</strong><br>
-                • <strong style="color:#ea580c;">Cumplen reglas para recoger: ${candidatos.length}</strong>
-            </div>
-        </div>
-        ${candidatos.length>0?`
-        <div style="max-height:200px;overflow-y:auto;margin-top:8px;border:1px solid var(--border);border-radius:8px;padding:8px;">
-            ${candidatos.slice(0,50).map(c=>`
-                <div style="font-size:0.74rem;padding:4px 0;border-bottom:1px solid var(--border);">
-                    📡 ${c.cliente} — ${c.numFacturas} fact · ${fmtShort(c.montoTotal)} ${c.servicioEstado==='Suspendido'?'⛔':''}
-                </div>
-            `).join('')}
-            ${candidatos.length>50?`<p style="font-size:0.72rem;color:var(--muted);text-align:center;padding:6px;">...y ${candidatos.length-50} más</p>`:''}
-        </div>`:'<p style="color:#f59e0b;padding:10px;font-size:0.82rem;">⚠️ Ningún servicio cumple las reglas configuradas.</p>'}`;
-
-        if(candidatos.length>0){
-            document.getElementById('btn_confirmar_imp').style.display='inline-flex';
-        }
-
-    }catch(e){
-        console.error('Error procesando Excel:',e);
-        resultado.innerHTML=`<p style="color:#ef4444;padding:12px;">❌ Error al procesar: ${e.message}</p>`;
-    }
-}
-
-function _confirmarImportacion(){
-    if(!_morososProcesados||!_morososProcesados.candidatos.length) return;
-    const oficinaId=document.getElementById('imp_oficina').value;
-    if(!DB.recogidas) DB.recogidas=[];
-
-    let nuevas=0, actualizadas=0, resueltas=0;
-    const candidatos=_morososProcesados.candidatos;
-
-    // IDs de servicio que vienen en este Excel (para esta oficina)
-    const serviciosEnExcel=new Set(candidatos.map(c=>c.servicioId||c.cedula));
-
-    // MODO ACTUALIZAR: las recogidas activas de esta oficina que YA NO están en el Excel = pagaron
-    DB.recogidas.forEach(r=>{
-        if(r.oficinaId===oficinaId && !['recogido','pago','cerrado'].includes(r.estado)){
-            const key=r.servicioId||r.cedula;
-            if(!serviciosEnExcel.has(key)){
-                r.estado='pago';
-                r.fechaPago=now();
-                r.notaAuto='Marcado como pagado: ya no aparece en el Excel';
-                resueltas++;
-            }
-        }
-    });
-
-    // Crear o actualizar
-    candidatos.forEach(c=>{
-        const key=c.servicioId||c.cedula;
-        const existente=DB.recogidas.find(r=>r.oficinaId===oficinaId && (r.servicioId||r.cedula)===key && !['recogido','pago','cerrado'].includes(r.estado));
-        if(existente){
-            // Actualizar datos pero MANTENER el estado de gestión
-            existente.numFacturas=c.numFacturas;
-            existente.montoTotal=c.montoTotal;
-            existente.diasMora=c.diasMora;
-            existente.servicioEstado=c.servicioEstado;
-            existente.facturas=c.facturas;
-            actualizadas++;
-        } else {
-            DB.recogidas.push({
-                id:uid(),
-                oficinaId:oficinaId,
-                servicioId:c.servicioId,
-                cedula:c.cedula,
-                cliente:c.cliente,
-                zona:c.zona,
-                direccion:c.direccion,
-                barrio:c.barrio,
-                telefono:c.telefono,
-                servicioEstado:c.servicioEstado,
-                ipServicio:c.ipServicio,
-                numFacturas:c.numFacturas,
-                montoTotal:c.montoTotal,
-                diasMora:c.diasMora,
-                facturas:c.facturas,
-                estado:'pendiente',
-                tecnico:'',
-                equipoRecuperado:'',
-                observaciones:'',
-                comprobantes:[],
-                creadoEn:now(),
-                creadoPor:USER?.nombre||USER?.id
-            });
-            nuevas++;
-        }
-    });
-
-    // ─── CRUCE DE PAGOS: actualizar el estado de pago de los clientes de oficinas ───
-    let pagosActualizados=0;
-    const estadoPagos=_morososProcesados.estadoPagos||{};
-    const o=DB.oficinas.find(x=>x.id===oficinaId);
-    if(o && o.clientes){
-        o.clientes.forEach(cli=>{
-            // Buscar el estado de pago por servicioWisphub o cédula
-            let ep=null;
-            if(cli.servicioWisphub && estadoPagos[cli.servicioWisphub]) ep=estadoPagos[cli.servicioWisphub];
-            if(!ep && cli.cedula){
-                // Buscar por cédula entre las claves
-                const sidPorCed=Object.keys(estadoPagos).find(k=>estadoPagos[k].cedula===String(cli.cedula).trim());
-                if(sidPorCed) ep=estadoPagos[sidPorCed];
-            }
-            if(ep){
-                cli.estadoPago={
-                    pendientes:ep.pendientes,
-                    pagadas:ep.pagadas,
-                    montoPend:ep.montoPend,
-                    ultPendFecha:ep.ultPendFecha?_fechaISOdeDate(ep.ultPendFecha):null,
-                    ultPagFecha:ep.ultPagFecha?_fechaISOdeDate(ep.ultPagFecha):null,
-                    servicioEstado:ep.servicioEstado,
-                    alDia:ep.pendientes===0,
-                    actualizadoEn:now()
-                };
-                pagosActualizados++;
-            }
-        });
-    }
-
-    registrarLog('MOROSOS_IMPORTADOS',{oficinaId, nuevas, actualizadas, resueltas, pagosActualizados});
-    _morososProcesados=null;
-    save().then(()=>{
-        closeModal();
-        renderRecogidas();
-        alert(`✅ Importación completada:\n\n• ${nuevas} nuevas órdenes\n• ${actualizadas} actualizadas\n• ${resueltas} marcadas como pagadas\n• ${pagosActualizados} clientes con estado de pago actualizado`);
-    });
-}
 
 // Helper: convertir objeto Date a string YYYY-MM-DD
 function _fechaISOdeDate(d){
@@ -23342,234 +22726,14 @@ function _confirmarPosibleDuplicado(duplicados, nuevoTxt){
     });
 }
 
-function modalCargarCierreDia(){
-    const esAdmin=USER.role==='admin';
-    const html=`
-    <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:10px;padding:12px;margin-bottom:14px;font-size:0.82rem;">
-        <p style="font-weight:700;color:#10b981;margin-bottom:4px;">💰 Cargar pagos del día (cierre de caja)</p>
-        <p style="color:var(--muted);">Sube el Excel de pagos del día desde WispHub. El sistema creará un ingreso por cada pago. Los pagos electrónicos (transferencia/Efecty) quedarán "pendiente de soporte" hasta que cargues su comprobante.</p>
-    </div>
 
-    <div class="form-group-dark">
-        <label>¿De qué oficina es este cierre? *</label>
-        <select id="cierre_oficina" class="form-control">
-            ${esAdmin?DB.oficinas.map(o=>`<option value="${o.id}">${o.nombre}</option>`).join(''):`<option value="${USER.id}">${(DB.oficinas.find(o=>o.id===USER.id)||{}).nombre||'Mi oficina'}</option>`}
-        </select>
-    </div>
-
-    <div class="form-group-dark">
-        <label>Archivo Excel de pagos (WispHub) *</label>
-        <div style="border:2px dashed var(--border);border-radius:8px;padding:20px;text-align:center;"
-            ondragover="event.preventDefault();this.style.borderColor='#10b981'"
-            ondragleave="this.style.borderColor='var(--border)'"
-            ondrop="event.preventDefault();this.style.borderColor='var(--border)';_procesarExcelCierre(event.dataTransfer.files[0])">
-            <input type="file" id="cierre_file" accept=".xlsx,.xls" style="display:none" onchange="_procesarExcelCierre(this.files[0])">
-            <button type="button" class="btn btn-outline" onclick="document.getElementById('cierre_file').click()">📂 Seleccionar Excel</button>
-            <p style="font-size:0.72rem;color:var(--muted);margin-top:6px;">O arrastra el archivo .xlsx aquí</p>
-        </div>
-    </div>
-
-    <div id="cierre_resultado" style="margin-top:12px;"></div>`;
-
-    openModal('💰 Cargar Cierre del Día', html, `
-        <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
-        <button class="btn btn-primary" id="btn_confirmar_cierre" onclick="_confirmarCierreDia()" style="background:#10b981;display:none;">✅ Crear ingresos</button>`);
-}
 
 let _cierreProcesado=null;
 
-async function _procesarExcelCierre(file){
-    if(!file) return;
-    const resultado=document.getElementById('cierre_resultado');
-    resultado.innerHTML='<p style="text-align:center;color:var(--muted);padding:20px;">⏳ Procesando Excel...</p>';
-
-    if(typeof XLSX==='undefined'){
-        await new Promise((res,rej)=>{
-            const s=document.createElement('script');
-            s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-            s.onload=res; s.onerror=rej;
-            document.head.appendChild(s);
-        });
-    }
-
-    try{
-        const data=await file.arrayBuffer();
-        const wb=XLSX.read(data,{type:'array'});
-        const ws=wb.Sheets[wb.SheetNames[0]];
-        const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
-
-        let headerRow=-1;
-        for(let i=0;i<Math.min(10,rows.length);i++){
-            const fila=rows[i].map(c=>String(c).trim());
-            if(fila.includes('#Factura')||fila.includes('Cliente')||fila.includes('Forma de Pago')){
-                headerRow=i; break;
-            }
-        }
-        if(headerRow<0){
-            resultado.innerHTML='<p style="color:#ef4444;padding:12px;">❌ No se encontraron las columnas esperadas. Verifica que sea el Excel de facturas/pagos de WispHub.</p>';
-            return;
-        }
-
-        const headers=rows[headerRow].map(c=>String(c).trim());
-        const idx=(n)=>headers.indexOf(n);
-        const col={
-            factura:idx('#Factura'), cliente:idx('Cliente'), cedula:idx('DNI/C.I./C.C./IFE'),
-            cajero:idx('Cajero'), fechaPago:idx('Fecha Pago'), estado:idx('Estado'),
-            zona:idx('Zona'), total:idx('Total'), totalCobrado:idx('Total Cobrado'),
-            formaPago:idx('Forma de Pago')
-        };
-
-        // Solo procesar facturas PAGADAS (las que generaron ingreso)
-        const pagos=[];
-        for(let i=headerRow+1;i<rows.length;i++){
-            const f=rows[i];
-            if(!f||!String(f[col.cliente]||'').trim()) continue;
-            const estado=String(f[col.estado]||'').trim().toLowerCase();
-            if(!estado.includes('pagad')) continue; // solo pagadas
-            const formaW=String(f[col.formaPago]||'').trim();
-            const forma=_mapearFormaPago(formaW);
-            const valor=parseFloat(String(f[col.total]||f[col.totalCobrado]||'0').replace(/[^0-9.-]/g,''))||0;
-            if(valor<=0) continue;
-            pagos.push({
-                numero:String(f[col.factura]||'').trim(),
-                cliente:String(f[col.cliente]||'').trim(),
-                cedula:String(f[col.cedula]||'').trim(),
-                cajero:String(f[col.cajero]||'').trim(),
-                fechaPago:String(f[col.fechaPago]||'').trim(),
-                zona:String(f[col.zona]||'').trim(),
-                formaWisphub:formaW, forma:forma, valor:valor,
-                requiereSoporte:_requiereSoporte(forma)
-            });
-        }
-
-        _cierreProcesado={pagos};
-
-        // Resumen
-        const total=pagos.reduce((s,p)=>s+p.valor,0);
-        const porForma={};
-        pagos.forEach(p=>{ if(!porForma[p.forma]) porForma[p.forma]={n:0,v:0}; porForma[p.forma].n++; porForma[p.forma].v+=p.valor; });
-        const porCajero={};
-        pagos.forEach(p=>{ const c=p.cajero||'(sin cajero)'; if(!porCajero[c]) porCajero[c]={n:0,v:0}; porCajero[c].n++; porCajero[c].v+=p.valor; });
-        const conSoporte=pagos.filter(p=>p.requiereSoporte).length;
-
-        resultado.innerHTML=`
-        <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:8px;padding:12px;">
-            <p style="font-weight:700;color:#10b981;margin-bottom:8px;">✅ Excel procesado · ${pagos.length} pagos · ${fmtShort(total)}</p>
-            <div style="font-size:0.78rem;color:var(--muted);line-height:1.7;">
-                <strong style="color:var(--text);">Por forma de pago:</strong><br>
-                ${Object.entries(porForma).map(([f,d])=>`• ${f}: ${d.n} pagos · ${fmtShort(d.v)}`).join('<br>')}
-                <br><br>
-                <strong style="color:var(--text);">Por cajero:</strong><br>
-                ${Object.entries(porCajero).map(([c,d])=>`• ${c}: ${d.n} pagos · ${fmtShort(d.v)}`).join('<br>')}
-                <br><br>
-                <span style="color:#f59e0b;">📎 ${conSoporte} pagos electrónicos quedarán "pendiente de soporte"</span>
-            </div>
-        </div>`;
-
-        if(pagos.length>0) document.getElementById('btn_confirmar_cierre').style.display='inline-flex';
-
-    }catch(e){
-        console.error('Error procesando Excel cierre:',e);
-        resultado.innerHTML=`<p style="color:#ef4444;padding:12px;">❌ Error: ${e.message}</p>`;
-    }
-}
 
 
-function _confirmarCierreDia(){
-    if(!_cierreProcesado||!_cierreProcesado.pagos.length) return;
-    const oficinaId=document.getElementById('cierre_oficina').value;
-    const o=DB.oficinas.find(x=>x.id===oficinaId);
-    if(!o) return alert('Oficina no encontrada');
-    if(!o.movimientos) o.movimientos=[];
 
-    let creados=0, duplicados=0, enlazadosComprobante=0, fusionados=0;
 
-    _cierreProcesado.pagos.forEach(p=>{
-        const fechaISO=_fechaPagoWisphubISO(p.fechaPago);
-
-        // NIVEL 1 — ANTI-DUPLICADOS por # de factura WispHub (cierre cargado antes)
-        const existente=o.movimientos.find(m=>m.facturaWisphub && m.facturaWisphub===p.numero && p.numero);
-        if(existente){
-            duplicados++;
-            return; // ya está cargado por el cierre, no duplicar
-        }
-
-        // NIVEL 2 — FUSIÓN con registro existente (ej. cargado por IA sin # factura).
-        // CLAVE: el # de factura de WispHub es ÚNICO. Si el pago lo tiene, NO se fusiona por nombre
-        // (el anti-duplicado por # de factura de arriba ya evita repetirlo). La fusión por nombre
-        // solo aplica a casos SIN # de factura (raro), y exige coincidencia FUERTE (≥2 palabras o
-        // nombre casi idéntico) para no confundir clientes que comparten un nombre común
-        // (ej. "LUZ MARIA ORTIZ" vs "MARIA DEL CARMEN PEÑA" comparten "maria" pero son distintos).
-        let yaRegistrado=null;
-        if(!p.numero){
-            const nombrePagoNorm=_normalizarNombre(p.cliente||'');
-            const palabrasPago=nombrePagoNorm.split(' ').filter(w=>w.length>3);
-            const candidatos=o.movimientos.filter(m=>{
-                if(m.tipo!=='ingreso') return false;
-                if(m.facturaWisphub) return false; // ese ya es del cierre
-                const mismaFecha=(m.fecha||'').slice(0,10)===fechaISO;
-                const mismoValor=Math.abs(parseFloat(m.valor||0)-p.valor)<100;
-                if(!(mismaFecha && mismoValor)) return false;
-                if(palabrasPago.length===0) return false;
-                const txt=_normalizarNombre((m.descripcion||'')+' '+(m.clienteWisphub||'')+' '+(m.nombreIA||''));
-                // Coincidencia FUERTE: al menos 2 palabras del nombre, o el nombre completo contenido
-                const coincidencias=palabrasPago.filter(w=>txt.includes(w)).length;
-                return coincidencias>=2 || (palabrasPago.length===1 && txt.includes(nombrePagoNorm));
-            });
-            if(candidatos.length>=1) yaRegistrado=candidatos[0];
-        }
-        if(yaRegistrado){
-            // Fusionar: completar el registro existente con los datos de WispHub
-            yaRegistrado.facturaWisphub=p.numero;
-            yaRegistrado.clienteWisphub=p.cliente;
-            yaRegistrado.cedulaWisphub=p.cedula;
-            yaRegistrado.cajeroWisphub=p.cajero;
-            if(!yaRegistrado.origen) yaRegistrado.origen='cierre_wisphub_fusion';
-            // Si ya tiene comprobante, queda completo
-            const tieneComp=(yaRegistrado.comprobantes||[]).length>0;
-            yaRegistrado.requiereSoporte=p.requiereSoporte;
-            yaRegistrado.estadoSoporte=p.requiereSoporte?(tieneComp?'completo':'pendiente'):'no_aplica';
-            fusionados++;
-            return; // NO crear uno nuevo
-        }
-
-        // Buscar si hay un comprobante "huérfano" que coincida
-        let comprobanteEnlazado=null;
-        if(p.requiereSoporte && o._comprobantesHuerfanos){
-            const idx=o._comprobantesHuerfanos.findIndex(c=>_matchComprobantePago(c, p));
-            if(idx>=0){
-                comprobanteEnlazado=o._comprobantesHuerfanos[idx];
-                o._comprobantesHuerfanos.splice(idx,1);
-                enlazadosComprobante++;
-            }
-        }
-
-        // Crear el ingreso nuevo
-        // ⛔ Borrado permanente por el admin → no volver a crearlo
-        if(_esBorradoPermanente(o.id, p.numero, null)){ return; }
-        const mov={
-            id:uid(), tipo:'ingreso',
-            concepto:'Pago internet', forma:p.forma,
-            descripcion:`${p.cliente}${p.cedula?' · CC '+p.cedula:''} (WispHub #${p.numero})`,
-            valor:p.valor, fecha:fechaISO,
-            facturaWisphub:p.numero, clienteWisphub:p.cliente, cedulaWisphub:p.cedula,
-            cajeroWisphub:p.cajero, origen:'cierre_wisphub',
-            requiereSoporte:p.requiereSoporte,
-            estadoSoporte:p.requiereSoporte?(comprobanteEnlazado?'completo':'pendiente'):'no_aplica',
-            comprobantes:comprobanteEnlazado?[comprobanteEnlazado]:[]
-        };
-        o.movimientos.push(mov);
-        creados++;
-    });
-
-    _cierreProcesado=null;
-    registrarLog('CIERRE_DIA_CARGADO',{oficinaId, creados, duplicados, fusionados, enlazadosComprobante});
-    save().then(()=>{
-        closeModal();
-        if(typeof renderRegistro==='function') renderRegistro();
-        alert(`✅ Cierre del día cargado:\n\n• ${creados} ingresos nuevos\n• ${fusionados} fusionados con registros ya existentes (ej. cargados por IA)\n• ${duplicados} ya estaban del cierre (no duplicados)\n• ${enlazadosComprobante} enlazados con comprobantes previos\n\nLos pagos electrónicos sin soporte aparecen como "pendiente de soporte".`);
-    });
-}
 
 // Convierte la fecha de pago de WispHub a "YYYY-MM-DDTHH:MM:SS" (fecha + hora local, sin zona).
 // Así el registro muestra la HORA real del pago y queda en el DÍA correcto (sin corrimientos).
@@ -23598,174 +22762,20 @@ function _fechaPagoWisphubISO(str){
 
 // ─── CRUCE INTELIGENTE: comprobante IA ↔ pago del Excel ───
 // Compara por nombre (normalizado) + valor. Devuelve nivel de confianza.
-function _matchComprobantePago(comprobante, pago){
-    // comprobante: {nombreDetectado, valorDetectado, ...}
-    // pago: {cliente, valor, ...}
-    const valorOk = Math.abs((comprobante.valorDetectado||0) - (pago.valor||0)) < 100;
-    if(!valorOk) return false;
-    const nc=_normalizarNombre(comprobante.nombreDetectado||'');
-    const np=_normalizarNombre(pago.cliente||'');
-    if(!nc||!np) return false;
-    // Match exacto o alta similitud
-    if(nc===np) return true;
-    if(_similitudNombres(comprobante.nombreDetectado, pago.cliente) >= 0.6) return true;
-    return false;
-}
+
 
 // Calcular confianza del match (para decidir auto vs confirmar)
-function _confianzaMatch(comprobante, pago){
-    const valorExacto = Math.abs((comprobante.valorDetectado||0) - (pago.valor||0)) < 100;
-    const nc=_normalizarNombre(comprobante.nombreDetectado||'');
-    const np=_normalizarNombre(pago.cliente||'');
-    const nombreExacto = nc===np;
-    const sim=_similitudNombres(comprobante.nombreDetectado||'', pago.cliente||'');
-    if(valorExacto && nombreExacto) return 'alta'; // auto
-    if(valorExacto && sim>=0.6) return 'media'; // confirmar
-    return 'baja';
-}
+
 
 
 
 // ─── ENLAZAR COMPROBANTES CON PAGOS PENDIENTES (IA) ───
 // Carga comprobantes, la IA lee nombre+valor, y los enlaza con los pagos del día.
-function modalEnlazarComprobantes(){
-    const esAdmin=USER.role==='admin';
-    // Contar pagos pendientes de soporte por oficina
-    const html=`
-    <div style="background:rgba(249,115,22,0.08);border:1px solid rgba(249,115,22,0.25);border-radius:10px;padding:12px;margin-bottom:14px;font-size:0.82rem;">
-        <p style="font-weight:700;color:#f97316;margin-bottom:4px;">📎 Enlazar comprobantes a los pagos</p>
-        <p style="color:var(--muted);">Carga los comprobantes (transferencias/Efecty). La IA leerá el nombre y valor de cada uno y lo enlazará automáticamente con el pago correspondiente del día. Si hay dudas, te pedirá confirmación.</p>
-    </div>
 
-    <div class="form-group-dark">
-        <label>¿De qué oficina? *</label>
-        <select id="enlace_oficina" class="form-control" onchange="_actualizarPendientesEnlace()">
-            ${esAdmin?DB.oficinas.map(o=>`<option value="${o.id}">${o.nombre}</option>`).join(''):`<option value="${USER.id}">${(DB.oficinas.find(o=>o.id===USER.id)||{}).nombre||'Mi oficina'}</option>`}
-        </select>
-    </div>
 
-    <div id="enlace_pendientes" style="margin-bottom:12px;"></div>
 
-    <div class="form-group-dark">
-        <label>Comprobantes (imágenes) *</label>
-        <div style="border:2px dashed var(--border);border-radius:8px;padding:20px;text-align:center;">
-            <input type="file" id="enlace_files" accept="image/*" multiple style="display:none" onchange="_procesarComprobantesEnlace(this.files)">
-            <button type="button" class="btn btn-outline" onclick="document.getElementById('enlace_files').click()">📂 Seleccionar comprobantes</button>
-            <p style="font-size:0.72rem;color:var(--muted);margin-top:6px;">Puedes seleccionar varios a la vez</p>
-        </div>
-    </div>
 
-    <div id="enlace_resultado" style="margin-top:12px;"></div>`;
 
-    openModal('📎 Enlazar Comprobantes (IA)', html, `<button class="btn btn-outline" onclick="closeModal()">Cerrar</button>`);
-    setTimeout(_actualizarPendientesEnlace, 50);
-}
-
-function _actualizarPendientesEnlace(){
-    const sel=document.getElementById('enlace_oficina');
-    const cont=document.getElementById('enlace_pendientes');
-    if(!sel||!cont) return;
-    const o=DB.oficinas.find(x=>x.id===sel.value);
-    if(!o){ cont.innerHTML=''; return; }
-    const pendientes=(o.movimientos||[]).filter(m=>m.origen==='cierre_wisphub' && m.estadoSoporte==='pendiente');
-    if(pendientes.length===0){
-        cont.innerHTML='<div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:10px;font-size:0.8rem;color:#10b981;">✅ No hay pagos pendientes de soporte en esta oficina.</div>';
-        return;
-    }
-    const total=pendientes.reduce((s,m)=>s+m.valor,0);
-    cont.innerHTML=`<div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:8px;padding:10px;font-size:0.8rem;">
-        <p style="font-weight:700;color:#f59e0b;margin-bottom:4px;">📎 ${pendientes.length} pagos pendientes de soporte · ${fmtShort(total)}</p>
-        <div style="max-height:120px;overflow-y:auto;color:var(--muted);font-size:0.74rem;line-height:1.6;">
-        ${pendientes.map(m=>`• ${m.clienteWisphub||'?'} · ${fmtShort(m.valor)} · ${m.forma}`).join('<br>')}
-        </div>
-    </div>`;
-}
-
-async function _procesarComprobantesEnlace(files){
-    if(!files||!files.length) return;
-    const oficinaId=document.getElementById('enlace_oficina').value;
-    const o=DB.oficinas.find(x=>x.id===oficinaId);
-    if(!o) return;
-    const resEl=document.getElementById('enlace_resultado');
-    const apiKey=obtenerAPIKey();
-    if(!apiKey){
-        resEl.innerHTML=`<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:14px;font-size:0.82rem;">
-            <p style="font-weight:700;color:#f59e0b;margin-bottom:8px;">🔑 Falta tu API Key de Groq</p>
-            <button class="btn btn-primary btn-sm" onclick="modalConfigurarAPIKey()">⚙️ Configurar API Key</button>
-        </div>`;
-        return;
-    }
-
-    const pendientes=(o.movimientos||[]).filter(m=>m.origen==='cierre_wisphub' && m.estadoSoporte==='pendiente');
-    if(pendientes.length===0){
-        resEl.innerHTML='<p style="color:#10b981;padding:10px;">✅ No hay pagos pendientes para enlazar.</p>';
-        return;
-    }
-
-    resEl.innerHTML='<p style="text-align:center;color:var(--muted);padding:14px;">⏳ Analizando comprobantes con IA...</p>';
-
-    const resultados=[];
-    for(let i=0;i<files.length;i++){
-        const file=files[i];
-        if(!file.type.startsWith('image/')) continue;
-        resEl.innerHTML=`<p style="text-align:center;color:var(--muted);padding:14px;">⏳ Analizando comprobante ${i+1} de ${files.length}...</p>`;
-        try{
-            const b64=await new Promise(res=>{ const r=new FileReader(); r.onload=e=>res(e.target.result); r.readAsDataURL(file); });
-            const analisis=await _analizarComprobanteIA(b64, apiKey);
-            if(!analisis){ resultados.push({file:file.name, error:'No se pudo leer'}); continue; }
-
-            // Buscar el mejor match entre los pendientes (no enlazados aún)
-            const disponibles=pendientes.filter(m=>!m._yaEnlazado);
-            // Candidatos por valor exacto (±100)
-            const porValor=disponibles.filter(m=>Math.abs((analisis.valor||0)-(m.valor||0))<100);
-
-            let mejorPago=null, mejorConfianza='baja';
-
-            // Caso 1: valor coincide y es ÚNICO entre los pendientes → alta confianza
-            //         (el valor identifica el pago aunque el nombre no se lea bien)
-            if(porValor.length===1){
-                mejorPago=porValor[0];
-                // Si además el nombre coincide, es seguro; si no, igual alta porque el valor es único
-                const sim=_similitudNombres(analisis.nombre||'', porValor[0].clienteWisphub||'');
-                mejorConfianza = sim>=0.4 ? 'alta' : 'media'; // sin nombre claro → confirmar
-            }
-            // Caso 2: varios con el mismo valor → desempatar por nombre
-            else if(porValor.length>1){
-                let mejorSim=0;
-                porValor.forEach(m=>{
-                    const sim=_similitudNombres(analisis.nombre||'', m.clienteWisphub||'');
-                    if(sim>mejorSim){ mejorSim=sim; mejorPago=m; }
-                });
-                if(mejorPago) mejorConfianza = mejorSim>=0.6 ? 'alta' : 'media';
-            }
-            // Caso 3: ningún valor coincide → intentar solo por nombre fuerte
-            else {
-                let mejorSim=0;
-                disponibles.forEach(m=>{
-                    const sim=_similitudNombres(analisis.nombre||'', m.clienteWisphub||'');
-                    if(sim>mejorSim){ mejorSim=sim; mejorPago=m; }
-                });
-                if(mejorPago && mejorSim>=0.6) mejorConfianza='media'; // nombre coincide pero valor no → confirmar
-                else mejorPago=null;
-            }
-
-            resultados.push({
-                file:file.name, b64, analisis, mejorPago, confianza:mejorConfianza
-            });
-            // Marcar como tentativamente enlazado para no reusar el mismo pago
-            if(mejorPago && mejorConfianza==='alta') mejorPago._yaEnlazado=true;
-        }catch(e){
-            console.error('Error analizando:',e);
-            resultados.push({file:file.name, error:e.message});
-        }
-    }
-
-    // Limpiar marcas temporales
-    pendientes.forEach(m=>delete m._yaEnlazado);
-
-    _enlaceResultados={oficinaId, resultados};
-    _renderResultadosEnlace();
-}
 
 let _enlaceResultados=null;
 

@@ -8,9 +8,9 @@ autónomas, sin proceso de compilación: se editan directamente y se publican ta
 | Archivo | Para quién | Versión | Tamaño |
 |---|---|---|---|
 | `index.html` | Portal de entrada, solo enlaces | — | 152 líneas |
-| `OFICINAS_PTOVISION.html` | Personal de oficina: caja, cartera, facturas, clientes | `APP_VERSION = 229` | ~23.900 líneas |
-| `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 86` | ~9.000 líneas |
-| `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 76` | ~2.400 líneas |
+| `OFICINAS_PTOVISION.html` | Personal de oficina: caja, cartera, facturas, clientes | `APP_VERSION = 236` | ~23.900 líneas |
+| `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 91` | ~9.000 líneas |
+| `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 78` | ~2.400 líneas |
 | `contrato.js` | Contrato de servicio: **compartido** por OFICINAS y TECNICOS | `?v=2` | ~550 líneas |
 | `wisphub-explorador.html` | Herramienta aparte para explorar la API de WispHub | — | 18 KB |
 
@@ -50,6 +50,21 @@ Corregido en la v89 con `_msDeFechaInv`, que resuelve `DD/MM/AAAA` a mano
 **antes** de `Date.parse`. Efecto medido: los registros archivables pasaron de
 **1 a 458** (216 KB). OFICINAS no tenía el problema porque usa marcas de tiempo
 numéricas (`creada: Date.now()`).
+
+### Fechas: guardar SIEMPRE una marca numérica (v91 / v78)
+
+Las dos apps guardaban las fechas con `toLocaleDateString()`, que en Colombia
+da `DD/MM/AAAA`. `new Date()` espera `MM/DD`, así que fallaba de dos formas:
+`17/8/2026` daba fecha inválida y `5/8/2026` se leía como **8 de mayo**. Eso
+tuvo roto el archivador de bodega durante meses sin que nadie lo notara.
+
+Ahora se guardan **las dos**: el texto (que bodega muestra en pantalla, sin
+cambio visible) y una marca numérica — `fechaMs`, `confirmadoMs`,
+`rechazadoMs`. `_fechaDeRegistroInv` prefiere la numérica; el texto queda de
+respaldo para los registros antiguos, y para esos está `_msDeFechaInv`.
+
+**Al guardar una fecha nueva en cualquier app, añadir siempre su `...Ms`.**
+Un número no admite interpretación; un texto sí.
 
 ### El archivado corre solo (v90)
 
@@ -296,6 +311,47 @@ cartera sola, hacerla **incremental** como la de pagos — no revivir aquella.
 
 **No confundir con el mensaje "Sincronizando con la nube, no cierres la
 ventana"**: ese es el guardado en Firestore, no WispHub.
+
+## IA (Groq) — solo en OFICINAS
+
+116 menciones en OFICINAS, 12 en INVENTARIO y 10 en TECNICOS (estas dos solo
+para el chat de texto). Los usos reales: lectura de comprobantes de pago,
+facturas de energía y un chat con contexto del negocio.
+
+| Uso | Modelo | Estado (17 Ago 2026) |
+|---|---|---|
+| Visión (comprobantes, facturas) | `qwen/qwen3.6-27b` | ✅ **el único con entrada de imágenes en Groq** |
+| Texto (chat) | `llama-3.3-70b-versatile` | ✅ activo |
+
+`GROQ_MODELOS_VISION` es la **única** fuente: todas las llamadas la usan, se
+intenta el primero y si Groq responde 400/404 pasa al siguiente. En la v235 se
+quitaron `llama-4-maverick` (retirado el 9 mar 2026) y `llama-4-scout`
+(retirado el 17 jul 2026), que figuraban como respaldos **estando ya muertos**:
+cada fallo del primero costaba dos llamadas inútiles. Hoy la lista tiene uno
+solo porque no hay alternativa; si Groq publica otra, agregarla ahí.
+
+**Comprobar siempre en <https://console.groq.com/docs/vision> antes de tocar
+modelos.** Groq retira modelos cada pocos meses y falla con 404, no con un aviso.
+
+### ⚠️ La clave de Groq está expuesta
+
+`obtenerAPIKey()` la lee de `DB.config.groqApiKey`, es decir de dentro de
+`oficinas_sistema/main` — el documento que responde **HTTP 200 a peticiones
+anónimas**. Lo mismo con `compsDriveClave` (la de subida a Drive).
+
+A diferencia de las claves de empleados, estas son credenciales de terceros
+utilizables desde cualquier parte sin saber nada del negocio. La solución de
+fondo es la que ya se usa con WispHub: **proxy por el Worker de Cloudflare**,
+con la credencial en el servidor y nunca en el navegador.
+
+### Lo que está bien resuelto
+
+- **Tesseract** (`_leerComprobanteOCR`) lee el comprobante en el propio
+  navegador cuando la IA falla: no se depende de un solo proveedor.
+- Cupo diario agotado: avisa cuántos se leyeron y cuántos faltan, sin perder nada.
+- 401 y 429 tienen mensajes propios y comprensibles.
+- El contexto del chat va **acotado** (`slice(0,10)`, `slice(0,5)`), no la base
+  entera — pero incluye nombre, cédula y teléfono de algunos clientes y empleados.
 
 ## Servicios externos
 
