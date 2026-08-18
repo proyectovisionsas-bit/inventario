@@ -8,9 +8,9 @@ autónomas, sin proceso de compilación: se editan directamente y se publican ta
 | Archivo | Para quién | Versión | Tamaño |
 |---|---|---|---|
 | `index.html` | Portal de entrada, solo enlaces | — | 152 líneas |
-| `OFICINAS_PTOVISION.html` | Personal de oficina: caja, cartera, facturas, clientes | `APP_VERSION = 229` | ~23.900 líneas |
-| `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 86` | ~9.000 líneas |
-| `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 76` | ~2.400 líneas |
+| `OFICINAS_PTOVISION.html` | Personal de oficina: caja, cartera, facturas, clientes | `APP_VERSION = 235` | ~23.900 líneas |
+| `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 90` | ~9.000 líneas |
+| `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 77` | ~2.400 líneas |
 | `contrato.js` | Contrato de servicio: **compartido** por OFICINAS y TECNICOS | `?v=2` | ~550 líneas |
 | `wisphub-explorador.html` | Herramienta aparte para explorar la API de WispHub | — | 18 KB |
 
