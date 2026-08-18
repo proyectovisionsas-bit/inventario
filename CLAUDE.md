@@ -8,9 +8,9 @@ autónomas, sin proceso de compilación: se editan directamente y se publican ta
 | Archivo | Para quién | Versión | Tamaño |
 |---|---|---|---|
 | `index.html` | Portal de entrada, solo enlaces | — | 152 líneas |
-| `OFICINAS_PTOVISION.html` | Personal de oficina: caja, cartera, facturas, clientes | `APP_VERSION = 235` | ~23.900 líneas |
-| `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 90` | ~9.000 líneas |
-| `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 77` | ~2.400 líneas |
+| `OFICINAS_PTOVISION.html` | Personal de oficina: caja, cartera, facturas, clientes | `APP_VERSION = 236` | ~23.900 líneas |
+| `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 91` | ~9.000 líneas |
+| `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 78` | ~2.400 líneas |
 | `contrato.js` | Contrato de servicio: **compartido** por OFICINAS y TECNICOS | `?v=2` | ~550 líneas |
 | `wisphub-explorador.html` | Herramienta aparte para explorar la API de WispHub | — | 18 KB |
 
@@ -50,6 +50,21 @@ Corregido en la v89 con `_msDeFechaInv`, que resuelve `DD/MM/AAAA` a mano
 **antes** de `Date.parse`. Efecto medido: los registros archivables pasaron de
 **1 a 458** (216 KB). OFICINAS no tenía el problema porque usa marcas de tiempo
 numéricas (`creada: Date.now()`).
+
+### Fechas: guardar SIEMPRE una marca numérica (v91 / v78)
+
+Las dos apps guardaban las fechas con `toLocaleDateString()`, que en Colombia
+da `DD/MM/AAAA`. `new Date()` espera `MM/DD`, así que fallaba de dos formas:
+`17/8/2026` daba fecha inválida y `5/8/2026` se leía como **8 de mayo**. Eso
+tuvo roto el archivador de bodega durante meses sin que nadie lo notara.
+
+Ahora se guardan **las dos**: el texto (que bodega muestra en pantalla, sin
+cambio visible) y una marca numérica — `fechaMs`, `confirmadoMs`,
+`rechazadoMs`. `_fechaDeRegistroInv` prefiere la numérica; el texto queda de
+respaldo para los registros antiguos, y para esos está `_msDeFechaInv`.
+
+**Al guardar una fecha nueva en cualquier app, añadir siempre su `...Ms`.**
+Un número no admite interpretación; un texto sí.
 
 ### El archivado corre solo (v90)
 
