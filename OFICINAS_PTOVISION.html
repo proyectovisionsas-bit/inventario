@@ -2273,14 +2273,29 @@ document.addEventListener('input', function(e){
     window._ultimaTeclaApp = Date.now();
 }, true);
 
-const _MARGEN_ESCRITURA_MS = 45000;
+const _MARGEN_ESCRITURA_MS = 45000;   // tecleando ahora mismo
+const _TOPE_CAMPO_MS      = 180000;  // texto olvidado en un campo enfocado
 
 function _estaEscribiendo(){
     try{
+        const desdeTecla = Date.now() - (window._ultimaTeclaApp||0);
+        // 1) Tecleando ahora mismo: siempre se aplaza.
+        if(desdeTecla < _MARGEN_ESCRITURA_MS) return true;
+        // 2) Modal abierto: puede tener un formulario a medias.
+        if(document.querySelector('#modal.show')) return true;
+        // 3) v239 CORRECCIÓN: antes bastaba con que el cursor ESTUVIERA dentro de un
+        // campo, tuviera texto o no, y sin ningún tope. Un cursor olvidado en el
+        // buscador congelaba el refresco de la vista PARA SIEMPRE: los datos de
+        // WispHub entraban a la base pero la pantalla nunca los mostraba, y parecía
+        // que la sincronización no estaba funcionando. Ahora un campo enfocado solo
+        // aplaza si tiene algo escrito QUE SE PERDERÍA, y solo durante los 3 minutos
+        // siguientes a la última tecla. Un campo vacío no aplaza nunca.
         const a = document.activeElement;
-        if(a && /^(INPUT|TEXTAREA)$/.test(a.tagName) && a.type !== 'checkbox' && a.type !== 'radio') return true;
-        if(document.querySelector('#modal.show')) return true;   // modal abierto: puede tener un formulario a medias
-        return (Date.now() - (window._ultimaTeclaApp||0)) < _MARGEN_ESCRITURA_MS;
+        if(a && /^(INPUT|TEXTAREA)$/.test(a.tagName) && a.type !== 'checkbox' && a.type !== 'radio'
+           && a.value && String(a.value).length){
+            return desdeTecla < _TOPE_CAMPO_MS;
+        }
+        return false;
     }catch(e){ return false; }
 }
 
