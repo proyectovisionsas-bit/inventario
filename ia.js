@@ -13,7 +13,7 @@
 //   PV_IA.vision({...})   -> lee imágenes; devuelve la respuesta como cadena
 //   PV_IA.json({...})     -> igual que los anteriores pero devuelve el objeto ya
 //                            interpretado (pide a Groq que responda en JSON)
-//   PV_IA.MODELO_TEXTO    -> el modelo de texto vigente
+//   PV_IA.MODELOS_TEXTO  -> lista de modelos de texto (el 1o, y respaldos)
 //   PV_IA.MODELOS_VISION  -> lista de modelos que leen imágenes
 //   PV_IA.mensajeDeError(e) -> texto claro y en español para mostrarle al usuario
 //
@@ -43,16 +43,20 @@
   var URL_GROQ = 'https://api.groq.com/openai/v1/chat/completions';
 
   // ── Modelos ────────────────────────────────────────────────────────
-  // Groq retira modelos cada pocos meses (ya pasó con llama-4-maverick y
-  // llama-4-scout). Cambiar AQUÍ y las tres apps quedan al día.
-  // Fuente: https://console.groq.com/docs/models  ·  Revisado: 18 ago 2026.
-  var MODELO_TEXTO = 'llama-3.3-70b-versatile';
+  // Groq retira modelos cada pocos meses. Ya pasó con llama-4-maverick,
+  // llama-4-scout y, el 18 ago 2026, con llama-3.3-70b-versatile: el
+  // asistente dejó de responder de un día para otro con un HTTP 404.
+  // Por eso TEXTO también lleva lista de respaldo, no solo VISION: si el
+  // primero desaparece, se pasa solo al siguiente en vez de caerse.
+  // Comprobado contra la API de Groq (GET /openai/v1/models) el 18 ago 2026.
+  // Para actualizar: cambiar AQUÍ y las tres apps quedan al día.
+  var MODELOS_TEXTO = ['openai/gpt-oss-120b', 'qwen/qwen3.6-27b'];
   var MODELOS_VISION = ['qwen/qwen3.6-27b'];
+  var MODELO_TEXTO = MODELOS_TEXTO[0];   // el vigente, por comodidad
 
-  // Cuál de la lista de visión está funcionando ahora. Si Groq retira el
-  // primero, se pasa al siguiente y se recuerda, para no repetir el fallo
-  // en cada imagen de una misma tanda.
-  var idxVision = 0;
+  // Cuál de cada lista está funcionando ahora. Si Groq retira el primero, se
+  // pasa al siguiente y se recuerda, para no repetir el fallo en cada llamada.
+  var idxRecordado = { vision: 0, texto: 0 };
 
   function fallo(tipo, mensaje, extra) {
     var e = new Error(mensaje);
@@ -123,17 +127,29 @@
     if (!op.messages || !op.messages.length) throw fallo('http', 'No hay nada que preguntarle a la IA.');
 
     var modelos = op.modelos && op.modelos.length ? op.modelos.slice() : [op.modelo || MODELO_TEXTO];
-    var esVision = !!(op.modelos && op.modelos.length);
-    var i = esVision ? Math.min(idxVision, modelos.length - 1) : 0;
+    // Con qué llave recordar el modelo que funciona ('vision' o 'texto').
+    var memoria = op.memoria || null;
+    var i = memoria ? Math.min(idxRecordado[memoria] || 0, modelos.length - 1) : 0;
     var timeoutMs = op.timeoutMs || 90000;
     var maxReintentos = (op.reintentos === undefined) ? 2 : op.reintentos;
+
+    // Los modelos de Groq de 2026 RAZONAN antes de contestar, y ese razonamiento
+    // gasta tokens del mismo presupuesto que la respuesta. Medido el 18 ago 2026:
+    // qwen3.6-27b con 200 tokens devuelve la respuesta VACIA porque el
+    // razonamiento se los comio entero. Por eso hay un suelo: sin el, un
+    // comprobante podia salir sin datos sin ninguna explicacion.
+    var tokens = Math.max(op.maxTokens || 1000, 1200);
 
     var cuerpoCon = function (modelo) {
       var b = {
         model: modelo,
         messages: op.messages,
         temperature: (op.temperature === undefined) ? 0.2 : op.temperature,
-        max_tokens: op.maxTokens || 1000
+        max_tokens: tokens,
+        // Que el razonamiento NO venga mezclado en la respuesta. Sin esto,
+        // qwen devuelve un bloque <think>...</think> pegado al texto y el
+        // asistente se lo mostraba tal cual a la persona.
+        reasoning_format: 'hidden'
       };
       if (op.json) b.response_format = { type: 'json_object' };
       return JSON.stringify(b);
@@ -168,7 +184,7 @@
       // ── Groq retiró el modelo: pasar al siguiente de la lista ──
       if ((respuesta.status === 404 || respuesta.status === 400) && i < modelos.length - 1) {
         i++;
-        if (esVision) idxVision = i;
+        if (memoria) idxRecordado[memoria] = i;
         respuesta = await enviar(cuerpoCon(modelos[i]), apiKey, timeoutMs);
         continue;
       }
@@ -195,17 +211,31 @@
     }
 
     var datos = await respuesta.json();
-    var contenido = datos && datos.choices && datos.choices[0] &&
-                    datos.choices[0].message && datos.choices[0].message.content;
-    if (!contenido) throw fallo('http', 'La IA respondió vacío. Vuelve a intentarlo.');
-    if (esVision) idxVision = i;
-    return String(contenido);
+    var eleccion = datos && datos.choices && datos.choices[0];
+    var contenido = eleccion && eleccion.message && eleccion.message.content;
+
+    // Red de seguridad: si algún modelo ignora reasoning_format y cuela su
+    // razonamiento en la respuesta, se quita aquí en vez de enseñárselo a nadie.
+    contenido = String(contenido || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+
+    if (!contenido) {
+      // Distinguir "se quedó sin tokens pensando" de "no contestó nada":
+      // el primero se arregla pidiendo menos datos, el segundo reintentando.
+      if (eleccion && eleccion.finish_reason === 'length') {
+        throw fallo('grande',
+          'La IA gastó todo su margen razonando y no alcanzó a responder. Acota la consulta a una oficina, un periodo o un cliente.');
+      }
+      throw fallo('http', 'La IA respondió vacío. Vuelve a intentarlo.');
+    }
+    if (memoria) idxRecordado[memoria] = i;
+    return contenido;
   }
 
   // ── Envoltorios ────────────────────────────────────────────────────
   function texto(op) {
     op = Object.assign({}, op);
-    op.modelo = op.modelo || MODELO_TEXTO;
+    if (!op.modelo) op.modelos = op.modelos || MODELOS_TEXTO;
+    op.memoria = op.memoria || 'texto';
     if (op.temperature === undefined) op.temperature = 0.4;
     if (!op.maxTokens) op.maxTokens = 800;
     return llamar(op);
@@ -214,6 +244,7 @@
   function vision(op) {
     op = Object.assign({}, op);
     op.modelos = op.modelos || MODELOS_VISION;
+    op.memoria = op.memoria || 'vision';
     if (op.temperature === undefined) op.temperature = 0.1;
     if (!op.maxTokens) op.maxTokens = 1500;
     return llamar(op);
@@ -262,6 +293,7 @@
 
   window.PV_IA = {
     MODELO_TEXTO: MODELO_TEXTO,
+    MODELOS_TEXTO: MODELOS_TEXTO,
     MODELOS_VISION: MODELOS_VISION,
     texto: texto,
     vision: vision,
