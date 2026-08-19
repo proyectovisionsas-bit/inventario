@@ -35,6 +35,7 @@
 //   'tiempo'         Groq no respondió a tiempo
 //   'red'            no hubo conexión
 //   'modelo'         Groq retiró el modelo y no queda ninguno de respaldo
+//   'imagen'         la foto o el archivo no se pudo leer (p.ej. un PDF)
 //   'http'           cualquier otro error del servidor
 // ════════════════════════════════════════════════════════════════════
 (function () {
@@ -181,12 +182,35 @@
         continue;
       }
 
-      // ── Groq retiró el modelo: pasar al siguiente de la lista ──
-      if ((respuesta.status === 404 || respuesta.status === 400) && i < modelos.length - 1) {
-        i++;
-        if (memoria) idxRecordado[memoria] = i;
-        respuesta = await enviar(cuerpoCon(modelos[i]), apiKey, timeoutMs);
-        continue;
+      // ── 400 y 404 son cosas MUY distintas, aunque las dos suenen a error ──
+      // Comprobado contra Groq el 18 ago 2026:
+      //   404 "The model X does not exist"  -> lo retiraron, hay que cambiarlo
+      //   400 "invalid image data"          -> la FOTO no sirve (p.ej. un PDF)
+      // Antes se trataban igual: al subir un PDF, la app decía que el modelo ya
+      // no existía, que es falso y manda a buscar el problema donde no está.
+      if (respuesta.status === 404 || respuesta.status === 400) {
+        var txtErr = '';
+        try { txtErr = await respuesta.clone().text(); } catch (e) {}
+        var modeloNoExiste = respuesta.status === 404 || /does not exist|decommission|model_not_found/i.test(txtErr);
+        if (modeloNoExiste && i < modelos.length - 1) {
+          i++;                                   // probar el siguiente de la lista
+          if (memoria) idxRecordado[memoria] = i;
+          respuesta = await enviar(cuerpoCon(modelos[i]), apiKey, timeoutMs);
+          continue;
+        }
+        if (modeloNoExiste) {
+          throw fallo('modelo',
+            'El modelo de IA ya no está disponible en Groq. Hay que actualizar la lista en ia.js.', txtErr);
+        }
+        if (/invalid image|image data|unsupported image/i.test(txtErr)) {
+          throw fallo('imagen',
+            'La IA no pudo leer el archivo. Si es un PDF, conviértelo a foto (o toma una captura); si es una foto, revisa que no esté dañada.', txtErr);
+        }
+        if (esConsultaMuyGrande(respuesta.status, txtErr)) {
+          throw fallo('grande',
+            'La consulta lleva demasiada información. Acótala a una oficina, un periodo o un cliente.', txtErr);
+        }
+        throw fallo('http', 'La IA rechazó la petición (' + respuesta.status + ').', txtErr);
       }
 
       break;
@@ -203,10 +227,7 @@
         throw fallo('grande',
           'La consulta lleva demasiada información. Acótala a una oficina, un periodo o un cliente.', txt);
       }
-      if (respuesta.status === 404 || respuesta.status === 400) {
-        throw fallo('modelo',
-          'El modelo de IA ya no está disponible en Groq. Hay que actualizar la lista en ia.js.', txt);
-      }
+      // Los 400/404 ya se clasificaron arriba, con el texto del error en la mano.
       throw fallo('http', 'La IA devolvió un error (' + respuesta.status + ').', txt);
     }
 
@@ -255,6 +276,21 @@
   // directo falla se rescata el primer bloque {...} de la respuesta.
   async function json(op) {
     op = Object.assign({}, op, { json: true });
+
+    // Groq EXIGE que la palabra "json" aparezca en los mensajes para aceptar
+    // response_format:json_object; si no, responde 400 con un mensaje que no
+    // dice nada útil a quien usa la app. Los prompts de hoy la llevan, pero
+    // basta reescribir uno sin darse cuenta para romperlo. Si falta, se añade.
+    try {
+      var textoTodo = JSON.stringify(op.messages || []);
+      if (textoTodo.toLowerCase().indexOf('json') < 0) {
+        op.messages = (op.messages || []).concat([{
+          role: 'system',
+          content: 'Responde únicamente con un objeto JSON válido, sin texto alrededor.'
+        }]);
+      }
+    } catch (e) {}
+
     var crudo = (op.modelos || op.imagenes) ? await vision(op) : await texto(op);
     try {
       return JSON.parse(crudo);
@@ -278,6 +314,7 @@
       case 'tiempo':        return '⏱️ ' + e.message;
       case 'red':           return '📡 ' + e.message;
       case 'modelo':        return '⚠️ ' + e.message;
+      case 'imagen':        return '🖼️ ' + e.message;
       default:              return '⚠️ ' + (e.message || 'Error con la IA.');
     }
   }
