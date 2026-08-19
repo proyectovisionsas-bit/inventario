@@ -10,6 +10,8 @@
     <script src="https://accounts.google.com/gsi/client" async defer></script>
 <!-- Contrato de servicio: código compartido con TECNICOS. Editar contrato.js, no copiarlo aquí. -->
 <script src="contrato.js?v=2"></script>
+<!-- IA: una sola forma de hablar con Groq para las tres apps. Editar ia.js. -->
+<script src="ia.js?v=1"></script>
     <!-- ░░ PWA: instalable en celulares (sin archivos extra) ░░ -->
     <meta name="theme-color" content="#16a34a">
     <meta name="mobile-web-app-capable" content="yes">
@@ -894,7 +896,7 @@ let db = null;
 const DOC_ID = 'main'; // documento único en colección "oficinas_sistema"
 // ─── CONTROL DE VERSIÓN ───
 // Incrementa este número cada vez que publiques una actualización.
-const APP_VERSION = 238; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 239; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -915,7 +917,7 @@ const APP_VERSION = 238; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '18 Ago 2026 (v238 - USUARIOS NUEVOS Y CANCELADOS EN REPORTES: DOS FALLOS DISTINTOS. [1] El filtro de periodo _enPerRep CORTABA la cadena de la fecha con slice en vez de interpretarla. Con formato ISO (2026-08-18) coincidia, pero con el formato colombiano (18/08/2026 10:30) el corte daba 18/08/2 y no coincidia con NINGUN mes. De 2.713 clientes, 979 tienen la fecha de instalacion en formato colombiano: quedaban invisibles. Medido sobre los datos reales, en julio hubo 111 instalaciones y el reporte mostraba 11. Y las 7 fechas de cancelacion que existen estan TODAS en formato colombiano, por eso CANCELADOS salia siempre en cero. Ahora usa _diaDeFecha, que ya sabia leer los dos formatos. De paso, el periodo de hoy comparaba contra la fecha UTC: despues de las 7pm en Colombia eso ya es el dia siguiente y el contador se vaciaba; ahora compara contra el dia local. [2] Aun con el formato corregido los numeros quedaban cortos, porque contaban SOLO el campo del cliente que llega de WispHub. La realidad operativa vive en las ordenes de trabajo: una instalacion finalizada ya es un cliente nuevo aunque WispHub no lo refleje todavia, y un retiro se registra como orden de recogida, no como fechaCancelacion. Ahora se cuenta la UNION de las dos fuentes sin repetir a la misma persona: se agrupa por cedula y, si falta, por nombre normalizado. En agosto ESNEIDER pasa de 3 a 8 nuevos y de 0 a 11 cancelados, y el deduplicado agrupo bien dos recogidas de la misma persona escrita de dos formas distintas. El desglose que se abre al hacer clic muestra la misma lista que el contador. Las fichas de los clientes NO se modifican: la fecha de la orden se escribe sobre una copia.) v237 - REPORTE DE WISPHUB: TRASLADOS E INSTALACIONES QUE NO APARECIAN. El analisis arma la lista de facturas pagadas desde DOS fuentes. La primera (historial de facturas) clasificaba el concepto con _categoriaConcepto. La segunda (pagos registrados en la app y ligados a una factura de WispHub) lo aplastaba en solo dos etiquetas: Otro Ingreso o Mensualidad. Como la validacion de traslados filtra por concepto igual a Traslado, los que entraban por la segunda via NUNCA se encontraban. Medido sobre los datos reales: de 9.219 pagos que pasan por ahi, 86 son traslados y 28 instalaciones que el reporte no mostraba, ademas de 2.179 de Renta y mantenimiento que quedaban mezclados. Ahora las dos fuentes usan el mismo clasificador. El reparto del DINERO no cambia: montoOtros lo sigue decidiendo _esOtroMovWH por el tipo de factura, no por el texto. v236 - SE ELIMINARON 30 FUNCIONES MUERTAS (53 KB). Eran versiones anteriores que quedaron al lado de las que si se usan, el mismo patron del modulo RRHH: un modulo viejo de comisiones, y los modales de importar morosos, cargar cierre de dia y enlazar comprobantes, cada uno con su reemplazo vivo (modalConfigRecogidas, modalBorrarCierre, modalComprobantes). Al quitarlos, sus ayudantes se quedaron sin quien los llamara, asi que el borrado se hizo en cascada hasta que no aparecieron mas: 16 en la primera ronda, 13 en la segunda, 1 en la tercera. Verificado que no hay invocacion dinamica (window[...], eval, setTimeout con cadenas) que pudiera ocultar un uso. Se conservo init, que parecia muerta pero es una funcion auto-ejecutada que arranca la app. v235 - SE QUITARON LOS MODELOS DE IA RETIRADOS. La lista de vision tenia tres: qwen3.6-27b (vivo) y como respaldos llama-4-maverick y llama-4-scout, que Groq ya habia retirado el 9 de marzo y el 17 de julio de 2026. Estaban muertos incluso el dia que se anotaron como respaldos (la revision anterior decia 18 jul, un dia despues del retiro de scout). Devolvian 404, asi que cada fallo del modelo principal costaba dos llamadas inutiles antes de rendirse. Hoy la lista tiene uno solo porque qwen3.6-27b es el UNICO modelo con entrada de imagenes que ofrece Groq. El modelo de texto llama-3.3-70b-versatile sigue activo y no se toco. v234 - SE ELIMINO LA SINCRONIZACION AUTOMATICA GRANDE, que llevaba tiempo desactivada (retornaba en la primera linea) y arrastraba tres funciones inalcanzables. Traia el historico COMPLETO de facturas cada 15 minutos y por cada oficina, sin filtro de fecha: casi seguro el motivo de que alguien la apagara. Ya no aporta nada, porque la sincronizacion de pagos que si corre consulta por fecha_pago y no por fecha de emision, asi que trae los pagos aunque la factura sea de hace un ano, y el historial de facturas se sincroniza a diario desde los botones manuales. Si alguna vez hace falta refrescar la cartera sola, hay que hacerla incremental como la de pagos. v233 - COMPROBANTES CON IA EN PAGOS DEL ADMIN. Boton nuevo: se cargan varias imagenes o PDF, la IA lee el valor y la fecha de cada uno, y el admin revisa fila por fila que valor tiene y a que oficinas pertenece antes de guardar. Un comprobante = un pago, y todo el lote se guarda de una sola vez. Los PDF antes no los leia la IA (se saltaban por no ser imagen): ahora se dibuja su primera pagina con pdf.js, que se carga solo cuando hace falta. Para no duplicar la logica de dinero se extrajo el nucleo de guardarPagoAdmin a _registrarPagoAdminCore, que usan tanto el formulario de siempre como la carga por lote; el formulario quedo verificado con el mismo comportamiento de antes. v232 - [1] LA SINCRONIZACION YA NO BORRA LO QUE SE ESTA ESCRIBIENDO. Al llegar datos de otra sesion, _recargarVistaSilenciosa redibujaba la vista activa y con ella el formulario a medio llenar (reportado en Pagos del admin, pero pasaba en cualquier vista). Ahora, si hay algo escribiendose, el redibujado se APLAZA y se reintenta a los 5 segundos. La regla es si esta escribiendo AHORA (cursor en un campo, un modal abierto, o tecleo hace menos de 45 segundos), no si hay texto: de lo contrario un buscador con texto olvidado congelaria la vista para siempre. [2] LA CALCULADORA FUNCIONA CON TECLADO, incluido el numerico: digitos, + - * /, Enter o = para calcular, Backspace para borrar, Escape para limpiar, coma o punto como decimal y % en la de Pagos. No intercepta teclas si el cursor esta en un campo ni con Ctrl/Alt/Cmd. v231 - WISPHUB. Nota: SI hay sincronizacion automatica de pagos (_programarSyncRapida corre 9 segundos despues de abrir y cada 12 minutos, trayendo los pagos de los ultimos 4 dias); la que esta desactivada es la OTRA, la de clientes y facturas completas. La rapida no tiene el problema de truncamiento porque pagina sin tope, salta facturas ya aplicadas y reintenta los dias que fallaron. DOS SILENCIOS QUE AHORA AVISAN. [1] La paginacion tiene topes (15.000 clientes, 60.000 facturas). Si WispHub tenia mas, devolvia menos SIN DECIR NADA y los informes salian incompletos pareciendo correctos; ahora avisa cuantos faltan. Con 2.711 clientes hay margen de sobra, pero a ~32.500 facturas al ano el tope de facturas se alcanza en menos de dos anos. [2] Una oficina sin zonas configuradas se trae TODOS los clientes de su cuenta; si la comparte con otra oficina, eso mezcla las carteras. Hoy ninguna esta asi (ESNEIDER y NATALIA comparten cuenta pero ambas tienen zonas), pero nada lo impedia: ahora avisa antes de mezclar. v230 - Se acotaron los escalones de bonificacion: parseInt(valor)||0 no atrapa negativos, y son valores de dinero. v229 - PDF DEL CONTRATO Y COMPARTIR. En la lista de contratos del cliente aparece el boton PDF: genera el contrato en PDF real (3 paginas carta) y lo comparte. Desde CELULAR abre el menu nativo con el archivo ADJUNTO, WhatsApp incluido; desde computador el navegador no permite adjuntar, asi que se descarga y se avisa. Ademas la firma se movio a contrato.js para que TECNICOS use la misma, sin copias. Las librerias de PDF (jsPDF y html2canvas) se cargan solo cuando se pide un PDF, no en cada arranque. Incluye v228: firma presencial. v227: contratos por cliente. v226: condiciones por oficina. v225: contrato.js compartido.)';
+const APP_VERSION_FECHA = '18 Ago 2026 (v239 - IA: UNA SOLA FORMA DE HABLAR CON GROQ EN LAS TRES APPS. Habia SIETE llamadas a Groq repartidas por OFICINAS, TECNICOS e INVENTARIO, cada una con su propio manejo de errores y de calidad muy desigual. NINGUNA tenia tiempo limite: si Groq no respondia (se cae, se satura, el celular pierde senal a mitad) la app se quedaba girando para siempre y no habia mas salida que cerrarla y volver a abrirla. Solo UNA sabia esperar cuando Groq contesta que vas muy rapido: la carga de comprobantes por lote, que lee cuantos segundos pide, distingue el limite del minuto del limite del DIA y reintenta avisando en pantalla; las otras seis se rendian al primer intento. El respaldo por si Groq retira el modelo tambien vivia en un solo sitio. Ahora todo pasa por ia.js, cargado por las tres apps igual que contrato.js: tiempo limite (90s, 120s para lotes de fotos), reintento que respeta lo que Groq pide, deteccion del limite diario, respaldo de modelo, y errores con etiqueta para que cada pantalla muestre un mensaje entendible en vez de HTTP 429. La carga por lote conserva su logica de partir el lote cuando se excede el cupo de tokens por minuto, que ya funcionaba: solo se le anadio el tiempo limite. De aqui en adelante cualquier mejora de IA se hace en un solo archivo. ADEMAS, LA IA YA PUEDE DECIR QUE NO ESTA SEGURA. El lector de comprobantes tenia una instruccion que lo empujaba a adivinar (NUNCA dejes el nombre vacio) y ninguna forma de avisar cuando la foto estaba borrosa o cortada: devolvia un numero con la misma seguridad lo leyera bien o mal, y ese numero se guardaba como un pago. Ahora responde tambien un nivel de confianza (alta, media o baja) y, si no ve un nombre legible, responde vacio en vez de inventarlo. Cuando la confianza es baja, la fila sale marcada en naranja pidiendole al admin que compruebe el monto contra el comprobante antes de guardar. Probado: un monto ilegible que la IA leyo como 4.000 ya no pasa en silencio. Se eliminaron 4 constantes GROQ_URL que quedaron sin uso.ADEMAS SE CORRIGIO UNA REGRESION DE LA v232: UN CURSOR OLVIDADO EN UN CAMPO CONGELABA EL REFRESCO DE LA VISTA. Al hacer que la sincronizacion no borrara lo que se estaba escribiendo, _estaEscribiendo devolvia true con solo que el cursor ESTUVIERA dentro de un campo de texto, tuviera contenido o no, y sin ningun tope de tiempo; el reintento comprobaba la misma condicion cada 5 segundos, asi que nunca se cumplia. En la practica: alguien hacia clic en el buscador de clientes o de pagos, dejaba el cursor ahi y seguia trabajando, y desde ese momento la vista NO se volvia a dibujar. Los pagos de WispHub seguian entrando a la base cada 12 minutos (sincronizarRapidaPagos nunca dejo de funcionar), pero la pantalla se quedaba congelada y parecia que la sincronizacion se habia muerto. Medido antes del arreglo: con el cursor en un campo VACIO y una hora sin tocar una tecla, seguia aplazando. Ahora se aplaza si se teclea hace menos de 45 segundos, si hay un modal abierto, o si el campo enfocado tiene texto y la ultima tecla fue hace menos de 3 minutos; un campo vacio no aplaza nunca. Verificado con 7 casos en el navegador.) v238 - USUARIOS NUEVOS Y CANCELADOS EN REPORTES: DOS FALLOS DISTINTOS. [1] El filtro de periodo _enPerRep CORTABA la cadena de la fecha con slice en vez de interpretarla. Con formato ISO (2026-08-18) coincidia, pero con el formato colombiano (18/08/2026 10:30) el corte daba 18/08/2 y no coincidia con NINGUN mes. De 2.713 clientes, 979 tienen la fecha de instalacion en formato colombiano: quedaban invisibles. Medido sobre los datos reales, en julio hubo 111 instalaciones y el reporte mostraba 11. Y las 7 fechas de cancelacion que existen estan TODAS en formato colombiano, por eso CANCELADOS salia siempre en cero. Ahora usa _diaDeFecha, que ya sabia leer los dos formatos. De paso, el periodo de hoy comparaba contra la fecha UTC: despues de las 7pm en Colombia eso ya es el dia siguiente y el contador se vaciaba; ahora compara contra el dia local. [2] Aun con el formato corregido los numeros quedaban cortos, porque contaban SOLO el campo del cliente que llega de WispHub. La realidad operativa vive en las ordenes de trabajo: una instalacion finalizada ya es un cliente nuevo aunque WispHub no lo refleje todavia, y un retiro se registra como orden de recogida, no como fechaCancelacion. Ahora se cuenta la UNION de las dos fuentes sin repetir a la misma persona: se agrupa por cedula y, si falta, por nombre normalizado. En agosto ESNEIDER pasa de 3 a 8 nuevos y de 0 a 11 cancelados, y el deduplicado agrupo bien dos recogidas de la misma persona escrita de dos formas distintas. El desglose que se abre al hacer clic muestra la misma lista que el contador. Las fichas de los clientes NO se modifican: la fecha de la orden se escribe sobre una copia.) v237 - REPORTE DE WISPHUB: TRASLADOS E INSTALACIONES QUE NO APARECIAN. El analisis arma la lista de facturas pagadas desde DOS fuentes. La primera (historial de facturas) clasificaba el concepto con _categoriaConcepto. La segunda (pagos registrados en la app y ligados a una factura de WispHub) lo aplastaba en solo dos etiquetas: Otro Ingreso o Mensualidad. Como la validacion de traslados filtra por concepto igual a Traslado, los que entraban por la segunda via NUNCA se encontraban. Medido sobre los datos reales: de 9.219 pagos que pasan por ahi, 86 son traslados y 28 instalaciones que el reporte no mostraba, ademas de 2.179 de Renta y mantenimiento que quedaban mezclados. Ahora las dos fuentes usan el mismo clasificador. El reparto del DINERO no cambia: montoOtros lo sigue decidiendo _esOtroMovWH por el tipo de factura, no por el texto. v236 - SE ELIMINARON 30 FUNCIONES MUERTAS (53 KB). Eran versiones anteriores que quedaron al lado de las que si se usan, el mismo patron del modulo RRHH: un modulo viejo de comisiones, y los modales de importar morosos, cargar cierre de dia y enlazar comprobantes, cada uno con su reemplazo vivo (modalConfigRecogidas, modalBorrarCierre, modalComprobantes). Al quitarlos, sus ayudantes se quedaron sin quien los llamara, asi que el borrado se hizo en cascada hasta que no aparecieron mas: 16 en la primera ronda, 13 en la segunda, 1 en la tercera. Verificado que no hay invocacion dinamica (window[...], eval, setTimeout con cadenas) que pudiera ocultar un uso. Se conservo init, que parecia muerta pero es una funcion auto-ejecutada que arranca la app. v235 - SE QUITARON LOS MODELOS DE IA RETIRADOS. La lista de vision tenia tres: qwen3.6-27b (vivo) y como respaldos llama-4-maverick y llama-4-scout, que Groq ya habia retirado el 9 de marzo y el 17 de julio de 2026. Estaban muertos incluso el dia que se anotaron como respaldos (la revision anterior decia 18 jul, un dia despues del retiro de scout). Devolvian 404, asi que cada fallo del modelo principal costaba dos llamadas inutiles antes de rendirse. Hoy la lista tiene uno solo porque qwen3.6-27b es el UNICO modelo con entrada de imagenes que ofrece Groq. El modelo de texto llama-3.3-70b-versatile sigue activo y no se toco. v234 - SE ELIMINO LA SINCRONIZACION AUTOMATICA GRANDE, que llevaba tiempo desactivada (retornaba en la primera linea) y arrastraba tres funciones inalcanzables. Traia el historico COMPLETO de facturas cada 15 minutos y por cada oficina, sin filtro de fecha: casi seguro el motivo de que alguien la apagara. Ya no aporta nada, porque la sincronizacion de pagos que si corre consulta por fecha_pago y no por fecha de emision, asi que trae los pagos aunque la factura sea de hace un ano, y el historial de facturas se sincroniza a diario desde los botones manuales. Si alguna vez hace falta refrescar la cartera sola, hay que hacerla incremental como la de pagos. v233 - COMPROBANTES CON IA EN PAGOS DEL ADMIN. Boton nuevo: se cargan varias imagenes o PDF, la IA lee el valor y la fecha de cada uno, y el admin revisa fila por fila que valor tiene y a que oficinas pertenece antes de guardar. Un comprobante = un pago, y todo el lote se guarda de una sola vez. Los PDF antes no los leia la IA (se saltaban por no ser imagen): ahora se dibuja su primera pagina con pdf.js, que se carga solo cuando hace falta. Para no duplicar la logica de dinero se extrajo el nucleo de guardarPagoAdmin a _registrarPagoAdminCore, que usan tanto el formulario de siempre como la carga por lote; el formulario quedo verificado con el mismo comportamiento de antes. v232 - [1] LA SINCRONIZACION YA NO BORRA LO QUE SE ESTA ESCRIBIENDO. Al llegar datos de otra sesion, _recargarVistaSilenciosa redibujaba la vista activa y con ella el formulario a medio llenar (reportado en Pagos del admin, pero pasaba en cualquier vista). Ahora, si hay algo escribiendose, el redibujado se APLAZA y se reintenta a los 5 segundos. La regla es si esta escribiendo AHORA (cursor en un campo, un modal abierto, o tecleo hace menos de 45 segundos), no si hay texto: de lo contrario un buscador con texto olvidado congelaria la vista para siempre. [2] LA CALCULADORA FUNCIONA CON TECLADO, incluido el numerico: digitos, + - * /, Enter o = para calcular, Backspace para borrar, Escape para limpiar, coma o punto como decimal y % en la de Pagos. No intercepta teclas si el cursor esta en un campo ni con Ctrl/Alt/Cmd. v231 - WISPHUB. Nota: SI hay sincronizacion automatica de pagos (_programarSyncRapida corre 9 segundos despues de abrir y cada 12 minutos, trayendo los pagos de los ultimos 4 dias); la que esta desactivada es la OTRA, la de clientes y facturas completas. La rapida no tiene el problema de truncamiento porque pagina sin tope, salta facturas ya aplicadas y reintenta los dias que fallaron. DOS SILENCIOS QUE AHORA AVISAN. [1] La paginacion tiene topes (15.000 clientes, 60.000 facturas). Si WispHub tenia mas, devolvia menos SIN DECIR NADA y los informes salian incompletos pareciendo correctos; ahora avisa cuantos faltan. Con 2.711 clientes hay margen de sobra, pero a ~32.500 facturas al ano el tope de facturas se alcanza en menos de dos anos. [2] Una oficina sin zonas configuradas se trae TODOS los clientes de su cuenta; si la comparte con otra oficina, eso mezcla las carteras. Hoy ninguna esta asi (ESNEIDER y NATALIA comparten cuenta pero ambas tienen zonas), pero nada lo impedia: ahora avisa antes de mezclar. v230 - Se acotaron los escalones de bonificacion: parseInt(valor)||0 no atrapa negativos, y son valores de dinero. v229 - PDF DEL CONTRATO Y COMPARTIR. En la lista de contratos del cliente aparece el boton PDF: genera el contrato en PDF real (3 paginas carta) y lo comparte. Desde CELULAR abre el menu nativo con el archivo ADJUNTO, WhatsApp incluido; desde computador el navegador no permite adjuntar, asi que se descarga y se avisa. Ademas la firma se movio a contrato.js para que TECNICOS use la misma, sin copias. Las librerias de PDF (jsPDF y html2canvas) se cargan solo cuando se pide un PDF, no en cada arranque. Incluye v228: firma presencial. v227: contratos por cliente. v226: condiciones por oficina. v225: contrato.js compartido.)';
 const LOGO_PV = (typeof PV_LOGO !== 'undefined') ? PV_LOGO : ''; // el base64 vive en contrato.js
 
 
@@ -2271,14 +2273,29 @@ document.addEventListener('input', function(e){
     window._ultimaTeclaApp = Date.now();
 }, true);
 
-const _MARGEN_ESCRITURA_MS = 45000;
+const _MARGEN_ESCRITURA_MS = 45000;   // tecleando ahora mismo
+const _TOPE_CAMPO_MS      = 180000;  // texto olvidado en un campo enfocado
 
 function _estaEscribiendo(){
     try{
+        const desdeTecla = Date.now() - (window._ultimaTeclaApp||0);
+        // 1) Tecleando ahora mismo: siempre se aplaza.
+        if(desdeTecla < _MARGEN_ESCRITURA_MS) return true;
+        // 2) Modal abierto: puede tener un formulario a medias.
+        if(document.querySelector('#modal.show')) return true;
+        // 3) v239 CORRECCIÓN: antes bastaba con que el cursor ESTUVIERA dentro de un
+        // campo, tuviera texto o no, y sin ningún tope. Un cursor olvidado en el
+        // buscador congelaba el refresco de la vista PARA SIEMPRE: los datos de
+        // WispHub entraban a la base pero la pantalla nunca los mostraba, y parecía
+        // que la sincronización no estaba funcionando. Ahora un campo enfocado solo
+        // aplaza si tiene algo escrito QUE SE PERDERÍA, y solo durante los 3 minutos
+        // siguientes a la última tecla. Un campo vacío no aplaza nunca.
         const a = document.activeElement;
-        if(a && /^(INPUT|TEXTAREA)$/.test(a.tagName) && a.type !== 'checkbox' && a.type !== 'radio') return true;
-        if(document.querySelector('#modal.show')) return true;   // modal abierto: puede tener un formulario a medias
-        return (Date.now() - (window._ultimaTeclaApp||0)) < _MARGEN_ESCRITURA_MS;
+        if(a && /^(INPUT|TEXTAREA)$/.test(a.tagName) && a.type !== 'checkbox' && a.type !== 'radio'
+           && a.value && String(a.value).length){
+            return desdeTecla < _TOPE_CAMPO_MS;
+        }
+        return false;
     }catch(e){ return false; }
 }
 
@@ -3425,34 +3442,20 @@ async function analizarFacturaEnergiaIA(){
         const dataURL=await _enComprimirFoto(f);
         if(!dataURL) throw new Error('No se pudo leer la foto.');
         st('<span style="color:var(--muted);">🤖 Leyendo la factura con IA... (unos segundos)</span>');
-        // v198: modelos de visión centralizados (ver GROQ_MODELOS_VISION arriba).
-        const MODELOS=GROQ_MODELOS_VISION;
-        let response=null;
-        for(let mi=0; mi<MODELOS.length; mi++){
-            response=await fetch('https://api.groq.com/openai/v1/chat/completions',{
-                method:'POST',
-                headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+USER_KEY },
-                body:JSON.stringify({
-                    model:MODELOS[mi],
-                    messages:[{role:'user',content:[
-                        {type:'text', text:_enPromptIA()},
-                        {type:'image_url', image_url:{url:dataURL}}
-                    ]}],
-                    temperature:0, max_tokens:1100,
-                    response_format:{type:'json_object'}
-                })
-            });
-            if(response.status===401) throw new Error('API Key inválida. Revísala en ⚙️ Configurar.');
-            if(response.status===429) throw new Error('Cuota temporal de la IA excedida. Espera unos segundos y reintenta.');
-            if((response.status===400||response.status===404) && mi<MODELOS.length-1){ continue; } // modelo no disponible → respaldo
-            break;
-        }
-        if(!response.ok){ const tx=await response.text(); throw new Error('HTTP '+response.status+': '+tx.substring(0,160)); }
-        const data=await response.json();
-        const raw=data?.choices?.[0]?.message?.content||'';
-        const i=raw.indexOf('{'), fe=raw.lastIndexOf('}');
-        if(i<0||fe<=i) throw new Error('La IA no devolvió datos legibles. Intenta con una foto más clara o usa el método de pegar.');
-        const d=JSON.parse(raw.substring(i,fe+1));
+        // v239: la llamada vive en ia.js (compartido con TECNICOS e INVENTARIO).
+        // Antes no tenía tiempo límite —si Groq no respondía, el botón se quedaba
+        // en "Leyendo la factura" para siempre— y ante un 429 se rendía sin esperar.
+        if(typeof PV_IA==='undefined') throw new Error('No se pudo cargar la IA (ia.js). Recarga la página.');
+        const d=await PV_IA.json({
+            apiKey:USER_KEY,
+            modelos:GROQ_MODELOS_VISION,
+            messages:[{role:'user',content:[
+                {type:'text', text:_enPromptIA()},
+                {type:'image_url', image_url:{url:dataURL}}
+            ]}],
+            temperature:0, maxTokens:1100,
+            alEsperar:(seg)=>st('<span style="color:#f59e0b;">⏳ La IA está saturada, esperando '+seg+'s...</span>')
+        });
         // v184: la MISMA foto queda lista para adjuntarse al registro al guardar
         try{
             const tamAprox=Math.round(dataURL.length*0.75);
@@ -12044,6 +12047,7 @@ async function _analizarComprobantesPagoAdmin(files){
                 referencia: datos.referencia || '',
                 banco: datos.banco || datos.nombre || '',
                 oficinas: [],
+                confianza: datos.confianza || 'media',
                 error: null
             });
         }catch(e){
@@ -12077,6 +12081,7 @@ function _htmlFilasComps(){
         </div>
         ${c.error?`<div style="color:#f87171;font-size:0.76rem;margin-top:4px;">No se pudo leer: ${c.error}. Escribe el valor a mano.</div>`
                  :`<div style="color:var(--muted);font-size:0.74rem;margin-top:2px;">${c.banco?c.banco+' · ':''}${c.referencia?'ref '+c.referencia:''}</div>`}
+        ${(!c.error && c.confianza==='baja')?`<div style="background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.35);color:#f59e0b;border-radius:8px;padding:6px 9px;margin-top:6px;font-size:0.74rem;font-weight:600;">⚠️ La IA no leyó bien este monto (foto borrosa o cortada). COMPRUÉBALO contra el comprobante antes de guardar.</div>`:''}
         <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
             <label style="flex:1;min-width:120px;">Valor $
                 <input type="number" class="form-control" value="${c.valor}" min="0"
@@ -13879,37 +13884,18 @@ Donde "cuadra" es true solo si la diferencia es 0 o menor a $100.`;
             if(btnEl){ btnEl.disabled=false; btnEl.textContent='🔑 Configurar API Key'; }
             return;
         }
-        const GROQ_URL='https://api.groq.com/openai/v1/chat/completions';
 
         let rawText='';
         try{
-            const response=await fetch(GROQ_URL,{
-                method:'POST',
-                headers:{
-                    'Content-Type':'application/json',
-                    'Authorization':'Bearer '+USER_KEY
-                },
-                body:JSON.stringify({
-                    model:GROQ_MODEL_VISION,
-                    messages:[{role:'user',content:messageContent}],
-                    temperature:0.1,
-                    max_tokens:1500,
-                    response_format:{type:'json_object'}
-                })
+            // v239: la llamada vive en ia.js. Antes no tenía tiempo límite ni
+            // reintentaba cuando Groq pedía esperar.
+            if(typeof PV_IA==='undefined') throw new Error('No se pudo cargar la IA (ia.js). Recarga la página.');
+            rawText=await PV_IA.vision({
+                apiKey:USER_KEY,
+                modelos:GROQ_MODELOS_VISION,
+                messages:[{role:'user',content:messageContent}],
+                temperature:0.1, maxTokens:1500, json:true
             });
-            if(response.status===401){
-                throw new Error('API Key inválida. Verifica tu key en el botón ⚙️');
-            }
-            if(response.status===429){
-                throw new Error('Cuota temporal excedida. Espera unos segundos y reintenta.');
-            }
-            if(!response.ok){
-                const errTxt=await response.text();
-                throw new Error('HTTP '+response.status+': '+errTxt.substring(0,200));
-            }
-            const data=await response.json();
-            rawText=data?.choices?.[0]?.message?.content||'';
-            if(!rawText) throw new Error('Respuesta vacía de Groq');
         }catch(err){
             console.error('Error Groq:',err);
             if(resEl) resEl.innerHTML=`<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:14px;font-size:0.82rem;">
@@ -14417,7 +14403,6 @@ INSTRUCCIONES:
             if(sendBtn) sendBtn.disabled=false;
             return;
         }
-        const GROQ_URL='https://api.groq.com/openai/v1/chat/completions';
 
         // Build messages format: system + history + new question
         const groqMessages=[{role:'system',content:sysPrompt}];
@@ -14426,49 +14411,17 @@ INSTRUCCIONES:
         });
         groqMessages.push({role:'user',content:pregunta});
 
-        const response=await fetch(GROQ_URL,{
-            method:'POST',
-            headers:{
-                'Content-Type':'application/json',
-                'Authorization':'Bearer '+USER_KEY
-            },
-            body:JSON.stringify({
-                model:'llama-3.3-70b-versatile',
-                messages:groqMessages,
-                temperature:0.4,
-                max_tokens:800
-            })
+        // v239: la llamada vive en ia.js (compartido con TECNICOS e INVENTARIO).
+        // Antes no tenía tiempo límite: si Groq no respondía, el asistente se
+        // quedaba "escribiendo" para siempre y había que recargar la página.
+        if(typeof PV_IA==='undefined'){ if(typingEl) typingEl.remove(); _aiMsg('⚠️ No se pudo cargar la IA (ia.js). Recarga la página.','bot'); if(sendBtn) sendBtn.disabled=false; return; }
+        const respuestaIA=await PV_IA.texto({
+            apiKey:USER_KEY, messages:groqMessages, maxTokens:800,
+            alEsperar:(seg)=>{ if(typingEl) typingEl.textContent='⏳ La IA está saturada, esperando '+seg+'s...'; }
         });
 
         if(typingEl) typingEl.remove();
-
-        if(response.status===401){
-            _aiMsg('⚠️ API Key inválida. Click en ⚙️ para configurarla.','bot');
-            if(sendBtn) sendBtn.disabled=false;
-            return;
-        }
-        if(response.status===429){
-            _aiMsg('⚠️ Cuota temporal excedida. Espera unos segundos y reintenta.','bot');
-            if(sendBtn) sendBtn.disabled=false;
-            return;
-        }
-        if(!response.ok){
-            const errTxt=await response.text();
-            const errLow=errTxt.toLowerCase();
-            // Errores típicos de contexto muy grande o JSON
-            if(errLow.includes('json')||errLow.includes('context')||errLow.includes('token')||errLow.includes('too large')||errLow.includes('length')){
-                _aiMsg('⚠️ La consulta tiene demasiados datos para procesar de una vez. Intenta ser más específico: pregunta por una oficina, un período o un cliente concreto. Por ejemplo: "ingresos de mayo en Florencia" o "cuánto debe el cliente Pérez".','bot');
-            } else if(response.status===413){
-                _aiMsg('⚠️ Demasiada información en la consulta. Sé más específico (una oficina, un período o un cliente).','bot');
-            } else {
-                _aiMsg('Error: '+response.status+' '+errTxt.substring(0,150),'bot');
-            }
-            if(sendBtn) sendBtn.disabled=false;
-            return;
-        }
-
-        const data=await response.json();
-        let respuesta=data?.choices?.[0]?.message?.content||'';
+        let respuesta=respuestaIA||'';
         // Si vino vacía o cortada
         if(!respuesta || respuesta.trim().length<2){
             respuesta='No pude generar una respuesta clara. Intenta reformular la pregunta o ser más específico (oficina, período o cliente).';
@@ -15509,7 +15462,6 @@ Responde EXCLUSIVAMENTE en JSON con este formato:
             }
         }
 
-        const GROQ_URL='https://api.groq.com/openai/v1/chat/completions';
         // v198: si el modelo vigente diera 404/400 (Groq lo descontinuó), se prueba el
         // siguiente de la lista automáticamente — sin marcar en rojo los comprobantes.
         let _modeloIdx = (window._groqModeloIdx|0);
@@ -15522,11 +15474,9 @@ Responde EXCLUSIVAMENTE en JSON con este formato:
         let _groqBody=_cuerpoCon(GROQ_MODELOS_VISION[_modeloIdx]||GROQ_MODEL_VISION);
         const _resumenEl=document.getElementById('rc_total_resumen');
         // Reintento inteligente ante rate limit (429): respeta el tiempo que pide Groq y detecta si es límite DIARIO
-        let response=await fetch(GROQ_URL,{
-            method:'POST',
-            headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
-            body:_groqBody
-        });
+        // v239: mismo envío de siempre, pero con tiempo límite (ia.js).
+        if(typeof PV_IA==='undefined') throw new Error('No se pudo cargar la IA (ia.js). Recarga la página.');
+        let response=await PV_IA.enviarCrudo(_groqBody, apiKey, 120000);
         let _intentos=0; const _MAX=2;
         while(response.status===429){
             let errTxt=''; try{ errTxt=await response.clone().text(); }catch(e){}
@@ -15543,7 +15493,7 @@ Responde EXCLUSIVAMENTE en JSON con este formato:
             if(_resumenEl){ const _p=document.getElementById('rc_retry_msg'); if(_p) _p.remove(); _resumenEl.insertAdjacentHTML('afterbegin','<div id="rc_retry_msg" style="background:rgba(249,115,22,0.1);border:1px solid rgba(249,115,22,0.3);color:#f97316;padding:8px 12px;border-radius:8px;margin-bottom:8px;font-size:0.78rem;text-align:center;font-weight:600;">⏳ Groq pidió esperar '+espera+'s (intento '+_intentos+'/'+_MAX+')...</div>'); }
             await new Promise(r=>setTimeout(r,espera*1000));
             const _msg=document.getElementById('rc_retry_msg'); if(_msg) _msg.remove();
-            response=await fetch(GROQ_URL,{ method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey}, body:_groqBody });
+            response=await PV_IA.enviarCrudo(_groqBody, apiKey, 120000);
         }
 
         // 🤖 v198: si Groq dice que el modelo NO existe (404) o no está disponible (400)
@@ -15554,7 +15504,7 @@ Responde EXCLUSIVAMENTE en JSON con este formato:
             window._groqModeloIdx=_modeloIdx; // recordarlo para los siguientes lotes de esta tanda
             console.warn('🤖 El modelo de Groq no está disponible; pasando a: '+GROQ_MODELOS_VISION[_modeloIdx]);
             _groqBody=_cuerpoCon(GROQ_MODELOS_VISION[_modeloIdx]);
-            response=await fetch(GROQ_URL,{ method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey}, body:_groqBody });
+            response=await PV_IA.enviarCrudo(_groqBody, apiKey, 120000);
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -22832,11 +22782,10 @@ let _enlaceResultados=null;
 
 // Analizar un comprobante con IA: extraer nombre y valor
 async function _analizarComprobanteIA(b64Image, apiKey){
-    const GROQ_URL='https://api.groq.com/openai/v1/chat/completions';
     const prompt=`Eres un experto leyendo comprobantes de pago de Colombia (Bancolombia, Nequi, Daviplata, Efecty, transferencias).
 
 EXTRAE EXACTAMENTE:
-1. "nombre": El nombre completo de la persona que ENVÍA o REALIZA el pago (el pagador/originante). Si solo aparece un titular o destinatario, usa ese. NUNCA dejes el nombre vacío si hay algún nombre de persona visible en el comprobante.
+1. "nombre": El nombre completo de la persona que ENVÍA o REALIZA el pago (el pagador/originante). Si solo aparece un titular o destinatario, usa ese. Si NO se ve ningún nombre legible, responde null: es mejor null que un nombre inventado.
 2. "valor": El monto pagado en pesos colombianos.
 
 ⚠️ MUY IMPORTANTE SOBRE EL VALOR (formato colombiano):
@@ -22848,33 +22797,38 @@ EXTRAE EXACTAMENTE:
 - Los montos típicos de estos pagos están entre 20000 y 200000 pesos. Si te da un número de millones (ej. 6500000) para un pago de internet, probablemente leíste mal: revisa.
 - Responde el valor como número entero SIN puntos ni comas ni símbolos.
 
+3. "confianza": qué tan seguro estás de haber leído bien el VALOR. Usa exactamente "alta", "media" o "baja".
+   - "alta": el monto se ve nítido y completo, sin dudas.
+   - "media": se lee, pero la foto está borrosa, torcida o con reflejos.
+   - "baja": el monto está cortado, tapado, ilegible, o tuviste que deducirlo.
+   Si la confianza es "baja", pon el valor que creas MÁS probable igual, pero NO te inventes dígitos:
+   una persona va a revisarlo. Prefiero que digas "baja" a que aciertes por casualidad.
+
 Responde ÚNICAMENTE este JSON:
-{"nombre":"NOMBRE COMPLETO DE LA PERSONA","valor":65000,"banco":"banco o servicio"}`;
+{"nombre":"NOMBRE COMPLETO DE LA PERSONA","valor":65000,"banco":"banco o servicio","confianza":"alta"}`;
 
     try{
-        const response=await fetch(GROQ_URL,{
-            method:'POST',
-            headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
-            body:JSON.stringify({
-                model:GROQ_MODEL_VISION,
-                messages:[{role:'user',content:[
-                    {type:'text',text:prompt},
-                    {type:'image_url',image_url:{url:b64Image}}
-                ]}],
-                temperature:0.1, max_tokens:500,
-                response_format:{type:'json_object'}
-            })
+        // v239: la llamada vive en ia.js. Antes no tenía tiempo límite ni
+        // reintentaba cuando Groq pedía esperar.
+        if(typeof PV_IA==='undefined') throw new Error('No se pudo cargar la IA (ia.js). Recarga la página.');
+        const parsed=await PV_IA.json({
+            apiKey:apiKey,
+            modelos:GROQ_MODELOS_VISION,
+            messages:[{role:'user',content:[
+                {type:'text',text:prompt},
+                {type:'image_url',image_url:{url:b64Image}}
+            ]}],
+            temperature:0.1, maxTokens:500
         });
-        if(!response.ok) throw new Error('HTTP '+response.status);
-        const data=await response.json();
-        const raw=data?.choices?.[0]?.message?.content||'';
-        const m=raw.match(/\{[\s\S]*\}/);
-        if(!m) return null;
-        const parsed=JSON.parse(m[0]);
+        if(!parsed) return null;
+        // v239: la IA ahora dice qué tan segura está del valor. Si duda, la fila
+        // se marca en pantalla para que el admin la revise antes de guardar.
+        const _conf=String(parsed.confianza||'').toLowerCase();
         return {
             nombre:(parsed.nombre||'').trim(),
             valor:_normalizarValorColombiano(parsed.valor),
-            banco:parsed.banco||''
+            banco:parsed.banco||'',
+            confianza:(_conf==='baja'||_conf==='media'||_conf==='alta')?_conf:'media'
         };
     }catch(e){ console.error('IA comprobante error:',e); return null; }
 }
