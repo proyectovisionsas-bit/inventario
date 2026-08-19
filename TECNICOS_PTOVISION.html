@@ -63,6 +63,8 @@ header .who small{display:block;color:var(--muted);font-size:0.72rem;font-weight
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <!-- Contrato de servicio: mismo código que usa OFICINAS. Editar contrato.js, no copiarlo aquí. -->
 <script src="contrato.js?v=2"></script>
+<!-- IA: una sola forma de hablar con Groq para las tres apps. Editar ia.js. -->
+<script src="ia.js?v=1"></script>
 <script>
 (function(){
   try{
@@ -2416,24 +2418,25 @@ async function _iaEnviar(){
         const messages=[{role:'system',content:_iaContexto()}];
         _iaHistory.forEach(h=>messages.push({role:h.role,content:h.text}));
         messages.push({role:'user',content:pregunta});
-        const resp=await fetch('https://api.groq.com/openai/v1/chat/completions',{
-            method:'POST',
-            headers:{'Content-Type':'application/json','Authorization':'Bearer '+_iaGetKey()},
-            body:JSON.stringify({model:'llama-3.3-70b-versatile',messages,temperature:0.4,max_tokens:600})
+        // v79: la llamada vive en ia.js, compartido con OFICINAS e INVENTARIO.
+        // Antes esto no tenía tiempo límite: si Groq no respondía, el técnico se
+        // quedaba con "Pensando..." para siempre. Y ante un "vas muy rápido" se
+        // rendía sin reintentar. Ahora espera lo que Groq pida y avisa en pantalla.
+        if(typeof PV_IA==='undefined'){ typing.remove(); _iaMsg('⚠️ No se pudo cargar la IA (ia.js). Recarga la página.','bot'); return; }
+        const r=await PV_IA.texto({
+            apiKey:_iaGetKey(), messages, maxTokens:600,
+            alEsperar:(seg)=>{ if(typing) typing.textContent='⏳ La IA está saturada, esperando '+seg+'s...'; }
         });
         typing.remove();
-        if(resp.status===401){ _iaMsg('⚠️ La clave de Groq no es válida. Borra y vuelve a configurarla.','bot'); localStorage.removeItem('groq_api_key'); return; }
-        if(resp.status===429){ _iaMsg('⚠️ Demasiadas preguntas seguidas. Espera unos segundos.','bot'); return; }
-        if(!resp.ok){ _iaMsg('⚠️ Error de conexión. Revisa tu internet.','bot'); return; }
-        const data=await resp.json();
-        const r=data?.choices?.[0]?.message?.content||'(sin respuesta)';
         _iaHistory.push({role:'user',text:pregunta});
         _iaHistory.push({role:'assistant',text:r});
         if(_iaHistory.length>16) _iaHistory.splice(0,_iaHistory.length-16);
         _iaMsg(r,'bot');
     }catch(e){
         document.getElementById('iaTyping')?.remove();
-        _iaMsg('⚠️ No se pudo conectar. Revisa tu internet e intenta de nuevo.','bot');
+        // Si la clave es inválida se borra, para que vuelva a pedirla.
+        if(e && e.tipo==='clave') localStorage.removeItem('groq_api_key');
+        _iaMsg(typeof PV_IA!=='undefined' ? PV_IA.mensajeDeError(e) : '⚠️ No se pudo conectar. Revisa tu internet e intenta de nuevo.','bot');
     }finally{
         if(sendBtn) sendBtn.disabled=false;
     }

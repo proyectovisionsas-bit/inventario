@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>INVENTARIO PTOVISION</title>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <!-- IA: una sola forma de hablar con Groq para las tres apps. Editar ia.js. -->
+    <script src="ia.js?v=1"></script>
     <style>
         :root { --primary: #1a5276; --primary-light: #2980b9; --secondary: #27ae60; --danger: #e74c3c; --warning: #f39c12; --dark: #2c3e50; --light: #ecf0f1; --gray: #95a5a6; --white: #ffffff; --shadow: 0 4px 15px rgba(0,0,0,0.1); --radius: 10px; }
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -8345,38 +8347,16 @@ async function enviarPreguntaIA() {
         AI_HISTORY.forEach(h => messages.push({role: h.role, content: h.text}));
         messages.push({role:'user', content: pregunta});
 
-        const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method:'POST',
-            headers:{
-                'Content-Type':'application/json',
-                'Authorization':'Bearer '+userKey
-            },
-            body: JSON.stringify({
-                model:'llama-3.3-70b-versatile',
-                messages,
-                temperature:0.4,
-                max_tokens:800
-            })
+        // v92: la llamada vive en ia.js, compartido con OFICINAS y TECNICOS.
+        // Antes no tenía tiempo límite (si Groq no respondía se quedaba colgado)
+        // ni reintentaba cuando Groq pedía esperar.
+        if(typeof PV_IA==='undefined'){ typingEl.remove(); _aiMsg('⚠️ No se pudo cargar la IA (ia.js). Recarga la página.','bot'); return; }
+        const respuesta = await PV_IA.texto({
+            apiKey: userKey, messages, maxTokens: 800,
+            alEsperar: (seg)=>{ if(typingEl) typingEl.textContent='⏳ La IA está saturada, esperando '+seg+'s...'; }
         });
 
         typingEl.remove();
-
-        if(resp.status === 401) {
-            _aiMsg('⚠️ API Key inválida. Haz clic en ⚙️ para configurarla.','bot');
-            return;
-        }
-        if(resp.status === 429) {
-            _aiMsg('⚠️ Cuota temporal excedida. Espera unos segundos y reintenta.','bot');
-            return;
-        }
-        if(!resp.ok) {
-            const txt = await resp.text();
-            _aiMsg('⚠️ Error: '+resp.status+' '+txt.substring(0,150),'bot');
-            return;
-        }
-
-        const data = await resp.json();
-        const respuesta = data?.choices?.[0]?.message?.content || '(sin respuesta)';
 
         AI_HISTORY.push({role:'user', text: pregunta});
         AI_HISTORY.push({role:'assistant', text: respuesta});
@@ -8386,7 +8366,7 @@ async function enviarPreguntaIA() {
     } catch(e) {
         typingEl?.remove();
         console.error(e);
-        _aiMsg('⚠️ Error de conexión: '+e.message,'bot');
+        _aiMsg(typeof PV_IA!=='undefined' ? PV_IA.mensajeDeError(e) : ('⚠️ Error de conexión: '+e.message),'bot');
     } finally {
         if(sendBtn) sendBtn.disabled = false;
         input?.focus();

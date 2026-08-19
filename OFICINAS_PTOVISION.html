@@ -10,6 +10,8 @@
     <script src="https://accounts.google.com/gsi/client" async defer></script>
 <!-- Contrato de servicio: código compartido con TECNICOS. Editar contrato.js, no copiarlo aquí. -->
 <script src="contrato.js?v=2"></script>
+<!-- IA: una sola forma de hablar con Groq para las tres apps. Editar ia.js. -->
+<script src="ia.js?v=1"></script>
     <!-- ░░ PWA: instalable en celulares (sin archivos extra) ░░ -->
     <meta name="theme-color" content="#16a34a">
     <meta name="mobile-web-app-capable" content="yes">
@@ -3425,34 +3427,20 @@ async function analizarFacturaEnergiaIA(){
         const dataURL=await _enComprimirFoto(f);
         if(!dataURL) throw new Error('No se pudo leer la foto.');
         st('<span style="color:var(--muted);">🤖 Leyendo la factura con IA... (unos segundos)</span>');
-        // v198: modelos de visión centralizados (ver GROQ_MODELOS_VISION arriba).
-        const MODELOS=GROQ_MODELOS_VISION;
-        let response=null;
-        for(let mi=0; mi<MODELOS.length; mi++){
-            response=await fetch('https://api.groq.com/openai/v1/chat/completions',{
-                method:'POST',
-                headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+USER_KEY },
-                body:JSON.stringify({
-                    model:MODELOS[mi],
-                    messages:[{role:'user',content:[
-                        {type:'text', text:_enPromptIA()},
-                        {type:'image_url', image_url:{url:dataURL}}
-                    ]}],
-                    temperature:0, max_tokens:1100,
-                    response_format:{type:'json_object'}
-                })
-            });
-            if(response.status===401) throw new Error('API Key inválida. Revísala en ⚙️ Configurar.');
-            if(response.status===429) throw new Error('Cuota temporal de la IA excedida. Espera unos segundos y reintenta.');
-            if((response.status===400||response.status===404) && mi<MODELOS.length-1){ continue; } // modelo no disponible → respaldo
-            break;
-        }
-        if(!response.ok){ const tx=await response.text(); throw new Error('HTTP '+response.status+': '+tx.substring(0,160)); }
-        const data=await response.json();
-        const raw=data?.choices?.[0]?.message?.content||'';
-        const i=raw.indexOf('{'), fe=raw.lastIndexOf('}');
-        if(i<0||fe<=i) throw new Error('La IA no devolvió datos legibles. Intenta con una foto más clara o usa el método de pegar.');
-        const d=JSON.parse(raw.substring(i,fe+1));
+        // v239: la llamada vive en ia.js (compartido con TECNICOS e INVENTARIO).
+        // Antes no tenía tiempo límite —si Groq no respondía, el botón se quedaba
+        // en "Leyendo la factura" para siempre— y ante un 429 se rendía sin esperar.
+        if(typeof PV_IA==='undefined') throw new Error('No se pudo cargar la IA (ia.js). Recarga la página.');
+        const d=await PV_IA.json({
+            apiKey:USER_KEY,
+            modelos:GROQ_MODELOS_VISION,
+            messages:[{role:'user',content:[
+                {type:'text', text:_enPromptIA()},
+                {type:'image_url', image_url:{url:dataURL}}
+            ]}],
+            temperature:0, maxTokens:1100,
+            alEsperar:(seg)=>st('<span style="color:#f59e0b;">⏳ La IA está saturada, esperando '+seg+'s...</span>')
+        });
         // v184: la MISMA foto queda lista para adjuntarse al registro al guardar
         try{
             const tamAprox=Math.round(dataURL.length*0.75);
@@ -13879,37 +13867,18 @@ Donde "cuadra" es true solo si la diferencia es 0 o menor a $100.`;
             if(btnEl){ btnEl.disabled=false; btnEl.textContent='🔑 Configurar API Key'; }
             return;
         }
-        const GROQ_URL='https://api.groq.com/openai/v1/chat/completions';
 
         let rawText='';
         try{
-            const response=await fetch(GROQ_URL,{
-                method:'POST',
-                headers:{
-                    'Content-Type':'application/json',
-                    'Authorization':'Bearer '+USER_KEY
-                },
-                body:JSON.stringify({
-                    model:GROQ_MODEL_VISION,
-                    messages:[{role:'user',content:messageContent}],
-                    temperature:0.1,
-                    max_tokens:1500,
-                    response_format:{type:'json_object'}
-                })
+            // v239: la llamada vive en ia.js. Antes no tenía tiempo límite ni
+            // reintentaba cuando Groq pedía esperar.
+            if(typeof PV_IA==='undefined') throw new Error('No se pudo cargar la IA (ia.js). Recarga la página.');
+            rawText=await PV_IA.vision({
+                apiKey:USER_KEY,
+                modelos:GROQ_MODELOS_VISION,
+                messages:[{role:'user',content:messageContent}],
+                temperature:0.1, maxTokens:1500, json:true
             });
-            if(response.status===401){
-                throw new Error('API Key inválida. Verifica tu key en el botón ⚙️');
-            }
-            if(response.status===429){
-                throw new Error('Cuota temporal excedida. Espera unos segundos y reintenta.');
-            }
-            if(!response.ok){
-                const errTxt=await response.text();
-                throw new Error('HTTP '+response.status+': '+errTxt.substring(0,200));
-            }
-            const data=await response.json();
-            rawText=data?.choices?.[0]?.message?.content||'';
-            if(!rawText) throw new Error('Respuesta vacía de Groq');
         }catch(err){
             console.error('Error Groq:',err);
             if(resEl) resEl.innerHTML=`<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:14px;font-size:0.82rem;">
@@ -14417,7 +14386,6 @@ INSTRUCCIONES:
             if(sendBtn) sendBtn.disabled=false;
             return;
         }
-        const GROQ_URL='https://api.groq.com/openai/v1/chat/completions';
 
         // Build messages format: system + history + new question
         const groqMessages=[{role:'system',content:sysPrompt}];
@@ -14426,49 +14394,17 @@ INSTRUCCIONES:
         });
         groqMessages.push({role:'user',content:pregunta});
 
-        const response=await fetch(GROQ_URL,{
-            method:'POST',
-            headers:{
-                'Content-Type':'application/json',
-                'Authorization':'Bearer '+USER_KEY
-            },
-            body:JSON.stringify({
-                model:'llama-3.3-70b-versatile',
-                messages:groqMessages,
-                temperature:0.4,
-                max_tokens:800
-            })
+        // v239: la llamada vive en ia.js (compartido con TECNICOS e INVENTARIO).
+        // Antes no tenía tiempo límite: si Groq no respondía, el asistente se
+        // quedaba "escribiendo" para siempre y había que recargar la página.
+        if(typeof PV_IA==='undefined'){ if(typingEl) typingEl.remove(); _aiMsg('⚠️ No se pudo cargar la IA (ia.js). Recarga la página.','bot'); if(sendBtn) sendBtn.disabled=false; return; }
+        const respuestaIA=await PV_IA.texto({
+            apiKey:USER_KEY, messages:groqMessages, maxTokens:800,
+            alEsperar:(seg)=>{ if(typingEl) typingEl.textContent='⏳ La IA está saturada, esperando '+seg+'s...'; }
         });
 
         if(typingEl) typingEl.remove();
-
-        if(response.status===401){
-            _aiMsg('⚠️ API Key inválida. Click en ⚙️ para configurarla.','bot');
-            if(sendBtn) sendBtn.disabled=false;
-            return;
-        }
-        if(response.status===429){
-            _aiMsg('⚠️ Cuota temporal excedida. Espera unos segundos y reintenta.','bot');
-            if(sendBtn) sendBtn.disabled=false;
-            return;
-        }
-        if(!response.ok){
-            const errTxt=await response.text();
-            const errLow=errTxt.toLowerCase();
-            // Errores típicos de contexto muy grande o JSON
-            if(errLow.includes('json')||errLow.includes('context')||errLow.includes('token')||errLow.includes('too large')||errLow.includes('length')){
-                _aiMsg('⚠️ La consulta tiene demasiados datos para procesar de una vez. Intenta ser más específico: pregunta por una oficina, un período o un cliente concreto. Por ejemplo: "ingresos de mayo en Florencia" o "cuánto debe el cliente Pérez".','bot');
-            } else if(response.status===413){
-                _aiMsg('⚠️ Demasiada información en la consulta. Sé más específico (una oficina, un período o un cliente).','bot');
-            } else {
-                _aiMsg('Error: '+response.status+' '+errTxt.substring(0,150),'bot');
-            }
-            if(sendBtn) sendBtn.disabled=false;
-            return;
-        }
-
-        const data=await response.json();
-        let respuesta=data?.choices?.[0]?.message?.content||'';
+        let respuesta=respuestaIA||'';
         // Si vino vacía o cortada
         if(!respuesta || respuesta.trim().length<2){
             respuesta='No pude generar una respuesta clara. Intenta reformular la pregunta o ser más específico (oficina, período o cliente).';
@@ -15509,7 +15445,6 @@ Responde EXCLUSIVAMENTE en JSON con este formato:
             }
         }
 
-        const GROQ_URL='https://api.groq.com/openai/v1/chat/completions';
         // v198: si el modelo vigente diera 404/400 (Groq lo descontinuó), se prueba el
         // siguiente de la lista automáticamente — sin marcar en rojo los comprobantes.
         let _modeloIdx = (window._groqModeloIdx|0);
@@ -15522,11 +15457,9 @@ Responde EXCLUSIVAMENTE en JSON con este formato:
         let _groqBody=_cuerpoCon(GROQ_MODELOS_VISION[_modeloIdx]||GROQ_MODEL_VISION);
         const _resumenEl=document.getElementById('rc_total_resumen');
         // Reintento inteligente ante rate limit (429): respeta el tiempo que pide Groq y detecta si es límite DIARIO
-        let response=await fetch(GROQ_URL,{
-            method:'POST',
-            headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
-            body:_groqBody
-        });
+        // v239: mismo envío de siempre, pero con tiempo límite (ia.js).
+        if(typeof PV_IA==='undefined') throw new Error('No se pudo cargar la IA (ia.js). Recarga la página.');
+        let response=await PV_IA.enviarCrudo(_groqBody, apiKey, 120000);
         let _intentos=0; const _MAX=2;
         while(response.status===429){
             let errTxt=''; try{ errTxt=await response.clone().text(); }catch(e){}
@@ -15543,7 +15476,7 @@ Responde EXCLUSIVAMENTE en JSON con este formato:
             if(_resumenEl){ const _p=document.getElementById('rc_retry_msg'); if(_p) _p.remove(); _resumenEl.insertAdjacentHTML('afterbegin','<div id="rc_retry_msg" style="background:rgba(249,115,22,0.1);border:1px solid rgba(249,115,22,0.3);color:#f97316;padding:8px 12px;border-radius:8px;margin-bottom:8px;font-size:0.78rem;text-align:center;font-weight:600;">⏳ Groq pidió esperar '+espera+'s (intento '+_intentos+'/'+_MAX+')...</div>'); }
             await new Promise(r=>setTimeout(r,espera*1000));
             const _msg=document.getElementById('rc_retry_msg'); if(_msg) _msg.remove();
-            response=await fetch(GROQ_URL,{ method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey}, body:_groqBody });
+            response=await PV_IA.enviarCrudo(_groqBody, apiKey, 120000);
         }
 
         // 🤖 v198: si Groq dice que el modelo NO existe (404) o no está disponible (400)
@@ -15554,7 +15487,7 @@ Responde EXCLUSIVAMENTE en JSON con este formato:
             window._groqModeloIdx=_modeloIdx; // recordarlo para los siguientes lotes de esta tanda
             console.warn('🤖 El modelo de Groq no está disponible; pasando a: '+GROQ_MODELOS_VISION[_modeloIdx]);
             _groqBody=_cuerpoCon(GROQ_MODELOS_VISION[_modeloIdx]);
-            response=await fetch(GROQ_URL,{ method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey}, body:_groqBody });
+            response=await PV_IA.enviarCrudo(_groqBody, apiKey, 120000);
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -22832,7 +22765,6 @@ let _enlaceResultados=null;
 
 // Analizar un comprobante con IA: extraer nombre y valor
 async function _analizarComprobanteIA(b64Image, apiKey){
-    const GROQ_URL='https://api.groq.com/openai/v1/chat/completions';
     const prompt=`Eres un experto leyendo comprobantes de pago de Colombia (Bancolombia, Nequi, Daviplata, Efecty, transferencias).
 
 EXTRAE EXACTAMENTE:
@@ -22852,25 +22784,19 @@ Responde ÚNICAMENTE este JSON:
 {"nombre":"NOMBRE COMPLETO DE LA PERSONA","valor":65000,"banco":"banco o servicio"}`;
 
     try{
-        const response=await fetch(GROQ_URL,{
-            method:'POST',
-            headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
-            body:JSON.stringify({
-                model:GROQ_MODEL_VISION,
-                messages:[{role:'user',content:[
-                    {type:'text',text:prompt},
-                    {type:'image_url',image_url:{url:b64Image}}
-                ]}],
-                temperature:0.1, max_tokens:500,
-                response_format:{type:'json_object'}
-            })
+        // v239: la llamada vive en ia.js. Antes no tenía tiempo límite ni
+        // reintentaba cuando Groq pedía esperar.
+        if(typeof PV_IA==='undefined') throw new Error('No se pudo cargar la IA (ia.js). Recarga la página.');
+        const parsed=await PV_IA.json({
+            apiKey:apiKey,
+            modelos:GROQ_MODELOS_VISION,
+            messages:[{role:'user',content:[
+                {type:'text',text:prompt},
+                {type:'image_url',image_url:{url:b64Image}}
+            ]}],
+            temperature:0.1, maxTokens:500
         });
-        if(!response.ok) throw new Error('HTTP '+response.status);
-        const data=await response.json();
-        const raw=data?.choices?.[0]?.message?.content||'';
-        const m=raw.match(/\{[\s\S]*\}/);
-        if(!m) return null;
-        const parsed=JSON.parse(m[0]);
+        if(!parsed) return null;
         return {
             nombre:(parsed.nombre||'').trim(),
             valor:_normalizarValorColombiano(parsed.valor),
