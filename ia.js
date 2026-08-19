@@ -135,11 +135,13 @@
     var maxReintentos = (op.reintentos === undefined) ? 2 : op.reintentos;
 
     // Los modelos de Groq de 2026 RAZONAN antes de contestar, y ese razonamiento
-    // gasta tokens del mismo presupuesto que la respuesta. Medido el 18 ago 2026:
-    // qwen3.6-27b con 200 tokens devuelve la respuesta VACIA porque el
-    // razonamiento se los comio entero. Por eso hay un suelo: sin el, un
-    // comprobante podia salir sin datos sin ninguna explicacion.
-    var tokens = Math.max(op.maxTokens || 1000, 1200);
+    // gasta tokens del MISMO presupuesto que la respuesta. Medido el 18 ago 2026:
+    //  · qwen con 200 tokens devuelve la respuesta VACIA (el razonamiento se los
+    //    comio entero);
+    //  · la factura de energia, que pide un JSON de muchos campos, con 1200 tokens
+    //    lo dejaba a medias y Groq respondia 400 "Failed to validate JSON".
+    // De ahi el suelo: sin el, la respuesta sale truncada o vacia sin explicacion.
+    var tokens = Math.max(op.maxTokens || 1000, 2000);
 
     var cuerpoCon = function (modelo) {
       var b = {
@@ -291,7 +293,22 @@
       }
     } catch (e) {}
 
-    var crudo = (op.modelos || op.imagenes) ? await vision(op) : await texto(op);
+    var crudo;
+    try {
+      crudo = (op.modelos || op.imagenes) ? await vision(op) : await texto(op);
+    } catch (e) {
+      // Groq valida el JSON por su cuenta y responde 400 "Failed to validate
+      // JSON" si el modelo lo dejo a medias. En vez de rendirse, se repite la
+      // pregunta SIN el modo JSON estricto y con mas margen: el modelo entonces
+      // puede contestar libremente y el objeto se rescata del texto.
+      var falloJson = /failed to validate json/i.test(String((e && e.detalle) || (e && e.message) || ''));
+      if (!falloJson) throw e;
+      var reintento = Object.assign({}, op, {
+        json: false,
+        maxTokens: Math.max(op.maxTokens || 0, 4000)
+      });
+      crudo = (op.modelos || op.imagenes) ? await vision(reintento) : await texto(reintento);
+    }
     try {
       return JSON.parse(crudo);
     } catch (e) {

@@ -11,7 +11,7 @@
 <!-- Contrato de servicio: código compartido con TECNICOS. Editar contrato.js, no copiarlo aquí. -->
 <script src="contrato.js?v=2"></script>
 <!-- IA: una sola forma de hablar con Groq para las tres apps. Editar ia.js. -->
-<script src="ia.js?v=3"></script>
+<script src="ia.js?v=4"></script>
     <!-- ░░ PWA: instalable en celulares (sin archivos extra) ░░ -->
     <meta name="theme-color" content="#16a34a">
     <meta name="mobile-web-app-capable" content="yes">
@@ -896,7 +896,7 @@ let db = null;
 const DOC_ID = 'main'; // documento único en colección "oficinas_sistema"
 // ─── CONTROL DE VERSIÓN ───
 // Incrementa este número cada vez que publiques una actualización.
-const APP_VERSION = 241; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 242; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -3450,7 +3450,7 @@ async function analizarFacturaEnergiaIA(){
     try{
         const dataURL=await _enComprimirFoto(f);
         if(!dataURL) throw new Error('No se pudo leer la foto.');
-        st('<span style="color:var(--muted);">🤖 Leyendo la factura con IA... (unos segundos)</span>');
+        st('<span style="color:var(--muted);">🤖 Leyendo la factura con IA... puede tardar hasta un minuto, no cierres esta ventana.</span>');
         // v239: la llamada vive en ia.js (compartido con TECNICOS e INVENTARIO).
         // Antes no tenía tiempo límite —si Groq no respondía, el botón se quedaba
         // en "Leyendo la factura" para siempre— y ante un 429 se rendía sin esperar.
@@ -3462,7 +3462,11 @@ async function analizarFacturaEnergiaIA(){
                 {type:'text', text:_enPromptIA()},
                 {type:'image_url', image_url:{url:dataURL}}
             ]}],
-            temperature:0, maxTokens:1100,
+            // La factura pide un JSON de muchos campos: con poco margen el modelo
+            // lo dejaba a medias y Groq respondia 400 Failed to validate JSON.
+            // Medido: una factura pesada tarda ~64s. 150s deja margen de sobra
+            // sin dejar a nadie esperando indefinidamente.
+            temperature:0, maxTokens:3500, timeoutMs:150000,
             alEsperar:(seg)=>st('<span style="color:#f59e0b;">⏳ La IA está saturada, esperando '+seg+'s...</span>')
         });
         // v184: la MISMA foto queda lista para adjuntarse al registro al guardar
@@ -11996,7 +12000,10 @@ async function _pdfAImagen(file){
     const buf=await file.arrayBuffer();
     const pdf=await lib.getDocument({data:buf}).promise;
     const page=await pdf.getPage(1);
-    const vp=page.getViewport({scale:2});
+    // v242: escala 1.6 en vez de 2. A escala 2 una pagina carta daba ~774 KB, tanto
+    // que el modelo se quedaba sin margen a mitad del JSON. Sigue sobrando resolucion
+    // para leer los numeros de una factura.
+    const vp=page.getViewport({scale:1.6});
     const cv=document.createElement('canvas');
     cv.width=vp.width; cv.height=vp.height;
     await page.render({canvasContext:cv.getContext('2d'), viewport:vp}).promise;
