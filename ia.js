@@ -59,6 +59,25 @@
   // pasa al siguiente y se recuerda, para no repetir el fallo en cada llamada.
   var idxRecordado = { vision: 0, texto: 0 };
 
+  // ── Cuánto se le deja "pensar" al modelo ───────────────────────────
+  // Los modelos de 2026 razonan antes de contestar y ese razonamiento gasta
+  // del MISMO presupuesto que la respuesta. Leyendo una factura eso es puro
+  // desperdicio: se quedaba sin margen a mitad del JSON y no respondía nada.
+  // Medido el 18 ago 2026 con una factura de 555 KB: razonando se agotan los
+  // 3500 tokens sin terminar; sin razonar, contesta completo en 324.
+  //
+  // OJO: cada modelo acepta valores DISTINTOS y rechaza los del otro con un
+  // 400. Comprobado contra Groq:
+  //   qwen/qwen3.6-27b     -> solo 'none' o 'default'
+  //   openai/gpt-oss-120b  -> solo 'low', 'medium' o 'high'
+  // Por eso hay tabla. Un modelo que no esté aquí NO recibe el parámetro,
+  // que es lo seguro: mejor que razone de más a que Groq rechace la petición.
+  var ESFUERZO = {
+    'qwen/qwen3.6-27b':    { minimo: 'none', normal: 'default' },
+    'openai/gpt-oss-120b': { minimo: 'low',  normal: 'high' },
+    'openai/gpt-oss-20b':  { minimo: 'low',  normal: 'high' }
+  };
+
   function fallo(tipo, mensaje, extra) {
     var e = new Error(mensaje);
     e.tipo = tipo;
@@ -154,6 +173,9 @@
         // asistente se lo mostraba tal cual a la persona.
         reasoning_format: 'hidden'
       };
+      // Sacar datos de una imagen no necesita deliberación: necesita leer.
+      var esf = ESFUERZO[modelo];
+      if (esf) b.reasoning_effort = (op.razonar === false) ? esf.minimo : esf.normal;
       if (op.json) b.response_format = { type: 'json_object' };
       return JSON.stringify(b);
     };
@@ -245,8 +267,12 @@
       // Distinguir "se quedó sin tokens pensando" de "no contestó nada":
       // el primero se arregla pidiendo menos datos, el segundo reintentando.
       if (eleccion && eleccion.finish_reason === 'length') {
-        throw fallo('grande',
-          'La IA gastó todo su margen razonando y no alcanzó a responder. Acota la consulta a una oficina, un periodo o un cliente.');
+        // El consejo tiene que encajar con lo que se estaba haciendo: decirle
+        // "acota la consulta a una oficina" a quien sube una factura no ayuda.
+        var hayImagen = JSON.stringify(op.messages || []).indexOf('image_url') >= 0;
+        throw fallo('grande', hayImagen
+          ? 'La IA no alcanzó a leer el archivo entero. Prueba con una imagen más nítida, o recortada a la parte que interesa.'
+          : 'La consulta lleva demasiada información. Acótala a una oficina, un periodo o un cliente.');
       }
       throw fallo('http', 'La IA respondió vacío. Vuelve a intentarlo.');
     }
@@ -268,6 +294,9 @@
     op = Object.assign({}, op);
     op.modelos = op.modelos || MODELOS_VISION;
     op.memoria = op.memoria || 'vision';
+    // Leer una factura o un comprobante es EXTRAER, no deliberar. Dejando que
+    // el modelo razone se gastaba el presupuesto entero antes de contestar.
+    if (op.razonar === undefined) op.razonar = false;
     if (op.temperature === undefined) op.temperature = 0.1;
     if (!op.maxTokens) op.maxTokens = 1500;
     return llamar(op);
