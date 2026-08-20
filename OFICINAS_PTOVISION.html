@@ -16827,6 +16827,7 @@ function _reimprimirContrato(cid, idx){
 }
 
 function modalGenerarContrato(oid, cid){
+    window._ctrTotalManual=false;   // cada contrato empieza con el total calculado
     const o=DB.oficinas.find(x=>x.id===oid)||getOficina(oid);
     const hoy=hoyLocal();
     const html=`
@@ -16906,12 +16907,12 @@ function modalGenerarContrato(oid, cid){
 
     <h3 style="font-size:0.92rem;font-weight:700;color:#ef4444;background:rgba(239,68,68,0.08);padding:6px 10px;border-radius:6px;margin:14px 0 10px;">💰 CONDICIONES COMERCIALES</h3>
     <div class="form-row">
-        <div class="form-group-dark"><label>Televisión Básica $</label><input id="ctr_tv_basica" type="number" class="form-control" placeholder="0"></div>
-        <div class="form-group-dark"><label>Televisor Premium $</label><input id="ctr_tv_premium" type="number" class="form-control" placeholder="0"></div>
+        <div class="form-group-dark"><label>Televisión Básica $</label><input id="ctr_tv_basica" type="number" class="form-control" placeholder="0" oninput="_ctrSumarMensual()"></div>
+        <div class="form-group-dark"><label>Televisor Premium $</label><input id="ctr_tv_premium" type="number" class="form-control" placeholder="0" oninput="_ctrSumarMensual()"></div>
     </div>
     <div class="form-row">
-        <div class="form-group-dark"><label>Arriendo TVBox $</label><input id="ctr_arr_tvbox" type="number" class="form-control" placeholder="0"></div>
-        <div class="form-group-dark"><label>Total Mensual $ *</label><input id="ctr_total_mensual" type="number" class="form-control" placeholder="30000"></div>
+        <div class="form-group-dark"><label>Arriendo TVBox $</label><input id="ctr_arr_tvbox" type="number" class="form-control" placeholder="0" oninput="_ctrSumarMensual()"></div>
+        <div class="form-group-dark"><label>Total Mensual $ *</label><input id="ctr_total_mensual" type="number" class="form-control" placeholder="30000" oninput="window._ctrTotalManual=true;"></div>
     </div>
 
     <h4 style="font-size:0.82rem;font-weight:600;color:var(--muted);margin:10px 0 6px;">Cargos por instalación / equipos especiales</h4>
@@ -16930,7 +16931,7 @@ function modalGenerarContrato(oid, cid){
         <div class="form-group-dark"><label>Plan</label><input id="ctr_plan" class="form-control" placeholder="Hogar 50 Mbps"></div>
         <div class="form-group-dark"><label>Velocidad (Mbps)</label><input id="ctr_velocidad" type="number" class="form-control" placeholder="50"></div>
     </div>
-    <div class="form-group-dark"><label>Total Internet $</label><input id="ctr_total_internet" type="number" class="form-control" placeholder="0"></div>
+    <div class="form-group-dark"><label>Total Internet $</label><input id="ctr_total_internet" type="number" class="form-control" placeholder="0" oninput="_ctrSumarMensual()"></div>
 
     <h3 style="font-size:0.92rem;font-weight:700;color:#ef4444;background:rgba(239,68,68,0.08);padding:6px 10px;border-radius:6px;margin:14px 0 10px;">📦 EQUIPOS EN COMODATO</h3>
     <div class="form-row">
@@ -17008,10 +17009,33 @@ function _imprimirContratoEnBlanco(){
     });
 }
 
+// v245: el TOTAL MENSUAL se calcula solo sumando internet + televisión, para que
+// nadie se quede trabado en ese campo. Si alguien lo escribe a mano, se respeta
+// y deja de recalcularse (window._ctrTotalManual). Se reinicia al abrir el modal.
+function _ctrSumarMensual(){
+    try{
+        if(window._ctrTotalManual) return;
+        const n=id=>{ const v=document.getElementById(id)?.value; const x=parseFloat(v); return isNaN(x)?0:x; };
+        const total=n('ctr_total_internet')+n('ctr_tv_basica')+n('ctr_tv_premium')+n('ctr_arr_tvbox');
+        const el=document.getElementById('ctr_total_mensual');
+        if(el) el.value = total>0 ? total : '';
+    }catch(e){}
+}
+window._ctrSumarMensual=_ctrSumarMensual;
+
 function _imprimirContrato(oid, cid){
     // Recoger todos los datos del formulario
     const get=(id)=>document.getElementById(id)?.value?.trim()||'';
-    const getN=(id)=>parseFloat(document.getElementById(id)?.value||0);
+    // v245: distingue "vacío" de "escribió 0". Antes ambos devolvían 0, así que
+    // un 0 puesto a propósito (cliente sin televisión, descuento de cero) se
+    // trataba como si el campo estuviera sin llenar.
+    const getN=(id,porDefecto)=>{
+        const el=document.getElementById(id);
+        const s=(el && el.value!==undefined && el.value!==null) ? String(el.value).trim() : '';
+        if(s==='') return (porDefecto!==undefined ? porDefecto : 0);
+        const n=parseFloat(s.replace(/[^0-9.,-]/g,'').replace(',','.'));
+        return isNaN(n) ? 0 : n;
+    };
 
     const data={
         numero:get('ctr_numero'),
@@ -17049,8 +17073,10 @@ function _imprimirContrato(oid, cid){
         tvboxSerial:get('ctr_tvbox_serial'),
         tvboxValor:getN('ctr_tvbox_valor'),
         totalEquipos:getN('ctr_total_equipos'),
-        costoConexion:getN('ctr_costo_conexion')||360000,
-        descuento:getN('ctr_descuento')||360000
+        // El 360000 es el valor por defecto SOLO si el campo quedó vacío.
+        // Antes iba con ||360000, así que escribir 0 lo convertía en 360.000.
+        costoConexion:getN('ctr_costo_conexion',360000),
+        descuento:getN('ctr_descuento',360000)
     };
 
     // Validaciones mínimas
@@ -17059,7 +17085,12 @@ function _imprimirContrato(oid, cid){
     if(!data.numDoc) return alert('⚠️ El número de documento es obligatorio');
     if(!data.direccion) return alert('⚠️ La dirección es obligatoria');
     if(!data.celular) return alert('⚠️ El celular es obligatorio');
-    if(!data.totalMensual) return alert('⚠️ El total mensual es obligatorio');
+    // v245: antes era if(!data.totalMensual), y en JavaScript !0 es verdadero: un
+    // cero puesto a propósito se rechazaba igual que un campo vacío, y no había
+    // forma de salir del aviso. Ahora solo se bloquea un valor imposible, y el
+    // cero se confirma una vez en lugar de impedir el contrato.
+    if(!(data.totalMensual>=0)) return alert('⚠️ El total mensual no es un número válido.');
+    if(data.totalMensual===0 && !confirm('El TOTAL MENSUAL quedará en $0.\n\n¿Es correcto?\n\n(Si el cliente no lleva televisión, revisa que el valor del plan de internet sí esté sumado aquí.)')) return;
 
     _generarPDFContrato(data);
     closeModal();
