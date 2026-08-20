@@ -147,7 +147,7 @@ const COLECCION='oficinas_sistema';
 const DOC_ID='main';
 
 // ── CONTROL DE VERSIÓN (bloqueo total si hay versión nueva) ──
-const APP_VERSION_TEC = 83; // v81: FACTURA DE ENERGIA CON PDF, Y UN MENSAJE DE ERROR QUE MENTIA. Al subir un PDF, la app decia que el modelo de IA ya no estaba disponible en Groq. Era falso y mandaba a buscar el problema donde no estaba. Dos causas. [1] _enComprimirFoto convertia la foto con un Image(), que no sabe abrir un PDF: caia al onerror y enviaba el PDF CRUDO como si fuera una imagen. Ahora, si el archivo es PDF, se dibuja su primera pagina con _pdfAImagen, el mismo conversor que ya usaban los comprobantes. Las facturas de energia llegan en PDF a menudo. [2] ia.js metia los codigos 400 y 404 en el mismo saco. Comprobado contra Groq: 404 con el texto does not exist es que retiraron el modelo, pero 400 con invalid image data es que la FOTO no sirve. Ahora se distinguen leyendo el mensaje de Groq, el respaldo de modelo solo se prueba cuando de verdad falta el modelo, y el error de imagen dice que conviertas el PDF a foto. ADEMAS se blindo otra trampa descubierta probando: Groq EXIGE que la palabra json aparezca en los mensajes para aceptar respuesta en formato JSON, y si falta responde 400 con un texto que no le dice nada a nadie. Los prompts de hoy la llevan, pero basta reescribir uno sin darse cuenta para romperlo; ahora, si falta, se anade sola. Verificado con llamadas REALES a Groq: PDF mandado como imagen da tipo imagen con su consejo, modelo inexistente sigue dando tipo modelo, y un prompt sin la palabra json ya responde bien. v80: GROQ RETIRO EL MODELO DE TEXTO Y EL ASISTENTE DEJO DE RESPONDER. El 18 ago 2026 llama-3.3-70b-versatile empezo a devolver HTTP 404: el asistente contestaba No pude conectar a cualquier pregunta. Se comprobo contra la API de Groq (GET /openai/v1/models): de los 13 modelos activos, el de vision qwen3.6-27b sigue vivo (por eso los comprobantes si funcionaban) pero el de texto ya no existe. Ahora el asistente usa openai/gpt-oss-120b con qwen3.6-27b de respaldo. Y se corrigio la causa de fondo: la lista de respaldo existia SOLO para vision, asi que el texto tenia un unico modelo y al retirarlo se cayo del todo; ahora las dos listas funcionan igual y si Groq retira el primero se pasa solo al siguiente. ADEMAS, LOS MODELOS DE 2026 RAZONAN ANTES DE CONTESTAR y eso rompia dos cosas. [1] qwen devuelve su razonamiento DENTRO de la respuesta, en un bloque think, y el asistente se lo mostraba tal cual a la persona; ahora se pide ocultarlo y ademas se limpia por si algun modelo ignora la peticion. [2] Ese razonamiento gasta del MISMO presupuesto de tokens que la respuesta: medido, qwen con 200 tokens devuelve la respuesta VACIA porque el razonamiento se los comio entero, y la lectura de un comprobante pedia 500. Ahora hay un suelo de 1200 tokens, y si aun asi se queda sin margen lo dice claro en vez de devolver un comprobante sin datos. Verificado con llamadas REALES a Groq: asistente, respaldo de modelo, modelo de vision y respuesta en JSON, los cuatro responden. v79: IA: UNA SOLA FORMA DE HABLAR CON GROQ EN LAS TRES APPS. Habia SIETE llamadas a Groq repartidas por OFICINAS, TECNICOS e INVENTARIO, cada una con su propio manejo de errores y de calidad muy desigual. NINGUNA tenia tiempo limite: si Groq no respondia (se cae, se satura, el celular pierde senal a mitad) la app se quedaba girando para siempre y no habia mas salida que cerrarla y volver a abrirla. Solo UNA sabia esperar cuando Groq contesta que vas muy rapido: la carga de comprobantes por lote, que lee cuantos segundos pide, distingue el limite del minuto del limite del DIA y reintenta avisando en pantalla; las otras seis se rendian al primer intento. El respaldo por si Groq retira el modelo tambien vivia en un solo sitio. Ahora todo pasa por ia.js, cargado por las tres apps igual que contrato.js: tiempo limite (90s, 120s para lotes de fotos), reintento que respeta lo que Groq pide, deteccion del limite diario, respaldo de modelo, y errores con etiqueta para que cada pantalla muestre un mensaje entendible en vez de HTTP 429. La carga por lote conserva su logica de partir el lote cuando se excede el cupo de tokens por minuto, que ya funcionaba: solo se le anadio el tiempo limite. De aqui en adelante cualquier mejora de IA se hace en un solo archivo. Para el tecnico el cambio se nota en el asistente: si Groq tarda, ahora avisa y corta a los 90 segundos en vez de dejar el Pensando... colgado, y si Groq pide esperar lo dice en pantalla y reintenta solo. v78: MARCA DE TIEMPO NUMERICA EN LOS REGISTROS. Junto a la fecha de texto se guarda ahora fechaMs, porque toLocaleDateString() da DD/MM/AAAA y quien lo lee con new Date() lo entiende como MM/DD: rompio el archivador de bodega durante meses. El texto se conserva porque bodega lo muestra en pantalla. v77: CANTIDADES NEGATIVAS EN EQUIPO RECUPERADO. El campo de cantidad usaba parseInt(valor)||1, que NO atrapa negativos (-5 es un valor verdadero y pasa el ||1), y el min=1 del HTML no se aplica al teclear. Ese numero se SUMA al stock de la bodega al integrarlo, asi que un -5 restaba 5 unidades en silencio y quedaba registrado como entrada. Ahora se acota con Math.max(1,...). v76: CONTRATO DE SERVICIO DESDE LA APP. En una orden con cliente aparece el boton Contrato: llega prellenado con los datos de la orden (nombre partido en nombres y apellidos como propuesta editable, cedula, direccion, barrio, celular) y con las condiciones de la oficina (vigencia, valor minimo, costo de conexion). El cliente firma con el dedo ahi mismo, se guarda como un documento en oficinas_sistema y se comparte el PDF: en celular WhatsApp recibe el ARCHIVO adjunto, no un enlace. El contrato y la firma vienen de contrato.js, el mismo archivo que usa OFICINAS, asi que no hay dos copias que se desincronicen. La fecha se toma LOCAL y no en UTC: con toISOString() en Colombia el contrato salia fechado al dia siguiente despues de las 7 p.m. Incluye v75: ARREGLO PREVENTIVO DEL ESTADO 'CANCELADA'. La app escribia ese estado al cancelar una orden, pero no sabia dibujarlo: faltaba en el mapa ORDEN_ESTADOS y caia al respaldo 'pendiente'. Hoy no se notaba porque el filtro de pestanas excluye las canceladas, pero si ese filtro llegaba a cambiar, una orden cancelada por la oficina se veria como PENDIENTE y con boton de Aceptar, invitando al tecnico a reactivarla. Ahora la entrada existe y coincide con la de OFICINAS (etiqueta, icono y color), y es terminal como 'finalizada'. Sin cambios visibles hoy. Incluye v74: MENSAJE DEL DIA al iniciar sesion. Ademas del saludo, aparece una frase corta para arrancar labores, elegida segun el DIA DE LA SEMANA y estable durante toda la jornada (cambia al dia siguiente, no en cada recarga). Escritas para el trabajo de campo. Uno de cada tres dias se suma un recordatorio practico (arnes y escalera, foto del trabajo terminado, registrar material, agua y gorra, dejar la senal medida). Las frases se editan en las listas FRASES_DIA_TEC y TIPS_DIA_TEC. Incluye v73: REINTENTO AUTOMATICO CUANDO FIREBASE ESTA SATURADO. Firebase limita cuanta escritura acepta por segundo y respondia 'This database has exceeded their maximum bandwidth for writes': el error salia en rojo, la orden NO se finalizaba y el tecnico tenia que reintentar a mano (muchas veces creyendo que si habia quedado). Ahora toda operacion se reintenta sola esperando cada vez mas (1s, 2s, 4s, 8s, 16s), que es justo lo que pide Firebase, avisando en pantalla mientras tanto. Incluye v72: ENLACE POR CEDULA A PRUEBA DE FORMATO — la cedula del tecnico se escribe en dos sistemas distintos (empleados en OFICINAS y tecnicos de la cuadrilla en INVENTARIO, campo de texto libre). Un punto, espacio o guion de diferencia rompia la comparacion exacta: el tecnico veia 'no tienes cuadrilla asignada' y NO podia devolver material ni reportar consumos, sin explicacion. Ahora se comparan solo los digitos (aplica tambien a la busqueda de los equipos del cliente). Incluye v71: DEVOLUCION DE MATERIAL CORREGIDA — el material devuelto se enviaba a la bodega pero NUNCA se descontaba del stock del tecnico: quedaba contado dos veces y al integrarlo la bodega sumaba unidades que ya tenia. Ahora la devolucion descuenta de la cuadrilla en la MISMA transaccion, valida sobre datos frescos (cantidad y seriales) y marca el registro para que la bodega no lo descuente otra vez. Ademas: todas las escrituras al inventario van por TRANSACCION (antes leia y escribia en dos pasos, asi que dos tecnicos guardando a la vez se pisaban y un reporte podia desaparecer), y si el guardado falla el tecnico recibe un aviso claro de que su material NO se devolvio.
+const APP_VERSION_TEC = 84; // v84: CONTRATOS COMO MENU PROPIO, Y FIRMA DESPUES DE GENERARLOS. Antes el contrato solo se podia hacer desde una orden de trabajo, y la firma era OBLIGATORIA en ese mismo momento: si el cliente no estaba, habia que rehacerlo todo. Ahora hay una pestaña Contratos donde el tecnico crea uno desde cero, sin depender de ninguna orden; el boton que colgaba de la orden se retiro. La firma pasa a ser OPCIONAL al guardar: el contrato queda como Sin firma y se firma luego con el dedo desde la misma pestaña, que lista los contratos del tecnico con su estado, el valor mensual y botones para firmar y compartir el PDF. Si el tecnico pertenece a varias oficinas elige a cual pertenece el contrato; si es una sola, se toma sola. Se corrigio ademas el MISMO fallo del cero que tenia OFICINAS: la validacion era if(!datos.totalMensual) y en JavaScript !0 es verdadero, asi que un valor mensual de 0 puesto a proposito se rechazaba igual que un campo vacio; ahora solo se bloquea un valor imposible y el cero se confirma una vez. Los contratos guardan creadoPorId para listarlos con una consulta de igualdad simple, sin indices compuestos. Verificado en el navegador: la lista distingue firmado de sin firma y solo ofrece Firmar en el que falta, el formulario abre sin orden con la oficina resuelta y el valor prellenado, el modal de firma identifica el contrato, un id inexistente avisa sin romperse, las pestañas de ordenes siguen funcionando y el buscador se oculta en Contratos. Esta nota recoge tambien v83 y v82, que subieron el numero sin anotarse (ajustes de la IA compartida). v81: FACTURA DE ENERGIA CON PDF, Y UN MENSAJE DE ERROR QUE MENTIA. Al subir un PDF, la app decia que el modelo de IA ya no estaba disponible en Groq. Era falso y mandaba a buscar el problema donde no estaba. Dos causas. [1] _enComprimirFoto convertia la foto con un Image(), que no sabe abrir un PDF: caia al onerror y enviaba el PDF CRUDO como si fuera una imagen. Ahora, si el archivo es PDF, se dibuja su primera pagina con _pdfAImagen, el mismo conversor que ya usaban los comprobantes. Las facturas de energia llegan en PDF a menudo. [2] ia.js metia los codigos 400 y 404 en el mismo saco. Comprobado contra Groq: 404 con el texto does not exist es que retiraron el modelo, pero 400 con invalid image data es que la FOTO no sirve. Ahora se distinguen leyendo el mensaje de Groq, el respaldo de modelo solo se prueba cuando de verdad falta el modelo, y el error de imagen dice que conviertas el PDF a foto. ADEMAS se blindo otra trampa descubierta probando: Groq EXIGE que la palabra json aparezca en los mensajes para aceptar respuesta en formato JSON, y si falta responde 400 con un texto que no le dice nada a nadie. Los prompts de hoy la llevan, pero basta reescribir uno sin darse cuenta para romperlo; ahora, si falta, se anade sola. Verificado con llamadas REALES a Groq: PDF mandado como imagen da tipo imagen con su consejo, modelo inexistente sigue dando tipo modelo, y un prompt sin la palabra json ya responde bien. v80: GROQ RETIRO EL MODELO DE TEXTO Y EL ASISTENTE DEJO DE RESPONDER. El 18 ago 2026 llama-3.3-70b-versatile empezo a devolver HTTP 404: el asistente contestaba No pude conectar a cualquier pregunta. Se comprobo contra la API de Groq (GET /openai/v1/models): de los 13 modelos activos, el de vision qwen3.6-27b sigue vivo (por eso los comprobantes si funcionaban) pero el de texto ya no existe. Ahora el asistente usa openai/gpt-oss-120b con qwen3.6-27b de respaldo. Y se corrigio la causa de fondo: la lista de respaldo existia SOLO para vision, asi que el texto tenia un unico modelo y al retirarlo se cayo del todo; ahora las dos listas funcionan igual y si Groq retira el primero se pasa solo al siguiente. ADEMAS, LOS MODELOS DE 2026 RAZONAN ANTES DE CONTESTAR y eso rompia dos cosas. [1] qwen devuelve su razonamiento DENTRO de la respuesta, en un bloque think, y el asistente se lo mostraba tal cual a la persona; ahora se pide ocultarlo y ademas se limpia por si algun modelo ignora la peticion. [2] Ese razonamiento gasta del MISMO presupuesto de tokens que la respuesta: medido, qwen con 200 tokens devuelve la respuesta VACIA porque el razonamiento se los comio entero, y la lectura de un comprobante pedia 500. Ahora hay un suelo de 1200 tokens, y si aun asi se queda sin margen lo dice claro en vez de devolver un comprobante sin datos. Verificado con llamadas REALES a Groq: asistente, respaldo de modelo, modelo de vision y respuesta en JSON, los cuatro responden. v79: IA: UNA SOLA FORMA DE HABLAR CON GROQ EN LAS TRES APPS. Habia SIETE llamadas a Groq repartidas por OFICINAS, TECNICOS e INVENTARIO, cada una con su propio manejo de errores y de calidad muy desigual. NINGUNA tenia tiempo limite: si Groq no respondia (se cae, se satura, el celular pierde senal a mitad) la app se quedaba girando para siempre y no habia mas salida que cerrarla y volver a abrirla. Solo UNA sabia esperar cuando Groq contesta que vas muy rapido: la carga de comprobantes por lote, que lee cuantos segundos pide, distingue el limite del minuto del limite del DIA y reintenta avisando en pantalla; las otras seis se rendian al primer intento. El respaldo por si Groq retira el modelo tambien vivia en un solo sitio. Ahora todo pasa por ia.js, cargado por las tres apps igual que contrato.js: tiempo limite (90s, 120s para lotes de fotos), reintento que respeta lo que Groq pide, deteccion del limite diario, respaldo de modelo, y errores con etiqueta para que cada pantalla muestre un mensaje entendible en vez de HTTP 429. La carga por lote conserva su logica de partir el lote cuando se excede el cupo de tokens por minuto, que ya funcionaba: solo se le anadio el tiempo limite. De aqui en adelante cualquier mejora de IA se hace en un solo archivo. Para el tecnico el cambio se nota en el asistente: si Groq tarda, ahora avisa y corta a los 90 segundos en vez de dejar el Pensando... colgado, y si Groq pide esperar lo dice en pantalla y reintenta solo. v78: MARCA DE TIEMPO NUMERICA EN LOS REGISTROS. Junto a la fecha de texto se guarda ahora fechaMs, porque toLocaleDateString() da DD/MM/AAAA y quien lo lee con new Date() lo entiende como MM/DD: rompio el archivador de bodega durante meses. El texto se conserva porque bodega lo muestra en pantalla. v77: CANTIDADES NEGATIVAS EN EQUIPO RECUPERADO. El campo de cantidad usaba parseInt(valor)||1, que NO atrapa negativos (-5 es un valor verdadero y pasa el ||1), y el min=1 del HTML no se aplica al teclear. Ese numero se SUMA al stock de la bodega al integrarlo, asi que un -5 restaba 5 unidades en silencio y quedaba registrado como entrada. Ahora se acota con Math.max(1,...). v76: CONTRATO DE SERVICIO DESDE LA APP. En una orden con cliente aparece el boton Contrato: llega prellenado con los datos de la orden (nombre partido en nombres y apellidos como propuesta editable, cedula, direccion, barrio, celular) y con las condiciones de la oficina (vigencia, valor minimo, costo de conexion). El cliente firma con el dedo ahi mismo, se guarda como un documento en oficinas_sistema y se comparte el PDF: en celular WhatsApp recibe el ARCHIVO adjunto, no un enlace. El contrato y la firma vienen de contrato.js, el mismo archivo que usa OFICINAS, asi que no hay dos copias que se desincronicen. La fecha se toma LOCAL y no en UTC: con toISOString() en Colombia el contrato salia fechado al dia siguiente despues de las 7 p.m. Incluye v75: ARREGLO PREVENTIVO DEL ESTADO 'CANCELADA'. La app escribia ese estado al cancelar una orden, pero no sabia dibujarlo: faltaba en el mapa ORDEN_ESTADOS y caia al respaldo 'pendiente'. Hoy no se notaba porque el filtro de pestanas excluye las canceladas, pero si ese filtro llegaba a cambiar, una orden cancelada por la oficina se veria como PENDIENTE y con boton de Aceptar, invitando al tecnico a reactivarla. Ahora la entrada existe y coincide con la de OFICINAS (etiqueta, icono y color), y es terminal como 'finalizada'. Sin cambios visibles hoy. Incluye v74: MENSAJE DEL DIA al iniciar sesion. Ademas del saludo, aparece una frase corta para arrancar labores, elegida segun el DIA DE LA SEMANA y estable durante toda la jornada (cambia al dia siguiente, no en cada recarga). Escritas para el trabajo de campo. Uno de cada tres dias se suma un recordatorio practico (arnes y escalera, foto del trabajo terminado, registrar material, agua y gorra, dejar la senal medida). Las frases se editan en las listas FRASES_DIA_TEC y TIPS_DIA_TEC. Incluye v73: REINTENTO AUTOMATICO CUANDO FIREBASE ESTA SATURADO. Firebase limita cuanta escritura acepta por segundo y respondia 'This database has exceeded their maximum bandwidth for writes': el error salia en rojo, la orden NO se finalizaba y el tecnico tenia que reintentar a mano (muchas veces creyendo que si habia quedado). Ahora toda operacion se reintenta sola esperando cada vez mas (1s, 2s, 4s, 8s, 16s), que es justo lo que pide Firebase, avisando en pantalla mientras tanto. Incluye v72: ENLACE POR CEDULA A PRUEBA DE FORMATO — la cedula del tecnico se escribe en dos sistemas distintos (empleados en OFICINAS y tecnicos de la cuadrilla en INVENTARIO, campo de texto libre). Un punto, espacio o guion de diferencia rompia la comparacion exacta: el tecnico veia 'no tienes cuadrilla asignada' y NO podia devolver material ni reportar consumos, sin explicacion. Ahora se comparan solo los digitos (aplica tambien a la busqueda de los equipos del cliente). Incluye v71: DEVOLUCION DE MATERIAL CORREGIDA — el material devuelto se enviaba a la bodega pero NUNCA se descontaba del stock del tecnico: quedaba contado dos veces y al integrarlo la bodega sumaba unidades que ya tenia. Ahora la devolucion descuenta de la cuadrilla en la MISMA transaccion, valida sobre datos frescos (cantidad y seriales) y marca el registro para que la bodega no lo descuente otra vez. Ademas: todas las escrituras al inventario van por TRANSACCION (antes leia y escribia en dos pasos, asi que dos tecnicos guardando a la vez se pisaban y un reporte podia desaparecer), y si el guardado falla el tecnico recibe un aviso claro de que su material NO se devolvio.
 
 // 👁️ Ver/ocultar la clave en el login (v68)
 function _toggleVerPassTec(btn){
@@ -552,6 +552,7 @@ function render(){
     document.getElementById('tabs').innerHTML=`
         <div class="tab ${_tab==='activas'?'active':''}" onclick="setTab('activas')"><span class="n">${activas.length}</span>Activas</div>
         <div class="tab ${_tab==='finalizadas'?'active':''}" onclick="setTab('finalizadas')"><span class="n">${finalizadas.length}</span>Finalizadas</div>
+        <div class="tab ${_tab==='contratos'?'active':''}" onclick="setTab('contratos')">📄 Contratos</div>
     `;
 
     // Barra de búsqueda (filtra por cliente, cédula, dirección, teléfono o tipo de orden)
@@ -562,6 +563,11 @@ function render(){
         buscadorEl.innerHTML=`<input id="ordenBusqueda" type="text" placeholder="🔍 Buscar por cliente, cédula, dirección o teléfono..."
             oninput="_filtrarOrdenesUI()" style="width:100%;padding:10px 14px;border-radius:10px;border:1px solid var(--border,#333);background:var(--card,#1a1a1a);color:var(--text,#fff);font-size:0.9rem;margin:6px 0;box-sizing:border-box;">`;
     }
+
+    // v80: la pestaña de contratos tiene vista propia. El buscador de órdenes
+    // se esconde ahí porque no aplica.
+    if(buscadorEl) buscadorEl.style.display = (_tab==='contratos') ? 'none' : '';
+    if(_tab==='contratos'){ _renderContratosTec(); return; }
 
     _renderListaOrdenes();
 }
@@ -623,7 +629,6 @@ function _renderListaOrdenes(){
             ${o.observacionTecnico?`<div class="muted">🗣️ Tu nota: ${o.observacionTecnico}</div>`:''}
             <div class="order-actions">
                 ${o.cliente?`<button class="btn btn-sm btn-ghost" onclick="modalEquiposCliente('${o.id}')">📦 Equipos</button>`:''}
-                ${o.cliente?`<button class="btn btn-sm btn-ghost" onclick="modalContratoOrden('${o.id}')" title="Generar y firmar el contrato de servicio">📄 Contrato</button>`:''}
                 ${est.next?`<button class="btn btn-sm ${est.next==='finalizada'?'btn-ok':est.next==='proceso'?'btn-purple':'btn-blue'}" onclick="avanzar('${o.id}','${est.next}')">${est.nextLabel}</button>`:''}
                 ${(o.estado==='aceptada'||o.estado==='proceso')?`<button class="btn btn-sm" style="background:#ef4444;color:#fff;" onclick="modalReagendar('${o.id}')">🔁 No se pudo</button>`:''}
                 ${(o.estado!=='finalizada'&&o.estado!=='cancelada')?`<button class="btn btn-sm btn-ghost" style="color:#ef4444;border-color:rgba(239,68,68,0.5);" onclick="modalCancelarOrden('${o.id}')">❌ Cancelar</button>`:''}
@@ -767,19 +772,147 @@ function _partirNombreTec(nombre){
     return {nombres:p.slice(0,p.length-2).join(' '),apellidos:p.slice(-2).join(' ')};
 }
 
-function modalContratoOrden(ordenId){
-    const o=_ordenPorId(ordenId);
-    if(!o){ showToast('No se encontró la orden.'); return; }
+// ════════════════════════════════════════════════════════════════════
+// 📄 CONTRATOS (v80) — menú propio, ya no cuelga de una orden de trabajo.
+// El técnico puede crear un contrato desde cero, guardarlo SIN firma y que el
+// cliente firme después: antes la firma era obligatoria en el mismo momento,
+// y si el cliente no estaba había que rehacerlo todo.
+// ════════════════════════════════════════════════════════════════════
+window._contratosTec = null;   // caché de lo consultado, para no releer en cada pintada
+
+async function _cargarContratosTec(forzar){
+    if(window._contratosTec && !forzar) return window._contratosTec;
+    if(!db){ window._contratosTec=[]; return []; }
+    try{
+        // Consulta por igualdad simple: no necesita índice compuesto en Firestore.
+        const snap=await db.collection('oficinas_sistema').where('creadoPorId','==',String(TEC.id)).get();
+        const out=[];
+        snap.forEach(d=>{ const v=d.data(); if(v&&v.tipo==='contrato') out.push({id:d.id, ...v}); });
+        out.sort((a,b)=>(b.creadoEn||0)-(a.creadoEn||0));
+        window._contratosTec=out;
+        return out;
+    }catch(e){ console.warn('contratos:', e); window._contratosTec=[]; return []; }
+}
+
+async function _renderContratosTec(){
+    const list=document.getElementById('list');
+    if(!list) return;
+    list.innerHTML='<div style="padding:22px;text-align:center;color:var(--muted);">Cargando contratos…</div>';
+    const items=await _cargarContratosTec(true);
+
+    const btnNuevo='<button class="btn btn-ok btn-block" style="margin-bottom:12px;" onclick="modalContratoTec()">➕ Nuevo contrato</button>';
+
+    if(!items.length){
+        list.innerHTML = btnNuevo +
+            '<div style="padding:26px 16px;text-align:center;color:var(--muted);font-size:0.86rem;">' +
+            'Todavía no has hecho ningún contrato.<br>Toca <b>Nuevo contrato</b> para crear el primero.' +
+            '</div>';
+        return;
+    }
+
+    const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const fmt=n=>'$'+Math.round(Number(n)||0).toLocaleString('es-CO');
+    const filas=items.map(c=>{
+        const firmado = c.estado==='firmado' && c.firma;
+        const f=c.creadoEn?new Date(c.creadoEn):null;
+        const fecha=f?(String(f.getDate()).padStart(2,'0')+'/'+String(f.getMonth()+1).padStart(2,'0')+'/'+f.getFullYear()):'';
+        return `<div class="card" style="padding:12px;margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;">
+                <div style="font-weight:700;font-size:0.92rem;">${esc(c.clienteNombre||'(sin nombre)')}</div>
+                <span style="font-size:0.7rem;font-weight:700;padding:2px 8px;border-radius:20px;background:${firmado?'rgba(16,185,129,0.15)':'rgba(245,158,11,0.15)'};color:${firmado?'#10b981':'#f59e0b'};">
+                    ${firmado?'✔ Firmado':'✍️ Sin firma'}</span>
+            </div>
+            <div style="font-size:0.75rem;color:var(--muted);margin-top:3px;">
+                N° ${esc(c.numero||'—')} · ${fecha} · ${fmt(c.datos&&c.datos.totalMensual)}/mes</div>
+            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+                ${firmado?'':`<button class="btn btn-ok btn-sm" style="flex:1;" onclick="_firmarContratoTec(\'${c.id}\')">✍️ Firmar</button>`}
+                <button class="btn btn-ghost btn-sm" style="flex:1;" onclick="_compartirContratoTec(\'${c.id}\')">📤 Compartir PDF</button>
+            </div>
+        </div>`;
+    }).join('');
+    list.innerHTML = btnNuevo + filas;
+}
+window._renderContratosTec=_renderContratosTec;
+
+// Firma DESPUÉS de haber generado el contrato.
+function _firmarContratoTec(id){
+    const c=(window._contratosTec||[]).find(x=>x.id===id);
+    if(!c){ showToast('No se encontró ese contrato.'); return; }
+    if(typeof PV_CONTRATO==='undefined'){ showToast('No se pudo cargar el contrato. Recarga la app.'); return; }
+    const bg=document.createElement('div'); bg.className='modal-bg'; bg.id='modalFirmaTec';
+    bg.innerHTML=`<div class="modal">
+        <h3>✍️ Firma del cliente</h3>
+        <div style="font-size:0.82rem;color:var(--muted);margin-bottom:10px;">
+            Contrato N° <b>${c.numero||''}</b> · ${c.clienteNombre||''}<br>Que el cliente firme con el dedo en el recuadro.</div>
+        <div style="background:#fff;border:2px dashed #9ca3af;border-radius:10px;padding:2px;">
+            <canvas id="tcFirma2" style="display:block;background:#fff;border-radius:8px;"></canvas>
+        </div>
+        <button class="btn btn-ghost btn-sm btn-block" style="margin-top:8px;" onclick="PV_CONTRATO.firma.limpiar()">🧹 Borrar firma</button>
+        <div style="display:flex;gap:8px;margin-top:14px;">
+            <button class="btn btn-ghost btn-block" onclick="document.getElementById('modalFirmaTec').remove()">Cancelar</button>
+            <button class="btn btn-ok btn-block" id="tcFirmarBtn" onclick="_guardarFirmaTec(\'${id}\')">✅ Guardar firma</button>
+        </div>
+    </div>`;
+    document.body.appendChild(bg);
+    setTimeout(()=>{ const cv=document.getElementById('tcFirma2'); if(cv) PV_CONTRATO.firma.iniciar(cv,150); },60);
+}
+window._firmarContratoTec=_firmarContratoTec;
+
+async function _guardarFirmaTec(id){
+    if(PV_CONTRATO.firma.vacia()){ showToast('El cliente todavía no ha firmado.'); return; }
+    const firma=PV_CONTRATO.firma.obtener(120);
+    const kb=Math.round((firma.length*0.75)/1024);
+    if(kb>200){ showToast('La firma quedó muy pesada. Bórrala y haz trazos más simples.'); return; }
+    const btn=document.getElementById('tcFirmarBtn');
+    if(btn){ btn.disabled=true; btn.textContent='⏳ Guardando…'; }
+    try{
+        await db.collection('oficinas_sistema').doc(id).update({ firma, estado:'firmado', firmadoEn:Date.now() });
+        const m=document.getElementById('modalFirmaTec'); if(m) m.remove();
+        showToast('✅ Contrato firmado.');
+        _renderContratosTec();
+    }catch(e){
+        if(btn){ btn.disabled=false; btn.textContent='✅ Guardar firma'; }
+        alert('❌ No se pudo guardar la firma.\n\n'+(e.message||e)+'\n\nInténtalo otra vez.');
+    }
+}
+window._guardarFirmaTec=_guardarFirmaTec;
+
+async function _compartirContratoTec(id){
+    const c=(window._contratosTec||[]).find(x=>x.id===id);
+    if(!c||!c.datos){ showToast('No se encontró ese contrato.'); return; }
+    showToast('Preparando el PDF…');
+    try{
+        const datos=Object.assign({}, c.datos, c.firma?{firma:c.firma}:{});
+        const como=await PV_CONTRATO.compartirPDF(datos);
+        if(como==='descarga') showToast('📄 El PDF se descargó.');
+        else if(como==='archivo') showToast('📤 Contrato compartido.');
+    }catch(e){ alert('❌ No se pudo generar el PDF.\n\n'+(e.message||e)); }
+}
+window._compartirContratoTec=_compartirContratoTec;
+
+function modalContratoTec(ordenId){
+    // ordenId es OPCIONAL: desde el menú de Contratos se crea desde cero.
+    const o = ordenId ? _ordenPorId(ordenId) : null;
+    if(ordenId && !o){ showToast('No se encontró la orden.'); return; }
     if(typeof PV_CONTRATO==='undefined'){ showToast('No se pudo cargar el contrato. Recarga la app.'); return; }
 
-    const ofi=_oficinaDeOrden(o);
+    // Sin orden no hay de dónde deducir la oficina: se toma la del técnico y,
+    // si pertenece a varias, se le deja elegir.
+    const idsMios=((TEC&&TEC.oficinas)||[]).map(String);
+    const misOfis=((DATA&&DATA.oficinas)||[]).filter(x=>idsMios.includes(String(x.id)));
+    const ofi = o ? _oficinaDeOrden(o) : (misOfis[0]||null);
     const cfg=(ofi&&ofi.contratoConfig)||{};
-    const {nombres,apellidos}=_partirNombreTec(o.cliente);
-    // Fecha LOCAL, no UTC: con toISOString() en Colombia (UTC-5) despues de las
-    // 7 p.m. el contrato saldria fechado al dia siguiente.
+    const part = o ? _partirNombreTec(o.cliente) : {nombres:'',apellidos:''};
+    // Fecha LOCAL, no UTC: con toISOString() en Colombia (UTC-5) después de las
+    // 7 p.m. el contrato saldría fechado al día siguiente.
     const _d=new Date();
     const hoy=_d.getFullYear()+'-'+String(_d.getMonth()+1).padStart(2,'0')+'-'+String(_d.getDate()).padStart(2,'0');
     const v=(x,d)=>(x===undefined||x===null||x==='')?(d||''):x;
+    const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+    const selOfi = (!o && misOfis.length>1)
+        ? `<label>Oficina</label><select id="tc_oficina">${misOfis.map(x=>`<option value="${esc(x.id)}">${esc(x.nombre||x.id)}</option>`).join('')}</select>`
+        : `<input type="hidden" id="tc_oficina" value="${esc((ofi&&ofi.id)||'')}">`;
 
     const bg=document.createElement('div');
     bg.className='modal-bg';
@@ -787,22 +920,23 @@ function modalContratoOrden(ordenId){
     bg.innerHTML=`<div class="modal">
     <h3>📄 Contrato de servicio</h3>
     <div style="font-size:0.82rem;color:var(--muted);margin-bottom:12px;">
-        Orden de <b>${o.cliente||''}</b>${ofi?' · '+(ofi.nombre||''):''}<br>
-        Revisa los datos, deja que el cliente firme y comparte el PDF.
+        ${o?('Orden de <b>'+esc(o.cliente||'')+'</b>'):'Contrato nuevo'}${ofi?(' · '+esc(ofi.nombre||'')):''}<br>
+        Llena los datos y guarda. El cliente puede firmar ahora o más tarde.
     </div>
 
-    <label>Nombres</label><input id="tc_nombres" value="${v(nombres)}">
-    <label>Apellidos</label><input id="tc_apellidos" value="${v(apellidos)}">
-    <label>Cédula</label><input id="tc_doc" inputmode="numeric" value="${v(o.cedula)}">
-    <label>Dirección</label><input id="tc_dir" value="${v(o.direccion)}">
-    <label>Barrio</label><input id="tc_barrio" value="${v(o.barrio)}">
-    <label>Celular</label><input id="tc_cel" inputmode="numeric" value="${v(o.telefono)}">
-    <label>Plan</label><input id="tc_plan" value="${v(o.plan)}" placeholder="Ej: HOGAR 100 MEGAS">
-    <label>Valor mensual $</label><input id="tc_mensual" type="number" value="${v(cfg.valorMin,'')}" placeholder="0">
+    ${selOfi}
+    <label>Nombres</label><input id="tc_nombres" value="${esc(v(part.nombres))}">
+    <label>Apellidos</label><input id="tc_apellidos" value="${esc(v(part.apellidos))}">
+    <label>Cédula</label><input id="tc_doc" inputmode="numeric" value="${esc(v(o&&o.cedula))}">
+    <label>Dirección</label><input id="tc_dir" value="${esc(v(o&&o.direccion))}">
+    <label>Barrio</label><input id="tc_barrio" value="${esc(v(o&&o.barrio))}">
+    <label>Celular</label><input id="tc_cel" inputmode="numeric" value="${esc(v(o&&o.telefono))}">
+    <label>Plan</label><input id="tc_plan" value="${esc(v(o&&o.plan))}" placeholder="Ej: HOGAR 100 MEGAS">
+    <label>Valor mensual $</label><input id="tc_mensual" type="number" value="${esc(v(cfg.valorMin,''))}" placeholder="0">
     <label>Fecha de activación</label><input id="tc_fecha" type="date" value="${hoy}">
     <label>N° de contrato</label><input id="tc_numero" value="" placeholder="Ej: PV-2026-0001">
 
-    <label style="margin-top:14px;">Firma del cliente</label>
+    <label style="margin-top:14px;">Firma del cliente <span style="font-weight:400;color:var(--muted);font-size:0.78rem;">(opcional: se puede firmar después)</span></label>
     <div style="background:#fff;border:2px dashed #9ca3af;border-radius:10px;padding:2px;">
         <canvas id="tcFirma" style="display:block;background:#fff;border-radius:8px;"></canvas>
     </div>
@@ -812,7 +946,7 @@ function modalContratoOrden(ordenId){
 
     <div style="display:flex;gap:8px;margin-top:14px;">
         <button class="btn btn-ghost btn-block" onclick="_cerrarContratoTec()">Cancelar</button>
-        <button class="btn btn-ok btn-block" id="tcGuardar" onclick="_guardarContratoTecnico('${ordenId}')">✅ Guardar y compartir</button>
+        <button class="btn btn-ok btn-block" id="tcGuardar" onclick="_guardarContratoTecnico(${ordenId?("'"+ordenId+"'"):'null'})">✅ Guardar</button>
     </div>
     </div>`;
 
@@ -822,6 +956,9 @@ function modalContratoOrden(ordenId){
         if(cv) PV_CONTRATO.firma.iniciar(cv, 150);
     }, 60);
 }
+window.modalContratoTec=modalContratoTec;
+// Se conserva el nombre viejo por si algo lo llama.
+function modalContratoOrden(ordenId){ return modalContratoTec(ordenId); }
 
 function _cerrarContratoTec(){
     const m=document.getElementById('modalContratoTec');
@@ -830,12 +967,21 @@ function _cerrarContratoTec(){
 
 function _datosContratoTecnico(o, ofi){
     const g=id=>(document.getElementById(id)?.value||'').trim();
-    const n=id=>parseFloat(document.getElementById(id)?.value||0)||0;
+    // v80: distingue vacío de cero, como ya se hizo en OFICINAS. Antes un 0
+    // escrito a propósito no se podía diferenciar de un campo sin llenar.
+    const n=id=>{
+        const el=document.getElementById(id);
+        const s=(el&&el.value!=null)?String(el.value).trim():'';
+        if(s==='') return 0;
+        const x=parseFloat(s.replace(/[^0-9.,-]/g,'').replace(',','.'));
+        return isNaN(x)?0:x;
+    };
     const cfg=(ofi&&ofi.contratoConfig)||{};
+    const mensual=n('tc_mensual');
     return {
         numero:g('tc_numero'),
         vigencia:String(cfg.vigencia||12),
-        valorMin:n('tc_mensual')||cfg.valorMin||0,
+        valorMin:mensual||cfg.valorMin||0,
         fechaActivacion:g('tc_fecha'),
         internet:true, television:false, adicionales:'',
         nombres:g('tc_nombres'), apellidos:g('tc_apellidos'), razonSocial:'',
@@ -843,16 +989,17 @@ function _datosContratoTecnico(o, ofi){
         direccion:g('tc_dir'), barrio:g('tc_barrio'), municipio:(ofi&&ofi.ciudad)||'',
         celular:g('tc_cel'), telefono:g('tc_cel'), correo:'',
         plan:g('tc_plan'), velocidad:'',
-        totalMensual:n('tc_mensual'), totalInternet:n('tc_mensual'),
+        totalMensual:mensual, totalInternet:mensual,
         costoConexion:cfg.costoConexion||0, descuento:cfg.descuento||0,
         instInternet:cfg.instInternet||0, ontValor:cfg.ontValor||0
     };
 }
 
 async function _guardarContratoTecnico(ordenId){
-    const o=_ordenPorId(ordenId);
-    if(!o) return;
-    const ofi=_oficinaDeOrden(o);
+    const o = ordenId ? _ordenPorId(ordenId) : null;
+    const oidSel = (document.getElementById('tc_oficina')||{}).value || '';
+    const ofi = o ? _oficinaDeOrden(o)
+               : (((DATA&&DATA.oficinas)||[]).find(x=>String(x.id)===String(oidSel))||null);
     const datos=_datosContratoTecnico(o, ofi);
 
     if(!datos.numero){ showToast('Falta el número de contrato.'); return; }
@@ -860,10 +1007,16 @@ async function _guardarContratoTecnico(ordenId){
     if(!datos.numDoc){ showToast('Falta la cédula.'); return; }
     if(!datos.direccion){ showToast('Falta la dirección.'); return; }
     if(!datos.celular){ showToast('Falta el celular.'); return; }
-    if(!datos.totalMensual){ showToast('Falta el valor mensual.'); return; }
-    if(PV_CONTRATO.firma.vacia()){ showToast('El cliente todavía no ha firmado.'); return; }
+    // v80: antes era if(!datos.totalMensual), y en JavaScript !0 es verdadero:
+    // un valor de 0 puesto a propósito se rechazaba igual que un campo vacío.
+    if(!(datos.totalMensual>=0)){ showToast('El valor mensual no es válido.'); return; }
+    if(datos.totalMensual===0 && !confirm('El valor mensual quedará en $0.\n\n¿Es correcto?')) return;
 
-    datos.firma=PV_CONTRATO.firma.obtener(120);
+    // v80: LA FIRMA YA NO ES OBLIGATORIA. Si el cliente no está, el contrato
+    // queda guardado y se firma después desde el menú de Contratos.
+    const hayFirma = !PV_CONTRATO.firma.vacia();
+    if(hayFirma) datos.firma=PV_CONTRATO.firma.obtener(120);
+    if(!hayFirma && !confirm('El cliente todavía no ha firmado.\n\n¿Guardar el contrato SIN firma? Podrás firmarlo después desde Contratos.')) return;
 
     const btn=document.getElementById('tcGuardar');
     if(btn){ btn.disabled=true; btn.textContent='⏳ Guardando…'; }
@@ -872,27 +1025,31 @@ async function _guardarContratoTecnico(ordenId){
         const id='contrato_'+Date.now().toString(36)+Math.random().toString(36).substring(2,7);
         await db.collection('oficinas_sistema').doc(id).set({
             tipo:'contrato',
-            oficinaId:String(o.oficinaId||''),
-            clienteId:String(o.clienteId||''),
+            oficinaId:String((o&&o.oficinaId)||oidSel||''),
+            clienteId:String((o&&o.clienteId)||''),
             clienteCedula:String(datos.numDoc||'').trim(),
             clienteNombre:`${datos.nombres} ${datos.apellidos}`.trim(),
             numero:datos.numero,
-            datos, firma:datos.firma,
-            estado:'firmado',
-            ordenId:String(ordenId),
+            datos, firma:(datos.firma||''),
+            estado: hayFirma?'firmado':'sin_firma',
+            ordenId:String(ordenId||''),
             creadoEn:Date.now(),
             creadoPor:(typeof TEC!=='undefined'&&TEC?TEC.nombre:'Técnico'),
-            firmadoEn:Date.now()
+            // v80: para poder listar en el menú de Contratos sin índices compuestos.
+            creadoPorId:String((typeof TEC!=='undefined'&&TEC&&TEC.id)||''),
+            firmadoEn: hayFirma?Date.now():0
         });
         _cerrarContratoTec();
-        showToast('✅ Contrato guardado. Preparando el PDF…');
+        window._contratosTec=null;   // que la lista se relea
+        showToast(hayFirma?'✅ Contrato guardado y firmado.':'✅ Contrato guardado (falta la firma).');
+        if(_tab==='contratos' && typeof _renderContratosTec==='function') _renderContratosTec();
 
         const como=await PV_CONTRATO.compartirPDF(datos);
         if(como==='descarga') showToast('📄 El PDF se descargó al equipo.');
         else if(como==='archivo') showToast('📤 Contrato compartido.');
     }catch(e){
-        if(btn){ btn.disabled=false; btn.textContent='✅ Guardar y compartir'; }
-        alert('❌ No se pudo completar.\n\n'+(e.message||e)+'\n\nSi el contrato ya se guardó, puedes compartirlo desde la oficina.');
+        if(btn){ btn.disabled=false; btn.textContent='✅ Guardar'; }
+        alert('❌ No se pudo completar.\n\n'+(e.message||e)+'\n\nSi el contrato ya se guardó, puedes compartirlo desde el menú de Contratos.');
     }
 }
 
