@@ -539,6 +539,305 @@ p { margin:4px 0; font-size:8px; text-align:justify; line-height:1.35; }
         catch (e) { return false; }
     }
 
+
+    // ════════════════════════════════════════════════════════════════
+    // FORMULARIO COMPARTIDO (v3)
+    //
+    // Antes cada app dibujaba SU propio formulario: OFICINAS con 37 campos y
+    // TECNICOS con 11. Eran dos interfaces distintas para el mismo contrato y
+    // se desincronizaban en cada cambio. Ahora el formulario se GENERA desde
+    // esta tabla, así que las dos apps son idénticas por construcción.
+    //
+    // Los ids siguen siendo ctr_* para no romper nada de lo que ya existía.
+    // El CSS viaja aquí dentro (con prefijo pvc-) porque TECNICOS no tiene las
+    // clases de OFICINAS: sin esto el formulario saldría sin estilo en el móvil.
+    // ════════════════════════════════════════════════════════════════
+    var FORM_SECCIONES = [
+        { tit: 'EL SERVICIO', ico: '📌', campos: [
+            { id: 'numero',            et: 'N° de Contrato *',        ph: '0094' },
+            { id: 'vigencia',          et: 'Vigencia (meses)',             t: 'number', cfg: 'vigencia' },
+            { id: 'valor_min',         et: 'Valor mensual mínimo',    t: 'number', ph: '30000', cfg: 'valorMin' },
+            { id: 'fecha_activacion',  et: 'Fecha activación servicio', t: 'date', hoy: true },
+            { servicios: true },
+            { id: 'adicionales',       et: 'Servicios adicionales',        ph: '(opcional)', ancho: true }
+        ] },
+        { tit: 'INFORMACIÓN DEL SUSCRIPTOR', ico: '👤', campos: [
+            { id: 'nombres',      et: 'Nombres *',            ph: 'JUAN ANDRÉS' },
+            { id: 'apellidos',    et: 'Apellidos *',          ph: 'PÉREZ GÓMEZ' },
+            { id: 'razon_social', et: 'Razón social',    ph: '(si aplica)' },
+            { id: 'tipo_doc',     et: 'Tipo de documento *',  opciones: ['CC', 'CE', 'NIT', 'PAS', 'TI'] },
+            { id: 'num_doc',      et: 'Número documento *', ph: '1234567890' },
+            { id: 'celular',      et: 'Celular *',            ph: '3001234567' },
+            { id: 'direccion',    et: 'Dirección *',     ph: 'Cr 12 # 34-56', ancho: true },
+            { id: 'email',        et: 'Email',                t: 'email', ph: 'cliente@email.com' },
+            { id: 'zona',         et: 'Zona',                 ph: 'Urbana' },
+            { id: 'barrio',       et: 'Barrio',               ph: 'Centro' },
+            { id: 'estrato',      et: 'Estrato',              t: 'number', ph: '3' }
+        ] },
+        { tit: 'CONDICIONES COMERCIALES', ico: '💰', campos: [
+            { id: 'tv_basica',     et: 'Televisión Básica $', t: 'number', ph: '0', cfg: 'tvBasica',  suma: true },
+            { id: 'tv_premium',    et: 'Televisor Premium $',           t: 'number', ph: '0', cfg: 'tvPremium', suma: true },
+            { id: 'arr_tvbox',     et: 'Arriendo TVBox $',              t: 'number', ph: '0', cfg: 'arrTvbox',  suma: true },
+            { id: 'total_mensual', et: 'Total Mensual $ *',             t: 'number', ph: '30000', total: true },
+            { sub: 'Cargos por instalación / equipos especiales' },
+            { id: 'inst_internet', et: 'Instalación Internet $',   t: 'number', ph: '0', cfg: 'instInternet' },
+            { id: 'inst_tvbox',    et: 'Instalación TVBox $',      t: 'number', ph: '0', cfg: 'instTvbox' },
+            { id: 'pts_adic',      et: 'Puntos adicionales $',          t: 'number', ph: '0', cfg: 'ptsAdic' },
+            { id: 'otros',         et: 'Otros $',                       t: 'number', ph: '0' },
+            { id: 'total_unico',   et: 'Total a pagar 1 vez $',         t: 'number', ph: '0' }
+        ] },
+        { tit: 'INTERNET', ico: '🌐', campos: [
+            { id: 'plan',           et: 'Plan',              ph: 'Hogar 50 Mbps' },
+            { id: 'velocidad',      et: 'Velocidad (Mbps)',  t: 'number', ph: '50' },
+            { id: 'total_internet', et: 'Total Internet $',  t: 'number', ph: '0', suma: true }
+        ] },
+        { tit: 'EQUIPOS EN COMODATO', ico: '📦', campos: [
+            { id: 'ont_serial',    et: 'Cable módem (ONT) - Serial/MAC', ph: 'ABC123456' },
+            { id: 'ont_valor',     et: 'ONT - Valor Comercial $',   t: 'number', ph: '0', cfg: 'ontValor' },
+            { id: 'tvbox_serial',  et: 'TVBox - Serial/MAC',        ph: 'XYZ789012' },
+            { id: 'tvbox_valor',   et: 'TVBox - Valor Comercial $', t: 'number', ph: '0', cfg: 'tvboxValor' },
+            { id: 'total_equipos', et: 'Total Equipos $',           t: 'number', ph: '0' }
+        ] },
+        { tit: 'PERMANENCIA', ico: '📅', campos: [
+            { id: 'costo_conexion', et: 'Costo total por conexión $', t: 'number', ph: '360000', cfg: 'costoConexion' },
+            { id: 'descuento',      et: 'Valor de descuento $',            t: 'number', ph: '360000', cfg: 'descuento' }
+        ] }
+    ];
+
+    function _escF(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function _hoyLocalF() {
+        // Fecha LOCAL: con toISOString() en Colombia (UTC-5) despues de las 7 p.m.
+        // el contrato saldria fechado al dia siguiente.
+        var d = new Date();
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+               '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    var CSS_FORM = [
+        '.pvc-sec{font-size:0.9rem;font-weight:700;color:#ef4444;background:rgba(239,68,68,0.09);',
+        'padding:7px 11px;border-radius:6px;margin:16px 0 10px;}',
+        '.pvc-sub{font-size:0.8rem;font-weight:600;opacity:0.7;margin:12px 0 6px;}',
+        '.pvc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;}',
+        '.pvc-campo{display:flex;flex-direction:column;gap:4px;}',
+        '.pvc-campo.ancho{grid-column:1/-1;}',
+        '.pvc-campo label{font-size:0.76rem;font-weight:600;opacity:0.8;}',
+        '.pvc-campo input,.pvc-campo select{width:100%;padding:9px 11px;border-radius:8px;',
+        'border:1px solid rgba(128,128,128,0.4);background:rgba(128,128,128,0.08);',
+        'color:inherit;font-size:0.9rem;font-family:inherit;box-sizing:border-box;}',
+        '.pvc-campo input:focus,.pvc-campo select:focus{outline:2px solid #a855f7;outline-offset:-1px;}',
+        '.pvc-serv{display:flex;gap:16px;padding:7px 0;flex-wrap:wrap;}',
+        '.pvc-serv label{display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.85rem;font-weight:500;}',
+        '.pvc-serv input{width:auto;}',
+        '.pvc-firma-caja{background:#fff;border:2px dashed #9ca3af;border-radius:10px;padding:2px;}',
+        '.pvc-firma-caja canvas{display:block;background:#fff;border-radius:8px;width:100%;}',
+        '.pvc-aviso{font-size:0.78rem;opacity:0.75;margin:4px 0 0;}'
+    ].join('');
+
+    function _ponerCss() {
+        if (typeof document === 'undefined') return;
+        if (document.getElementById('pvcFormCss')) return;
+        var s = document.createElement('style');
+        s.id = 'pvcFormCss';
+        s.textContent = CSS_FORM;
+        document.head.appendChild(s);
+    }
+
+    // op = { cfg: condiciones de la oficina, datos: valores iniciales, firma: true }
+    function formularioHTML(op) {
+        op = op || {};
+        var cfg = op.cfg || {};
+        var d = op.datos || {};
+        _ponerCss();
+
+        var partes = [];
+        FORM_SECCIONES.forEach(function (sec) {
+            partes.push('<div class="pvc-sec">' + sec.ico + ' ' + _escF(sec.tit) + '</div>');
+            partes.push('<div class="pvc-grid">');
+            sec.campos.forEach(function (c) {
+                if (c.sub) {
+                    partes.push('</div><div class="pvc-sub">' + _escF(c.sub) + '</div><div class="pvc-grid">');
+                    return;
+                }
+                if (c.servicios) {
+                    partes.push('<div class="pvc-campo ancho"><label>Servicios contratados</label><div class="pvc-serv">' +
+                        '<label><input type="checkbox" id="ctr_internet"' + (d.internet === false ? '' : ' checked') + '> Internet fijo</label>' +
+                        '<label><input type="checkbox" id="ctr_television"' + (d.television ? ' checked' : '') + '> Televisión</label>' +
+                        '</div></div>');
+                    return;
+                }
+                // Valor inicial: lo que venga en datos, si no la condicion de la oficina.
+                var val = d[c.id];
+                if ((val === undefined || val === null || val === '') && c.cfg) val = cfg[c.cfg];
+                if ((val === undefined || val === null) && c.hoy) val = _hoyLocalF();
+                if (val === undefined || val === null) val = '';
+
+                var extra = '';
+                if (c.suma)  extra = ' oninput="PV_CONTRATO.sumarMensual()"';
+                if (c.total) extra = ' oninput="window._ctrTotalManual=true;"';
+
+                partes.push('<div class="pvc-campo' + (c.ancho ? ' ancho' : '') + '">');
+                partes.push('<label>' + _escF(c.et) + '</label>');
+                if (c.opciones) {
+                    partes.push('<select id="ctr_' + c.id + '">' + c.opciones.map(function (o) {
+                        return '<option value="' + _escF(o) + '"' + (String(val) === o ? ' selected' : '') + '>' + _escF(o) + '</option>';
+                    }).join('') + '</select>');
+                } else {
+                    partes.push('<input id="ctr_' + c.id + '" type="' + (c.t || 'text') + '"' +
+                        (c.ph ? ' placeholder="' + _escF(c.ph) + '"' : '') +
+                        ' value="' + _escF(val) + '"' + extra + '>');
+                }
+                partes.push('</div>');
+            });
+            partes.push('</div>');
+        });
+
+        if (op.firma !== false) {
+            partes.push('<div class="pvc-sec">✍️ FIRMA DEL CLIENTE</div>');
+            partes.push('<div class="pvc-firma-caja"><canvas id="ctrFirma"></canvas></div>');
+            partes.push('<p class="pvc-aviso">Que el cliente firme aquí con el dedo o el mouse ANTES de generar el PDF. Si no puede firmar ahora, se puede guardar sin firma y firmarlo después.</p>');
+            partes.push('<button type="button" class="pvc-borrar" onclick="PV_CONTRATO.firma.limpiar()" ' +
+                'style="margin-top:8px;padding:7px 12px;border-radius:8px;border:1px solid rgba(128,128,128,0.4);' +
+                'background:transparent;color:inherit;cursor:pointer;font-size:0.82rem;">🧹 Borrar firma</button>');
+        }
+        return partes.join('');
+    }
+
+    // Prepara el lienzo de firma DESPUES de que el formulario este en pantalla.
+    function iniciarFirmaForm(altoCss) {
+        if (typeof document === 'undefined') return;
+        var cv = document.getElementById('ctrFirma');
+        if (cv) firmaIniciar(cv, altoCss || 150);
+    }
+
+    // El TOTAL MENSUAL se calcula solo. Si alguien lo escribe a mano, se respeta.
+    function sumarMensual() {
+        if (typeof document === 'undefined') return;
+        try {
+            if (global._ctrTotalManual) return;
+            var n = function (id) {
+                var v = document.getElementById(id);
+                var x = v ? parseFloat(v.value) : 0;
+                return isNaN(x) ? 0 : x;
+            };
+            var total = n('ctr_total_internet') + n('ctr_tv_basica') + n('ctr_tv_premium') + n('ctr_arr_tvbox');
+            var el = document.getElementById('ctr_total_mensual');
+            if (el) el.value = total > 0 ? total : '';
+        } catch (e) {}
+    }
+
+    // Lee un numero distinguiendo "vacio" de "escribio 0". Sin esto, un 0 puesto
+    // a proposito (cliente sin television, descuento de cero) se trataba como si
+    // el campo estuviera sin llenar.
+    function _numF(id, porDefecto) {
+        var el = (typeof document !== 'undefined') ? document.getElementById(id) : null;
+        var s = (el && el.value != null) ? String(el.value).trim() : '';
+        if (s === '') return (porDefecto !== undefined ? porDefecto : 0);
+        var n = parseFloat(s.replace(/[^0-9.,-]/g, '').replace(',', '.'));
+        return isNaN(n) ? 0 : n;
+    }
+
+    function _txtF(id) {
+        var el = (typeof document !== 'undefined') ? document.getElementById(id) : null;
+        return (el && el.value ? String(el.value) : '').trim();
+    }
+
+    // Devuelve el objeto de datos del contrato, con la MISMA forma de siempre.
+    function leerFormulario(op) {
+        op = op || {};
+        var cfg = op.cfg || {};
+        var d = {
+            numero: _txtF('ctr_numero'),
+            vigencia: _txtF('ctr_vigencia') || String(cfg.vigencia || 12),
+            valorMin: _numF('ctr_valor_min', cfg.valorMin || 0),
+            fechaActivacion: _txtF('ctr_fecha_activacion'),
+            internet: !!(typeof document !== 'undefined' && document.getElementById('ctr_internet') && document.getElementById('ctr_internet').checked),
+            television: !!(typeof document !== 'undefined' && document.getElementById('ctr_television') && document.getElementById('ctr_television').checked),
+            adicionales: _txtF('ctr_adicionales'),
+            nombres: _txtF('ctr_nombres'),
+            apellidos: _txtF('ctr_apellidos'),
+            razonSocial: _txtF('ctr_razon_social'),
+            tipoDoc: _txtF('ctr_tipo_doc'),
+            numDoc: _txtF('ctr_num_doc'),
+            celular: _txtF('ctr_celular'),
+            telefono: _txtF('ctr_celular'),
+            direccion: _txtF('ctr_direccion'),
+            email: _txtF('ctr_email'),
+            correo: _txtF('ctr_email'),
+            zona: _txtF('ctr_zona'),
+            barrio: _txtF('ctr_barrio'),
+            municipio: op.municipio || '',
+            estrato: _txtF('ctr_estrato'),
+            tvBasica: _numF('ctr_tv_basica'),
+            tvPremium: _numF('ctr_tv_premium'),
+            arrTvbox: _numF('ctr_arr_tvbox'),
+            totalMensual: _numF('ctr_total_mensual'),
+            instInternet: _numF('ctr_inst_internet'),
+            instTvbox: _numF('ctr_inst_tvbox'),
+            ptsAdic: _numF('ctr_pts_adic'),
+            otros: _numF('ctr_otros'),
+            totalUnico: _numF('ctr_total_unico'),
+            plan: _txtF('ctr_plan'),
+            velocidad: _txtF('ctr_velocidad'),
+            totalInternet: _numF('ctr_total_internet'),
+            ontSerial: _txtF('ctr_ont_serial'),
+            ontValor: _numF('ctr_ont_valor'),
+            tvboxSerial: _txtF('ctr_tvbox_serial'),
+            tvboxValor: _numF('ctr_tvbox_valor'),
+            totalEquipos: _numF('ctr_total_equipos'),
+            // El valor por defecto solo se aplica si el campo quedo VACIO.
+            costoConexion: _numF('ctr_costo_conexion', cfg.costoConexion !== undefined ? cfg.costoConexion : 360000),
+            descuento: _numF('ctr_descuento', cfg.descuento !== undefined ? cfg.descuento : 360000)
+        };
+        if (!firmaVacia()) d.firma = firmaObtener(120);
+        return d;
+    }
+
+    // Avisos de campos obligatorios. Devuelve '' si todo esta bien.
+    function validarFormulario(d) {
+        if (!d.numero) return 'El número de contrato es obligatorio.';
+        if (!d.nombres || !d.apellidos) return 'Nombres y apellidos son obligatorios.';
+        if (!d.numDoc) return 'El número de documento es obligatorio.';
+        if (!d.direccion) return 'La dirección es obligatoria.';
+        if (!d.celular) return 'El celular es obligatorio.';
+        // OJO: aqui NO se usa !d.totalMensual, porque !0 es verdadero en JavaScript
+        // y un cero puesto a proposito quedaria rechazado como si faltara.
+        if (!(d.totalMensual >= 0)) return 'El total mensual no es un número válido.';
+        return '';
+    }
+
+    // Contrato EN BLANCO pero CON las condiciones de la oficina ya puestas:
+    // vigencia, costo de conexion, descuento y la lista de precios. Solo quedan
+    // vacios los datos del cliente, que son los que se llenan a mano.
+    function datosEnBlanco(cfg) {
+        cfg = cfg || {};
+        var v = function (k, d) { var x = cfg[k]; return (x === undefined || x === null || x === '') ? d : x; };
+        return {
+            numero: '_______',
+            vigencia: String(v('vigencia', 12)),
+            valorMin: v('valorMin', 0),
+            fechaActivacion: '',
+            internet: true, television: false, adicionales: '',
+            nombres: '', apellidos: '', razonSocial: '',
+            tipoDoc: '', numDoc: '', celular: '', telefono: '',
+            direccion: '', email: '', correo: '', zona: '', barrio: '',
+            municipio: cfg.municipio || '', estrato: '',
+            tvBasica: v('tvBasica', 0), tvPremium: v('tvPremium', 0), arrTvbox: v('arrTvbox', 0),
+            totalMensual: v('valorMin', 0),
+            instInternet: v('instInternet', 0), instTvbox: v('instTvbox', 0),
+            ptsAdic: v('ptsAdic', 0), otros: 0, totalUnico: 0,
+            plan: '', velocidad: '', totalInternet: 0,
+            ontSerial: '', ontValor: v('ontValor', 0),
+            tvboxSerial: '', tvboxValor: v('tvboxValor', 0), totalEquipos: 0,
+            costoConexion: v('costoConexion', 360000),
+            descuento: v('descuento', 360000)
+        };
+    }
+
     global.PV_LOGO = PV_LOGO;
     global.PV_CONTRATO = {
         generarHTML: generarHTML,
@@ -546,6 +845,13 @@ p { margin:4px 0; font-size:8px; text-align:justify; line-height:1.35; }
         generarPDF: generarPDF,
         compartirPDF: compartirPDF,
         puedeCompartirArchivos: puedeCompartirArchivos,
-        firma: { iniciar: firmaIniciar, limpiar: firmaLimpiar, vacia: firmaVacia, obtener: firmaObtener }
+        firma: { iniciar: firmaIniciar, limpiar: firmaLimpiar, vacia: firmaVacia, obtener: firmaObtener },
+        // Formulario compartido: OFICINAS y TECNICOS dibujan el MISMO.
+        formularioHTML: formularioHTML,
+        iniciarFirmaForm: iniciarFirmaForm,
+        leerFormulario: leerFormulario,
+        validarFormulario: validarFormulario,
+        datosEnBlanco: datosEnBlanco,
+        sumarMensual: sumarMensual
     };
 })(typeof window !== 'undefined' ? window : globalThis);
