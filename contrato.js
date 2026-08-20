@@ -838,6 +838,86 @@ p { margin:4px 0; font-size:8px; text-align:justify; line-height:1.35; }
         };
     }
 
+
+    // ════════════════════════════════════════════════════════════════
+    // GUARDAR EL CONTRATO EN GOOGLE DRIVE (v4)
+    //
+    // Reutiliza el MISMO Apps Script que ya guarda los comprobantes de pago,
+    // porque ya está publicado y configurado; no hace falta montar nada nuevo.
+    // Se le manda "carpeta":"CONTRATOS" por si el script sabe separarlos: si no
+    // lo entiende, lo ignora y el archivo cae donde caen los comprobantes de esa
+    // oficina. En cualquier caso el nombre del archivo lo identifica.
+    //
+    // El enlace devuelto se guarda en el contrato (campo pdfUrl), que ya existía
+    // reservado para esto.
+    // ════════════════════════════════════════════════════════════════
+    function _blobABase64(blob) {
+        return new Promise(function (res, rej) {
+            var fr = new FileReader();
+            fr.onload = function () { res(String(fr.result)); };   // data:...;base64,....
+            fr.onerror = function () { rej(new Error('No se pudo leer el PDF generado.')); };
+            fr.readAsDataURL(blob);
+        });
+    }
+
+    // cfg = { url, clave, oficina, carpeta }
+    async function subirADrive(data, cfg) {
+        cfg = cfg || {};
+        if (!cfg.url)   throw new Error('Falta la dirección del Drive. Configúrala en el panel de administrador.');
+        if (!cfg.clave) throw new Error('Falta la clave del Drive. Pídesela al administrador.');
+
+        var blob = await generarPDF(data);
+        var base64 = await _blobABase64(blob);
+
+        var cuerpo = {
+            clave: cfg.clave,
+            oficina: cfg.oficina || 'SIN_OFICINA',
+            carpeta: cfg.carpeta || 'CONTRATOS',
+            movId: (data && data.numero) ? String(data.numero) : '',
+            nombre: _nombreArchivoDrive(data),
+            tipo: 'application/pdf',
+            base64: base64
+        };
+
+        var r = await fetch(cfg.url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },  // texto plano evita el bloqueo CORS de Apps Script
+            body: JSON.stringify(cuerpo)
+        });
+
+        var res;
+        try { res = await r.json(); }
+        catch (e) {
+            throw new Error('Respuesta inválida del Drive. Revisa que la dirección del script termine en /exec y esté bien publicada.');
+        }
+        if (!res || !res.ok) throw new Error((res && res.error) || 'Error subiendo el contrato a Drive.');
+        return {
+            url: res.url,
+            verUrl: res.verUrl || res.url,
+            fileId: res.fileId || null,
+            nombre: cuerpo.nombre
+        };
+    }
+
+    // Nombre con el que se guarda en Drive: que se pueda encontrar buscando por
+    // cédula o por nombre sin abrir el archivo.
+    function _nombreArchivoDrive(data) {
+        data = data || {};
+        var limpia = function (s) {
+            return String(s == null ? '' : s)
+                .normalize('NFD').replace(/[̀-ͯ]/g, '')
+                .replace(/[^A-Za-z0-9 _-]+/g, '').replace(/\s+/g, ' ').trim()
+                .replace(/ /g, '_');
+        };
+        var partes = ['Contrato'];
+        if (data.numero) partes.push(limpia(data.numero));
+        var ced = limpia(data.numDoc);
+        if (ced) partes.push('CC' + ced);
+        var nom = limpia((data.nombres || '') + ' ' + (data.apellidos || ''));
+        if (nom) partes.push(nom.substring(0, 40));
+        return partes.join('_').substring(0, 120) + '.pdf';
+    }
+
     global.PV_LOGO = PV_LOGO;
     global.PV_CONTRATO = {
         generarHTML: generarHTML,
@@ -852,6 +932,9 @@ p { margin:4px 0; font-size:8px; text-align:justify; line-height:1.35; }
         leerFormulario: leerFormulario,
         validarFormulario: validarFormulario,
         datosEnBlanco: datosEnBlanco,
-        sumarMensual: sumarMensual
+        sumarMensual: sumarMensual,
+        // Guardar el PDF firmado en Google Drive.
+        subirADrive: subirADrive,
+        nombreArchivoDrive: _nombreArchivoDrive
     };
 })(typeof window !== 'undefined' ? window : globalThis);
