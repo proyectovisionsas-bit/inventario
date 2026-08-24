@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>RED · PROYECTOVISION</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<style>
+:root{--bg:#0b1220;--card:#131c2e;--card2:#1a2740;--border:#243044;--text:#e6edf6;--muted:#94a3b8;--accent:#0ea5e9;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Segoe UI',system-ui,Arial,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+.hidden{display:none!important;}
+
+/* ── LOGIN ── */
+#login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;
+       background:linear-gradient(135deg,#064e3b 0%,#065f46 60%,#0f766e 100%);}
+.login-card{background:var(--card);border-radius:18px;padding:30px 24px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,.4);}
+.login-logo{text-align:center;font-size:2.6rem;margin-bottom:6px;}
+.login-card h1{font-size:1.3rem;text-align:center;margin-bottom:4px;}
+.login-card .sub{text-align:center;color:var(--muted);font-size:.85rem;margin-bottom:22px;}
+label{display:block;font-size:.78rem;color:var(--muted);margin-bottom:5px;font-weight:600;}
+input,select,textarea{width:100%;padding:12px;border-radius:10px;border:1px solid var(--border);
+  background:var(--card2);color:var(--text);font-size:1rem;margin-bottom:14px;font-family:inherit;}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);}
+.btn{border:none;border-radius:10px;padding:11px 16px;font-size:.9rem;font-weight:700;cursor:pointer;
+     transition:transform .08s,opacity .2s;font-family:inherit;}
+.btn:active{transform:scale(.97);}
+.btn:disabled{opacity:.5;cursor:not-allowed;}
+.btn-primary{background:linear-gradient(135deg,#10b981,#059669);color:#fff;width:100%;}
+.btn-sm{padding:6px 11px;font-size:.76rem;border-radius:8px;}
+.btn-out{background:transparent;color:var(--text);border:1px solid var(--border);}
+.tabs{display:flex;gap:8px;margin-bottom:18px;}
+.tab{flex:1;padding:9px;text-align:center;border-radius:9px;background:var(--card2);cursor:pointer;
+     font-size:.82rem;font-weight:700;border:1px solid var(--border);color:var(--muted);}
+.tab.on{background:rgba(16,185,129,.15);border-color:#10b981;color:#10b981;}
+
+/* ── APP ── */
+#app{display:flex;flex-direction:column;height:100vh;}
+.top{display:flex;align-items:center;gap:12px;padding:9px 14px;background:var(--card);
+     border-bottom:1px solid var(--border);flex-wrap:wrap;}
+.top .marca{font-weight:800;letter-spacing:.4px;font-size:.95rem;}
+.top .marca span{color:#10b981;}
+.chip{background:var(--card2);border:1px solid var(--border);border-radius:999px;padding:3px 11px;font-size:.74rem;color:var(--muted);}
+.crece{flex:1;}
+.cuerpo{flex:1;display:flex;min-height:0;}
+#mapa{flex:1;background:#0b1220;}
+.panel{width:330px;background:var(--card);border-left:1px solid var(--border);overflow-y:auto;padding:14px;}
+@media(max-width:820px){.cuerpo{flex-direction:column;}.panel{width:100%;max-height:44%;border-left:none;border-top:1px solid var(--border);}}
+.sec{font-size:.72rem;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;
+     margin:16px 0 8px;padding-bottom:5px;border-bottom:1px solid var(--border);}
+.sec:first-child{margin-top:0;}
+.capa{display:flex;align-items:center;gap:9px;padding:6px 0;font-size:.83rem;cursor:pointer;user-select:none;}
+.capa input{width:auto;margin:0;}
+.punto{width:11px;height:11px;border-radius:50%;flex-shrink:0;border:1px solid rgba(255,255,255,.35);}
+.raya{width:16px;height:3px;border-radius:2px;flex-shrink:0;}
+.cuenta{margin-left:auto;font-size:.72rem;color:var(--muted);font-variant-numeric:tabular-nums;}
+.ficha{background:var(--card2);border:1px solid var(--border);border-radius:11px;padding:12px;margin-bottom:10px;}
+.ficha h3{font-size:.95rem;margin-bottom:3px;word-break:break-word;}
+.ficha .tipo{font-size:.74rem;color:var(--muted);margin-bottom:9px;}
+.dato{display:flex;justify-content:space-between;gap:10px;font-size:.79rem;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.05);}
+.dato b{color:var(--muted);font-weight:600;}
+.dato span{text-align:right;word-break:break-word;}
+.puertos{display:grid;grid-template-columns:repeat(auto-fill,minmax(58px,1fr));gap:5px;margin-top:9px;}
+.pto{border-radius:7px;padding:5px 3px;text-align:center;font-size:.68rem;font-weight:700;border:1px solid var(--border);cursor:pointer;}
+.pto.libre{background:rgba(16,185,129,.12);color:#10b981;border-color:rgba(16,185,129,.4);}
+.pto.ocup{background:rgba(239,68,68,.12);color:#f87171;border-color:rgba(239,68,68,.35);}
+.vacio{text-align:center;color:var(--muted);font-size:.83rem;padding:26px 10px;line-height:1.5;}
+.aviso{background:rgba(14,165,233,.08);border:1px solid rgba(14,165,233,.3);border-radius:10px;
+       padding:11px;font-size:.78rem;color:#7dd3fc;line-height:1.5;margin-bottom:12px;}
+.leaflet-container{background:#0b1220;}
+.popup-red b{display:block;font-size:.86rem;margin-bottom:3px;}
+.popup-red small{color:#555;}
+/* ── Cruce clientes ↔ red ── */
+#cruce{position:fixed;inset:0;background:rgba(4,8,16,.82);z-index:900;display:flex;align-items:center;justify-content:center;padding:18px;}
+.cruce-caja{background:var(--card);border:1px solid var(--border);border-radius:14px;width:100%;max-width:760px;
+            max-height:88vh;display:flex;flex-direction:column;padding:16px;}
+.cruce-top{display:flex;align-items:center;gap:10px;margin-bottom:12px;}
+.cruce-top b{font-size:1rem;}
+.cruce-tabs{display:flex;gap:7px;margin-bottom:12px;flex-wrap:wrap;}
+.ct{padding:7px 12px;border-radius:9px;background:var(--card2);border:1px solid var(--border);
+    cursor:pointer;font-size:.78rem;font-weight:700;color:var(--muted);white-space:nowrap;}
+.ct.on{border-color:var(--accent);color:var(--accent);background:rgba(14,165,233,.12);}
+.ct .n{font-variant-numeric:tabular-nums;}
+.cruce-lista{overflow-y:auto;flex:1;min-height:120px;}
+.fila{display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.05);font-size:.82rem;}
+.fila:hover{background:var(--card2);}
+.fila .nom{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.fila .meta{font-size:.72rem;color:var(--muted);white-space:nowrap;}
+#cargando{position:fixed;inset:0;background:rgba(11,18,32,.92);display:flex;align-items:center;
+          justify-content:center;flex-direction:column;gap:14px;z-index:9999;}
+.spin{width:38px;height:38px;border:3px solid var(--border);border-top-color:#10b981;border-radius:50%;animation:g .8s linear infinite;}
+@keyframes g{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<!-- ══════════ LOGIN ══════════ -->
+<div id="login">
+  <div class="login-card">
+    <div class="login-logo">🛰️</div>
+    <h1>RED</h1>
+    <p class="sub">Planta externa · PROYECTOVISION</p>
+    <div class="tabs">
+      <div class="tab on" id="tabOfi" onclick="verTab('oficina')">Oficina</div>
+      <div class="tab" id="tabAdm" onclick="verTab('admin')">Administrador</div>
+    </div>
+    <div id="frmOficina">
+      <label>Oficina</label>
+      <select id="selOfi"><option>Cargando…</option></select>
+      <label>Contraseña</label>
+      <input type="password" id="passOfi" placeholder="••••••••" onkeydown="if(event.key==='Enter')entrar('oficina')">
+    </div>
+    <div id="frmAdmin" class="hidden">
+      <label>Contraseña de administrador</label>
+      <input type="password" id="passAdm" placeholder="••••••••" onkeydown="if(event.key==='Enter')entrar('admin')">
+    </div>
+    <button class="btn btn-primary" onclick="entrar(window._tab||'oficina')">Entrar</button>
+    <p style="text-align:center;color:var(--muted);font-size:.72rem;margin-top:14px;">
+      Se entra con la misma clave de OFICINAS.
+    </p>
+  </div>
+</div>
+
+<!-- ══════════ APP ══════════ -->
+<div id="app" class="hidden">
+  <div class="top">
+    <div class="marca">🛰️ PROYECTO<span>VISION</span> · RED</div>
+    <span class="chip" id="chipSede">—</span>
+    <select id="selSede" class="hidden" style="width:auto;margin:0;padding:6px 10px;font-size:.82rem;" onchange="cambiarSede(this.value)"></select>
+    <div class="crece"></div>
+    <span class="chip" id="chipTotal">0 elementos</span>
+    <button class="btn btn-sm btn-out" onclick="abrirCruce()">👥 Clientes vs. Red</button>
+    <button class="btn btn-sm btn-out" onclick="pedirKML()">📥 Importar KML</button>
+    <button class="btn btn-sm btn-out" onclick="cambiarFondo()" id="btnFondo">🛰️ Satélite</button>
+    <button class="btn btn-sm btn-out" onclick="salir()">Salir</button>
+  </div>
+  <div class="cuerpo">
+    <div id="mapa"></div>
+    <div class="panel" id="panel"></div>
+  </div>
+</div>
+
+<!-- ══════════ CRUCE CLIENTES ↔ RED ══════════ -->
+<div id="cruce" class="hidden">
+  <div class="cruce-caja">
+    <div class="cruce-top">
+      <b id="cruceTitulo">Clientes vs. Red</b>
+      <div class="crece"></div>
+      <button class="btn btn-sm btn-out" onclick="exportarCruce()">📊 Exportar</button>
+      <button class="btn btn-sm btn-out" onclick="cerrarCruce()">✕ Cerrar</button>
+    </div>
+    <div class="cruce-tabs" id="cruceTabs"></div>
+    <input type="text" id="qCruce" placeholder="Buscar por nombre…" oninput="pintarCruce()" style="margin:0 0 10px;">
+    <div class="cruce-lista" id="cruceLista"></div>
+  </div>
+</div>
+
+<input type="file" id="fileKML" accept=".kml,.kmz" class="hidden" onchange="importarKML(this.files[0])">
+<div id="cargando"><div class="spin"></div><div id="cargandoTxt" style="color:var(--muted);font-size:.86rem;">Cargando…</div></div>
+
+<script>
+'use strict';
+/* ════════════════════════════════════════════════════════════════════
+   RED · PROYECTOVISION — planta externa
+   ────────────────────────────────────────────────────────────────────
+   Vive aparte de OFICINAS a proposito: solo Florencia trae 6.536
+   elementos y las librerias de mapa, y OFICINAS ya pesa 1,7 MB para
+   gente que solo registra pagos.
+   El acceso NO crea claves nuevas: valida contra las mismas de
+   OFICINAS (oficinas_sistema/main), asi que cambiar la clave alla
+   la cambia aqui.
+   ════════════════════════════════════════════════════════════════════ */
+
+const APP_VERSION_RED = 1;
+
+const firebaseConfig = {
+    apiKey: "AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w",
+    authDomain: "inventario-88a28.firebaseapp.com",
+    projectId: "inventario-88a28",
+    storageBucket: "inventario-88a28.firebasestorage.app",
+    messagingSenderId: "981251888141",
+    appId: "1:981251888141:web:85e27f09ec4350c27c7144"
+};
+const COLECCION='oficinas_sistema';
+const DOC_ID='main';
+// Un documento de Firestore no admite mas de 1 MB y Florencia sola pesa
+// ~1,4 MB, asi que la red va fragmentada igual que movimientos y clientes.
+const TOPE_FRAGMENTO = 700*1024;
+
+// Con var y no let: quedan alcanzables desde la consola del navegador, que es
+// como se diagnostica cuando algo falla en una oficina y no hay forma de
+// reproducirlo aqui.
+var db=null, DB=null, USER=null, SEDE=null;
+var RED={elementos:[]};          // la red de la sede abierta
+var mapa=null, capas={}, fondoSat=false, capaBase=null;
+
+/* ── Arranque ───────────────────────────────────────────────────── */
+(async function init(){
+    try{
+        firebase.initializeApp(firebaseConfig);
+        db=firebase.firestore();
+        const snap=await db.collection(COLECCION).doc(DOC_ID).get();
+        DB=snap.exists?snap.data():{};
+        const ofis=(DB.oficinas||[]).filter(o=>o&&o.id);
+        document.getElementById('selOfi').innerHTML =
+            ofis.length ? ofis.map(o=>`<option value="${o.id}">${esc(o.nombre)}</option>`).join('')
+                        : '<option value="">No hay oficinas</option>';
+    }catch(e){
+        alert('No se pudo conectar con la base de datos.\n\n'+(e.message||e));
+    }
+    ocultarCarga();
+})();
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function mostrarCarga(t){ document.getElementById('cargandoTxt').textContent=t||'Cargando…';
+                          document.getElementById('cargando').classList.remove('hidden'); }
+function ocultarCarga(){ document.getElementById('cargando').classList.add('hidden'); }
+
+function verTab(t){
+    window._tab=t;
+    document.getElementById('tabOfi').classList.toggle('on',t==='oficina');
+    document.getElementById('tabAdm').classList.toggle('on',t==='admin');
+    document.getElementById('frmOficina').classList.toggle('hidden',t!=='oficina');
+    document.getElementById('frmAdmin').classList.toggle('hidden',t!=='admin');
+}
+
+async function entrar(tipo){
+    if(!DB) return alert('Todavía no cargaron los datos. Espera un momento.');
+    if(tipo==='admin'){
+        if(document.getElementById('passAdm').value!==DB.adminPass) return alert('❌ Contraseña incorrecta');
+        USER={role:'admin', nombre:'Administrador'};
+    }else{
+        const id=document.getElementById('selOfi').value;
+        const o=(DB.oficinas||[]).find(x=>x.id===id);
+        if(!o) return alert('❌ Selecciona una oficina');
+        if(document.getElementById('passOfi').value!==o.password) return alert('❌ Contraseña incorrecta');
+        USER={role:'oficina', id:o.id, nombre:o.nombre};
+    }
+    document.getElementById('login').classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+
+    const ofis=(DB.oficinas||[]).filter(o=>o&&o.id);
+    if(USER.role==='admin'){
+        const sel=document.getElementById('selSede');
+        sel.innerHTML=ofis.map(o=>`<option value="${o.id}">${esc(o.nombre)}</option>`).join('');
+        sel.classList.remove('hidden');
+        document.getElementById('chipSede').classList.add('hidden');
+        await cambiarSede(ofis[0]?ofis[0].id:null);
+    }else{
+        document.getElementById('chipSede').textContent=USER.nombre;
+        await cambiarSede(USER.id);
+    }
+}
+function salir(){ location.reload(); }
+
+async function cambiarSede(id){
+    if(!id) return;
+    SEDE=(DB.oficinas||[]).find(o=>o.id===id)||null;
+    mostrarCarga('Cargando la red de '+(SEDE?SEDE.nombre:'')+'…');
+    RED=await cargarRed(id);
+    ocultarCarga();
+    if(!mapa) crearMapa();
+    dibujar();
+}
+
+/* ── Guardado fragmentado ───────────────────────────────────────── */
+async function cargarRed(oficinaId){
+    const out={elementos:[]};
+    try{
+        const idx=await db.collection(COLECCION).doc('red_index').get();
+        const info=(idx.exists?idx.data():{})[oficinaId];
+        const n=info&&info.fragmentos?info.fragmentos:0;
+        for(let i=0;i<n;i++){
+            const d=await db.collection(COLECCION).doc(`red_${oficinaId}_${i}`).get();
+            if(d.exists&&Array.isArray(d.data().elementos)) out.elementos.push(...d.data().elementos);
+        }
+    }catch(e){ console.warn('cargarRed',e); }
+    return out;
+}
+
+async function guardarRed(oficinaId, elementos){
+    // Se parte en fragmentos por PESO, no por cantidad: un cable de 359
+    // vertices pesa lo que cientos de postes.
+    const frags=[[]]; let peso=0;
+    elementos.forEach(el=>{
+        const w=JSON.stringify(el).length;
+        if(peso+w>TOPE_FRAGMENTO && frags[frags.length-1].length){ frags.push([]); peso=0; }
+        frags[frags.length-1].push(el); peso+=w;
+    });
+    for(let i=0;i<frags.length;i++){
+        await db.collection(COLECCION).doc(`red_${oficinaId}_${i}`)
+                .set({elementos:frags[i], actualizado:Date.now()});
+    }
+    // Si antes habia mas fragmentos, se vacian para no dejar datos zombis
+    const idx=await db.collection(COLECCION).doc('red_index').get();
+    const datos=idx.exists?idx.data():{};
+    const antes=(datos[oficinaId]&&datos[oficinaId].fragmentos)||0;
+    for(let i=frags.length;i<antes;i++){
+        await db.collection(COLECCION).doc(`red_${oficinaId}_${i}`).set({elementos:[], actualizado:Date.now()});
+    }
+    datos[oficinaId]={fragmentos:frags.length, elementos:elementos.length, actualizado:Date.now()};
+    await db.collection(COLECCION).doc('red_index').set(datos);
+    return frags.length;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   TIPOS DE ELEMENTO
+   El color y el orden de dibujo salen de aqui, en un solo sitio.
+   ════════════════════════════════════════════════════════════════════ */
+const TIPOS={
+    poste   :{et:'Postes',              color:'#94a3b8', forma:'punto', r:2.5},
+    reserva :{et:'Reservas técnicas',   color:'#eab308', forma:'punto', r:3},
+    cliente :{et:'Clientes',            color:'#22d3ee', forma:'punto', r:3},
+    nap     :{et:'Cajas NAP',           color:'#10b981', forma:'punto', r:5},
+    cto     :{et:'Cajas CTO',           color:'#0ea5e9', forma:'punto', r:5},
+    mufla   :{et:'Muflas',              color:'#f59e0b', forma:'punto', r:6},
+    pop     :{et:'POP',                 color:'#a855f7', forma:'punto', r:8},
+    primario:{et:'Cable primario',      color:'#ef4444', forma:'linea', w:3.5},
+    secundario:{et:'Cable secundario',  color:'#fb923c', forma:'linea', w:2.5},
+    terciario:{et:'Cable terciario',    color:'#8b5cf6', forma:'linea', w:2.5},
+    drop    :{et:'Drops',               color:'#64748b', forma:'linea', w:1}
+};
+const ORDEN=['drop','terciario','secundario','primario','poste','reserva','cliente','nap','cto','mufla','pop'];
+
+/* ════════════════════════════════════════════════════════════════════
+   IMPORTADOR DE KML / KMZ
+   Comprobado contra el export real de OZmap (Florencia, 6.536
+   elementos): carpetas por tipo, puntos y recorridos, y el "Tipo:"
+   dentro de la descripcion.
+   ════════════════════════════════════════════════════════════════════ */
+function pedirKML(){
+    if(!SEDE) return alert('Primero elige una sede.');
+    document.getElementById('fileKML').click();
+}
+
+async function importarKML(archivo){
+    if(!archivo) return;
+    document.getElementById('fileKML').value='';
+    if(!confirm(`¿Importar "${archivo.name}" a ${SEDE.nombre}?\n\n`
+        +`Los elementos que ya existan con el MISMO nombre y tipo se actualizan; `
+        +`los nuevos se agregan. No se borra nada.`)) return;
+    mostrarCarga('Leyendo el archivo…');
+    try{
+        let texto;
+        if(/\.kmz$/i.test(archivo.name)){
+            await cargarScript('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js');
+            const zip=await JSZip.loadAsync(archivo);
+            const nom=Object.keys(zip.files).find(n=>/\.kml$/i.test(n));
+            if(!nom) throw new Error('El KMZ no trae ningún .kml adentro.');
+            texto=await zip.file(nom).async('string');
+        }else{
+            texto=await archivo.text();
+        }
+        mostrarCarga('Interpretando la red…');
+        const nuevos=leerKML(texto);
+        if(!nuevos.length){ ocultarCarga(); return alert('No se encontró ningún elemento en el archivo.'); }
+
+        mostrarCarga('Deduciendo qué cliente cuelga de qué caja…');
+        enlazarTopologia(nuevos);
+
+        // Fusion con lo que ya hay: la llave es tipo + nombre
+        const llave=e=>e.tipo+'||'+(e.nombre||'').trim().toLowerCase();
+        const indice={}; RED.elementos.forEach((e,i)=>{ indice[llave(e)]=i; });
+        let act=0, add=0;
+        nuevos.forEach(n=>{
+            const k=llave(n), i=indice[k];
+            if(i!==undefined){
+                // Se conserva lo que se editó a mano aquí (splitters y notas)
+                const viejo=RED.elementos[i];
+                n.id=viejo.id;
+                if(viejo.splitters&&viejo.splitters.length) n.splitters=viejo.splitters;
+                if(viejo.notas) n.notas=viejo.notas;
+                RED.elementos[i]=n; act++;
+            }else{ RED.elementos.push(n); indice[k]=RED.elementos.length-1; add++; }
+        });
+
+        mostrarCarga('Guardando…');
+        const nf=await guardarRed(SEDE.id, RED.elementos);
+        ocultarCarga();
+        dibujar();
+        const cuenta={}; nuevos.forEach(n=>{ const t=claseDe(n); cuenta[t]=(cuenta[t]||0)+1; });
+        alert(`✅ Importación terminada — ${SEDE.nombre}\n\n`
+            + `• Elementos nuevos: ${add}\n• Actualizados: ${act}\n`
+            + `• Total en la sede: ${RED.elementos.length}\n• Fragmentos guardados: ${nf}\n\n`
+            + Object.entries(cuenta).sort((a,b)=>b[1]-a[1])
+                    .map(([t,n])=>`   ${TIPOS[t]?TIPOS[t].et:t}: ${n}`).join('\n'));
+    }catch(e){
+        ocultarCarga();
+        alert('❌ No se pudo importar:\n\n'+(e.message||e));
+        console.error(e);
+    }
+}
+
+function cargarScript(src){
+    return new Promise((ok,mal)=>{
+        if([...document.scripts].some(s=>s.src===src)) return ok();
+        const s=document.createElement('script'); s.src=src;
+        s.onload=()=>ok(); s.onerror=()=>mal(new Error('No se pudo cargar '+src));
+        document.head.appendChild(s);
+    });
+}
+
+// Lee el KML manteniendo la RUTA de carpetas, que es lo que dice de qué
+// tipo es cada elemento.
+function leerKML(xml){
+    const marcas=[]; const re=/<(\/?)(Folder|Placemark)\b[^>]*>/g; let m;
+    while((m=re.exec(xml))) marcas.push({cierra:m[1]==='/', tag:m[2], i:m.index, fin:re.lastIndex});
+    const uno=(f,t)=>{ const r=new RegExp('<'+t+'\\s*>([\\s\\S]*?)<\\/'+t+'>'); const x=f.match(r); return x?x[1]:''; };
+    const out=[]; let pila=[];
+    for(let k=0;k<marcas.length;k++){
+        const a=marcas[k];
+        if(a.tag==='Folder'){
+            if(a.cierra) pila.pop();
+            else { const s=marcas[k+1];
+                   pila.push((uno(xml.slice(a.fin, s?s.i:a.fin+400),'name')||'?').trim()); }
+            continue;
+        }
+        if(a.tag!=='Placemark'||a.cierra) continue;
+        let j=k+1,p=1;
+        while(j<marcas.length&&p>0){ if(marcas[j].tag==='Placemark') p+=marcas[j].cierra?-1:1; j++; }
+        const frag=xml.slice(a.fin, marcas[j-1]?marcas[j-1].i:xml.length);
+        const coords=(uno(frag,'coordinates')||'').trim();
+        if(!coords) continue;
+        const g=coords.split(/\s+/).filter(Boolean).map(t=>{
+            const q=t.split(','); return [parseFloat(q[1]), parseFloat(q[0])];
+        }).filter(q=>!isNaN(q[0])&&!isNaN(q[1]));
+        if(!g.length) continue;
+        const desc=(uno(frag,'description')||'').replace(/<[^>]*>/g,'').replace(/\s+/g,' ').trim();
+        out.push(armar({
+            ruta:pila.join('/'),
+            nombre:(uno(frag,'name')||'').trim(),
+            desc, g,
+            esLinea:/<LineString/.test(frag)
+        }));
+    }
+    return out.filter(Boolean);
+}
+
+// Del "Tipo: FIBRA 48H 6B" saca 48 hilos y 6 buffers. Hay que normalizar
+// porque en el mismo archivo conviven "FIBRA 48H4B", "FIBRA 48H 4B",
+// "FIBRA 96-H 8-B FLORENCIA" y "FIBRA 12 HILOS - UNICO BUFER".
+function hilosDe(t){
+    const s=(t||'').toUpperCase();
+    // Sin \b despues de la H: en el archivo real viene "FIBRA 48H4B", con el
+    // buffer pegado al hilo, y exigir limite de palabra ahi lo dejaba sin leer.
+    const h=s.match(/(\d+)\s*-?\s*H(?:ILOS?)?(?![A-Z])/);
+    let b=s.match(/(\d+)\s*-?\s*B(?:UFF?ER)?(?![A-Z])/);
+    let buf=b?+b[1]:null;
+    if(!buf && /UNICO\s+BUF/.test(s)) buf=1;
+    const hil=h?+h[1]:null;
+    if(!buf && hil===1) buf=1;          // un drop de un hilo no tiene buffer aparte
+    return {hilos:hil, buffers:buf};
+}
+// Un splitter real no pasa de 1x64. Sirve para no creerle a un dato malo.
+const MAX_PUERTOS=64;
+function capacidadDe(t){ const m=(t||'').match(/(\d+)\s*[xX]\s*(\d+)/); return m?+m[2]:null; }
+function campo(desc,et){
+    const r=new RegExp(et+':\\s*(.*?)(?:\\s*(?:Tipo|Estado de implementación|Comentarios|Et[íi]quetas):|$)');
+    const m=(desc||'').match(r); return m?m[1].trim():'';
+}
+
+function armar(x){
+    const ruta=x.ruta.toLowerCase();
+    const tipoTxt=campo(x.desc,'Tipo');
+    const el={
+        id:'e'+Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4),
+        nombre:x.nombre, subtipo:tipoTxt,
+        estado:campo(x.desc,'Estado de implementación'),
+        notas:campo(x.desc,'Comentarios'),
+        etiquetas:(campo(x.desc,'Etíquetas')||campo(x.desc,'Etiquetas')||'').split(',').map(s=>s.trim()).filter(Boolean),
+        g:x.g
+    };
+    if(x.esLinea){
+        el.tipo='cable';
+        el.clase = /drop/.test(ruta)?'drop' : /primario/.test(ruta)?'primario'
+                 : /secundario/.test(ruta)?'secundario' : /terciario/.test(ruta)?'terciario' : 'secundario';
+        const hb=hilosDe(tipoTxt); el.hilos=hb.hilos; el.buffers=hb.buffers;
+        el.metros=largoDe(x.g);
+    } else if(/pop/.test(ruta)){
+        el.tipo='caja'; el.clase='pop';
+    } else if(/caja/.test(ruta)){
+        el.tipo='caja';
+        el.clase = /\/ce/.test(ruta)||/mufla/i.test(tipoTxt) ? 'mufla'
+                 : /nap/.test(ruta) ? 'nap' : 'cto';
+        const cap=capacidadDe(tipoTxt);
+        el.splitters = cap ? [{tipo:'1x'+cap, ratio:''}] : [];
+        el.puertos={};
+    } else if(/reserva/.test(ruta)){
+        el.tipo='reserva';
+        el.metros=parseFloat((x.nombre||'').replace(',','.'))||null;
+        el.cable=x.desc.trim();
+    } else if(/cliente/.test(ruta)){
+        el.tipo='cliente';
+        // Hay nombres con puertos imposibles ("PTO 74985 PREC 004984",
+        // "PTO 000098"): son errores de digitacion en OZmap. Si se aceptan,
+        // la caja termina con una capacidad deducida absurda.
+        const p=(x.nombre||'').match(/PTO\s*0*(\d+)/i);
+        const n=p?+p[1]:null;
+        el.puerto=(n&&n>0&&n<=MAX_PUERTOS)?n:null;
+        if(n&&(n>MAX_PUERTOS||n<=0)) el.puertoDudoso=n;
+    } else {
+        el.tipo='poste';
+    }
+    return el;
+}
+function claseDe(e){ return e.tipo==='cable'||e.tipo==='caja' ? e.clase : e.tipo; }
+
+function largoDe(g){
+    let d=0;
+    for(let i=1;i<g.length;i++) d+=metros(g[i-1],g[i]);
+    return Math.round(d);
+}
+function metros(a,b){
+    const R=6371000, f=x=>x*Math.PI/180;
+    const dLat=f(b[0]-a[0]), dLon=f(b[1]-a[1]);
+    const h=Math.sin(dLat/2)**2+Math.cos(f(a[0]))*Math.cos(f(b[0]))*Math.sin(dLon/2)**2;
+    return 2*R*Math.asin(Math.sqrt(h));
+}
+
+/* Deduce qué cliente cuelga de qué caja usando la geometría del drop:
+   un extremo cae sobre el cliente y el otro sobre la caja. Comprobado
+   contra el export real: 679 de 679 drops resueltos. */
+function enlazarTopologia(els){
+    const clientes=els.filter(e=>e.tipo==='cliente');
+    const cajas=els.filter(e=>e.tipo==='caja'&&e.clase!=='pop');
+    const drops=els.filter(e=>e.tipo==='cable'&&e.clase==='drop');
+    if(!clientes.length||!cajas.length) return;
+    const cerca=(p,l)=>{ let e=null,d=1e9; l.forEach(x=>{ const q=metros(p,x.g[0]); if(q<d){d=q;e=x;} }); return {el:e,d}; };
+    drops.forEach(dp=>{
+        const ini=dp.g[0], fin=dp.g[dp.g.length-1];
+        const c1=cerca(ini,clientes), j1=cerca(fin,cajas);
+        const c2=cerca(fin,clientes), j2=cerca(ini,cajas);
+        const A=(c1.d<25&&j1.d<25), B=(c2.d<25&&j2.d<25);
+        if(!A&&!B) return;
+        const cli=A?c1.el:c2.el, caj=A?j1.el:j2.el;
+        cli.caja=caj.nombre; cli.cajaId=caj.id;
+        cli.nombreReal=dp.nombre;          // el drop lleva el nombre de la persona
+        dp.cliente=dp.nombre; dp.caja=caj.nombre;
+        if(cli.puerto){
+            caj.puertos=caj.puertos||{};
+            caj.puertos[cli.puerto]={cliente:dp.nombre, clienteId:cli.id};
+        }
+    });
+    // Si una caja no declara splitter pero tiene un cliente en el puerto 14,
+    // es al menos 1x16. Mejor eso que dejarla sin capacidad.
+    cajas.forEach(c=>{
+        if(c.splitters&&c.splitters.length) return;
+        const max=Math.max(0,...Object.keys(c.puertos||{}).map(Number));
+        if(!max||max>MAX_PUERTOS) return;
+        const cap=[2,4,8,16,32,64].find(n=>n>=max);
+        if(cap) c.splitters=[{tipo:'1x'+cap, ratio:'', deducido:true}];
+    });
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   MAPA
+   Con renderizador de lienzo: son miles de elementos y en SVG el
+   navegador se arrastra.
+   ════════════════════════════════════════════════════════════════════ */
+async function crearMapa(){
+    await cargarScript('https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js');
+    mapa=L.map('mapa',{preferCanvas:true, zoomControl:true}).setView([1.61,-75.61],13);
+    ponerFondo();
+    ORDEN.forEach(t=>{ capas[t]=L.layerGroup().addTo(mapa); });
+    mapa.on('click',()=>{ if(!window._fijado) pintarPanel(); });
+}
+function ponerFondo(){
+    if(capaBase) mapa.removeLayer(capaBase);
+    capaBase = fondoSat
+        ? L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            {maxZoom:19, attribution:'Imágenes © Esri'})
+        : L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            {maxZoom:19, attribution:'© OpenStreetMap'});
+    capaBase.addTo(mapa);
+    if(capaBase.bringToBack) capaBase.bringToBack();
+}
+function cambiarFondo(){
+    if(!mapa) return;
+    fondoSat=!fondoSat; ponerFondo();
+    document.getElementById('btnFondo').textContent = fondoSat?'🗺️ Calles':'🛰️ Satélite';
+}
+
+function dibujar(){
+    if(!mapa) return;
+    ORDEN.forEach(t=>capas[t]&&capas[t].clearLayers());
+    const lienzo=L.canvas({padding:0.4});
+    const puntos=[];
+    RED.elementos.forEach(el=>{
+        const t=claseDe(el), cfg=TIPOS[t]; if(!cfg||!el.g||!el.g.length) return;
+        let capa;
+        if(cfg.forma==='linea'&&el.g.length>1){
+            capa=L.polyline(el.g,{color:cfg.color, weight:cfg.w, opacity:.85, renderer:lienzo});
+        }else{
+            capa=L.circleMarker(el.g[0],{radius:cfg.r, color:cfg.color, weight:1,
+                                fillColor:cfg.color, fillOpacity:.85, renderer:lienzo});
+            puntos.push(el.g[0]);
+        }
+        capa.on('click',ev=>{ L.DomEvent.stopPropagation(ev); window._fijado=true; pintarPanel(el);
+                              setTimeout(()=>window._fijado=false,50); });
+        capa.addTo(capas[t]);
+    });
+    document.getElementById('chipTotal').textContent=RED.elementos.length.toLocaleString('es-CO')+' elementos';
+    if(puntos.length) mapa.fitBounds(L.latLngBounds(puntos).pad(.05));
+    pintarPanel();
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   PANEL: capas con sus conteos, o la ficha del elemento elegido
+   ════════════════════════════════════════════════════════════════════ */
+function pintarPanel(el){
+    const p=document.getElementById('panel');
+    if(el){ p.innerHTML=fichaHTML(el); return; }
+
+    if(!RED.elementos.length){
+        p.innerHTML=`<div class="aviso">Esta sede todavía no tiene red cargada.</div>
+          <div class="vacio">Usa <b>📥 Importar KML</b> para traer el archivo de OZmap,
+          o empieza desde cero cuando esté lista la edición.</div>`;
+        return;
+    }
+    const cuenta={}; RED.elementos.forEach(e=>{ const t=claseDe(e); cuenta[t]=(cuenta[t]||0)+1; });
+    const cajas=RED.elementos.filter(e=>e.tipo==='caja'&&e.clase!=='pop');
+    let libres=0, ocup=0, sinCap=0;
+    cajas.forEach(c=>{ const cap=capacidadCaja(c);
+        const us=Object.keys(c.puertos||{}).length;
+        if(!cap) sinCap++; else { ocup+=us; libres+=Math.max(0,cap-us); } });
+
+    p.innerHTML=`
+      <div class="sec">Capas</div>
+      ${ORDEN.slice().reverse().filter(t=>cuenta[t]).map(t=>`
+        <label class="capa">
+          <input type="checkbox" checked onchange="verCapa('${t}',this.checked)">
+          <span class="${TIPOS[t].forma==='linea'?'raya':'punto'}" style="background:${TIPOS[t].color}"></span>
+          ${TIPOS[t].et}
+          <span class="cuenta">${cuenta[t].toLocaleString('es-CO')}</span>
+        </label>`).join('')}
+      <div class="sec">Ocupación</div>
+      <div class="ficha">
+        <div class="dato"><b>Cajas</b><span>${cajas.length}</span></div>
+        <div class="dato"><b>Puertos ocupados</b><span style="color:#f87171">${ocup}</span></div>
+        <div class="dato"><b>Puertos libres</b><span style="color:#10b981">${libres}</span></div>
+        <div class="dato"><b>Sin capacidad definida</b><span>${sinCap}</span></div>
+      </div>
+      ${sinCap?`<div class="aviso">Hay ${sinCap} caja(s) sin capacidad. Ábrelas en el mapa y
+        dile qué splitter llevan para que cuenten en los puertos libres.</div>`:''}
+      <div class="sec">Buscar</div>
+      <input type="text" id="q" placeholder="Nombre de caja, cliente o cable…" oninput="buscar(this.value)">
+      <div id="res"></div>`;
+}
+function verCapa(t,on){ if(!capas[t]) return; on?capas[t].addTo(mapa):mapa.removeLayer(capas[t]); }
+
+function capacidadCaja(c){
+    if(!c.splitters||!c.splitters.length) return 0;
+    return c.splitters.reduce((s,sp)=>{
+        const m=String(sp.tipo||'').match(/(\d+)\s*[xX]\s*(\d+)/);
+        return s+(m?+m[2]:0);
+    },0);
+}
+
+function buscar(q){
+    const r=document.getElementById('res'); if(!r) return;
+    q=(q||'').trim().toLowerCase();
+    if(q.length<2){ r.innerHTML=''; return; }
+    const hits=RED.elementos.filter(e=>
+        (e.nombre||'').toLowerCase().includes(q) || (e.nombreReal||'').toLowerCase().includes(q)
+    ).slice(0,25);
+    r.innerHTML = hits.length
+        ? hits.map(e=>`<div class="capa" onclick="irA('${e.id}')" style="cursor:pointer">
+             <span class="${TIPOS[claseDe(e)]&&TIPOS[claseDe(e)].forma==='linea'?'raya':'punto'}"
+                   style="background:${(TIPOS[claseDe(e)]||{}).color||'#888'}"></span>
+             <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.nombreReal||e.nombre||'(sin nombre)')}</span>
+           </div>`).join('')
+        : '<div class="vacio">Nada con ese nombre.</div>';
+}
+function irA(id){
+    const el=RED.elementos.find(e=>e.id===id); if(!el||!el.g||!el.g.length) return;
+    mapa.setView(el.g[0], 19); pintarPanel(el);
+}
+
+function fichaHTML(el){
+    const t=claseDe(el), cfg=TIPOS[t]||{};
+    let cuerpo='';
+    if(el.tipo==='caja'&&el.clase!=='pop'){
+        const cap=capacidadCaja(el), usados=Object.keys(el.puertos||{}).length;
+        cuerpo=`
+          <div class="dato"><b>Capacidad</b><span>${cap?cap+' puertos':'<i style="color:#f59e0b">sin definir</i>'}</span></div>
+          <div class="dato"><b>Ocupados</b><span>${usados}</span></div>
+          <div class="dato"><b>Libres</b><span style="color:${cap-usados>0?'#10b981':'#f87171'}">${cap?Math.max(0,cap-usados):'—'}</span></div>
+          <div class="sec" style="margin-top:14px">Splitters</div>
+          ${(el.splitters||[]).length
+            ? el.splitters.map((s,i)=>`<div class="dato"><b>${esc(s.tipo)}${s.ratio?' · '+esc(s.ratio):''}${s.deducido?' <i style="font-size:.7rem">(deducido)</i>':''}</b>
+                <span><button class="btn btn-sm btn-out" onclick="quitarSplitter('${el.id}',${i})">✕</button></span></div>`).join('')
+            : '<div class="vacio" style="padding:10px">Sin splitters. Agrega uno para saber su capacidad.</div>'}
+          <button class="btn btn-sm btn-out" style="width:100%;margin-top:8px" onclick="agregarSplitter('${el.id}')">➕ Agregar splitter</button>
+          ${cap?`<div class="sec" style="margin-top:14px">Puertos</div>
+            <div class="puertos">${Array.from({length:cap},(_,i)=>{
+                const n=i+1, o=(el.puertos||{})[n];
+                return `<div class="pto ${o?'ocup':'libre'}" title="${o?esc(o.cliente||''):'Libre'}">${n}</div>`;
+            }).join('')}</div>`:''}`;
+    } else if(el.tipo==='cable'){
+        cuerpo=`
+          <div class="dato"><b>Hilos</b><span>${el.hilos||'—'}</span></div>
+          <div class="dato"><b>Buffers</b><span>${el.buffers||'—'}</span></div>
+          <div class="dato"><b>Longitud</b><span>${el.metros?el.metros+' m':'—'}</span></div>
+          <div class="dato"><b>Vértices</b><span>${el.g.length}</span></div>
+          ${el.cliente?`<div class="dato"><b>Cliente</b><span>${esc(el.cliente)}</span></div>`:''}
+          ${el.caja?`<div class="dato"><b>Va a</b><span>${esc(el.caja)}</span></div>`:''}`;
+    } else if(el.tipo==='cliente'){
+        cuerpo=`
+          ${el.nombreReal?`<div class="dato"><b>Cliente</b><span>${esc(el.nombreReal)}</span></div>`:''}
+          <div class="dato"><b>Caja</b><span>${esc(el.caja||'—')}</span></div>
+          <div class="dato"><b>Puerto</b><span>${el.puerto||'—'}</span></div>`;
+    } else if(el.tipo==='reserva'){
+        cuerpo=`<div class="dato"><b>Metros</b><span>${el.metros||'—'}</span></div>
+                <div class="dato"><b>Cable</b><span>${esc(el.cable||'—')}</span></div>`;
+    }
+    return `
+      <button class="btn btn-sm btn-out" style="margin-bottom:12px" onclick="pintarPanel()">← Volver</button>
+      <div class="ficha">
+        <h3><span class="punto" style="display:inline-block;background:${cfg.color}"></span> ${esc(el.nombreReal||el.nombre||'(sin nombre)')}</h3>
+        <div class="tipo">${cfg.et||el.tipo}${el.subtipo?' · '+esc(el.subtipo):''}</div>
+        ${el.estado?`<div class="dato"><b>Estado</b><span>${esc(el.estado)}</span></div>`:''}
+        ${cuerpo}
+        ${el.notas?`<div class="dato"><b>Notas</b><span>${esc(el.notas)}</span></div>`:''}
+        ${el.etiquetas&&el.etiquetas.length?`<div class="dato"><b>Etiquetas</b><span>${esc(el.etiquetas.join(', '))}</span></div>`:''}
+        <div class="dato"><b>Ubicación</b><span style="font-size:.72rem">${el.g[0][0].toFixed(6)}, ${el.g[0][1].toFixed(6)}</span></div>
+      </div>`;
+}
+
+/* ── Splitters: es lo que define la capacidad de cada caja ────────── */
+const SPLITTERS=['1x2','1x4','1x8','1x16','1x32','1x64','2x4','2x8','2x16','2x32'];
+async function agregarSplitter(id){
+    const el=RED.elementos.find(e=>e.id===id); if(!el) return;
+    const t=prompt('Tipo de splitter:\n\n'+SPLITTERS.join('  ·  ')+'\n\nEscríbelo tal cual (ej: 1x16)','1x8');
+    if(!t) return;
+    if(!/^\d+\s*[xX]\s*\d+$/.test(t.trim())) return alert('Formato no válido. Debe ser como 1x8 o 2x16.');
+    const r=prompt('¿Es desbalanceado? Escribe la relación (ej: 55/45) o deja vacío si es balanceado','');
+    el.splitters=(el.splitters||[]).filter(s=>!s.deducido);
+    el.splitters.push({tipo:t.trim().toLowerCase().replace(/\s/g,''), ratio:(r||'').trim()});
+    mostrarCarga('Guardando…'); await guardarRed(SEDE.id, RED.elementos); ocultarCarga();
+    pintarPanel(el);
+}
+async function quitarSplitter(id,i){
+    const el=RED.elementos.find(e=>e.id===id); if(!el||!el.splitters) return;
+    if(!confirm('¿Quitar este splitter de '+(el.nombre||'la caja')+'?')) return;
+    el.splitters.splice(i,1);
+    mostrarCarga('Guardando…'); await guardarRed(SEDE.id, RED.elementos); ocultarCarga();
+    pintarPanel(el);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   CRUCE: LOS CLIENTES DE LA OFICINA CONTRA LOS DEL MAPA
+   ────────────────────────────────────────────────────────────────────
+   Responde tres preguntas que hoy no tienen respuesta en ningun lado:
+     · a quien SI le sabemos su caja y su puerto
+     · a quien le cobramos pero NO sabemos donde esta (falta marcarlo)
+     · que sigue dibujado en el mapa pero ya no es cliente (limpiar)
+   El nombre de la persona sale del DROP, no del punto: el punto lleva
+   un codigo ("683 PTO 3 PREC 47") y el drop lleva "EDGAR CASTRO...".
+   ════════════════════════════════════════════════════════════════════ */
+var CRUCE=null, cruceTab='enlazados';
+
+// Nombres escritos por gente distinta en sistemas distintos: se comparan
+// sin tildes, sin ñ, sin signos y sin dobles espacios.
+function normNom(s){
+    return String(s||'').toUpperCase().normalize('NFD')
+        .replace(/[̀-ͯ]/g,'')
+        .replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+}
+
+async function clientesDeOficina(oficinaId){
+    const out=[];
+    try{
+        const idx=await db.collection(COLECCION).doc('clientes_index').get();
+        const d=idx.exists?idx.data():{};
+        const n=(d.chunkInfo&&d.chunkInfo[oficinaId])||1;
+        for(let i=0;i<n;i++){
+            let s=await db.collection(COLECCION).doc(`clientes_${oficinaId}_${i}`).get();
+            if(!s.exists&&i===0) s=await db.collection(COLECCION).doc('clientes_'+oficinaId).get();
+            if(s.exists) out.push(...(s.data().clientes||[]));
+        }
+    }catch(e){ console.warn('clientesDeOficina',e); }
+    return out;
+}
+
+async function abrirCruce(){
+    if(!SEDE) return alert('Primero elige una sede.');
+    mostrarCarga('Comparando la oficina con el mapa…');
+    try{
+        const oficina=await clientesDeOficina(SEDE.id);
+        CRUCE=calcularCruce(oficina, RED.elementos);
+        CRUCE.sede=SEDE.nombre;
+        document.getElementById('cruce').classList.remove('hidden');
+        document.getElementById('cruceTitulo').textContent='Clientes vs. Red — '+SEDE.nombre;
+        cruceTab='enlazados';
+        pintarCruce();
+    }catch(e){ alert('No se pudo comparar:\n\n'+(e.message||e)); }
+    ocultarCarga();
+}
+function cerrarCruce(){ document.getElementById('cruce').classList.add('hidden'); }
+
+function calcularCruce(oficina, elementos){
+    // Del mapa: los puntos de cliente que quedaron enlazados a una caja
+    const enMapa=elementos.filter(e=>e.tipo==='cliente');
+    // Indice de la oficina por nombre normalizado
+    const idx={}, palabras={};
+    oficina.forEach(c=>{
+        const k=normNom(c.nombre); if(!k) return;
+        (idx[k]=idx[k]||[]).push(c);
+        palabras[k]=k.split(' ').filter(p=>p.length>2);
+    });
+    const claves=Object.keys(idx);
+    const usados=new Set();
+
+    const enlazados=[], soloMapa=[];
+    enMapa.forEach(pm=>{
+        const nombre=pm.nombreReal||pm.nombre||'';
+        const k=normNom(nombre);
+        let cli=null, comoDio='';
+        if(idx[k]){ cli=idx[k][0]; comoDio='exacta'; }
+        else{
+            const mias=k.split(' ').filter(p=>p.length>2);
+            // 3 palabras en comun es practicamente seguro; con 2 ya es dudoso
+            let mejor=null, mejorN=0;
+            claves.forEach(ck=>{
+                const n=mias.filter(p=>palabras[ck].includes(p)).length;
+                if(n>mejorN){ mejorN=n; mejor=ck; }
+            });
+            if(mejorN>=3){ cli=idx[mejor][0]; comoDio='3+ apellidos'; }
+            else if(mejorN>=2){ cli=idx[mejor][0]; comoDio='2 apellidos (revisar)'; }
+        }
+        if(cli){
+            usados.add(normNom(cli.nombre));
+            enlazados.push({nombre:cli.nombre, servicio:cli.servicioWisphub||'', estado:cli.estado||'',
+                            plan:cli.plan||'', caja:pm.caja||'', puerto:pm.puerto||null,
+                            id:pm.id, como:comoDio});
+        }else{
+            // Sin nombreReal es que el punto no tiene drop: no hay nombre de
+            // persona que cruzar, solo el codigo del punto. Conviene decirlo,
+            // porque en la lista parece un cliente y no lo es.
+            soloMapa.push({nombre, caja:pm.caja||'', puerto:pm.puerto||null, id:pm.id,
+                           sinDrop:!pm.nombreReal});
+        }
+    });
+
+    const sinUbicacion=oficina.filter(c=>!usados.has(normNom(c.nombre)))
+        .map(c=>({nombre:c.nombre, servicio:c.servicioWisphub||'', estado:c.estado||'', plan:c.plan||''}));
+
+    return {
+        enlazados,
+        sinUbicacion,
+        sinUbicacionActivos: sinUbicacion.filter(c=>String(c.estado||'').toLowerCase()==='activo'),
+        soloMapa,
+        totalOficina: oficina.length,
+        totalMapa: enMapa.length
+    };
+}
+
+function pintarCruce(){
+    if(!CRUCE) return;
+    const q=normNom(document.getElementById('qCruce').value||'');
+    const tabs=[
+        ['enlazados',     '🔗 Enlazados',        CRUCE.enlazados.length],
+        ['activos',       '📍 Falta ubicarlos',  CRUCE.sinUbicacionActivos.length],
+        ['sinubicacion',  '👥 Sin ubicación',    CRUCE.sinUbicacion.length],
+        ['solomapa',      '🗺️ Solo en el mapa',  CRUCE.soloMapa.length]
+    ];
+    document.getElementById('cruceTabs').innerHTML=tabs.map(([k,t,n])=>
+        `<div class="ct ${cruceTab===k?'on':''}" onclick="cruceTab='${k}';pintarCruce()">${t} <span class="n">${n}</span></div>`).join('');
+
+    let lista, pinta;
+    if(cruceTab==='enlazados'){
+        lista=CRUCE.enlazados;
+        pinta=c=>`<div class="fila">
+            <span class="punto" style="background:#10b981"></span>
+            <span class="nom">${esc(c.nombre)}${c.como!=='exacta'?` <i style="color:#f59e0b;font-size:.7rem">(${c.como})</i>`:''}</span>
+            <span class="meta">${esc(c.caja||'—')}${c.puerto?' · pto '+c.puerto:''}</span>
+            <button class="btn btn-sm btn-out" onclick="cerrarCruce();irA('${c.id}')">Ver</button></div>`;
+    } else if(cruceTab==='activos'||cruceTab==='sinubicacion'){
+        lista=cruceTab==='activos'?CRUCE.sinUbicacionActivos:CRUCE.sinUbicacion;
+        pinta=c=>`<div class="fila">
+            <span class="punto" style="background:${String(c.estado).toLowerCase()==='activo'?'#f59e0b':'#64748b'}"></span>
+            <span class="nom">${esc(c.nombre)}</span>
+            <span class="meta">${esc(c.estado||'—')}${c.servicio?' · '+esc(c.servicio):''}</span></div>`;
+    } else {
+        lista=CRUCE.soloMapa;
+        pinta=c=>`<div class="fila">
+            <span class="punto" style="background:${c.sinDrop?'#64748b':'#ef4444'}"></span>
+            <span class="nom">${esc(c.nombre||'(sin nombre)')}${c.sinDrop?' <i style="color:#94a3b8;font-size:.7rem">(punto sin drop, no trae nombre)</i>':''}</span>
+            <span class="meta">${esc(c.caja||'—')}${c.puerto?' · pto '+c.puerto:''}</span>
+            <button class="btn btn-sm btn-out" onclick="cerrarCruce();irA('${c.id}')">Ver</button></div>`;
+    }
+    const filtrada=q.length>1?lista.filter(c=>normNom(c.nombre).includes(q)):lista;
+    const ayuda={
+        enlazados:'Sabemos en qué caja y puerto está cada uno.',
+        activos:'Están activos y cobrando, pero NO aparecen en el mapa. Son los que hay que salir a marcar.',
+        sinubicacion:'Todos los de la oficina que no están en el mapa, activos o no.',
+        solomapa:'Están dibujados en la red pero ya no son clientes de la oficina. Probablemente retirados.'
+    }[cruceTab];
+    document.getElementById('cruceLista').innerHTML=
+        `<div class="aviso">${ayuda}</div>`+
+        (filtrada.length ? filtrada.slice(0,400).map(pinta).join('')
+                         : '<div class="vacio">Nada aquí.</div>')+
+        (filtrada.length>400?`<div class="vacio">…y ${filtrada.length-400} más. Usa el buscador.</div>`:'');
+}
+
+function exportarCruce(){
+    if(!CRUCE) return;
+    const filas=[['Grupo','Nombre','Estado','Servicio WispHub','Caja','Puerto','Cómo se enlazó']];
+    CRUCE.enlazados.forEach(c=>filas.push(['Enlazado',c.nombre,c.estado,c.servicio,c.caja,c.puerto||'',c.como]));
+    CRUCE.sinUbicacion.forEach(c=>filas.push(['Sin ubicación',c.nombre,c.estado,c.servicio,'','','']));
+    CRUCE.soloMapa.forEach(c=>filas.push(['Solo en el mapa',c.nombre,'','',c.caja,c.puerto||'','']));
+    const csv='﻿'+filas.map(f=>f.map(v=>`"${String(v==null?'':v).replace(/"/g,'""')}"`).join(';')).join('\r\n');
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+    a.download=`Clientes_vs_Red_${(CRUCE.sede||'').replace(/\s+/g,'_')}_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+}
+</script>
+</body>
+</html>
