@@ -64,21 +64,26 @@
         ? `<div style="text-align:center;padding-top:2px;"><img src="${data.firma}" alt="Firma del suscriptor" style="max-height:52px;max-width:60%;display:inline-block;"></div>\n        `
         : '';
     const _firmaEstilo = data.firma ? ' style="margin-top:2px;"' : '';
-    const fmt=n=>{
-        if(blanco) return '$ ' + linea;
-        return n?'$'+Number(n).toLocaleString('es-CO'):'';
-    };
+    // v5 — DÓNDE VA UNA RAYA Y DÓNDE NO.
+    // Casi todo el contrato YA trae raya impresa: los campos llevan
+    // '.field .val { border-bottom:1px solid #000 }' y las celdas de tabla
+    // llevan borde completo. Si además se rellenaran con guiones bajos
+    // quedaría RAYA DOBLE. Por eso fmt y txt devuelven vacío y dejan que el
+    // CSS ponga la línea; el hueco para escribir ya está ahí.
+    // La excepción es el párrafo de arriba, donde el valor mensual va suelto
+    // dentro de un <strong> SIN raya de CSS: ahí sí hay que dibujarla, y es
+    // justo lo que el usuario reportó que no dejaba espacio.
+    const fmt=n=>(n?'$'+Number(n).toLocaleString('es-CO'):'');
+    const txt=v=>(v||'');
+    const txtCorto=v=>(v||'');
+    // Para los sitios SIN raya de CSS: si no hay dato, se dibuja una.
+    const fmtHueco=n=>(n?'$'+Number(n).toLocaleString('es-CO'):(blanco?'$ '+linea:''));
+    const txtHueco=v=>(v||(blanco?lineaCorta:''));
+    // Las casillas SÍ dependen de la bandera: un contrato en blanco no debe
+    // salir con Internet ya marcado.
     const chk=v=>{
         if(blanco) return '☐';
         return v?'☑':'☐';
-    };
-    const txt=v=>{
-        if(blanco) return linea;
-        return v||'';
-    };
-    const txtCorto=v=>{
-        if(blanco) return lineaCorta;
-        return v||'';
     };
 
     // HTML del contrato (estilo similar al original)
@@ -147,14 +152,14 @@ p { margin:4px 0; font-size:8px; text-align:justify; line-height:1.35; }
 
 <!-- COLUMNA IZQUIERDA — Datos del cliente y servicio -->
 <div>
-    <p style="text-align:justify;">Este contrato explica las condiciones para la prestación de los servicios entre usted y PROYECTOVISION CLICK ZOMAC S.A.S. por el que pagará mínimo mensualmente <strong>${fmt(data.valorMin)}</strong>. Este contrato tendrá vigencia de <strong>${txt(data.vigencia)}</strong> meses, contados a partir del <strong>${blanco?'_____/_____/_____':`${blanco?'_____/_____/_____':`${fechaAct.d}/${fechaAct.m}/${fechaAct.a}`}`}</strong>. El plazo máximo de instalación es de 5 días hábiles. Acepto que mi contrato se renueve sucesiva y automáticamente por un plazo igual a la inicial.</p>
+    <p style="text-align:justify;">Este contrato explica las condiciones para la prestación de los servicios entre usted y PROYECTOVISION CLICK ZOMAC S.A.S. por el que pagará mínimo mensualmente <strong>${fmtHueco(data.valorMin)}</strong>. Este contrato tendrá vigencia de <strong>${txt(data.vigencia)}</strong> meses, contados a partir del <strong>${fechaAct.d?`${fechaAct.d}/${fechaAct.m}/${fechaAct.a}`:'_____/_____/_____'}</strong>. El plazo máximo de instalación es de 5 días hábiles. Acepto que mi contrato se renueve sucesiva y automáticamente por un plazo igual a la inicial.</p>
 
     <div class="section-title">EL SERVICIO</div>
-    <p>Con este contrato nos comprometemos a prestarles los servicios que usted elija: <strong>N° ${txt(data.numero)}</strong></p>
+    <p>Con este contrato nos comprometemos a prestarles los servicios que usted elija: <strong>N° ${txtHueco(data.numero)}</strong></p>
     <p class="checkbox">${chk(data.internet)} Internet fijo &nbsp;&nbsp; ${chk(data.television)} Televisión</p>
     <div class="field"><label>Servicios adicionales:</label> <span class="val">${data.adicionales||''}</span></div>
     <p>Usted se compromete a pagar oportunamente el precio acordado.</p>
-    <div class="field"><label>El servicio se activará a más tardar el día:</label> <span class="val">${blanco?'_____/_____/_____':`${fechaAct.d}/${fechaAct.m}/${fechaAct.a}`}</span></div>
+    <div class="field"><label>El servicio se activará a más tardar el día:</label> <span class="val">${fechaAct.d?`${fechaAct.d}/${fechaAct.m}/${fechaAct.a}`:''}</span></div>
 
     <div class="section-title">INFORMACIÓN DEL SUSCRIPTOR</div>
     <div class="field"><label>Contrato No:</label> <span class="val">${txt(data.numero)}</span></div>
@@ -319,7 +324,7 @@ p { margin:4px 0; font-size:8px; text-align:justify; line-height:1.35; }
     <div class="firma-box">
         <p style="text-align:center;font-weight:bold;font-size:9px;margin-bottom:6px;">Aceptación contrato mediante firma o cualquier otro medio válido</p>
         ${_firmaImg}<div class="firma-line"${_firmaEstilo}>
-            <span><strong>C.C.</strong> ${txt(data.numDoc)}</span>
+            <span><strong>C.C.</strong> ${txtHueco(data.numDoc)}</span>
             <span><strong>Fecha:</strong> ${blanco?'_____/_____/_____':`${fechaAct.d}/${fechaAct.m}/${fechaAct.a}`}</span>
         </div>
         <p style="font-size:6.5px;color:#666;margin-top:4px;text-align:center;">Consulte el régimen de protección de usuario en www.crcom.gov.co</p>
@@ -817,7 +822,16 @@ p { margin:4px 0; font-size:8px; text-align:justify; line-height:1.35; }
         cfg = cfg || {};
         var v = function (k, d) { var x = cfg[k]; return (x === undefined || x === null || x === '') ? d : x; };
         return {
-            numero: '_______',
+            // v5: ESTA BANDERA FALTABA Y ROMPIA EL CONTRATO EN BLANCO.
+            // generarHTML hace 'const blanco = data.esEnBlanco || false' y de ella
+            // dependen los cuatro formateadores (fmt, txt, chk, txtCorto) y las
+            // seis casillas de fecha y documento. Como NADIE la ponia, blanco era
+            // siempre false: en vez de lineas para escribir salian valores vacios
+            // — el valor mensual salia en blanco (porque fmt(0) devuelve '') y la
+            // fecha salia como '//' al unir dia, mes y anio vacios. Por eso no
+            // habia donde diligenciar.
+            esEnBlanco: true,
+            numero: '',
             vigencia: String(v('vigencia', 12)),
             valorMin: v('valorMin', 0),
             fechaActivacion: '',
