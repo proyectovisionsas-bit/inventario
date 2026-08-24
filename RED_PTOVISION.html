@@ -88,6 +88,54 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
 .fila:hover{background:var(--card2);}
 .fila .nom{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .fila .meta{font-size:.72rem;color:var(--muted);white-space:nowrap;}
+/* ── Ventanas propias (en vez de los prompt del navegador) ── */
+#modal{position:fixed;inset:0;background:rgba(4,8,16,.78);z-index:1200;display:flex;
+       align-items:center;justify-content:center;padding:18px;backdrop-filter:blur(3px);}
+.mcaja{background:var(--card);border:1px solid var(--border);border-radius:14px;width:100%;
+       max-width:440px;max-height:88vh;display:flex;flex-direction:column;
+       box-shadow:0 24px 70px rgba(0,0,0,.55);}
+.mtop{padding:15px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;}
+.mtop b{font-size:.98rem;}
+.mcuerpo{padding:16px 18px;overflow-y:auto;}
+.mcuerpo label{margin-top:10px;}
+.mcuerpo label:first-child{margin-top:0;}
+.mpie{padding:13px 18px;border-top:1px solid var(--border);display:flex;gap:9px;justify-content:flex-end;}
+.mcuerpo input,.mcuerpo select,.mcuerpo textarea{margin-bottom:2px;padding:10px;font-size:.9rem;}
+.ayuda{font-size:.72rem;color:var(--muted);margin:4px 0 0;line-height:1.45;}
+.rejilla{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:7px;margin-top:4px;}
+.opc{border:1px solid var(--border);background:var(--card2);border-radius:10px;padding:11px 7px;
+     text-align:center;cursor:pointer;font-size:.76rem;font-weight:700;transition:.12s;}
+.opc:hover{border-color:var(--accent);}
+.opc.on{border-color:#10b981;background:rgba(16,185,129,.14);color:#10b981;}
+.opc .ic{display:block;font-size:1.3rem;margin-bottom:3px;}
+
+/* ── Símbolos de red sobre el mapa ── */
+.mk{display:flex;align-items:center;justify-content:center;font-weight:800;color:#04121f;
+    border:2px solid rgba(0,0,0,.45);box-shadow:0 2px 6px rgba(0,0,0,.5);}
+.mk-caja{width:26px;height:20px;border-radius:4px;font-size:.62rem;}
+.mk-mufla{width:22px;height:22px;border-radius:50%;font-size:.6rem;}
+.mk-pop{width:30px;height:30px;border-radius:7px;font-size:.9rem;color:#fff;}
+.mk-rot{position:absolute;left:50%;transform:translateX(-50%);top:100%;margin-top:2px;
+        font-size:9.5px;font-weight:700;color:#e6edf6;text-shadow:0 0 4px #000,0 0 3px #000;
+        white-space:nowrap;pointer-events:none;}
+.leaflet-marker-icon{background:none;border:none;}
+
+/* ── Leyenda ── */
+.leyenda{position:absolute;left:10px;bottom:20px;z-index:500;background:rgba(19,28,46,.94);
+         border:1px solid var(--border);border-radius:11px;padding:10px 12px;font-size:.72rem;
+         line-height:1.7;box-shadow:0 6px 20px rgba(0,0,0,.4);}
+.leyenda b{display:block;font-size:.68rem;color:var(--muted);text-transform:uppercase;
+           letter-spacing:.5px;margin-bottom:5px;}
+.leyenda i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;
+           vertical-align:-2px;border:1px solid rgba(0,0,0,.4);}
+
+/* ── Resumen arriba del panel ── */
+.kpis{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:12px;}
+.kpi{background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:9px 10px;}
+.kpi .v{font-size:1.15rem;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1;}
+.kpi .e{font-size:.66rem;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-top:2px;}
+.barra{height:6px;border-radius:3px;background:var(--card2);overflow:hidden;margin-top:8px;display:flex;}
+.barra span{display:block;height:100%;}
 #cargando{position:fixed;inset:0;background:rgba(11,18,32,.92);display:flex;align-items:center;
           justify-content:center;flex-direction:column;gap:14px;z-index:9999;}
 .spin{width:38px;height:38px;border:3px solid var(--border);border-top-color:#10b981;border-radius:50%;animation:g .8s linear infinite;}
@@ -138,10 +186,18 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
     <button class="btn btn-sm btn-out" onclick="salir()">Salir</button>
   </div>
   <div class="cuerpo">
-    <div id="mapa"></div>
+    <div id="mapa">
+      <div class="leyenda" id="leyenda"></div>
+    </div>
     <div class="panel" id="panel"></div>
   </div>
 </div>
+
+<div id="modal" class="hidden"><div class="mcaja">
+  <div class="mtop"><b id="mTit">—</b></div>
+  <div class="mcuerpo" id="mCuerpo"></div>
+  <div class="mpie" id="mPie"></div>
+</div></div>
 
 <!-- ══════════ CRUCE CLIENTES ↔ RED ══════════ -->
 <div id="cruce" class="hidden">
@@ -174,7 +230,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
    la cambia aqui.
    ════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION_RED = 3;
+const APP_VERSION_RED = 4;
 
 const firebaseConfig = {
     apiKey: "AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w",
@@ -260,6 +316,7 @@ async function cambiarSede(id){
     if(!id) return;
     SEDE=(DB.oficinas||[]).find(o=>o.id===id)||null;
     mostrarCarga('Cargando la red de '+(SEDE?SEDE.nombre:'')+'…');
+    window._yaEncuadrado=false;   // al cambiar de sede el mapa vuelve a centrarse
     RED=await cargarRed(id);
     // OJO: crearMapa es asincrono (carga Leaflet). Sin await, dibujar() corria
     // antes de que existiera el mapa, se salia por su guarda y la sede se veia
@@ -645,16 +702,56 @@ function cambiarFondo(){
     document.getElementById('btnFondo').textContent = fondoSat?'🗺️ Calles':'🛰️ Satélite';
 }
 
+/* El color de una caja dice si SIRVE PARA VENDER, que es lo unico que se
+   quiere ver de un vistazo cuando se mira el mapa:
+     verde  = queda espacio de sobra   ambar = va quedando poco
+     rojo   = llena                    gris  = no sabemos su capacidad      */
+function estadoCaja(el){
+    const cap=capacidadCaja(el);
+    const usados=Object.keys(el.puertos||{}).length;
+    if(!cap) return {color:'#64748b', et:'sin capacidad', libres:null, cap:0, usados};
+    const libres=Math.max(0,cap-usados);
+    if(libres===0)          return {color:'#ef4444', et:'llena',    libres, cap, usados};
+    if(libres<=cap*0.25)    return {color:'#f59e0b', et:'casi llena',libres, cap, usados};
+    return {color:'#10b981', et:'con espacio', libres, cap, usados};
+}
+
+function iconoCaja(el){
+    const s=estadoCaja(el);
+    const clase = el.clase==='pop' ? 'mk-pop' : el.clase==='mufla' ? 'mk-mufla' : 'mk-caja';
+    const dentro = el.clase==='pop' ? '🏛️'
+                 : el.clase==='mufla' ? '⬤'
+                 : (s.cap? s.libres+'/'+s.cap : '?');
+    const fondo = el.clase==='mufla' ? TIPOS.mufla.color
+                : el.clase==='pop'   ? TIPOS.pop.color : s.color;
+    const rot = mapa && mapa.getZoom()>=17
+        ? `<span class="mk-rot">${esc((el.nombre||'').slice(0,26))}</span>` : '';
+    const w = el.clase==='pop'?30:el.clase==='mufla'?22:26;
+    const h = el.clase==='pop'?30:el.clase==='mufla'?22:20;
+    return L.divIcon({className:'', iconSize:[w,h], iconAnchor:[w/2,h/2],
+        html:`<div style="position:relative"><div class="mk ${clase}" style="background:${fondo}">${dentro}</div>${rot}</div>`});
+}
+
 function dibujar(){
     if(!mapa) return;
     ORDEN.forEach(t=>capas[t]&&capas[t].clearLayers());
     const lienzo=L.canvas({padding:0.4});
     const puntos=[];
+    const soloLibres=window._soloLibres;
     RED.elementos.forEach(el=>{
         const t=claseDe(el), cfg=TIPOS[t]; if(!cfg||!el.g||!el.g.length) return;
+        // Filtro: dejar solo las cajas donde SE PUEDE conectar a alguien
+        if(soloLibres && el.tipo==='caja' && el.clase!=='pop'){
+            const s=estadoCaja(el); if(!s.libres) return;
+        }
         let capa;
         if(cfg.forma==='linea'&&el.g.length>1){
-            capa=L.polyline(el.g,{color:cfg.color, weight:cfg.w, opacity:.85, renderer:lienzo});
+            // El grosor sube con los hilos: la troncal se distingue del ramal
+            const w = el.hilos ? Math.min(6, 1.2+Math.log2(el.hilos)*0.8) : cfg.w;
+            capa=L.polyline(el.g,{color:cfg.color, weight:w, opacity:.9, renderer:lienzo});
+        }else if(el.tipo==='caja'){
+            capa=L.marker(el.g[0],{icon:iconoCaja(el)});
+            puntos.push(el.g[0]);
         }else{
             capa=L.circleMarker(el.g[0],{radius:cfg.r, color:cfg.color, weight:1,
                                 fillColor:cfg.color, fillOpacity:.85, renderer:lienzo});
@@ -665,8 +762,24 @@ function dibujar(){
         capa.addTo(capas[t]);
     });
     document.getElementById('chipTotal').textContent=RED.elementos.length.toLocaleString('es-CO')+' elementos';
-    if(puntos.length) mapa.fitBounds(L.latLngBounds(puntos).pad(.05));
+    if(puntos.length && !window._yaEncuadrado){ mapa.fitBounds(L.latLngBounds(puntos).pad(.05)); window._yaEncuadrado=true; }
+    pintarLeyenda();
     pintarPanel();
+}
+
+function pintarLeyenda(){
+    const l=document.getElementById('leyenda'); if(!l) return;
+    if(!RED.elementos.length){ l.style.display='none'; return; }
+    l.style.display='';
+    l.innerHTML=`<b>Cajas</b>
+      <div><i style="background:#10b981"></i>Con espacio</div>
+      <div><i style="background:#f59e0b"></i>Casi llena</div>
+      <div><i style="background:#ef4444"></i>Llena</div>
+      <div><i style="background:#64748b"></i>Sin capacidad</div>
+      <b style="margin-top:8px">Fibra</b>
+      <div><i style="background:#ef4444;height:3px;border-radius:2px"></i>Primario</div>
+      <div><i style="background:#fb923c;height:3px;border-radius:2px"></i>Secundario</div>
+      <div><i style="background:#64748b;height:2px;border-radius:2px"></i>Drop</div>`;
 }
 
 /* ════════════════════════════════════════════════════════════════════
@@ -678,8 +791,9 @@ function pintarPanel(el){
 
     if(!RED.elementos.length){
         p.innerHTML=`<div class="aviso">Esta sede todavía no tiene red cargada.</div>
-          <div class="vacio">Usa <b>📥 Importar KML</b> para traer el archivo de OZmap,
-          o empieza desde cero cuando esté lista la edición.</div>`;
+          <div class="vacio">Tienes dos caminos:<br><br>
+            <b>📥 Importar KML</b> si ya tienes el archivo de OZmap,<br>
+            o <b>✏️ Editar</b> y empezar a marcar cajas y postes<br>uno a uno sobre el mapa.</div>`;
         return;
     }
     const cuenta={}; RED.elementos.forEach(e=>{ const t=claseDe(e); cuenta[t]=(cuenta[t]||0)+1; });
@@ -689,28 +803,46 @@ function pintarPanel(el){
         const us=Object.keys(c.puertos||{}).length;
         if(!cap) sinCap++; else { ocup+=us; libres+=Math.max(0,cap-us); } });
 
+    const km=Math.round(RED.elementos.filter(e=>e.tipo==='cable')
+              .reduce((s,c)=>s+(c.metros||0),0)/1000*10)/10;
+    const pct=ocup+libres>0?Math.round(100*ocup/(ocup+libres)):0;
+    const conEspacio=cajas.filter(c=>{const s=estadoCaja(c);return s.libres>0;}).length;
+
     p.innerHTML=`
       ${moviendo?'<div class="aviso">📍 Haz clic en el mapa donde queda el elemento.</div>'
-        :editando?'<div class="aviso">✏️ <b>Edición encendida.</b> Haz clic en el mapa para crear algo nuevo, o en un elemento para cambiarlo, moverlo o borrarlo.</div>':''}
-      <div class="sec">Capas</div>
+        :editando?'<div class="aviso">✏️ <b>Edición encendida.</b> Clic en el mapa para crear algo nuevo, o en un elemento para cambiarlo, moverlo o borrarlo.</div>':''}
+
+      <div class="kpis">
+        <div class="kpi"><div class="v" style="color:#10b981">${libres.toLocaleString('es-CO')}</div><div class="e">Puertos libres</div></div>
+        <div class="kpi"><div class="v" style="color:#f87171">${ocup.toLocaleString('es-CO')}</div><div class="e">Ocupados</div></div>
+        <div class="kpi"><div class="v">${cajas.length}</div><div class="e">Cajas</div></div>
+        <div class="kpi"><div class="v">${km}<span style="font-size:.7rem"> km</span></div><div class="e">Fibra tendida</div></div>
+      </div>
+      <div class="barra">
+        <span style="width:${pct}%;background:#ef4444"></span>
+        <span style="width:${100-pct}%;background:#10b981"></span>
+      </div>
+      <p class="ayuda" style="text-align:center;margin-bottom:6px">${pct}% de la capacidad usada ·
+         ${conEspacio} caja(s) con espacio</p>
+
+      <div class="sec">Ver en el mapa</div>
+      <label class="capa" style="background:rgba(16,185,129,.07);border-radius:8px;padding:7px 9px;">
+        <input type="checkbox" ${window._soloLibres?'checked':''} onchange="window._soloLibres=this.checked;dibujar()">
+        <b style="font-weight:700">Solo cajas con puerto libre</b>
+      </label>
       ${ORDEN.slice().reverse().filter(t=>cuenta[t]).map(t=>`
         <label class="capa">
-          <input type="checkbox" checked onchange="verCapa('${t}',this.checked)">
+          <input type="checkbox" ${capas[t]&&mapa&&mapa.hasLayer(capas[t])?'checked':''} onchange="verCapa('${t}',this.checked)">
           <span class="${TIPOS[t].forma==='linea'?'raya':'punto'}" style="background:${TIPOS[t].color}"></span>
           ${TIPOS[t].et}
           <span class="cuenta">${cuenta[t].toLocaleString('es-CO')}</span>
         </label>`).join('')}
-      <div class="sec">Ocupación</div>
-      <div class="ficha">
-        <div class="dato"><b>Cajas</b><span>${cajas.length}</span></div>
-        <div class="dato"><b>Puertos ocupados</b><span style="color:#f87171">${ocup}</span></div>
-        <div class="dato"><b>Puertos libres</b><span style="color:#10b981">${libres}</span></div>
-        <div class="dato"><b>Sin capacidad definida</b><span>${sinCap}</span></div>
-      </div>
-      ${sinCap?`<div class="aviso">Hay ${sinCap} caja(s) sin capacidad. Ábrelas en el mapa y
-        dile qué splitter llevan para que cuenten en los puertos libres.</div>`:''}
+
+      ${sinCap?`<div class="aviso" style="margin-top:12px">⚠️ ${sinCap} caja(s) sin capacidad definida.
+        Ábrelas y dile qué splitter llevan; hasta entonces no cuentan como espacio disponible.</div>`:''}
+
       <div class="sec">Buscar</div>
-      <input type="text" id="q" placeholder="Nombre de caja, cliente o cable…" oninput="buscar(this.value)">
+      <input type="text" id="q" placeholder="Caja, cliente, cable…" oninput="buscar(this.value)">
       <div id="res"></div>`;
 }
 function verCapa(t,on){ if(!capas[t]) return; on?capas[t].addTo(mapa):mapa.removeLayer(capas[t]); }
@@ -740,29 +872,55 @@ function buscar(q){
 }
 function irA(id){
     const el=RED.elementos.find(e=>e.id===id); if(!el||!el.g||!el.g.length) return;
-    mapa.setView(el.g[0], 19); pintarPanel(el);
+    mapa.setView(el.g[0], 19); dibujar(); pintarPanel(el);
+}
+function verPuerto(idCaja, n){
+    const c=RED.elementos.find(e=>e.id===idCaja); if(!c) return;
+    const o=(c.puertos||{})[n];
+    if(!o) return abrirModal('Puerto '+n+' de '+esc(c.nombre||''),
+        `<div class="vacio" style="padding:16px">Está <b style="color:#10b981">libre</b>.<br>
+         Se puede conectar un cliente aquí.</div>`,
+        `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cerrar</button>`);
+    const cli=RED.elementos.find(e=>e.id===o.clienteId);
+    abrirModal('Puerto '+n+' de '+esc(c.nombre||''), `
+      <div class="dato"><b>Cliente</b><span>${esc(o.cliente||'—')}</span></div>
+      ${cli?`<div class="dato"><b>Código en el mapa</b><span>${esc(cli.nombre||'—')}</span></div>
+             <div class="dato"><b>Ubicación</b><span style="font-size:.72rem">${cli.g[0][0].toFixed(6)}, ${cli.g[0][1].toFixed(6)}</span></div>`:''}`,
+      `${cli?`<button class="btn btn-sm btn-out" onclick="cerrarModal();irA('${cli.id}')">Ver en el mapa</button>`:''}
+       <button class="btn btn-sm btn-out" onclick="cerrarModal()">Cerrar</button>`);
 }
 
 function fichaHTML(el){
     const t=claseDe(el), cfg=TIPOS[t]||{};
     let cuerpo='';
     if(el.tipo==='caja'&&el.clase!=='pop'){
-        const cap=capacidadCaja(el), usados=Object.keys(el.puertos||{}).length;
+        const s=estadoCaja(el), cap=s.cap;
         cuerpo=`
-          <div class="dato"><b>Capacidad</b><span>${cap?cap+' puertos':'<i style="color:#f59e0b">sin definir</i>'}</span></div>
-          <div class="dato"><b>Ocupados</b><span>${usados}</span></div>
-          <div class="dato"><b>Libres</b><span style="color:${cap-usados>0?'#10b981':'#f87171'}">${cap?Math.max(0,cap-usados):'—'}</span></div>
+          <div style="display:flex;gap:7px;margin:10px 0 4px;">
+            <div class="kpi" style="flex:1;text-align:center"><div class="v" style="color:#10b981">${cap?s.libres:'—'}</div><div class="e">Libres</div></div>
+            <div class="kpi" style="flex:1;text-align:center"><div class="v" style="color:#f87171">${s.usados}</div><div class="e">Ocupados</div></div>
+            <div class="kpi" style="flex:1;text-align:center"><div class="v">${cap||'?'}</div><div class="e">Capacidad</div></div>
+          </div>
+          <div class="dato"><b>Estado de la caja</b><span style="color:${s.color};font-weight:700">${s.et}</span></div>
           <div class="sec" style="margin-top:14px">Splitters</div>
           ${(el.splitters||[]).length
-            ? el.splitters.map((s,i)=>`<div class="dato"><b>${esc(s.tipo)}${s.ratio?' · '+esc(s.ratio):''}${s.deducido?' <i style="font-size:.7rem">(deducido)</i>':''}</b>
-                <span><button class="btn btn-sm btn-out" onclick="quitarSplitter('${el.id}',${i})">✕</button></span></div>`).join('')
-            : '<div class="vacio" style="padding:10px">Sin splitters. Agrega uno para saber su capacidad.</div>'}
+            ? el.splitters.map((sp,i)=>`<div class="dato">
+                <b style="color:var(--text)">🔀 ${esc(sp.tipo)}${sp.ratio?' · '+esc(sp.ratio):' · balanceado'}
+                  ${sp.deducido?'<i style="font-size:.68rem;color:#f59e0b"> (supuesto)</i>':''}</b>
+                <span><button class="btn btn-sm btn-out" title="Quitar" onclick="quitarSplitter('${el.id}',${i})">✕</button></span></div>
+                ${sp.entrada?`<p class="ayuda">Entra por ${esc(sp.entrada)}</p>`:''}`).join('')
+            : '<div class="vacio" style="padding:12px">Sin splitters. Sin ellos no sabemos cuántos clientes caben.</div>'}
           <button class="btn btn-sm btn-out" style="width:100%;margin-top:8px" onclick="agregarSplitter('${el.id}')">➕ Agregar splitter</button>
-          ${cap?`<div class="sec" style="margin-top:14px">Puertos</div>
+          ${cap?`<div class="sec" style="margin-top:14px">Puertos <span style="font-weight:400;text-transform:none">— clic para ver quién está</span></div>
             <div class="puertos">${Array.from({length:cap},(_,i)=>{
                 const n=i+1, o=(el.puertos||{})[n];
-                return `<div class="pto ${o?'ocup':'libre'}" title="${o?esc(o.cliente||''):'Libre'}">${n}</div>`;
-            }).join('')}</div>`:''}`;
+                return `<div class="pto ${o?'ocup':'libre'}" onclick="verPuerto('${el.id}',${n})"
+                          title="${o?esc(o.cliente||'Ocupado'):'Libre'}">${n}</div>`;
+            }).join('')}</div>
+            ${s.usados?`<div class="sec" style="margin-top:12px">Clientes conectados</div>
+              ${Object.keys(el.puertos).sort((a,b)=>a-b).map(n=>`
+                <div class="dato"><b style="color:var(--text)">Pto ${n}</b>
+                  <span>${esc(el.puertos[n].cliente||'—')}</span></div>`).join('')}`:''}`:''}`;
     } else if(el.tipo==='cable'){
         cuerpo=`
           <div class="dato"><b>Hilos</b><span>${el.hilos||'—'}</span></div>
@@ -801,23 +959,58 @@ function fichaHTML(el){
 
 /* ── Splitters: es lo que define la capacidad de cada caja ────────── */
 const SPLITTERS=['1x2','1x4','1x8','1x16','1x32','1x64','2x4','2x8','2x16','2x32'];
-async function agregarSplitter(id){
+const RATIOS=['','50/50','55/45','60/40','70/30','80/20','90/10'];
+function agregarSplitter(id){
     const el=RED.elementos.find(e=>e.id===id); if(!el) return;
-    const t=prompt('Tipo de splitter:\n\n'+SPLITTERS.join('  ·  ')+'\n\nEscríbelo tal cual (ej: 1x16)','1x8');
-    if(!t) return;
-    if(!/^\d+\s*[xX]\s*\d+$/.test(t.trim())) return alert('Formato no válido. Debe ser como 1x8 o 2x16.');
-    const r=prompt('¿Es desbalanceado? Escribe la relación (ej: 55/45) o deja vacío si es balanceado','');
+    window._splitId=id;
+    abrirModal('🔀 Splitter en '+esc(el.nombre||'la caja'), `
+      <label>Tipo</label>
+      <div class="rejilla">
+        ${SPLITTERS.map(s=>`<div class="opc ${s==='1x8'?'on':''}" data-s="${s}"
+           onclick="elegirSplit('${s}')">${s}</div>`).join('')}
+      </div>
+      <label style="margin-top:14px">Reparto de potencia</label>
+      <select id="sp_ratio">
+        ${RATIOS.map(r=>`<option value="${r}">${r||'Balanceado (por igual)'}</option>`).join('')}
+      </select>
+      <p class="ayuda">Los desbalanceados (55/45, 70/30) se usan para encadenar cajas:
+         una parte sigue de largo y la otra atiende clientes.</p>
+      <label style="margin-top:12px">Entrada <span style="color:var(--muted);font-weight:400">(opcional)</span></label>
+      <input id="sp_entrada" placeholder="Cable e hilo del que llega" autocomplete="off">`,
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cancelar</button>
+       <button class="btn btn-sm btn-primary" style="width:auto" onclick="guardarSplitter()">Agregar</button>`);
+    window._splitTipo='1x8';
+}
+function elegirSplit(s){
+    window._splitTipo=s;
+    document.querySelectorAll('.rejilla .opc').forEach(o=>o.classList.toggle('on',o.dataset.s===s));
+}
+async function guardarSplitter(){
+    const el=RED.elementos.find(e=>e.id===window._splitId); if(!el) return cerrarModal();
+    const nuevo={tipo:window._splitTipo, ratio:val('sp_ratio'), entrada:val('sp_entrada')};
+    cerrarModal();
+    // Los deducidos eran una suposicion nuestra: en cuanto alguien dice el
+    // splitter de verdad, esa suposicion sobra.
     el.splitters=(el.splitters||[]).filter(s=>!s.deducido);
-    el.splitters.push({tipo:t.trim().toLowerCase().replace(/\s/g,''), ratio:(r||'').trim()});
-    mostrarCarga('Guardando…'); await guardarRed(SEDE.id, RED.elementos); ocultarCarga();
-    pintarPanel(el);
+    el.splitters.push(nuevo);
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){ el.splitters.pop(); ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e)); }
+    ocultarCarga(); dibujar(); pintarPanel(el);
 }
 async function quitarSplitter(id,i){
     const el=RED.elementos.find(e=>e.id===id); if(!el||!el.splitters) return;
-    if(!confirm('¿Quitar este splitter de '+(el.nombre||'la caja')+'?')) return;
+    const s=el.splitters[i];
+    const usados=Object.keys(el.puertos||{}).length;
+    const cap=capacidadCaja(el), quedaria=cap-(parseInt(String(s.tipo).split(/[xX]/)[1],10)||0);
+    if(usados>quedaria && !confirm(`⚠️ Quitando este ${s.tipo} la caja baja a ${quedaria} puertos, `
+        +`pero tiene ${usados} clientes conectados.\n\n¿Seguro?`)) return;
+    if(usados<=quedaria && !confirm('¿Quitar el splitter '+s.tipo+'?')) return;
     el.splitters.splice(i,1);
-    mostrarCarga('Guardando…'); await guardarRed(SEDE.id, RED.elementos); ocultarCarga();
-    pintarPanel(el);
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){ el.splitters.splice(i,0,s); ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e)); }
+    ocultarCarga(); dibujar(); pintarPanel(el);
 }
 
 /* ════════════════════════════════════════════════════════════════════
@@ -1004,56 +1197,138 @@ function clicEnMapa(ev){
 }
 
 const CREABLES=[
-    ['nap','Caja NAP'], ['cto','Caja CTO'], ['mufla','Mufla'],
-    ['poste','Poste'], ['reserva','Reserva técnica'], ['pop','POP']
+    ['nap','Caja NAP','🟩'], ['cto','Caja CTO','🟦'], ['mufla','Mufla','🟠'],
+    ['poste','Poste','📍'], ['reserva','Reserva','🌀'], ['pop','POP','🏛️']
 ];
+const ESTADOS=['Implementado','Implementada y certificada','Planeado','En construcción','Fuera de servicio'];
 
-async function nuevoElemento(punto){
-    const op=prompt('¿Qué vas a crear en ese punto?\n\n'
-        + CREABLES.map((c,i)=>`  ${i+1}) ${c[1]}`).join('\n')
-        + '\n\nEscribe el número:', '1');
-    if(!op) return;
-    const sel=CREABLES[parseInt(op,10)-1];
-    if(!sel) return alert('Número no válido.');
-    const nombre=prompt('Nombre del elemento (tiene que ser único):','');
-    if(!nombre||!nombre.trim()) return;
-    const [clase,etiqueta]=sel;
+/* Ventana propia. Los prompt() del navegador no dejan validar, no dejan
+   poner listas y ademas se ven como una pagina de hace veinte anos. */
+function abrirModal(titulo, cuerpoHTML, botones){
+    document.getElementById('mTit').innerHTML=titulo;
+    document.getElementById('mCuerpo').innerHTML=cuerpoHTML;
+    document.getElementById('mPie').innerHTML=botones;
+    document.getElementById('modal').classList.remove('hidden');
+}
+function cerrarModal(){ document.getElementById('modal').classList.add('hidden'); }
+function val(id){ const e=document.getElementById(id); return e?e.value.trim():''; }
+
+function nuevoElemento(punto){
+    window._nuevoPunto=punto; window._nuevaClase='nap';
+    abrirModal('➕ Nuevo elemento de red', `
+      <label>¿Qué vas a instalar aquí?</label>
+      <div class="rejilla" id="gClase">
+        ${CREABLES.map(([c,t,ic])=>`<div class="opc ${c==='nap'?'on':''}" data-c="${c}"
+           onclick="elegirClase('${c}')"><span class="ic">${ic}</span>${t}</div>`).join('')}
+      </div>
+      <label style="margin-top:14px">Nombre <span style="color:#f87171">*</span></label>
+      <input id="nEl_nombre" placeholder="Z1.T1.CEP5.R1.CTO2" autocomplete="off">
+      <p class="ayuda">Tiene que ser único dentro de la sede. Usa la nomenclatura de siempre.</p>
+      <div id="nEl_extra"></div>
+      <label style="margin-top:12px">Estado</label>
+      <select id="nEl_estado">${ESTADOS.map(e=>`<option>${e}</option>`).join('')}</select>
+      <label style="margin-top:12px">Notas</label>
+      <textarea id="nEl_notas" rows="2" placeholder="Opcional"></textarea>
+      <p class="ayuda">📍 ${punto[0].toFixed(6)}, ${punto[1].toFixed(6)}</p>`,
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cancelar</button>
+       <button class="btn btn-sm btn-primary" style="width:auto" onclick="guardarNuevo()">Crear</button>`);
+    elegirClase('nap');
+    setTimeout(()=>{ const i=document.getElementById('nEl_nombre'); if(i) i.focus(); },60);
+}
+function elegirClase(c){
+    window._nuevaClase=c;
+    document.querySelectorAll('#gClase .opc').forEach(o=>o.classList.toggle('on',o.dataset.c===c));
+    const ex=document.getElementById('nEl_extra'); if(!ex) return;
+    if(c==='reserva'){
+        ex.innerHTML=`<label style="margin-top:12px">Metros de reserva</label>
+          <input type="number" id="nEl_metros" value="20" min="1">
+          <label style="margin-top:12px">¿De qué cable?</label>
+          <input id="nEl_cable" placeholder="TRONCAL Z1-B" autocomplete="off">
+          <p class="ayuda">En un mismo poste puede haber varias reservas, una por cable.</p>`;
+    } else if(c==='poste'){
+        ex.innerHTML=`<label style="margin-top:12px">Tipo de poste</label>
+          <select id="nEl_sub"><option>POSTE CONCRETO</option><option>POSTE MADERA</option>
+          <option>POSTE METALICO</option><option>NO</option></select>`;
+    } else if(c==='pop'){
+        ex.innerHTML='';
+    } else {
+        ex.innerHTML=`<label style="margin-top:12px">Splitter que lleva</label>
+          <select id="nEl_split">
+            <option value="">— se lo pongo después —</option>
+            ${['1x2','1x4','1x8','1x16','1x32','1x64'].map(s=>`<option ${s==='1x8'?'selected':''}>${s}</option>`).join('')}
+          </select>
+          <p class="ayuda">De aquí sale la capacidad. Después puedes agregarle más splitters.</p>`;
+    }
+}
+async function guardarNuevo(){
+    const nombre=val('nEl_nombre');
+    if(!nombre) return alert('Ponle un nombre.');
+    const c=window._nuevaClase, punto=window._nuevoPunto;
+    const rep=RED.elementos.find(e=>(e.nombre||'').trim().toLowerCase()===nombre.toLowerCase());
+    if(rep && !confirm(`Ya existe "${rep.nombre}" en esta sede.\n\n¿Crear otro con el mismo nombre?`)) return;
     const el={
         id:'e'+Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4),
-        nombre:nombre.trim(), subtipo:'', estado:'Implementado', notas:'', etiquetas:[],
-        g:[punto], creadoEn:Date.now(), creadoPor:(USER&&USER.nombre)||''
+        nombre, subtipo:val('nEl_sub'), estado:val('nEl_estado'), notas:val('nEl_notas'),
+        etiquetas:[], g:[punto], creadoEn:Date.now(), creadoPor:(USER&&USER.nombre)||''
     };
-    if(clase==='poste'){ el.tipo='poste'; }
-    else if(clase==='reserva'){ el.tipo='reserva'; el.metros=parseFloat(prompt('¿Cuántos metros de reserva?','30'))||null; el.cable=''; }
-    else { el.tipo='caja'; el.clase=clase; el.splitters=[]; el.puertos={}; }
+    if(c==='poste'){ el.tipo='poste'; }
+    else if(c==='reserva'){ el.tipo='reserva'; el.metros=parseFloat(val('nEl_metros'))||null; el.cable=val('nEl_cable'); }
+    else {
+        el.tipo='caja'; el.clase=c; el.puertos={};
+        const sp=val('nEl_split');
+        el.splitters=sp?[{tipo:sp, ratio:''}]:[];
+        if(sp) el.subtipo=el.subtipo||('NAP '+sp.toUpperCase());
+    }
+    cerrarModal();
     RED.elementos.push(el);
     mostrarCarga('Guardando…');
     try{ await guardarRed(SEDE.id, RED.elementos); }
     catch(e){ RED.elementos.pop(); ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e)); }
-    ocultarCarga();
-    dibujar(); pintarPanel(el);
+    ocultarCarga(); dibujar(); pintarPanel(el);
 }
 
-async function editarElemento(id){
+function editarElemento(id){
     const el=RED.elementos.find(e=>e.id===id); if(!el) return;
-    const n=prompt('Nombre:', el.nombre||'');
-    if(n===null) return;
-    const s=prompt('Tipo (texto libre: "NAP 1X16", "FIBRA 48H 6B", "POSTE CONCRETO"…):', el.subtipo||'');
-    if(s===null) return;
-    const es=prompt('Estado:', el.estado||'');
-    if(es===null) return;
-    const no=prompt('Notas:', el.notas||'');
-    if(no===null) return;
-    const antes={nombre:el.nombre, subtipo:el.subtipo, estado:el.estado, notas:el.notas, hilos:el.hilos, buffers:el.buffers};
-    el.nombre=n.trim(); el.subtipo=s.trim(); el.estado=es.trim(); el.notas=no.trim();
-    // Si cambió el tipo de un cable, se releen hilos y buffers de ahí
+    window._editId=id;
+    const esCable=el.tipo==='cable';
+    abrirModal('✏️ '+esc(el.nombre||'Elemento'), `
+      <label>Nombre</label>
+      <input id="ed_nombre" value="${esc(el.nombre||'')}" autocomplete="off">
+      <label style="margin-top:12px">Tipo</label>
+      <input id="ed_sub" value="${esc(el.subtipo||'')}" autocomplete="off"
+             placeholder="${esCable?'FIBRA 48H 6B':'NAP 1X16'}">
+      <p class="ayuda">${esCable
+        ? 'De aquí se leen los hilos y los buffers: escribe "FIBRA 24H 2B" y quedan 24 hilos y 2 buffers.'
+        : 'Como viene de OZmap: "NAP 1X16", "CAJA NAP SEGUNDO NIVEL", "POSTE CONCRETO"…'}</p>
+      <label style="margin-top:12px">Estado</label>
+      <select id="ed_estado">
+        ${ESTADOS.concat(ESTADOS.includes(el.estado||'')?[]:[el.estado||''])
+          .filter(Boolean).map(e=>`<option ${e===el.estado?'selected':''}>${esc(e)}</option>`).join('')}
+      </select>
+      ${el.tipo==='reserva'?`
+        <label style="margin-top:12px">Metros</label><input type="number" id="ed_metros" value="${el.metros||''}">
+        <label style="margin-top:12px">Cable</label><input id="ed_cable" value="${esc(el.cable||'')}">`:''}
+      <label style="margin-top:12px">Notas</label>
+      <textarea id="ed_notas" rows="3">${esc(el.notas||'')}</textarea>`,
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cancelar</button>
+       <button class="btn btn-sm btn-primary" style="width:auto" onclick="guardarEdicion()">Guardar</button>`);
+}
+async function guardarEdicion(){
+    const el=RED.elementos.find(e=>e.id===window._editId); if(!el) return cerrarModal();
+    const antes=JSON.parse(JSON.stringify({nombre:el.nombre,subtipo:el.subtipo,estado:el.estado,
+                            notas:el.notas,hilos:el.hilos,buffers:el.buffers,metros:el.metros,cable:el.cable}));
+    el.nombre=val('ed_nombre'); el.subtipo=val('ed_sub');
+    el.estado=val('ed_estado'); el.notas=val('ed_notas');
+    if(document.getElementById('ed_metros')) el.metros=parseFloat(val('ed_metros'))||null;
+    if(document.getElementById('ed_cable'))  el.cable=val('ed_cable');
+    // Al cambiar el tipo de un cable se releen hilos y buffers de ese texto
     if(el.tipo==='cable'){ const hb=hilosDe(el.subtipo); if(hb.hilos){ el.hilos=hb.hilos; el.buffers=hb.buffers; } }
     el.editadoEn=Date.now(); el.editadoPor=(USER&&USER.nombre)||'';
+    cerrarModal();
     mostrarCarga('Guardando…');
     try{ await guardarRed(SEDE.id, RED.elementos); }
     catch(e){ Object.assign(el,antes); ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e)); }
-    ocultarCarga();
-    dibujar(); pintarPanel(el);
+    ocultarCarga(); dibujar(); pintarPanel(el);
 }
 
 var moviendo=null;
