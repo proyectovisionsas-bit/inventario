@@ -173,7 +173,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
    la cambia aqui.
    ════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION_RED = 1;
+const APP_VERSION_RED = 2;
 
 const firebaseConfig = {
     apiKey: "AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w",
@@ -265,7 +265,46 @@ async function cambiarSede(id){
     dibujar();
 }
 
-/* ── Guardado fragmentado ───────────────────────────────────────── */
+/* ── Guardado fragmentado ─────────────────────────────────────────
+   FIRESTORE NO ACEPTA ARREGLOS DENTRO DE ARREGLOS, y la geometria es
+   justo eso: [[lat,lon],[lat,lon],...]. Al guardar se APLANA a
+   [lat,lon,lat,lon,...] y al leer se vuelve a armar.
+   Se aplana en vez de usar el truco de la casa (convertir cada par en
+   un objeto {0:..,1:..}) porque para los 16.378 vertices de Florencia
+   eso pesaria 485 KB y plano son 325 KB.                            */
+function aplanar(el){
+    const c=Object.assign({},el);
+    if(Array.isArray(c.g)){ c.g=[]; el.g.forEach(p=>{ c.g.push(p[0],p[1]); }); }
+    return c;
+}
+function desaplanar(el){
+    const c=Object.assign({},el);
+    if(Array.isArray(c.g)){
+        const p=[];
+        for(let i=0;i+1<c.g.length;i+=2) p.push([c.g[i], c.g[i+1]]);
+        c.g=p;
+    }
+    return c;
+}
+// Guardia: si alguna vez vuelve a colarse un arreglo anidado, que se vea
+// aqui y no en un mensaje de Firebase que no dice donde esta.
+function buscarAnidados(obj, ruta){
+    ruta=ruta||'';
+    if(Array.isArray(obj)){
+        for(let i=0;i<obj.length;i++){
+            if(Array.isArray(obj[i])) return ruta+'['+i+']';
+            const r=buscarAnidados(obj[i], ruta+'['+i+']');
+            if(r) return r;
+        }
+    }else if(obj&&typeof obj==='object'){
+        for(const k of Object.keys(obj)){
+            const r=buscarAnidados(obj[k], ruta+'.'+k);
+            if(r) return r;
+        }
+    }
+    return null;
+}
+
 async function cargarRed(oficinaId){
     const out={elementos:[]};
     try{
@@ -274,7 +313,8 @@ async function cargarRed(oficinaId){
         const n=info&&info.fragmentos?info.fragmentos:0;
         for(let i=0;i<n;i++){
             const d=await db.collection(COLECCION).doc(`red_${oficinaId}_${i}`).get();
-            if(d.exists&&Array.isArray(d.data().elementos)) out.elementos.push(...d.data().elementos);
+            if(d.exists&&Array.isArray(d.data().elementos))
+                out.elementos.push(...d.data().elementos.map(desaplanar));
         }
     }catch(e){ console.warn('cargarRed',e); }
     return out;
@@ -283,8 +323,12 @@ async function cargarRed(oficinaId){
 async function guardarRed(oficinaId, elementos){
     // Se parte en fragmentos por PESO, no por cantidad: un cable de 359
     // vertices pesa lo que cientos de postes.
+    const planos=elementos.map(aplanar);
+    const mal=buscarAnidados(planos);
+    if(mal) throw new Error('Hay un arreglo dentro de otro en '+mal+', y Firestore no los admite. '
+                          + 'Avisa de esto: es un fallo del programa, no de tus datos.');
     const frags=[[]]; let peso=0;
-    elementos.forEach(el=>{
+    planos.forEach(el=>{
         const w=JSON.stringify(el).length;
         if(peso+w>TOPE_FRAGMENTO && frags[frags.length-1].length){ frags.push([]); peso=0; }
         frags[frags.length-1].push(el); peso+=w;
