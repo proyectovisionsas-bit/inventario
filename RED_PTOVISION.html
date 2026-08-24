@@ -234,7 +234,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
    la cambia aqui.
    ════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION_RED = 5;
+const APP_VERSION_RED = 6;
 
 const firebaseConfig = {
     apiKey: "AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w",
@@ -527,59 +527,156 @@ async function importarKML(archivo){
 function exportarKML(){
     if(!SEDE) return alert('Primero elige una sede.');
     if(!RED.elementos.length) return alert('Esta sede no tiene red cargada todavía.');
+    const cajas=RED.elementos.filter(e=>e.tipo==='caja'&&e.clase!=='pop');
+    const libres=cajas.filter(c=>estadoCaja(c).libres>0).length;
+    window._expQue='todo';
+    abrirModal('🌍 Llevar a Google Earth', `
+      <label>¿Qué quieres llevarte?</label>
+      <div class="rejilla" style="grid-template-columns:1fr">
+        <div class="opc on" data-q="todo" onclick="elegirExp('todo')" style="text-align:left;padding:12px">
+          <b>Toda la red</b><br><span style="font-weight:400;color:var(--muted);font-size:.72rem">
+          ${RED.elementos.length.toLocaleString('es-CO')} elementos — cables, postes, cajas y clientes</span></div>
+        <div class="opc" data-q="cajas" onclick="elegirExp('cajas')" style="text-align:left;padding:12px">
+          <b>Solo las cajas</b><br><span style="font-weight:400;color:var(--muted);font-size:.72rem">
+          ${cajas.length} cajas y muflas — archivo liviano, abre rápido</span></div>
+        <div class="opc" data-q="libres" onclick="elegirExp('libres')" style="text-align:left;padding:12px">
+          <b>Solo cajas con puerto libre</b><br><span style="font-weight:400;color:var(--muted);font-size:.72rem">
+          ${libres} cajas — para salir a vender</span></div>
+        <div class="opc" data-q="vista" onclick="elegirExp('vista')" style="text-align:left;padding:12px">
+          <b>Lo que se ve en pantalla</b><br><span style="font-weight:400;color:var(--muted);font-size:.72rem">
+          solo el pedazo del mapa que tienes a la vista</span></div>
+      </div>
+      <p class="ayuda" style="margin-top:12px">Las cajas van pintadas por ocupación, igual que aquí:
+        verde con espacio, amarillo casi llena, rojo llena. Cada una lleva sus clientes y su puerto
+        en la descripción.</p>`,
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cancelar</button>
+       <button class="btn btn-sm btn-primary" style="width:auto" onclick="generarKML()">Generar archivo</button>`);
+}
+function elegirExp(q){
+    window._expQue=q;
+    document.querySelectorAll('.rejilla .opc').forEach(o=>o.classList.toggle('on',o.dataset.q===q));
+}
+
+function generarKML(){
+    const que=window._expQue||'todo';
+    cerrarModal();
     const esc2=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    // KML usa el color al reves que la web: aabbggrr
+    const colorKML=h=>{ h=h.replace('#',''); return 'ff'+h.slice(4,6)+h.slice(2,4)+h.slice(0,2); };
+
+    let lista=RED.elementos;
+    if(que==='cajas')  lista=lista.filter(e=>e.tipo==='caja');
+    if(que==='libres') lista=lista.filter(e=>e.tipo==='caja'&&e.clase!=='pop'&&estadoCaja(e).libres>0);
+    if(que==='vista'&&mapa){
+        const b=mapa.getBounds();
+        lista=lista.filter(e=>e.g.some(p=>b.contains(L.latLng(p[0],p[1]))));
+    }
+    if(!lista.length) return alert('No hay nada que exportar con esa opción.');
+
+    // Iconos de Google: pines de color segun la ocupacion. Asi en Google Earth
+    // se ve DONDE HAY CUPO sin abrir una sola ficha, que es el punto.
+    const PIN={verde:'grn-blank', ambar:'ylw-blank', rojo:'red-blank', gris:'wht-blank',
+               mufla:'orange-blank', pop:'purple-stars', poste:'wht-blank', cliente:'ltblu-blank', reserva:'ylw-blank'};
+    const icono=n=>`http://maps.google.com/mapfiles/kml/paddle/${n}.png`;
+    let estilos='';
+    Object.entries(PIN).forEach(([k,v])=>{
+        estilos+=`<Style id="p_${k}"><IconStyle><scale>${k==='poste'||k==='cliente'?0.5:0.9}</scale>`
+               + `<Icon><href>${icono(v)}</href></Icon></IconStyle>`
+               + `<LabelStyle><scale>${k==='poste'||k==='cliente'?0:0.8}</scale></LabelStyle></Style>\n`;
+    });
+    ['primario','secundario','terciario','drop'].forEach(t=>{
+        estilos+=`<Style id="l_${t}"><LineStyle><color>${colorKML(TIPOS[t].color)}</color>`
+               + `<width>${TIPOS[t].w}</width></LineStyle><LabelStyle><scale>0</scale></LabelStyle></Style>\n`;
+    });
+
+    const estiloDe=el=>{
+        if(el.tipo==='cable') return 'l_'+el.clase;
+        if(el.tipo==='caja'){
+            if(el.clase==='pop')   return 'p_pop';
+            if(el.clase==='mufla') return 'p_mufla';
+            const s=estadoCaja(el);
+            return s.color==='#10b981'?'p_verde' : s.color==='#f59e0b'?'p_ambar'
+                 : s.color==='#ef4444'?'p_rojo' : 'p_gris';
+        }
+        return 'p_'+el.tipo;
+    };
+
     const carpetas={};
-    RED.elementos.forEach(el=>{
-        const t=claseDe(el), nom=(TIPOS[t]||{}).et||t;
+    lista.forEach(el=>{
+        let nom=(TIPOS[claseDe(el)]||{}).et||el.tipo;
+        // Las cajas se agrupan por ocupacion, no por tipo: asi en Google Earth
+        // se puede apagar "llenas" y quedarse solo con donde se puede vender.
+        if(el.tipo==='caja'&&el.clase!=='pop'&&el.clase!=='mufla'){
+            const s=estadoCaja(el);
+            nom = s.libres===null ? 'Cajas · sin capacidad'
+                : s.libres===0    ? 'Cajas · LLENAS'
+                : s.libres<=s.cap*0.25 ? 'Cajas · casi llenas'
+                : 'Cajas · CON ESPACIO';
+        }
         (carpetas[nom]=carpetas[nom]||[]).push(el);
     });
-    const colorKML=(hex)=>{ // KML usa aabbggrr, al reves del web
-        const h=hex.replace('#','');
-        return 'ff'+h.slice(4,6)+h.slice(2,4)+h.slice(0,2);
-    };
-    let estilos='', cuerpo='';
-    Object.entries(carpetas).forEach(([nom,els])=>{
-        const t=claseDe(els[0]), cfg=TIPOS[t]||{color:'#888'};
-        const idE='s_'+t;
-        estilos+=`<Style id="${idE}"><LineStyle><color>${colorKML(cfg.color)}</color><width>${cfg.w||3}</width></LineStyle>`
-               + `<IconStyle><color>${colorKML(cfg.color)}</color><scale>0.8</scale></IconStyle></Style>\n`;
-        cuerpo+=`<Folder><name>${esc2(nom)}</name>\n`;
+
+    const orden=['Cajas · CON ESPACIO','Cajas · casi llenas','Cajas · LLENAS','Cajas · sin capacidad','Muflas','POP'];
+    const claves=Object.keys(carpetas).sort((a,b)=>{
+        const ia=orden.indexOf(a), ib=orden.indexOf(b);
+        return (ia<0?99:ia)-(ib<0?99:ib);
+    });
+
+    let cuerpo='';
+    claves.forEach(nom=>{
+        const els=carpetas[nom];
+        cuerpo+=`<Folder><name>${esc2(nom)} (${els.length})</name>\n`;
         els.forEach(el=>{
-            let desc='';
-            if(el.subtipo) desc+='Tipo: '+el.subtipo+'\n';
-            if(el.estado)  desc+='Estado: '+el.estado+'\n';
+            let d='';
+            if(el.subtipo) d+='Tipo: '+el.subtipo+'\n';
+            if(el.estado)  d+='Estado: '+el.estado+'\n';
             if(el.tipo==='caja'&&el.clase!=='pop'){
                 const s=estadoCaja(el);
-                desc+=`Capacidad: ${s.cap||'sin definir'}\nOcupados: ${s.usados}\nLIBRES: ${s.cap?s.libres:'?'}\n`;
-                if((el.splitters||[]).length) desc+='Splitters: '+el.splitters.map(x=>x.tipo+(x.ratio?' ('+x.ratio+')':'')).join(', ')+'\n';
+                d+=`\n► PUERTOS LIBRES: ${s.cap?s.libres:'sin capacidad definida'}\n`
+                 + `Capacidad: ${s.cap||'?'}   Ocupados: ${s.usados}\n`;
+                if((el.splitters||[]).length)
+                    d+='Splitters: '+el.splitters.map(x=>x.tipo+(x.ratio?' ('+x.ratio+')':'')).join(', ')+'\n';
                 const cl=Object.keys(el.puertos||{}).sort((a,b)=>a-b)
-                        .map(n=>`  Pto ${n}: ${el.puertos[n].cliente||'—'}`);
-                if(cl.length) desc+='Clientes:\n'+cl.join('\n')+'\n';
+                        .map(n=>`   Pto ${n}: ${el.puertos[n].cliente||'—'}`);
+                if(cl.length) d+='\nClientes conectados:\n'+cl.join('\n')+'\n';
             }
-            if(el.tipo==='cable') desc+=`Hilos: ${el.hilos||'?'}\nBuffers: ${el.buffers||'?'}\nLongitud: ${el.metros||'?'} m\n`;
-            if(el.tipo==='reserva') desc+=`Metros: ${el.metros||'?'}\nCable: ${el.cable||'—'}\n`;
-            if(el.tipo==='cliente'&&el.caja) desc+=`Caja: ${el.caja}\nPuerto: ${el.puerto||'?'}\n`;
-            if(el.notas) desc+='Notas: '+el.notas+'\n';
+            if(el.tipo==='cable') d+=`Hilos: ${el.hilos||'?'}   Buffers: ${el.buffers||'?'}\nLongitud: ${el.metros||'?'} m\n`;
+            if(el.tipo==='reserva') d+=`Reserva de ${el.metros||'?'} m\nCable: ${el.cable||'—'}\n`;
+            if(el.tipo==='cliente'&&el.caja) d+=`Caja: ${el.caja}\nPuerto: ${el.puerto||'?'}\n`;
+            if(el.notas) d+='\nNotas: '+el.notas+'\n';
+            // El nombre visible lleva los libres delante: se leen sin abrir nada
+            let rot=el.nombreReal||el.nombre||'';
+            if(el.tipo==='caja'&&el.clase!=='pop'&&el.clase!=='mufla'){
+                const s=estadoCaja(el);
+                if(s.cap) rot=`[${s.libres} libres] ${rot}`;
+            }
             const geo = el.g.length>1
                 ? `<LineString><tessellate>1</tessellate><coordinates>${el.g.map(p=>p[1]+','+p[0]+',0').join(' ')}</coordinates></LineString>`
                 : `<Point><coordinates>${el.g[0][1]},${el.g[0][0]},0</coordinates></Point>`;
-            cuerpo+=`<Placemark><name>${esc2(el.nombreReal||el.nombre||'')}</name>`
-                  + `<description>${esc2(desc)}</description>`
-                  + `<styleUrl>#${idE}</styleUrl>${geo}</Placemark>\n`;
+            cuerpo+=`<Placemark><name>${esc2(rot)}</name>`
+                  + `<description><![CDATA[<pre>${esc2(d)}</pre>]]></description>`
+                  + `<styleUrl>#${estiloDe(el)}</styleUrl>${geo}</Placemark>\n`;
         });
         cuerpo+='</Folder>\n';
     });
+
+    const etq={todo:'completa', cajas:'solo cajas', libres:'con cupo', vista:'vista actual'}[que];
     const kml=`<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2"><Document>
-<name>RED ${esc2(SEDE.nombre)} — ${new Date().toLocaleDateString('es-CO')}</name>
+<name>RED ${esc2(SEDE.nombre)} — ${etq} — ${new Date().toLocaleDateString('es-CO')}</name>
+<description>${lista.length} elementos. Generado desde el módulo de Red de PROYECTOVISION.</description>
 ${estilos}${cuerpo}</Document></kml>`;
     const a=document.createElement('a');
     a.href=URL.createObjectURL(new Blob([kml],{type:'application/vnd.google-earth.kml+xml'}));
-    a.download=`RED_${SEDE.nombre.replace(/\s+/g,'_')}_${new Date().toISOString().slice(0,10)}.kml`;
+    a.download=`RED_${SEDE.nombre.replace(/\s+/g,'_')}_${que}_${new Date().toISOString().slice(0,10)}.kml`;
     a.click();
-    setTimeout(()=>alert('✅ Archivo generado.\n\nÁbrelo con Google Earth (doble clic) para verlo con '
-        +'la mejor imagen satelital.\n\nCada caja lleva su ocupación y sus clientes en la descripción.\n\n'
-        +'Ojo: lo que cambies allá NO vuelve aquí. Google Earth es para mirar; para editar, esta app.'),300);
+    setTimeout(()=>alert(`✅ Archivo listo — ${lista.length.toLocaleString('es-CO')} elementos.\n\n`
+        +`Ábrelo con doble clic y se abre en Google Earth.\n\n`
+        +`• Las cajas están agrupadas por ocupación: puedes apagar las llenas\n`
+        +`  y quedarte solo con donde hay cupo.\n`
+        +`• Cada caja muestra sus puertos libres en el propio nombre.\n\n`
+        +`Ojo: lo que cambies allá NO vuelve aquí. Google Earth es para mirar;\n`
+        +`para editar y llevar la red, esta app.`),300);
 }
 
 function cargarScript(src){
