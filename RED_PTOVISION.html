@@ -131,6 +131,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
     <select id="selSede" class="hidden" style="width:auto;margin:0;padding:6px 10px;font-size:.82rem;" onchange="cambiarSede(this.value)"></select>
     <div class="crece"></div>
     <span class="chip" id="chipTotal">0 elementos</span>
+    <button class="btn btn-sm btn-out" id="btnEditar" onclick="alternarEdicion()">✏️ Editar</button>
     <button class="btn btn-sm btn-out" onclick="abrirCruce()">👥 Clientes vs. Red</button>
     <button class="btn btn-sm btn-out" onclick="pedirKML()">📥 Importar KML</button>
     <button class="btn btn-sm btn-out" onclick="cambiarFondo()" id="btnFondo">🛰️ Satélite</button>
@@ -173,7 +174,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
    la cambia aqui.
    ════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION_RED = 2;
+const APP_VERSION_RED = 3;
 
 const firebaseConfig = {
     apiKey: "AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w",
@@ -260,8 +261,12 @@ async function cambiarSede(id){
     SEDE=(DB.oficinas||[]).find(o=>o.id===id)||null;
     mostrarCarga('Cargando la red de '+(SEDE?SEDE.nombre:'')+'…');
     RED=await cargarRed(id);
+    // OJO: crearMapa es asincrono (carga Leaflet). Sin await, dibujar() corria
+    // antes de que existiera el mapa, se salia por su guarda y la sede se veia
+    // VACIA aunque los datos estuvieran bien guardados. Al importar si se veia,
+    // porque para entonces ya habia pasado tiempo de sobra.
+    if(!mapa) await crearMapa();
     ocultarCarga();
-    if(!mapa) crearMapa();
     dibujar();
 }
 
@@ -404,8 +409,18 @@ async function importarKML(archivo){
         mostrarCarga('Deduciendo qué cliente cuelga de qué caja…');
         enlazarTopologia(nuevos);
 
-        // Fusion con lo que ya hay: la llave es tipo + nombre
-        const llave=e=>e.tipo+'||'+(e.nombre||'').trim().toLowerCase();
+        // Fusion con lo que ya hay. La llave NO puede ser solo tipo + nombre:
+        //  · las 940 reservas se llaman todas "20m" o "30m" → con esa llave
+        //    quedaban 6 de 940;
+        //  · y en un mismo poste hay VARIAS reservas, una por cada cable que
+        //    pasa: se comprobo un poste con 6 reservas de 20m, cada una de un
+        //    cable distinto. Por eso entra tambien el cable al que pertenecen.
+        // Con tipo + nombre + coordenada + cable sobreviven 6.535 de 6.536.
+        const llave=e=>{
+            const p=(e.g&&e.g[0])?e.g[0][0].toFixed(6)+','+e.g[0][1].toFixed(6):'?';
+            const extra=e.cable||e.subtipo||'';
+            return e.tipo+'||'+(e.nombre||'').trim().toLowerCase()+'||'+p+'||'+extra;
+        };
         const indice={}; RED.elementos.forEach((e,i)=>{ indice[llave(e)]=i; });
         let act=0, add=0;
         nuevos.forEach(n=>{
@@ -608,7 +623,11 @@ async function crearMapa(){
     mapa=L.map('mapa',{preferCanvas:true, zoomControl:true}).setView([1.61,-75.61],13);
     ponerFondo();
     ORDEN.forEach(t=>{ capas[t]=L.layerGroup().addTo(mapa); });
-    mapa.on('click',()=>{ if(!window._fijado) pintarPanel(); });
+    mapa.on('click',ev=>{
+        if(moviendo) return soltarEn([ev.latlng.lat, ev.latlng.lng]);
+        if(editando) return clicEnMapa(ev);
+        if(!window._fijado) pintarPanel();
+    });
 }
 function ponerFondo(){
     if(capaBase) mapa.removeLayer(capaBase);
@@ -671,6 +690,8 @@ function pintarPanel(el){
         if(!cap) sinCap++; else { ocup+=us; libres+=Math.max(0,cap-us); } });
 
     p.innerHTML=`
+      ${moviendo?'<div class="aviso">📍 Haz clic en el mapa donde queda el elemento.</div>'
+        :editando?'<div class="aviso">✏️ <b>Edición encendida.</b> Haz clic en el mapa para crear algo nuevo, o en un elemento para cambiarlo, moverlo o borrarlo.</div>':''}
       <div class="sec">Capas</div>
       ${ORDEN.slice().reverse().filter(t=>cuenta[t]).map(t=>`
         <label class="capa">
@@ -761,6 +782,12 @@ function fichaHTML(el){
     }
     return `
       <button class="btn btn-sm btn-out" style="margin-bottom:12px" onclick="pintarPanel()">← Volver</button>
+      ${editando?`<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
+        <button class="btn btn-sm btn-out" onclick="editarElemento('${el.id}')">✏️ Cambiar datos</button>
+        ${el.tipo!=='cable'?`<button class="btn btn-sm btn-out" onclick="moverElemento('${el.id}')">📍 Mover</button>`:''}
+        <button class="btn btn-sm" style="background:rgba(239,68,68,.12);color:#f87171;border:1px solid rgba(239,68,68,.35)"
+                onclick="borrarElemento('${el.id}')">🗑️ Borrar</button>
+      </div>`:''}
       <div class="ficha">
         <h3><span class="punto" style="display:inline-block;background:${cfg.color}"></span> ${esc(el.nombreReal||el.nombre||'(sin nombre)')}</h3>
         <div class="tipo">${cfg.et||el.tipo}${el.subtipo?' · '+esc(el.subtipo):''}</div>
@@ -947,6 +974,123 @@ function pintarCruce(){
         (filtrada.length ? filtrada.slice(0,400).map(pinta).join('')
                          : '<div class="vacio">Nada aquí.</div>')+
         (filtrada.length>400?`<div class="vacio">…y ${filtrada.length-400} más. Usa el buscador.</div>`:'');
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   EDICIÓN: crear, cambiar, mover y borrar
+   ────────────────────────────────────────────────────────────────────
+   El KML es solo el punto de partida. La red crece todos los dias, asi
+   que todo elemento se puede tocar a mano. Al reimportar, lo editado
+   aqui se conserva (ver la fusion del importador).
+   ════════════════════════════════════════════════════════════════════ */
+var editando=false;
+
+function alternarEdicion(){
+    if(!SEDE) return alert('Primero elige una sede.');
+    editando=!editando;
+    const b=document.getElementById('btnEditar');
+    b.textContent = editando ? '✅ Terminar edición' : '✏️ Editar';
+    b.style.background = editando ? 'rgba(16,185,129,.18)' : '';
+    b.style.borderColor = editando ? '#10b981' : '';
+    b.style.color = editando ? '#10b981' : '';
+    if(mapa) mapa.getContainer().style.cursor = editando ? 'crosshair' : '';
+    pintarPanel();
+}
+
+// Con la edición encendida, un clic en el mapa crea un elemento ahí mismo.
+function clicEnMapa(ev){
+    if(!editando) return;
+    nuevoElemento([ev.latlng.lat, ev.latlng.lng]);
+}
+
+const CREABLES=[
+    ['nap','Caja NAP'], ['cto','Caja CTO'], ['mufla','Mufla'],
+    ['poste','Poste'], ['reserva','Reserva técnica'], ['pop','POP']
+];
+
+async function nuevoElemento(punto){
+    const op=prompt('¿Qué vas a crear en ese punto?\n\n'
+        + CREABLES.map((c,i)=>`  ${i+1}) ${c[1]}`).join('\n')
+        + '\n\nEscribe el número:', '1');
+    if(!op) return;
+    const sel=CREABLES[parseInt(op,10)-1];
+    if(!sel) return alert('Número no válido.');
+    const nombre=prompt('Nombre del elemento (tiene que ser único):','');
+    if(!nombre||!nombre.trim()) return;
+    const [clase,etiqueta]=sel;
+    const el={
+        id:'e'+Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4),
+        nombre:nombre.trim(), subtipo:'', estado:'Implementado', notas:'', etiquetas:[],
+        g:[punto], creadoEn:Date.now(), creadoPor:(USER&&USER.nombre)||''
+    };
+    if(clase==='poste'){ el.tipo='poste'; }
+    else if(clase==='reserva'){ el.tipo='reserva'; el.metros=parseFloat(prompt('¿Cuántos metros de reserva?','30'))||null; el.cable=''; }
+    else { el.tipo='caja'; el.clase=clase; el.splitters=[]; el.puertos={}; }
+    RED.elementos.push(el);
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){ RED.elementos.pop(); ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e)); }
+    ocultarCarga();
+    dibujar(); pintarPanel(el);
+}
+
+async function editarElemento(id){
+    const el=RED.elementos.find(e=>e.id===id); if(!el) return;
+    const n=prompt('Nombre:', el.nombre||'');
+    if(n===null) return;
+    const s=prompt('Tipo (texto libre: "NAP 1X16", "FIBRA 48H 6B", "POSTE CONCRETO"…):', el.subtipo||'');
+    if(s===null) return;
+    const es=prompt('Estado:', el.estado||'');
+    if(es===null) return;
+    const no=prompt('Notas:', el.notas||'');
+    if(no===null) return;
+    const antes={nombre:el.nombre, subtipo:el.subtipo, estado:el.estado, notas:el.notas, hilos:el.hilos, buffers:el.buffers};
+    el.nombre=n.trim(); el.subtipo=s.trim(); el.estado=es.trim(); el.notas=no.trim();
+    // Si cambió el tipo de un cable, se releen hilos y buffers de ahí
+    if(el.tipo==='cable'){ const hb=hilosDe(el.subtipo); if(hb.hilos){ el.hilos=hb.hilos; el.buffers=hb.buffers; } }
+    el.editadoEn=Date.now(); el.editadoPor=(USER&&USER.nombre)||'';
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){ Object.assign(el,antes); ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e)); }
+    ocultarCarga();
+    dibujar(); pintarPanel(el);
+}
+
+var moviendo=null;
+function moverElemento(id){
+    const el=RED.elementos.find(e=>e.id===id); if(!el) return;
+    if(el.tipo==='cable') return alert('Los recorridos de cable todavía no se pueden mover desde aquí.\n\nSe actualizan reimportando el KML.');
+    moviendo=id;
+    if(mapa) mapa.getContainer().style.cursor='crosshair';
+    alert('Haz clic en el mapa donde queda "'+(el.nombre||'el elemento')+'".');
+    pintarPanel();
+}
+async function soltarEn(punto){
+    const el=RED.elementos.find(e=>e.id===moviendo); moviendo=null;
+    if(mapa) mapa.getContainer().style.cursor = editando?'crosshair':'';
+    if(!el) return;
+    const antes=el.g;
+    el.g=[punto]; el.editadoEn=Date.now();
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){ el.g=antes; ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e)); }
+    ocultarCarga();
+    dibujar(); pintarPanel(el);
+}
+
+async function borrarElemento(id){
+    const el=RED.elementos.find(e=>e.id===id); if(!el) return;
+    const usados=el.tipo==='caja'?Object.keys(el.puertos||{}).length:0;
+    if(usados && !confirm(`⚠️ "${el.nombre}" tiene ${usados} cliente(s) conectados.\n\n`
+        +`Si la borras, esos clientes quedan sin caja en el mapa.\n\n¿Seguro?`)) return;
+    if(!usados && !confirm('¿Borrar "'+(el.nombre||'este elemento')+'"?\n\nNo se puede deshacer.')) return;
+    const i=RED.elementos.indexOf(el);
+    RED.elementos.splice(i,1);
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){ RED.elementos.splice(i,0,el); ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e)); }
+    ocultarCarga();
+    dibujar(); pintarPanel();
 }
 
 function exportarCruce(){
