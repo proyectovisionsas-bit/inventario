@@ -182,12 +182,16 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
     <button class="btn btn-sm btn-out" id="btnEditar" onclick="alternarEdicion()">✏️ Editar</button>
     <button class="btn btn-sm btn-out" onclick="abrirCruce()">👥 Clientes vs. Red</button>
     <button class="btn btn-sm btn-out" onclick="pedirKML()">📥 Importar KML</button>
+    <button class="btn btn-sm btn-out" onclick="exportarKML()">🌍 Google Earth</button>
     <button class="btn btn-sm btn-out" onclick="cambiarFondo()" id="btnFondo">🛰️ Satélite</button>
     <button class="btn btn-sm btn-out" onclick="salir()">Salir</button>
   </div>
   <div class="cuerpo">
     <div id="mapa">
       <div class="leyenda" id="leyenda"></div>
+      <div id="avisoZoom" style="position:absolute;right:10px;bottom:20px;z-index:500;display:none;
+           background:rgba(19,28,46,.94);border:1px solid var(--border);border-radius:9px;
+           padding:7px 11px;font-size:.72rem;color:#f59e0b;"></div>
     </div>
     <div class="panel" id="panel"></div>
   </div>
@@ -230,7 +234,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
    la cambia aqui.
    ════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION_RED = 4;
+const APP_VERSION_RED = 5;
 
 const firebaseConfig = {
     apiKey: "AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w",
@@ -509,6 +513,75 @@ async function importarKML(archivo){
     }
 }
 
+/* ════════════════════════════════════════════════════════════════════
+   SALIDA A GOOGLE EARTH
+   ────────────────────────────────────────────────────────────────────
+   La foto satelital gratuita (Esri) se acaba en el zoom 18 sobre el
+   Caqueta; Google llega al 21. Para el trabajo fino de mirar poste por
+   poste, lo practico es exportar la sede y abrirla alla, que ademas es
+   gratis. La gestion (puertos, clientes, ocupacion) se queda aqui,
+   porque Google Earth es un VISOR, no un sistema.
+   Se exporta lo que hay AHORA, ya con la ocupacion calculada, que es
+   algo que el KML original de OZmap no traia.
+   ════════════════════════════════════════════════════════════════════ */
+function exportarKML(){
+    if(!SEDE) return alert('Primero elige una sede.');
+    if(!RED.elementos.length) return alert('Esta sede no tiene red cargada todavía.');
+    const esc2=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const carpetas={};
+    RED.elementos.forEach(el=>{
+        const t=claseDe(el), nom=(TIPOS[t]||{}).et||t;
+        (carpetas[nom]=carpetas[nom]||[]).push(el);
+    });
+    const colorKML=(hex)=>{ // KML usa aabbggrr, al reves del web
+        const h=hex.replace('#','');
+        return 'ff'+h.slice(4,6)+h.slice(2,4)+h.slice(0,2);
+    };
+    let estilos='', cuerpo='';
+    Object.entries(carpetas).forEach(([nom,els])=>{
+        const t=claseDe(els[0]), cfg=TIPOS[t]||{color:'#888'};
+        const idE='s_'+t;
+        estilos+=`<Style id="${idE}"><LineStyle><color>${colorKML(cfg.color)}</color><width>${cfg.w||3}</width></LineStyle>`
+               + `<IconStyle><color>${colorKML(cfg.color)}</color><scale>0.8</scale></IconStyle></Style>\n`;
+        cuerpo+=`<Folder><name>${esc2(nom)}</name>\n`;
+        els.forEach(el=>{
+            let desc='';
+            if(el.subtipo) desc+='Tipo: '+el.subtipo+'\n';
+            if(el.estado)  desc+='Estado: '+el.estado+'\n';
+            if(el.tipo==='caja'&&el.clase!=='pop'){
+                const s=estadoCaja(el);
+                desc+=`Capacidad: ${s.cap||'sin definir'}\nOcupados: ${s.usados}\nLIBRES: ${s.cap?s.libres:'?'}\n`;
+                if((el.splitters||[]).length) desc+='Splitters: '+el.splitters.map(x=>x.tipo+(x.ratio?' ('+x.ratio+')':'')).join(', ')+'\n';
+                const cl=Object.keys(el.puertos||{}).sort((a,b)=>a-b)
+                        .map(n=>`  Pto ${n}: ${el.puertos[n].cliente||'—'}`);
+                if(cl.length) desc+='Clientes:\n'+cl.join('\n')+'\n';
+            }
+            if(el.tipo==='cable') desc+=`Hilos: ${el.hilos||'?'}\nBuffers: ${el.buffers||'?'}\nLongitud: ${el.metros||'?'} m\n`;
+            if(el.tipo==='reserva') desc+=`Metros: ${el.metros||'?'}\nCable: ${el.cable||'—'}\n`;
+            if(el.tipo==='cliente'&&el.caja) desc+=`Caja: ${el.caja}\nPuerto: ${el.puerto||'?'}\n`;
+            if(el.notas) desc+='Notas: '+el.notas+'\n';
+            const geo = el.g.length>1
+                ? `<LineString><tessellate>1</tessellate><coordinates>${el.g.map(p=>p[1]+','+p[0]+',0').join(' ')}</coordinates></LineString>`
+                : `<Point><coordinates>${el.g[0][1]},${el.g[0][0]},0</coordinates></Point>`;
+            cuerpo+=`<Placemark><name>${esc2(el.nombreReal||el.nombre||'')}</name>`
+                  + `<description>${esc2(desc)}</description>`
+                  + `<styleUrl>#${idE}</styleUrl>${geo}</Placemark>\n`;
+        });
+        cuerpo+='</Folder>\n';
+    });
+    const kml=`<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+<name>RED ${esc2(SEDE.nombre)} — ${new Date().toLocaleDateString('es-CO')}</name>
+${estilos}${cuerpo}</Document></kml>`;
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob([kml],{type:'application/vnd.google-earth.kml+xml'}));
+    a.download=`RED_${SEDE.nombre.replace(/\s+/g,'_')}_${new Date().toISOString().slice(0,10)}.kml`;
+    a.click();
+    setTimeout(()=>alert('✅ Archivo generado.\n\nÁbrelo con Google Earth (doble clic) para verlo con '
+        +'la mejor imagen satelital.\n\nCada caja lleva su ocupación y sus clientes en la descripción.\n\n'
+        +'Ojo: lo que cambies allá NO vuelve aquí. Google Earth es para mirar; para editar, esta app.'),300);
+}
+
 function cargarScript(src){
     return new Promise((ok,mal)=>{
         if([...document.scripts].some(s=>s.src===src)) return ok();
@@ -685,14 +758,27 @@ async function crearMapa(){
         if(editando) return clicEnMapa(ev);
         if(!window._fijado) pintarPanel();
     });
+    // Los nombres de las cajas aparecen desde el zoom 17: hay que redibujarlas
+    // al cruzar ese umbral. Y de paso se avisa si la foto ya viene ampliada.
+    mapa.on('zoomend',()=>{
+        avisarZoom();
+        const alto=mapa.getZoom()>=17;
+        if(alto!==window._rotVisibles){ window._rotVisibles=alto; dibujar(); }
+    });
 }
+/* MEDIDO sobre Florencia y El Paujil: el satelite de Esri SE ACABA en el zoom
+   18. Del 19 en adelante devuelve una tesela de 2 KB que es "sin datos", y el
+   mapa se ponia GRIS justo cuando uno se acerca a ubicar un poste.
+   maxNativeZoom le dice a Leaflet que estire la ultima tesela buena en vez de
+   pedir uno que no existe: se ve borroso, pero se ve. Google si tiene imagen
+   hasta el 21 en esta zona; eso requiere su API con llave.                */
 function ponerFondo(){
     if(capaBase) mapa.removeLayer(capaBase);
     capaBase = fondoSat
         ? L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-            {maxZoom:19, attribution:'Imágenes © Esri'})
+            {maxZoom:21, maxNativeZoom:18, attribution:'Imágenes © Esri'})
         : L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-            {maxZoom:19, attribution:'© OpenStreetMap'});
+            {maxZoom:21, maxNativeZoom:19, attribution:'© OpenStreetMap'});
     capaBase.addTo(mapa);
     if(capaBase.bringToBack) capaBase.bringToBack();
 }
@@ -700,6 +786,15 @@ function cambiarFondo(){
     if(!mapa) return;
     fondoSat=!fondoSat; ponerFondo();
     document.getElementById('btnFondo').textContent = fondoSat?'🗺️ Calles':'🛰️ Satélite';
+    avisarZoom();
+}
+// Aviso honesto: si se acerca mas alla de donde hay foto real, que sepa por
+// que se ve borroso, en vez de creer que la app esta fallando.
+function avisarZoom(){
+    const a=document.getElementById('avisoZoom'); if(!a||!mapa) return;
+    const z=mapa.getZoom();
+    a.style.display = (fondoSat && z>18) ? '' : 'none';
+    if(fondoSat && z>18) a.textContent='🔍 Imagen ampliada — el satélite gratuito llega hasta aquí';
 }
 
 /* El color de una caja dice si SIRVE PARA VENDER, que es lo unico que se
