@@ -340,6 +340,7 @@ body.arrastrando .vpto.libre{box-shadow:0 0 0 1px rgba(16,185,129,.55);}
       <button class="lb" id="h_cable"   onclick="modo('cable')"      title="Trazar cable">🧵</button>
       <button class="lb" id="h_region"  onclick="modo('region')"     title="Dibujar una región">⬟</button>
       <button class="lb" id="h_ruta"    onclick="modo('ruta')"       title="Seguir la ruta hasta el POP">💡</button>
+      <button class="lb" id="h_cliente" onclick="modo('cliente')"    title="Ubicar un cliente en el mapa">👤</button>
       <button class="lb" id="h_nota"    onclick="modo('nota')"       title="Reportar algo en campo">🚩</button>
       <div class="lsep"></div>
       <button class="lb" onclick="abrirBuscarLugar()" title="Ir a una ubicación">🎯</button>
@@ -395,361 +396,6 @@ body.arrastrando .vpto.libre{box-shadow:0 0 0 1px rgba(16,185,129,.55);}
 <script>
 'use strict';
 /* ════════════════════════════════════════════════════════════════════
-   VENTANA DE CAJA — el cuadro flotante que se abre al tocar una caja
-   ────────────────────────────────────────────────────────────────────
-   Es lo que en OZmap llaman el "Box Editor": la caja abierta, con sus
-   puertos, sus splitters y los cables que llegan. Aqui ademas se puede
-   MOVER con el mouse y tener VARIAS abiertas al tiempo, que es lo que
-   permite arrastrar un cliente de una caja a otra viendo las dos.
-   ════════════════════════════════════════════════════════════════════ */
-var VENT={}, _vseq=0, _zVent=900, _arrastre=null;
-
-function ventanaCaja(id){
-    const el=RED.elementos.find(e=>e.id===id);
-    if(!el || el.tipo!=='caja') return;
-    if(!VENT[id]) VENT[id]={dom:'vc'+(++_vseq), x:null, y:null, min:false, tab:'ptos', q:''};
-    VENT[id].z=++_zVent;
-    pintarVentana(id);
-}
-function cerrarVentana(id){
-    const v=VENT[id]; if(!v) return;
-    const d=document.getElementById(v.dom); if(d) d.remove();
-    delete VENT[id];
-}
-function cerrarVentanas(){ Object.keys(VENT).forEach(cerrarVentana); }
-function refrescarVentanas(){ Object.keys(VENT).forEach(pintarVentana); }
-function vcTab(id,t){ if(VENT[id]){ VENT[id].tab=t; pintarVentana(id); } }
-function vcMin(id){ if(VENT[id]){ VENT[id].min=!VENT[id].min; pintarVentana(id); } }
-
-function pintarVentana(id){
-    const el=RED.elementos.find(e=>e.id===id), v=VENT[id];
-    if(!el||!v) return cerrarVentana(id);
-    const cont=document.getElementById('ventanas'); if(!cont) return;
-    let d=document.getElementById(v.dom);
-    if(!d){
-        d=document.createElement('div');
-        d.id=v.dom; d.className='vcaja';
-        // La segunda ventana se abre AL LADO, no encima: si se tapan no se
-        // puede arrastrar un cliente de una caja a la otra, que es la gracia.
-        if(v.x==null){ const h=sitioLibre(cont); v.x=h.x; v.y=h.y; }
-        cont.appendChild(d);
-        d.addEventListener('mousedown',()=>{ v.z=++_zVent; d.style.zIndex=v.z; });
-    }
-    d.style.left=v.x+'px'; d.style.top=v.y+'px'; d.style.zIndex=v.z;
-    d.classList.toggle('min', !!v.min);
-    d.innerHTML=ventanaHTML(id, el, v);
-    const barra=d.querySelector('.vc-tit');
-    barra.onmousedown  = ev=>arrastrarVentana(ev,id,d);
-    barra.ontouchstart = ev=>arrastrarVentana(ev,id,d);
-    if(v.tab==='ptos' && v.q) vcBuscar(id, v.q);
-}
-
-/* Busca un hueco donde la ventana no tape a las que ya estan abiertas.
-   Va probando columnas de derecha a izquierda; si no cabe ninguna, las
-   escalona como hace cualquier escritorio. */
-function sitioLibre(cont){
-    const AN=382, AL=200, sep=8;
-    const abiertas=[...cont.querySelectorAll('.vcaja')].map(x=>x.getBoundingClientRect());
-    const base=cont.getBoundingClientRect();
-    const columnas=Math.max(1, Math.floor((cont.clientWidth-sep)/(AN+sep)));
-    for(let c=0;c<columnas;c++){
-        const x=cont.clientWidth-AN-sep-c*(AN+sep);
-        if(x<0) break;
-        const choca=abiertas.some(r=>Math.abs((r.left-base.left)-x)<AN-30 && (r.top-base.top)<AL);
-        if(!choca) return {x:Math.max(8,x), y:14};
-    }
-    const n=(cont.querySelectorAll('.vcaja').length)%6;
-    return {x:Math.max(8, cont.clientWidth-AN-sep-n*26), y:14+n*26};
-}
-function arrastrarVentana(ev,id,d){
-    if(ev.target.closest('button')) return;
-    const v=VENT[id]; if(!v) return;
-    const cont=d.parentElement;
-    const t=ev.touches?ev.touches[0]:ev;
-    const dx=t.clientX-d.offsetLeft, dy=t.clientY-d.offsetTop;
-    const mover=e=>{
-        const q=e.touches?e.touches[0]:e;
-        // Puede asomar un poco por fuera, pero nunca al punto de perder la barra
-        v.x=Math.max(-40, Math.min(cont.clientWidth-100, q.clientX-dx));
-        v.y=Math.max(0,   Math.min(cont.clientHeight-36, q.clientY-dy));
-        d.style.left=v.x+'px'; d.style.top=v.y+'px';
-        e.preventDefault();
-    };
-    const soltar=()=>{
-        document.removeEventListener('mousemove',mover); document.removeEventListener('mouseup',soltar);
-        document.removeEventListener('touchmove',mover); document.removeEventListener('touchend',soltar);
-    };
-    document.addEventListener('mousemove',mover); document.addEventListener('mouseup',soltar);
-    document.addEventListener('touchmove',mover,{passive:false}); document.addEventListener('touchend',soltar);
-    ev.preventDefault();
-}
-
-function ventanaHTML(id, el, v){
-    const s=estadoCaja(el), cap=s.cap;
-    const cfg=TIPOS[claseDe(el)]||{};
-    const insignia = el.clase==='pop' ? '🏛️' : el.clase==='mufla' ? '⬤' : (cap? s.libres+'/'+cap : '?');
-    const cabeza=`
-      <div class="vc-tit">
-        <span class="ico" style="background:${s.cap?s.color:(cfg.color||'#64748b')}">${insignia}</span>
-        <span class="nom">${esc(el.nombreReal||el.nombre||'(sin nombre)')}
-          <span class="sub">${esc(cfg.et||'')}${el.subtipo?' · '+esc(el.subtipo):''}</span></span>
-        <button onclick="irA('${el.id}')" title="Centrar en el mapa">🎯</button>
-        <button onclick="vcMin('${el.id}')" title="${v.min?'Desplegar':'Plegar'}">${v.min?'▢':'—'}</button>
-        <button onclick="cerrarVentana('${el.id}')" title="Cerrar">✕</button>
-      </div>`;
-    if(v.min) return cabeza;
-
-    const cuerpo = v.tab==='con' ? vcConexiones(id,el) : vcPuertos(id,el,s);
-    return cabeza+`
-      <div class="vc-cuerpo">
-        <div class="vc-chips">
-          <div><b style="color:#10b981">${cap?s.libres:'—'}</b><i>Libres</i></div>
-          <div><b style="color:#f87171">${s.usados}</b><i>Ocupados</i></div>
-          <div><b>${cap||'?'}</b><i>Capacidad</i></div>
-        </div>
-        <div class="vc-tabs">
-          <div class="${v.tab==='con'?'':'on'}" onclick="vcTab('${el.id}','ptos')">🔌 Puertos</div>
-          <div class="${v.tab==='con'?'on':''}" onclick="vcTab('${el.id}','con')">🔗 Conexiones</div>
-        </div>
-        ${cuerpo}
-      </div>
-      <div class="vc-pie">
-        <button class="btn btn-sm btn-out" onclick="abrirDiagrama('${el.id}')">📊 Interior</button>
-        <button class="btn btn-sm btn-out" onclick="modo('ruta');iluminarRuta(RED.elementos.find(e=>e.id==='${el.id}'))">💡 Ruta</button>
-        <button class="btn btn-sm btn-out" onclick="etiquetaCaja('${el.id}')">🏷️ Etiqueta</button>
-        ${editando?`<button class="btn btn-sm btn-out" onclick="editarElemento('${el.id}')">✏️ Editar</button>`:''}
-      </div>`;
-}
-
-function vcPuertos(id, el, s){
-    const cap=s.cap;
-    if(!cap) return `<div class="vacio" style="padding:14px">Esta caja no tiene splitters, así que
-        no sabemos cuántos clientes caben.<br><br>
-        <button class="btn btn-sm btn-out" onclick="agregarSplitter('${el.id}')">➕ Poner un splitter</button>
-        <button class="btn btn-sm btn-out" onclick="abrirPlantillas('${el.id}')">📐 Plantilla</button></div>`;
-    const ptos=Array.from({length:cap},(_,i)=>{
-        const n=i+1, o=(el.puertos||{})[n], b=(el.bloqueados||{})[n];
-        const cls=o?'ocup':b?'bloq':'libre';
-        const rot=o?esc((o.cliente||'').split(' ').slice(0,2).join(' ')):b?'reservado':'libre';
-        const tit=o?esc(o.cliente||'Ocupado')+' — arrástralo a otro puerto para moverlo'
-                  :b?esc(b.motivo||'Reservado'):'Libre — suéltale un cliente encima';
-        return `<div class="vpto ${cls}" data-caja="${el.id}" data-n="${n}"
-                  ${o?'draggable="true" ondragstart="ptoDrag(event,this)" ondragend="ptoFin()"':''}
-                  ondragover="ptoOver(event,this)" ondragleave="ptoSale(this)" ondrop="ptoSuelta(event,this)"
-                  onclick="verPuerto('${el.id}',${n})" title="${tit}">
-                  ${b&&!o?'🔒':n}<span class="q">${rot}</span></div>`;
-    }).join('');
-    return `
-      <div class="vc-ptos">${ptos}</div>
-      <p class="ayuda" style="margin-top:8px">Arrastra un cliente de un puerto a otro para moverlo,
-         incluso a otra caja si la tienes abierta al lado.</p>
-      <div class="sec">Conectar arrastrando</div>
-      <input type="text" placeholder="Busca al cliente…" autocomplete="off" value="${esc(VENT[id].q||'')}"
-             oninput="vcBuscar('${el.id}',this.value)" style="margin-bottom:6px">
-      <div id="cl_${VENT[id].dom}"><p class="ayuda">Escribe dos letras y arrastra el nombre
-         hasta un puerto verde.</p></div>`;
-}
-
-/* Las conexiones de la caja: por donde le entra la señal, que cables
-   llegan y a que otras cajas alimenta. Es la pregunta que uno se hace
-   parado frente a la caja: "esto, ¿de donde viene y para donde sigue?" */
-function vcConexiones(id, el){
-    const porNombre={}; RED.elementos.filter(e=>e.tipo==='caja').forEach(c=>porNombre[c.nombre]=c);
-    const r=rutaHastaPOP(el);
-    const arriba = r.pasos[1] ? r.pasos[1].caja : null;   // la siguiente caja hacia el POP
-    const vecinos=[];
-    (el.cables||[]).forEach(c=>{
-        const d=porNombre[c.hacia]; if(!d||d.id===el.id) return;
-        vecinos.push({caja:d, cable:c, sube: !!(arriba && d.id===arriba.id)});
-    });
-    const nodo=(x)=>`
-      <div class="vc-nodo" onclick="ventanaCaja('${x.caja.id}');irA('${x.caja.id}')"
-           title="Abrir ${esc(x.caja.nombre||'')}">
-        <span class="fl">${x.sube?'⬆️':'⬇️'}</span>
-        <span class="nm">${esc(x.caja.nombre||'(sin nombre)')}</span>
-        <span class="mt">${x.cable.hilos||'?'}H</span>
-      </div>`;
-    const sube=vecinos.filter(x=>x.sube), baja=vecinos.filter(x=>!x.sube);
-    return `
-      <div class="sec">Por dónde le llega la señal</div>
-      ${sube.length?sube.map(nodo).join('')
-        :el.clase==='pop'?'<p class="ayuda">Es el POP: aquí nace la red.</p>'
-        :'<p class="ayuda" style="color:#f59e0b">No se sabe: falta enlazar el cable que sube.</p>'}
-      <div class="dato" style="margin-top:6px"><b>Hasta el POP</b>
-        <span>${r.pasos.length} salto(s) · ${(r.metros/1000).toFixed(2)} km ·
-        <b style="color:${r.db>28?'#ef4444':r.db>24?'#f59e0b':'#10b981'}">−${r.db} dB</b></span></div>
-      <button class="btn btn-sm btn-out" style="width:100%;margin-top:7px"
-              onclick="modo('ruta');iluminarRuta(RED.elementos.find(e=>e.id==='${el.id}'))">💡 Iluminar el recorrido</button>
-
-      <div class="sec">Alimenta a</div>
-      ${baja.length?baja.map(nodo).join(''):'<p class="ayuda">No alimenta a otras cajas.</p>'}
-
-      <div class="sec">Cables que llegan</div>
-      ${(el.cables||[]).length?el.cables.map(c=>`
-        <div class="vc-nodo" onclick="irA('${c.id}')">
-          <span style="display:inline-block;width:14px;height:3px;border-radius:2px;flex-shrink:0;
-                background:${(TIPOS[c.clase]||{}).color||'#888'}"></span>
-          <span class="nm">${esc(c.nombre||'(sin nombre)')}</span>
-          <span class="mt">${c.hilos||'?'}H${c.buffers?'/'+c.buffers+'B':''}</span>
-        </div>`).join('')
-       :'<p class="ayuda">Ninguno enlazado. Los extremos del cable deben caer sobre la caja.</p>'}
-
-      <div class="sec">Splitters</div>
-      ${(el.splitters||[]).length?el.splitters.map((sp,i)=>`
-        <div class="vc-nodo" style="cursor:default">
-          <span title="${esDeRed(sp)?'De red: no admite clientes':'De atención: de aquí cuelgan clientes'}"
-                style="width:11px;height:11px;border-radius:2px;flex-shrink:0;
-                border:1px solid rgba(0,0,0,.5);background:${esDeRed(sp)?'#8a8f98':'#f1f3f5'}"></span>
-          <span class="nm">${esc(sp.tipo)}${sp.ratio?' · '+esc(sp.ratio):''}
-            <i style="font-size:.62rem;color:var(--muted)">${esDeRed(sp)?'red':'atención'}</i></span>
-          <button class="btn btn-sm btn-out" title="Cambiar entre red y atención"
-                  onclick="cambiarUsoSplitter('${el.id}',${i})">⇄</button>
-        </div>`).join('')
-       :'<p class="ayuda" style="color:#f59e0b">Sin splitters: no se sabe su capacidad.</p>'}
-      <div style="display:flex;gap:5px;margin-top:7px">
-        <button class="btn btn-sm btn-out" style="flex:1" onclick="agregarSplitter('${el.id}')">➕ Splitter</button>
-        <button class="btn btn-sm btn-out" style="flex:1" onclick="abrirPlantillas('${el.id}')">📐 Plantilla</button>
-      </div>`;
-}
-
-/* ── Buscador de clientes dentro de la ventana ─────────────────────
-   Se repinta SOLO la lista, no la ventana entera: si se repintara todo,
-   el cursor se saldria del cuadro de busqueda en cada letra.        */
-async function vcBuscar(id, q){
-    const v=VENT[id]; if(!v) return;
-    v.q=q;
-    const cont=document.getElementById('cl_'+v.dom); if(!cont) return;
-    if((q||'').trim().length<2){
-        cont.innerHTML='<p class="ayuda">Escribe dos letras y arrastra el nombre hasta un puerto verde.</p>';
-        return;
-    }
-    cont.innerHTML='<p class="ayuda">Buscando…</p>';
-    let lista;
-    try{ lista=await clientesParaConectar(); }
-    catch(e){ cont.innerHTML='<p class="ayuda" style="color:#f59e0b">No se pudo leer la lista de clientes.</p>'; return; }
-    if(v.q!==q) return;                     // ya escribio otra cosa mientras cargaba
-    const n=normNom(q), num=q.trim();
-    const hits=lista.filter(c=>normNom(c.nombre).includes(n)||String(c.cedula||'').includes(num)).slice(0,20);
-    const yaEn=dondeEstaCadaServicio();
-    cont.innerHTML = hits.length ? hits.map(c=>{
-        const ya=yaEn[c.servicioWisphub||''];
-        return `<div class="vc-cli" draggable="true" ondragstart="cliDrag(event,this)" ondragend="ptoFin()"
-                  data-serv="${esc(c.servicioWisphub||'')}" data-nom="${esc(c.nombre||'')}">
-                  <span class="ag">⠿</span><span class="nm">${esc(c.nombre)}</span>
-                  ${ya?`<span class="ya">${esc(ya.caja)} · ${ya.pto}</span>`:''}</div>`;
-      }).join('') : '<div class="vacio" style="padding:12px">Nadie con ese nombre.</div>';
-}
-function dondeEstaCadaServicio(){
-    const m={};
-    RED.elementos.filter(e=>e.tipo==='caja').forEach(cj=>{
-        Object.keys(cj.puertos||{}).forEach(p=>{
-            const s=cj.puertos[p].servicio; if(s) m[s]={caja:cj.nombre, pto:p, id:cj.id};
-        });
-    });
-    return m;
-}
-
-/* ── Arrastrar y soltar ────────────────────────────────────────────
-   Lo arrastrado se guarda en una variable propia y no en dataTransfer,
-   porque durante el "dragover" el navegador no deja leer esos datos, y
-   sin leerlos no se sabe si el puerto de destino sirve o no.        */
-function ptoDrag(ev, d){
-    const c=RED.elementos.find(e=>e.id===d.dataset.caja); if(!c) return;
-    const o=(c.puertos||{})[+d.dataset.n]; if(!o) return;
-    _arrastre={tipo:'puerto', caja:d.dataset.caja, n:+d.dataset.n,
-               nombre:o.cliente||'', servicio:o.servicio||''};
-    ev.dataTransfer.effectAllowed='move';
-    ev.dataTransfer.setData('text/plain', o.cliente||'cliente');
-    document.body.classList.add('arrastrando');
-}
-function cliDrag(ev, d){
-    _arrastre={tipo:'cliente', servicio:d.dataset.serv||'', nombre:d.dataset.nom||''};
-    ev.dataTransfer.effectAllowed='copy';
-    ev.dataTransfer.setData('text/plain', d.dataset.nom||'cliente');
-    document.body.classList.add('arrastrando');
-}
-function ptoFin(){
-    _arrastre=null;
-    document.body.classList.remove('arrastrando');
-    document.querySelectorAll('.vpto.dest,.vpto.no').forEach(x=>x.classList.remove('dest','no'));
-}
-function ptoSale(d){ d.classList.remove('dest','no'); }
-function ptoAdmite(d){
-    if(!_arrastre) return false;
-    const c=RED.elementos.find(e=>e.id===d.dataset.caja); if(!c) return false;
-    const n=+d.dataset.n;
-    if((c.puertos||{})[n])    return false;     // ya hay alguien
-    if((c.bloqueados||{})[n]) return false;     // reservado
-    if(n>capacidadCaja(c))    return false;
-    if(_arrastre.tipo==='puerto' && _arrastre.caja===d.dataset.caja && _arrastre.n===n) return false;
-    return true;
-}
-function ptoOver(ev, d){
-    if(!_arrastre) return;
-    if(ptoAdmite(d)){
-        d.classList.add('dest'); ev.preventDefault();
-        ev.dataTransfer.dropEffect = _arrastre.tipo==='puerto' ? 'move' : 'copy';
-    } else d.classList.add('no');
-}
-async function ptoSuelta(ev, d){
-    ev.preventDefault();
-    const a=_arrastre, ok=ptoAdmite(d);
-    const destino=d.dataset.caja, n=+d.dataset.n;
-    ptoFin();
-    if(!a||!ok) return;
-    if(a.tipo==='puerto') await moverEntrePuertos(a.caja, a.n, destino, n);
-    else                  await conectarEnPuerto(destino, n, a.servicio, a.nombre);
-}
-
-async function moverEntrePuertos(idA, nA, idB, nB){
-    const A=RED.elementos.find(e=>e.id===idA), B=RED.elementos.find(e=>e.id===idB);
-    if(!A||!B) return;
-    const o=(A.puertos||{})[nA]; if(!o) return;
-    if(A.id!==B.id && !confirm('¿Pasar a '+(o.cliente||'este cliente')+'\n\n'
-        +'de '+A.nombre+' · puerto '+nA+'\na '+B.nombre+' · puerto '+nB+'?')) return;
-    delete A.puertos[nA];
-    B.puertos=B.puertos||{};
-    B.puertos[nB]=Object.assign({}, o, {conectadoEn:Date.now(), conectadoPor:(USER&&USER.nombre)||''});
-    mostrarCarga('Guardando…');
-    try{ await guardarRed(SEDE.id, RED.elementos); }
-    catch(e){
-        delete B.puertos[nB]; A.puertos=A.puertos||{}; A.puertos[nA]=o;
-        ocultarCarga(); refrescarVentanas();
-        return alert('No se pudo guardar:\n\n'+(e.message||e));
-    }
-    ocultarCarga(); dibujar(); refrescarVentanas();
-}
-
-async function conectarEnPuerto(idCaja, n, servicio, nombre){
-    const c=RED.elementos.find(e=>e.id===idCaja); if(!c) return;
-    // Un servicio no puede estar en dos puertos: si ya estaba, se mueve
-    let movidoDe=null, antes=null, cajaAntes=null, ptoAntes=null;
-    if(servicio) RED.elementos.filter(e=>e.tipo==='caja').forEach(cj=>{
-        Object.keys(cj.puertos||{}).forEach(p=>{
-            if(cj.puertos[p].servicio===servicio && !(cj.id===idCaja && +p===n)){
-                movidoDe=cj.nombre+' pto '+p;
-                antes=cj.puertos[p]; cajaAntes=cj; ptoAntes=p;
-                delete cj.puertos[p];
-            }
-        });
-    });
-    c.puertos=c.puertos||{};
-    c.puertos[n]={cliente:nombre, servicio:servicio||'',
-                  conectadoEn:Date.now(), conectadoPor:(USER&&USER.nombre)||''};
-    mostrarCarga('Guardando…');
-    try{ await guardarRed(SEDE.id, RED.elementos); }
-    catch(e){
-        delete c.puertos[n];
-        if(cajaAntes) cajaAntes.puertos[ptoAntes]=antes;
-        ocultarCarga(); refrescarVentanas();
-        return alert('No se pudo guardar:\n\n'+(e.message||e));
-    }
-    ocultarCarga(); dibujar(); refrescarVentanas();
-    if(movidoDe) setTimeout(()=>alert(nombre+' se movió desde '+movidoDe+'.'), 200);
-}
-
-
-/* ════════════════════════════════════════════════════════════════════
    RED · PROYECTOVISION — planta externa
    ────────────────────────────────────────────────────────────────────
    Vive aparte de OFICINAS a proposito: solo Florencia trae 6.536
@@ -760,7 +406,7 @@ async function conectarEnPuerto(idCaja, n, servicio, nombre){
    la cambia aqui.
    ════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION_RED = 16;
+const APP_VERSION_RED = 17;
 
 const firebaseConfig = {
     apiKey: "AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w",
@@ -860,7 +506,7 @@ function volverAlInicio(){
 
 async function cambiarSede(id){
     if(!id) return;
-    cerrarVentanas(); _cliOficina=null;
+    cerrarVentanas(); _cliOficina=null; _idxOficina=null;
     SEDE=(DB.oficinas||[]).find(o=>o.id===id)||null;
     mostrarCarga('Cargando la red de '+(SEDE?SEDE.nombre:'')+'…');
     window._yaEncuadrado=false;   // al cambiar de sede el mapa vuelve a centrarse
@@ -2437,10 +2083,7 @@ function fichaHTML(el){
             <p class="ayuda">Norma EIA/TIA-598. El número dentro es el hilo dentro de su buffer;
                pasa el cursor para ver el número absoluto.</p>`:''}`;
     } else if(el.tipo==='cliente'){
-        cuerpo=`
-          ${el.nombreReal?`<div class="dato"><b>Cliente</b><span>${esc(el.nombreReal)}</span></div>`:''}
-          <div class="dato"><b>Caja</b><span>${esc(el.caja||'—')}</span></div>
-          <div class="dato"><b>Puerto</b><span>${el.puerto||'—'}</span></div>`;
+        cuerpo=fichaCliente(el);
     } else if(el.tipo==='reserva'){
         cuerpo=`<div class="dato"><b>Metros</b><span>${el.metros||'—'}</span></div>
                 <div class="dato"><b>Cable</b><span>${esc(el.cable||'—')}</span></div>`;
@@ -2735,10 +2378,11 @@ const PISTAS={
     cable:'🧵 Marca por dónde pasa el cable. Doble clic para terminar',
     region:'⬟ Marca las esquinas del área. Doble clic para cerrarla',
     ruta:'💡 Haz clic en una caja y te muestro por dónde le llega la señal',
+    cliente:'👤 Haz clic en el mapa donde vive el cliente que vas a ubicar',
     nota:'🚩 Haz clic donde viste el problema para reportarlo'
 };
 const BOTONES=[['ver','h_ver'],['viabilidad','h_viab'],['medir','h_medir'],['editar','h_editar'],
-               ['cable','h_cable'],['region','h_region'],['ruta','h_ruta'],['nota','h_nota']];
+               ['cable','h_cable'],['region','h_region'],['ruta','h_ruta'],['cliente','h_cliente'],['nota','h_nota']];
 
 async function modo(m){
     if(!SEDE) return alert('Primero elige una sede.');
@@ -2776,9 +2420,876 @@ function clicEnMapa(ev){
     const p=[ev.latlng.lat, ev.latlng.lng];
     if(MODO==='editar')     return nuevoElemento(p);
     if(MODO==='nota')       return nuevaNota(p);
+    if(MODO==='cliente')    return nuevoCliente(p);
     if(MODO==='viabilidad') return verViabilidad(p);
     if(MODO==='medir'||MODO==='cable'||MODO==='region') return marcarPunto(p);
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   CLIENTES EN EL MAPA
+   ────────────────────────────────────────────────────────────────────
+   Los 692 clientes que se ven hoy entraron con el KML de OZmap: cada uno
+   es un punto, y el DROP (el cable delgado de la caja hasta la casa) es
+   el que trae el nombre de la persona. Los nuevos no tenian por donde
+   entrar: se podia ocupar un puerto desde la caja, pero el cliente no
+   quedaba ubicado ni se le dibujaba el drop.
+
+   Aqui se cierra ese hueco. Al ubicar un cliente se crean DOS cosas, que
+   es lo que hace el KML y por eso los viejos se ven completos:
+     · el punto del cliente, con su caja y su puerto
+     · el drop de la caja hasta ese punto
+   Si falta el drop, el cliente aparece suelto y la ruta no se le ve.
+
+   El nombre es lo unico que une el mapa con la oficina: los clientes del
+   KML no traen el servicio de WispHub. Por eso el emparejamiento es por
+   nombre normalizado, y cuando se ubica desde aqui SI se guarda el
+   servicio, que es la llave buena.
+   ════════════════════════════════════════════════════════════════════ */
+var _idxOficina=null;      // nombre normalizado -> clientes de la oficina
+
+function _nuevoId(){ return 'e'+Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4); }
+
+async function _indiceOficina(){
+    if(_idxOficina) return _idxOficina;
+    const lista=await clientesParaConectar();
+    const idx={};
+    lista.forEach(c=>{ const k=normNom(c.nombre); if(k) (idx[k]=idx[k]||[]).push(c); });
+    _idxOficina=idx;
+    return idx;
+}
+/* Los datos de oficina de un cliente del mapa. Primero por el SERVICIO
+   guardado en el puerto (llave unica y segura); si no lo hay, por nombre,
+   y solo si no hay dos personas que se llamen igual. */
+function datosOficinaDe(el){
+    if(!_idxOficina || !_cliOficina) return null;
+    const caja=RED.elementos.find(e=>e.id===el.cajaId);
+    const serv=caja && el.puerto ? ((caja.puertos||{})[el.puerto]||{}).servicio : '';
+    if(serv){
+        const x=_cliOficina.find(c=>String(c.servicioWisphub||'')===String(serv));
+        if(x) return x;
+    }
+    const h=_idxOficina[normNom(el.nombreReal||el.nombre||'')];
+    return (h&&h.length===1)?h[0]:null;
+}
+
+/* ── Ubicar un cliente nuevo ────────────────────────────────────────
+   Se entra por el modo 👤 y un clic donde vive la persona. */
+async function nuevoCliente(punto){
+    window._nvCliPunto=punto;
+    window._nvCliServicio=null; window._nvCliCaja=null; window._nvCliPuerto=null;
+    abrirModal('👤 Ubicar un cliente', `
+      <p class="ayuda" style="margin-top:0">📍 ${punto[0].toFixed(6)}, ${punto[1].toFixed(6)}</p>
+      <label>¿Quién vive aquí?</label>
+      <input id="nc_q" placeholder="Nombre o cédula…" autocomplete="off" oninput="buscarClienteMapa(this.value)">
+      <div id="nc_res" style="max-height:210px;overflow-y:auto;margin-top:6px"></div>
+      <div id="nc_caja"></div>`,
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cancelar</button>
+       <button class="btn btn-sm btn-primary" style="width:auto" id="nc_ok"
+               onclick="guardarClienteMapa()" disabled>Ubicar</button>`);
+    mostrarCarga('Leyendo los clientes de la oficina…');
+    try{ await _indiceOficina(); }catch(e){}
+    ocultarCarga();
+    // De entrada se muestran los que TODAVIA NO estan en el mapa: son los
+    // que hacen falta, y son los que uno viene a poner.
+    pintarSinUbicar();
+    setTimeout(()=>{ const i=document.getElementById('nc_q'); if(i) i.focus(); },60);
+}
+
+function _serviciosEnMapa(){
+    const s=new Set();
+    RED.elementos.filter(e=>e.tipo==='caja').forEach(c=>{
+        Object.values(c.puertos||{}).forEach(p=>{ if(p.servicio) s.add(String(p.servicio)); });
+    });
+    return s;
+}
+function _nombresEnMapa(){
+    const s=new Set();
+    RED.elementos.filter(e=>e.tipo==='cliente').forEach(c=>{
+        const k=normNom(c.nombreReal||c.nombre||''); if(k) s.add(k);
+    });
+    return s;
+}
+function clientesSinUbicar(){
+    const serv=_serviciosEnMapa(), nom=_nombresEnMapa();
+    return (_cliOficina||[]).filter(c=>
+        !serv.has(String(c.servicioWisphub||'')) && !nom.has(normNom(c.nombre)));
+}
+function pintarSinUbicar(){
+    const r=document.getElementById('nc_res'); if(!r) return;
+    const faltan=clientesSinUbicar();
+    const activos=faltan.filter(c=>String(c.estado||'').toLowerCase()==='activo');
+    r.innerHTML=`<p class="ayuda">Estos ${activos.length} clientes <b>activos</b> todavía no están
+        en el mapa${faltan.length>activos.length?` (y ${faltan.length-activos.length} inactivos)`:''}.
+        Escribe para buscar a cualquier otro.</p>`
+      + (activos.slice(0,40).map(filaClienteMapa).join('')||'<div class="vacio" style="padding:12px">Están todos ubicados. 👏</div>');
+}
+function filaClienteMapa(c){
+    const act=String(c.estado||'').toLowerCase()==='activo';
+    return `<div class="fila" style="cursor:pointer" onclick="elegirClienteMapa('${String(c.servicioWisphub||'').replace(/'/g,'')}')">
+      <span class="punto" style="background:${act?'#10b981':'#64748b'}"></span>
+      <span class="nom">${esc(c.nombre)}
+        <i style="display:block;font-size:.66rem;color:var(--muted)">${esc((c.direccion||'').slice(0,44))}</i></span>
+      <span class="meta">${esc(c.plan||c.estado||'')}</span></div>`;
+}
+function buscarClienteMapa(q){
+    const r=document.getElementById('nc_res'); if(!r) return;
+    if(!(q||'').trim()) return pintarSinUbicar();
+    const n=normNom(q), num=q.trim();
+    if(n.length<2) return pintarSinUbicar();
+    const hits=(_cliOficina||[]).filter(c=>normNom(c.nombre).includes(n)||String(c.cedula||'').includes(num)).slice(0,30);
+    const yaEn=dondeEstaCadaServicio(), nom=_nombresEnMapa();
+    r.innerHTML=hits.length?hits.map(c=>{
+        const ya=yaEn[c.servicioWisphub||''] || (nom.has(normNom(c.nombre))?{caja:'el mapa',pto:'—'}:null);
+        return filaClienteMapa(c).replace('</span></div>',
+            (ya?` · <i style="color:#f59e0b">ya está en ${esc(ya.caja)}</i>`:'')+'</span></div>');
+      }).join('') : '<div class="vacio" style="padding:12px">Nadie con ese nombre.</div>';
+}
+
+/* Elegido el cliente, se le proponen las cajas que le quedan cerca y con
+   puerto libre. La primera es la mas cercana: es la que casi siempre va. */
+function elegirClienteMapa(servicio){
+    const c=(_cliOficina||[]).find(x=>String(x.servicioWisphub||'')===servicio);
+    if(!c) return;
+    window._nvCliServicio=servicio;
+    const p=window._nvCliPunto;
+    const cerca=RED.elementos
+        .filter(e=>e.tipo==='caja'&&e.clase!=='pop')
+        .map(x=>({c:x, d:Math.round(metros(p,x.g[0])), s:estadoCaja(x)}))
+        .filter(x=>x.d<=DROP_MAX*3).sort((a,b)=>a.d-b.d);
+    const conCupo=cerca.filter(x=>x.s.libres>0);
+    const cont=document.getElementById('nc_caja');
+    document.getElementById('nc_res').innerHTML=
+        `<div class="dato" style="background:rgba(16,185,129,.08);padding:7px 8px;border-radius:8px">
+           <b style="color:var(--text)">👤 ${esc(c.nombre)}</b>
+           <button class="btn btn-sm btn-out" onclick="pintarSinUbicar();document.getElementById('nc_caja').innerHTML='';window._nvCliServicio=null;_okCliente()">Cambiar</button>
+         </div>`;
+    if(!conCupo.length){
+        cont.innerHTML=`<div class="aviso" style="margin-top:12px;background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.4);color:#fca5a5">
+            No hay ninguna caja con puerto libre a menos de ${DROP_MAX*3} m de aquí.
+            ${cerca.length?'La más cerca es <b>'+esc(cerca[0].c.nombre)+'</b> a '+cerca[0].d+' m, pero está '+cerca[0].s.et+'.':''}
+          </div>`;
+        return _okCliente();
+    }
+    cont.innerHTML=`<label style="margin-top:14px">¿De qué caja se cuelga?</label>
+      <div id="nc_cajas">${conCupo.slice(0,6).map((x,i)=>`
+        <div class="fila" style="cursor:pointer" data-caja="${x.c.id}" onclick="elegirCajaCliente('${x.c.id}')">
+          <span class="punto" style="background:${x.s.color}"></span>
+          <span class="nom">${esc(x.c.nombre)}
+            <i style="display:block;font-size:.66rem;color:var(--muted)">${x.s.libres} puerto(s) libre(s)</i></span>
+          <span class="meta" style="color:${x.d<=DROP_MAX?'#10b981':'#f59e0b'}">${x.d} m</span></div>`).join('')}
+      </div>
+      <div id="nc_ptos"></div>`;
+    elegirCajaCliente(conCupo[0].c.id);
+}
+function elegirCajaCliente(idCaja){
+    const caja=RED.elementos.find(e=>e.id===idCaja); if(!caja) return;
+    window._nvCliCaja=idCaja; window._nvCliPuerto=null;
+    document.querySelectorAll('#nc_cajas .fila').forEach(f=>
+        f.style.background = f.dataset.caja===idCaja ? 'rgba(14,165,233,.14)' : '');
+    const cap=capacidadCaja(caja);
+    const libres=[];
+    for(let n=1;n<=cap;n++) if(!(caja.puertos||{})[n] && !(caja.bloqueados||{})[n]) libres.push(n);
+    const d=Math.round(metros(window._nvCliPunto, caja.g[0]));
+    document.getElementById('nc_ptos').innerHTML=`
+      <label style="margin-top:12px">¿En qué puerto?</label>
+      <div class="puertos">${libres.map(n=>`<div class="pto libre" data-n="${n}"
+          onclick="elegirPuertoCliente(${n})">${n}</div>`).join('')}</div>
+      <p class="ayuda">El drop mediría unos <b>${d} m</b> en línea recta${d>DROP_MAX?' — <span style="color:#f59e0b">pasa de los '+DROP_MAX+' m, eso ya es obra</span>':''}.</p>`;
+    if(libres.length) elegirPuertoCliente(libres[0]);
+    _okCliente();
+}
+function elegirPuertoCliente(n){
+    window._nvCliPuerto=n;
+    document.querySelectorAll('#nc_ptos .pto').forEach(p=>
+        p.classList.toggle('ocup', +p.dataset.n===n));
+    _okCliente();
+}
+function _okCliente(){
+    const b=document.getElementById('nc_ok');
+    if(b) b.disabled = !(window._nvCliServicio && window._nvCliCaja && window._nvCliPuerto);
+}
+
+async function guardarClienteMapa(){
+    const serv=window._nvCliServicio, idCaja=window._nvCliCaja, n=window._nvCliPuerto;
+    const p=window._nvCliPunto;
+    const cli=(_cliOficina||[]).find(x=>String(x.servicioWisphub||'')===String(serv));
+    const caja=RED.elementos.find(e=>e.id===idCaja);
+    if(!cli||!caja||!n) return;
+    // Si ese servicio ya estaba en otro puerto, se suelta: no puede estar en dos
+    let movidoDe=null;
+    RED.elementos.filter(e=>e.tipo==='caja').forEach(cj=>{
+        Object.keys(cj.puertos||{}).forEach(k=>{
+            if(cj.puertos[k].servicio===serv && !(cj.id===idCaja && +k===n)){
+                movidoDe=cj.nombre+' pto '+k; delete cj.puertos[k];
+            }
+        });
+    });
+    const idCli=_nuevoId();
+    const punto={ id:idCli, tipo:'cliente', g:[p],
+        nombre:cli.nombre, nombreReal:cli.nombre, servicio:cli.servicioWisphub||'',
+        caja:caja.nombre, cajaId:caja.id, puerto:n,
+        estado:'Implementado', etiquetas:['USUARIO'], notas:'',
+        creadoEn:Date.now(), creadoPor:(USER&&USER.nombre)||'' };
+    // El DROP: sin el, el cliente queda suelto y no se le ve el recorrido
+    const drop={ id:_nuevoId(), tipo:'cable', clase:'drop',
+        nombre:cli.nombre, cliente:cli.nombre, caja:caja.nombre,
+        g:[caja.g[0], p], hilos:1, buffers:1, subtipo:'DROP 1H',
+        metros:Math.round(metros(caja.g[0], p)), estado:'Implementado',
+        etiquetas:['DROP 1 HILO'], notas:'',
+        creadoEn:Date.now(), creadoPor:(USER&&USER.nombre)||'' };
+    caja.puertos=caja.puertos||{};
+    caja.puertos[n]={cliente:cli.nombre, clienteId:idCli, servicio:cli.servicioWisphub||'',
+                     conectadoEn:Date.now(), conectadoPor:(USER&&USER.nombre)||''};
+    RED.elementos.push(punto, drop);
+    cerrarModal();
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){
+        RED.elementos.splice(RED.elementos.indexOf(drop),1);
+        RED.elementos.splice(RED.elementos.indexOf(punto),1);
+        delete caja.puertos[n];
+        ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e));
+    }
+    ocultarCarga(); modo('ver'); dibujar(); pintarPanel(punto);
+    if(movidoDe) setTimeout(()=>alert(cli.nombre+' se movió desde '+movidoDe+'.'),200);
+}
+
+/* ── El drop de un cliente ─────────────────────────────────────────── */
+function dropDe(el){
+    const n=normNom(el.nombreReal||el.nombre||'');
+    return RED.elementos.find(e=>e.tipo==='cable'&&e.clase==='drop'
+        && (normNom(e.cliente||e.nombre||'')===n)
+        && e.g && e.g.length>1
+        && metros(e.g[e.g.length-1], el.g[0])<30);
+}
+
+/* ── Ver el recorrido de un cliente: su drop MAS el camino de su caja
+      hasta el POP. Es lo mismo que se ilumina desde una caja, pero
+      arrancando en la casa de la persona.                            */
+function rutaCliente(id){
+    const el=RED.elementos.find(e=>e.id===id); if(!el) return;
+    const caja=RED.elementos.find(e=>e.id===el.cajaId)
+            || RED.elementos.find(e=>e.tipo==='caja'&&e.nombre===el.caja);
+    if(!caja) return alert('Este cliente no tiene caja asignada, así que no hay recorrido que seguir.');
+    modo('ruta');
+    iluminarRuta(caja);
+    // y encima el drop, que es el tramo que le falta al camino de la caja
+    const dp=dropDe(el);
+    const tramo = dp ? dp.g : [caja.g[0], el.g[0]];
+    const opt={pane:'ruta', renderer:rendRuta};
+    L.polyline(tramo,{...opt,color:'#22d3ee',weight:14,opacity:.18}).addTo(temp);
+    L.polyline(tramo,{...opt,color:'#22d3ee',weight:5, opacity:1, className:'ruta-viva'}).addTo(temp);
+    L.circleMarker(el.g[0],{...opt,radius:9,weight:2,color:'#fff',
+        fillColor:'#22d3ee',fillOpacity:1}).addTo(temp);
+    L.marker(el.g[0],{pane:'ruta', icon:L.divIcon({className:'',iconSize:[26,26],iconAnchor:[13,13],
+        html:'<div class="mk mk-ruta" style="background:#22d3ee;color:#04121f">👤</div>'})}).addTo(temp);
+    mapa.fitBounds(L.latLngBounds(tramo.concat([caja.g[0]])).pad(.6));
+    // Encuadrar puede cruzar el zoom 17 y eso dispara dibujar(), que termina
+    // en pintarPanel() y borra el detalle. Se vuelve a pintar ya acomodado.
+    const volver=()=>panelRutaCliente(el, caja);
+    mapa.once('moveend', volver);
+    setTimeout(volver, 400);
+}
+
+/* El panel del recorrido, pero encabezado por la persona: es lo que uno
+   quiere ver cuando llama por un cliente que reporta que no le llega. */
+function panelRutaCliente(el, caja){
+    pintarRuta(caja, rutaHastaPOP(caja));
+    const dp=dropDe(el);
+    const pan=document.getElementById('panel'); if(!pan) return;
+    const of=datosOficinaDe(el);
+    pan.insertAdjacentHTML('afterbegin', `
+      <div class="ficha" style="margin-bottom:12px">
+        <h3><span class="punto" style="display:inline-block;background:#22d3ee"></span> 
+          ${esc(el.nombreReal||el.nombre||'')}</h3>
+        <div class="tipo">${esc(el.caja||'')}${el.puerto?' · puerto '+el.puerto:''}
+          ${dp?' · drop '+dp.metros+' m':''}</div>
+        ${of&&of.direccion?`<div class="dato"><b>Dirección</b><span style="font-size:.74rem">${esc(of.direccion)}</span></div>`:''}
+        <button class="btn btn-sm btn-out" style="width:100%;margin-top:8px"
+                onclick="modo('ver');irA('${el.id}')">← Volver a su ficha</button>
+      </div>`);
+}
+
+/* Al mover un cliente hay que arrastrar su drop, si no queda colgando. */
+function reubicarDrop(el){
+    const dp=dropDe(el);
+    const caja=RED.elementos.find(e=>e.id===el.cajaId)
+            || RED.elementos.find(e=>e.tipo==='caja'&&e.nombre===el.caja);
+    if(!caja) return;
+    if(dp){ dp.g=[caja.g[0], el.g[0]]; dp.metros=Math.round(metros(caja.g[0], el.g[0])); }
+    else RED.elementos.push({ id:_nuevoId(), tipo:'cable', clase:'drop',
+        nombre:el.nombreReal||el.nombre, cliente:el.nombreReal||el.nombre, caja:caja.nombre,
+        g:[caja.g[0], el.g[0]], hilos:1, buffers:1, subtipo:'DROP 1H',
+        metros:Math.round(metros(caja.g[0], el.g[0])), estado:'Implementado',
+        etiquetas:['DROP 1 HILO'], notas:'', creadoEn:Date.now() });
+}
+
+async function quitarClienteDelMapa(id){
+    const el=RED.elementos.find(e=>e.id===id); if(!el) return;
+    const nom=el.nombreReal||el.nombre||'este cliente';
+    if(!confirm('¿Quitar a '+nom+' del mapa?\n\n'
+        +'Se borra su punto y su drop, y el puerto queda libre.\n'
+        +'El cliente NO se borra de la oficina ni de WispHub.')) return;
+    const dp=dropDe(el);
+    const caja=RED.elementos.find(e=>e.id===el.cajaId);
+    if(caja && el.puerto && (caja.puertos||{})[el.puerto]) delete caja.puertos[el.puerto];
+    RED.elementos.splice(RED.elementos.indexOf(el),1);
+    if(dp) RED.elementos.splice(RED.elementos.indexOf(dp),1);
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){ ocultarCarga(); return alert('No se pudo guardar. Recarga la página.'); }
+    ocultarCarga(); modo('ver'); dibujar(); pintarPanel();
+}
+
+/* La ficha de un cliente: lo suyo de la red (caja, puerto, drop) y lo
+   suyo de la oficina (plan, estado, direccion...). Lo de la oficina sale
+   de WispHub y se corrige ALLA: si se dejara editar aqui, la proxima
+   sincronizacion lo pisaria y nadie entenderia por que. */
+function fichaCliente(el){
+    const of=datosOficinaDe(el);
+    const dp=dropDe(el);
+    const caja=RED.elementos.find(e=>e.id===el.cajaId)
+            || RED.elementos.find(e=>e.tipo==='caja'&&e.nombre===el.caja);
+    const act=of?String(of.estado||'').toLowerCase()==='activo':null;
+    const pago=of?String(of.estadoPago||'').toLowerCase():'';
+    const dato=(k,v,c)=>v?`<div class="dato"><b>${k}</b><span${c?` style="color:${c}"`:''}>${esc(v)}</span></div>`:'';
+
+    // Mientras la lista de la oficina no este leida no se puede emparejar;
+    // se pide y se vuelve a pintar la ficha cuando llegue.
+    if(!_cliOficina){
+        clientesParaConectar().then(()=>_indiceOficina()).then(()=>{
+            const a=RED.elementos.find(e=>e.id===el.id); if(a) pintarPanel(a);
+        }).catch(()=>{});
+    }
+
+    return `
+      ${of?`
+      <div class="kpis" style="grid-template-columns:1fr 1fr">
+        <div class="kpi"><div class="v" style="font-size:.95rem;color:${act?'#10b981':'#f87171'}">${esc(of.estado||'—')}</div><div class="e">Estado</div></div>
+        <div class="kpi"><div class="v" style="font-size:.95rem">${esc((of.plan||'—').replace(/_/g,' '))}</div><div class="e">Plan</div></div>
+      </div>`:''}
+
+      <div class="sec">En la red</div>
+      <div class="dato"><b>Caja</b><span>${caja?`<a href="#" onclick="event.preventDefault();ventanaCaja('${caja.id}');irA('${caja.id}')" style="color:#0ea5e9">${esc(el.caja||'')}</a>`:esc(el.caja||'sin caja')}</span></div>
+      <div class="dato"><b>Puerto</b><span>${el.puerto||'—'}</span></div>
+      <div class="dato"><b>Drop</b><span${dp?'':' style="color:#f59e0b"'}>${dp?dp.metros+' m':'no tiene drop dibujado'}</span></div>
+      ${el.estado?`<div class="dato"><b>Estado de la instalación</b><span>${esc(el.estado)}</span></div>`:''}
+      <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+        <button class="btn btn-sm btn-out" style="flex:1" onclick="rutaCliente('${el.id}')">💡 Recorrido</button>
+        <button class="btn btn-sm btn-out" style="flex:1" onclick="moverElemento('${el.id}')">📍 Mover</button>
+        <button class="btn btn-sm btn-out" style="flex:1" onclick="recolocarCliente('${el.id}')">🔌 Otra caja</button>
+      </div>
+      ${!dp&&caja?`<button class="btn btn-sm btn-out" style="width:100%;margin-top:6px"
+         onclick="dibujarDropDe('${el.id}')">🧵 Dibujarle el drop hasta ${esc((caja.nombre||'').slice(0,18))}</button>`:''}
+
+      <div class="sec" style="margin-top:14px">En la oficina</div>
+      ${of?`
+        ${dato('Cédula', of.cedula)}
+        ${dato('Teléfono', of.telefono)}
+        ${dato('Dirección', of.direccion)}
+        ${dato('Barrio', of.barrio)}
+        ${dato('Zona', of.zona)}
+        ${dato('Tarifa', of.tarifaMensual?'$'+Number(of.tarifaMensual).toLocaleString('es-CO'):'')}
+        ${dato('Estado de pago', of.estadoPago, pago.includes('mora')||pago.includes('vencid')?'#f87171':pago?'#10b981':'')}
+        ${dato('Instalado', (of.fechaInstalacion||'').slice(0,10))}
+        ${dato('Corte', (of.fechaCorte||'').slice(0,10))}
+        ${dato('Servicio', of.servicioWisphub)}
+        ${dato('IP', of.ipWisphub)}
+        <p class="ayuda">Esto viene de WispHub y se corrige allá o en OFICINAS: si se cambiara
+           aquí, la próxima sincronización lo volvería a pisar.</p>`
+      : !_cliOficina ? '<div class="vacio" style="padding:14px">Leyendo los clientes de la oficina…</div>'
+      : `<div class="aviso" style="background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.4);color:#fcd34d">
+           No encontré a esta persona en los clientes de ${esc(SEDE?SEDE.nombre:'la oficina')}.<br>
+           Puede que ya no sea cliente, que el nombre esté escrito distinto, o que sea uno de los
+           puntos del KML que nunca tuvo nombre real.</div>
+         <button class="btn btn-sm btn-out" style="width:100%;margin-top:8px"
+            onclick="emparejarCliente('${el.id}')">🔗 Decirle a quién corresponde</button>`}
+
+      <div style="margin-top:12px">
+        <button class="btn btn-sm" style="width:100%;background:rgba(239,68,68,.12);color:#f87171;border:1px solid rgba(239,68,68,.35)"
+                onclick="quitarClienteDelMapa('${el.id}')">🗑️ Quitar del mapa</button>
+      </div>`;
+}
+
+/* Dibujarle el drop a un cliente que no lo tiene: son 58 de los que
+   vinieron del KML, y sin el no se les ve por donde les llega. */
+async function dibujarDropDe(id){
+    const el=RED.elementos.find(e=>e.id===id); if(!el) return;
+    const caja=RED.elementos.find(e=>e.id===el.cajaId)
+            || RED.elementos.find(e=>e.tipo==='caja'&&e.nombre===el.caja);
+    if(!caja) return alert('Primero asígnale una caja.');
+    reubicarDrop(el);
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){ ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e)); }
+    ocultarCarga(); dibujar(); pintarPanel(el);
+}
+
+/* Pasar un cliente a otra caja u otro puerto, arrastrando el drop con el. */
+function recolocarCliente(id){
+    const el=RED.elementos.find(e=>e.id===id); if(!el) return;
+    window._reCli=id;
+    const p=el.g[0];
+    const cerca=RED.elementos.filter(e=>e.tipo==='caja'&&e.clase!=='pop')
+        .map(x=>({c:x, d:Math.round(metros(p,x.g[0])), s:estadoCaja(x)}))
+        .filter(x=>x.d<=DROP_MAX*3).sort((a,b)=>a.d-b.d)
+        .filter(x=>x.s.libres>0||x.c.id===el.cajaId);
+    abrirModal('🔌 ¿De qué caja se cuelga?', cerca.length?`
+      <p class="ayuda" style="margin-top:0">${esc(el.nombreReal||el.nombre||'')} está hoy en
+         <b>${esc(el.caja||'ninguna caja')}</b>${el.puerto?' puerto '+el.puerto:''}.</p>
+      <div id="re_cajas">${cerca.slice(0,8).map(x=>`
+        <div class="fila" style="cursor:pointer" data-caja="${x.c.id}" onclick="reElegirCaja('${x.c.id}')">
+          <span class="punto" style="background:${x.s.color}"></span>
+          <span class="nom">${esc(x.c.nombre)}${x.c.id===el.cajaId?' <i style="color:#0ea5e9">(la actual)</i>':''}
+            <i style="display:block;font-size:.66rem;color:var(--muted)">${x.s.libres} libre(s)</i></span>
+          <span class="meta" style="color:${x.d<=DROP_MAX?'#10b981':'#f59e0b'}">${x.d} m</span></div>`).join('')}</div>
+      <div id="re_ptos"></div>`
+      : '<div class="vacio" style="padding:16px">No hay cajas con puerto libre cerca de esta casa.</div>',
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cancelar</button>
+       <button class="btn btn-sm btn-primary" style="width:auto" id="re_ok" onclick="guardarRecolocar()" disabled>Mover</button>`);
+    if(cerca.length) reElegirCaja(cerca[0].c.id);
+}
+function reElegirCaja(idCaja){
+    const caja=RED.elementos.find(e=>e.id===idCaja); if(!caja) return;
+    const el=RED.elementos.find(e=>e.id===window._reCli);
+    window._reCaja=idCaja; window._rePto=null;
+    document.querySelectorAll('#re_cajas .fila').forEach(f=>
+        f.style.background = f.dataset.caja===idCaja ? 'rgba(14,165,233,.14)' : '');
+    const cap=capacidadCaja(caja), libres=[];
+    for(let n=1;n<=cap;n++){
+        const ocupado=(caja.puertos||{})[n];
+        const propio = ocupado && el && String(ocupado.clienteId||'')===String(el.id);
+        if((!ocupado||propio) && !(caja.bloqueados||{})[n]) libres.push(n);
+    }
+    document.getElementById('re_ptos').innerHTML=`
+      <label style="margin-top:12px">Puerto</label>
+      <div class="puertos">${libres.map(n=>`<div class="pto libre" data-n="${n}"
+          onclick="rePuerto(${n})">${n}</div>`).join('')||'<span class="ayuda">Sin puertos libres.</span>'}</div>`;
+    if(libres.length) rePuerto(libres[0]);
+    const b=document.getElementById('re_ok'); if(b) b.disabled=!libres.length;
+}
+function rePuerto(n){
+    window._rePto=n;
+    document.querySelectorAll('#re_ptos .pto').forEach(p=>p.classList.toggle('ocup',+p.dataset.n===n));
+    const b=document.getElementById('re_ok'); if(b) b.disabled=false;
+}
+async function guardarRecolocar(){
+    const el=RED.elementos.find(e=>e.id===window._reCli);
+    const caja=RED.elementos.find(e=>e.id===window._reCaja);
+    const n=window._rePto;
+    if(!el||!caja||!n) return cerrarModal();
+    const antes={caja:el.caja, cajaId:el.cajaId, puerto:el.puerto};
+    // Soltar el puerto viejo
+    const vieja=RED.elementos.find(e=>e.id===antes.cajaId);
+    if(vieja && antes.puerto && (vieja.puertos||{})[antes.puerto]) delete vieja.puertos[antes.puerto];
+    const of=datosOficinaDe(el);
+    el.caja=caja.nombre; el.cajaId=caja.id; el.puerto=n;
+    caja.puertos=caja.puertos||{};
+    caja.puertos[n]={cliente:el.nombreReal||el.nombre||'', clienteId:el.id,
+                     servicio:(of&&of.servicioWisphub)||el.servicio||'',
+                     conectadoEn:Date.now(), conectadoPor:(USER&&USER.nombre)||''};
+    reubicarDrop(el);
+    cerrarModal();
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){ ocultarCarga(); return alert('No se pudo guardar. Recarga la página.'); }
+    ocultarCarga(); dibujar(); pintarPanel(el);
+}
+
+/* Decir a mano a quien corresponde un punto que no emparejo por nombre. */
+async function emparejarCliente(id){
+    const el=RED.elementos.find(e=>e.id===id); if(!el) return;
+    window._empCli=id;
+    abrirModal('🔗 ¿A quién corresponde este punto?', `
+      <p class="ayuda" style="margin-top:0">En el mapa figura como <b>${esc(el.nombreReal||el.nombre||'')}</b>.</p>
+      <label>Búscalo en los clientes de la oficina</label>
+      <input id="emp_q" placeholder="Nombre o cédula…" autocomplete="off" oninput="buscarEmparejar(this.value)">
+      <div id="emp_res" style="max-height:230px;overflow-y:auto;margin-top:8px"></div>`,
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cancelar</button>`);
+    await clientesParaConectar(); await _indiceOficina();
+    setTimeout(()=>{ const i=document.getElementById('emp_q'); if(i) i.focus(); },60);
+}
+function buscarEmparejar(q){
+    const r=document.getElementById('emp_res'); if(!r) return;
+    const n=normNom(q), num=(q||'').trim();
+    if(n.length<2){ r.innerHTML='<p class="ayuda">Escribe al menos dos letras.</p>'; return; }
+    const hits=(_cliOficina||[]).filter(c=>normNom(c.nombre).includes(n)||String(c.cedula||'').includes(num)).slice(0,25);
+    r.innerHTML=hits.length?hits.map(c=>filaClienteMapa(c)
+        .replace('elegirClienteMapa(', 'fijarEmparejado(')).join('')
+        : '<div class="vacio" style="padding:12px">Nadie con ese nombre.</div>';
+}
+async function fijarEmparejado(servicio){
+    const el=RED.elementos.find(e=>e.id===window._empCli);
+    const c=(_cliOficina||[]).find(x=>String(x.servicioWisphub||'')===String(servicio));
+    if(!el||!c) return cerrarModal();
+    el.nombreReal=c.nombre; el.servicio=c.servicioWisphub||'';
+    const caja=RED.elementos.find(e=>e.id===el.cajaId);
+    if(caja && el.puerto && (caja.puertos||{})[el.puerto]){
+        caja.puertos[el.puerto].cliente=c.nombre;
+        caja.puertos[el.puerto].servicio=c.servicioWisphub||'';
+    }
+    const dp=dropDe(el); if(dp){ dp.cliente=c.nombre; dp.nombre=c.nombre; }
+    cerrarModal();
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){ ocultarCarga(); return alert('No se pudo guardar. Recarga la página.'); }
+    ocultarCarga(); dibujar(); pintarPanel(el);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   VENTANA DE CAJA — el cuadro flotante que se abre al tocar una caja
+   ────────────────────────────────────────────────────────────────────
+   Es lo que en OZmap llaman el "Box Editor": la caja abierta, con sus
+   puertos, sus splitters y los cables que llegan. Aqui ademas se puede
+   MOVER con el mouse y tener VARIAS abiertas al tiempo, que es lo que
+   permite arrastrar un cliente de una caja a otra viendo las dos.
+   ════════════════════════════════════════════════════════════════════ */
+var VENT={}, _vseq=0, _zVent=900, _arrastre=null;
+
+function ventanaCaja(id){
+    const el=RED.elementos.find(e=>e.id===id);
+    if(!el || el.tipo!=='caja') return;
+    if(!VENT[id]) VENT[id]={dom:'vc'+(++_vseq), x:null, y:null, min:false, tab:'ptos', q:''};
+    VENT[id].z=++_zVent;
+    pintarVentana(id);
+}
+function cerrarVentana(id){
+    const v=VENT[id]; if(!v) return;
+    const d=document.getElementById(v.dom); if(d) d.remove();
+    delete VENT[id];
+}
+function cerrarVentanas(){ Object.keys(VENT).forEach(cerrarVentana); }
+function refrescarVentanas(){ Object.keys(VENT).forEach(pintarVentana); }
+function vcTab(id,t){ if(VENT[id]){ VENT[id].tab=t; pintarVentana(id); } }
+function vcMin(id){ if(VENT[id]){ VENT[id].min=!VENT[id].min; pintarVentana(id); } }
+
+function pintarVentana(id){
+    const el=RED.elementos.find(e=>e.id===id), v=VENT[id];
+    if(!el||!v) return cerrarVentana(id);
+    const cont=document.getElementById('ventanas'); if(!cont) return;
+    let d=document.getElementById(v.dom);
+    if(!d){
+        d=document.createElement('div');
+        d.id=v.dom; d.className='vcaja';
+        // La segunda ventana se abre AL LADO, no encima: si se tapan no se
+        // puede arrastrar un cliente de una caja a la otra, que es la gracia.
+        if(v.x==null){ const h=sitioLibre(cont); v.x=h.x; v.y=h.y; }
+        cont.appendChild(d);
+        d.addEventListener('mousedown',()=>{ v.z=++_zVent; d.style.zIndex=v.z; });
+    }
+    d.style.left=v.x+'px'; d.style.top=v.y+'px'; d.style.zIndex=v.z;
+    d.classList.toggle('min', !!v.min);
+    d.innerHTML=ventanaHTML(id, el, v);
+    const barra=d.querySelector('.vc-tit');
+    barra.onmousedown  = ev=>arrastrarVentana(ev,id,d);
+    barra.ontouchstart = ev=>arrastrarVentana(ev,id,d);
+    if(v.tab==='ptos' && v.q) vcBuscar(id, v.q);
+}
+
+/* Busca un hueco donde la ventana no tape a las que ya estan abiertas.
+   Va probando columnas de derecha a izquierda; si no cabe ninguna, las
+   escalona como hace cualquier escritorio. */
+function sitioLibre(cont){
+    const AN=382, AL=200, sep=8;
+    const abiertas=[...cont.querySelectorAll('.vcaja')].map(x=>x.getBoundingClientRect());
+    const base=cont.getBoundingClientRect();
+    const columnas=Math.max(1, Math.floor((cont.clientWidth-sep)/(AN+sep)));
+    for(let c=0;c<columnas;c++){
+        const x=cont.clientWidth-AN-sep-c*(AN+sep);
+        if(x<0) break;
+        const choca=abiertas.some(r=>Math.abs((r.left-base.left)-x)<AN-30 && (r.top-base.top)<AL);
+        if(!choca) return {x:Math.max(8,x), y:14};
+    }
+    const n=(cont.querySelectorAll('.vcaja').length)%6;
+    return {x:Math.max(8, cont.clientWidth-AN-sep-n*26), y:14+n*26};
+}
+function arrastrarVentana(ev,id,d){
+    if(ev.target.closest('button')) return;
+    const v=VENT[id]; if(!v) return;
+    const cont=d.parentElement;
+    const t=ev.touches?ev.touches[0]:ev;
+    const dx=t.clientX-d.offsetLeft, dy=t.clientY-d.offsetTop;
+    const mover=e=>{
+        const q=e.touches?e.touches[0]:e;
+        // Puede asomar un poco por fuera, pero nunca al punto de perder la barra
+        v.x=Math.max(-40, Math.min(cont.clientWidth-100, q.clientX-dx));
+        v.y=Math.max(0,   Math.min(cont.clientHeight-36, q.clientY-dy));
+        d.style.left=v.x+'px'; d.style.top=v.y+'px';
+        e.preventDefault();
+    };
+    const soltar=()=>{
+        document.removeEventListener('mousemove',mover); document.removeEventListener('mouseup',soltar);
+        document.removeEventListener('touchmove',mover); document.removeEventListener('touchend',soltar);
+    };
+    document.addEventListener('mousemove',mover); document.addEventListener('mouseup',soltar);
+    document.addEventListener('touchmove',mover,{passive:false}); document.addEventListener('touchend',soltar);
+    ev.preventDefault();
+}
+
+function ventanaHTML(id, el, v){
+    const s=estadoCaja(el), cap=s.cap;
+    const cfg=TIPOS[claseDe(el)]||{};
+    const insignia = el.clase==='pop' ? '🏛️' : el.clase==='mufla' ? '⬤' : (cap? s.libres+'/'+cap : '?');
+    const cabeza=`
+      <div class="vc-tit">
+        <span class="ico" style="background:${s.cap?s.color:(cfg.color||'#64748b')}">${insignia}</span>
+        <span class="nom">${esc(el.nombreReal||el.nombre||'(sin nombre)')}
+          <span class="sub">${esc(cfg.et||'')}${el.subtipo?' · '+esc(el.subtipo):''}</span></span>
+        <button onclick="irA('${el.id}')" title="Centrar en el mapa">🎯</button>
+        <button onclick="vcMin('${el.id}')" title="${v.min?'Desplegar':'Plegar'}">${v.min?'▢':'—'}</button>
+        <button onclick="cerrarVentana('${el.id}')" title="Cerrar">✕</button>
+      </div>`;
+    if(v.min) return cabeza;
+
+    const cuerpo = v.tab==='con' ? vcConexiones(id,el) : vcPuertos(id,el,s);
+    return cabeza+`
+      <div class="vc-cuerpo">
+        <div class="vc-chips">
+          <div><b style="color:#10b981">${cap?s.libres:'—'}</b><i>Libres</i></div>
+          <div><b style="color:#f87171">${s.usados}</b><i>Ocupados</i></div>
+          <div><b>${cap||'?'}</b><i>Capacidad</i></div>
+        </div>
+        <div class="vc-tabs">
+          <div class="${v.tab==='con'?'':'on'}" onclick="vcTab('${el.id}','ptos')">🔌 Puertos</div>
+          <div class="${v.tab==='con'?'on':''}" onclick="vcTab('${el.id}','con')">🔗 Conexiones</div>
+        </div>
+        ${cuerpo}
+      </div>
+      <div class="vc-pie">
+        <button class="btn btn-sm btn-out" onclick="abrirDiagrama('${el.id}')">📊 Interior</button>
+        <button class="btn btn-sm btn-out" onclick="modo('ruta');iluminarRuta(RED.elementos.find(e=>e.id==='${el.id}'))">💡 Ruta</button>
+        <button class="btn btn-sm btn-out" onclick="etiquetaCaja('${el.id}')">🏷️ Etiqueta</button>
+        ${editando?`<button class="btn btn-sm btn-out" onclick="editarElemento('${el.id}')">✏️ Editar</button>`:''}
+      </div>`;
+}
+
+function vcPuertos(id, el, s){
+    const cap=s.cap;
+    if(!cap) return `<div class="vacio" style="padding:14px">Esta caja no tiene splitters, así que
+        no sabemos cuántos clientes caben.<br><br>
+        <button class="btn btn-sm btn-out" onclick="agregarSplitter('${el.id}')">➕ Poner un splitter</button>
+        <button class="btn btn-sm btn-out" onclick="abrirPlantillas('${el.id}')">📐 Plantilla</button></div>`;
+    const ptos=Array.from({length:cap},(_,i)=>{
+        const n=i+1, o=(el.puertos||{})[n], b=(el.bloqueados||{})[n];
+        const cls=o?'ocup':b?'bloq':'libre';
+        const rot=o?esc((o.cliente||'').split(' ').slice(0,2).join(' ')):b?'reservado':'libre';
+        const tit=o?esc(o.cliente||'Ocupado')+' — arrástralo a otro puerto para moverlo'
+                  :b?esc(b.motivo||'Reservado'):'Libre — suéltale un cliente encima';
+        return `<div class="vpto ${cls}" data-caja="${el.id}" data-n="${n}"
+                  ${o?'draggable="true" ondragstart="ptoDrag(event,this)" ondragend="ptoFin()"':''}
+                  ondragover="ptoOver(event,this)" ondragleave="ptoSale(this)" ondrop="ptoSuelta(event,this)"
+                  onclick="verPuerto('${el.id}',${n})" title="${tit}">
+                  ${b&&!o?'🔒':n}<span class="q">${rot}</span></div>`;
+    }).join('');
+    return `
+      <div class="vc-ptos">${ptos}</div>
+      <p class="ayuda" style="margin-top:8px">Arrastra un cliente de un puerto a otro para moverlo,
+         incluso a otra caja si la tienes abierta al lado.</p>
+      <div class="sec">Conectar arrastrando</div>
+      <input type="text" placeholder="Busca al cliente…" autocomplete="off" value="${esc(VENT[id].q||'')}"
+             oninput="vcBuscar('${el.id}',this.value)" style="margin-bottom:6px">
+      <div id="cl_${VENT[id].dom}"><p class="ayuda">Escribe dos letras y arrastra el nombre
+         hasta un puerto verde.</p></div>`;
+}
+
+/* Las conexiones de la caja: por donde le entra la señal, que cables
+   llegan y a que otras cajas alimenta. Es la pregunta que uno se hace
+   parado frente a la caja: "esto, ¿de donde viene y para donde sigue?" */
+function vcConexiones(id, el){
+    const porNombre={}; RED.elementos.filter(e=>e.tipo==='caja').forEach(c=>porNombre[c.nombre]=c);
+    const r=rutaHastaPOP(el);
+    const arriba = r.pasos[1] ? r.pasos[1].caja : null;   // la siguiente caja hacia el POP
+    const vecinos=[];
+    (el.cables||[]).forEach(c=>{
+        const d=porNombre[c.hacia]; if(!d||d.id===el.id) return;
+        vecinos.push({caja:d, cable:c, sube: !!(arriba && d.id===arriba.id)});
+    });
+    const nodo=(x)=>`
+      <div class="vc-nodo" onclick="ventanaCaja('${x.caja.id}');irA('${x.caja.id}')"
+           title="Abrir ${esc(x.caja.nombre||'')}">
+        <span class="fl">${x.sube?'⬆️':'⬇️'}</span>
+        <span class="nm">${esc(x.caja.nombre||'(sin nombre)')}</span>
+        <span class="mt">${x.cable.hilos||'?'}H</span>
+      </div>`;
+    const sube=vecinos.filter(x=>x.sube), baja=vecinos.filter(x=>!x.sube);
+    return `
+      <div class="sec">Por dónde le llega la señal</div>
+      ${sube.length?sube.map(nodo).join('')
+        :el.clase==='pop'?'<p class="ayuda">Es el POP: aquí nace la red.</p>'
+        :'<p class="ayuda" style="color:#f59e0b">No se sabe: falta enlazar el cable que sube.</p>'}
+      <div class="dato" style="margin-top:6px"><b>Hasta el POP</b>
+        <span>${r.pasos.length} salto(s) · ${(r.metros/1000).toFixed(2)} km ·
+        <b style="color:${r.db>28?'#ef4444':r.db>24?'#f59e0b':'#10b981'}">−${r.db} dB</b></span></div>
+      <button class="btn btn-sm btn-out" style="width:100%;margin-top:7px"
+              onclick="modo('ruta');iluminarRuta(RED.elementos.find(e=>e.id==='${el.id}'))">💡 Iluminar el recorrido</button>
+
+      <div class="sec">Alimenta a</div>
+      ${baja.length?baja.map(nodo).join(''):'<p class="ayuda">No alimenta a otras cajas.</p>'}
+
+      <div class="sec">Cables que llegan</div>
+      ${(el.cables||[]).length?el.cables.map(c=>`
+        <div class="vc-nodo" onclick="irA('${c.id}')">
+          <span style="display:inline-block;width:14px;height:3px;border-radius:2px;flex-shrink:0;
+                background:${(TIPOS[c.clase]||{}).color||'#888'}"></span>
+          <span class="nm">${esc(c.nombre||'(sin nombre)')}</span>
+          <span class="mt">${c.hilos||'?'}H${c.buffers?'/'+c.buffers+'B':''}</span>
+        </div>`).join('')
+       :'<p class="ayuda">Ninguno enlazado. Los extremos del cable deben caer sobre la caja.</p>'}
+
+      <div class="sec">Splitters</div>
+      ${(el.splitters||[]).length?el.splitters.map((sp,i)=>`
+        <div class="vc-nodo" style="cursor:default">
+          <span title="${esDeRed(sp)?'De red: no admite clientes':'De atención: de aquí cuelgan clientes'}"
+                style="width:11px;height:11px;border-radius:2px;flex-shrink:0;
+                border:1px solid rgba(0,0,0,.5);background:${esDeRed(sp)?'#8a8f98':'#f1f3f5'}"></span>
+          <span class="nm">${esc(sp.tipo)}${sp.ratio?' · '+esc(sp.ratio):''}
+            <i style="font-size:.62rem;color:var(--muted)">${esDeRed(sp)?'red':'atención'}</i></span>
+          <button class="btn btn-sm btn-out" title="Cambiar entre red y atención"
+                  onclick="cambiarUsoSplitter('${el.id}',${i})">⇄</button>
+        </div>`).join('')
+       :'<p class="ayuda" style="color:#f59e0b">Sin splitters: no se sabe su capacidad.</p>'}
+      <div style="display:flex;gap:5px;margin-top:7px">
+        <button class="btn btn-sm btn-out" style="flex:1" onclick="agregarSplitter('${el.id}')">➕ Splitter</button>
+        <button class="btn btn-sm btn-out" style="flex:1" onclick="abrirPlantillas('${el.id}')">📐 Plantilla</button>
+      </div>`;
+}
+
+/* ── Buscador de clientes dentro de la ventana ─────────────────────
+   Se repinta SOLO la lista, no la ventana entera: si se repintara todo,
+   el cursor se saldria del cuadro de busqueda en cada letra.        */
+async function vcBuscar(id, q){
+    const v=VENT[id]; if(!v) return;
+    v.q=q;
+    const cont=document.getElementById('cl_'+v.dom); if(!cont) return;
+    if((q||'').trim().length<2){
+        cont.innerHTML='<p class="ayuda">Escribe dos letras y arrastra el nombre hasta un puerto verde.</p>';
+        return;
+    }
+    cont.innerHTML='<p class="ayuda">Buscando…</p>';
+    let lista;
+    try{ lista=await clientesParaConectar(); }
+    catch(e){ cont.innerHTML='<p class="ayuda" style="color:#f59e0b">No se pudo leer la lista de clientes.</p>'; return; }
+    if(v.q!==q) return;                     // ya escribio otra cosa mientras cargaba
+    const n=normNom(q), num=q.trim();
+    const hits=lista.filter(c=>normNom(c.nombre).includes(n)||String(c.cedula||'').includes(num)).slice(0,20);
+    const yaEn=dondeEstaCadaServicio();
+    cont.innerHTML = hits.length ? hits.map(c=>{
+        const ya=yaEn[c.servicioWisphub||''];
+        return `<div class="vc-cli" draggable="true" ondragstart="cliDrag(event,this)" ondragend="ptoFin()"
+                  data-serv="${esc(c.servicioWisphub||'')}" data-nom="${esc(c.nombre||'')}">
+                  <span class="ag">⠿</span><span class="nm">${esc(c.nombre)}</span>
+                  ${ya?`<span class="ya">${esc(ya.caja)} · ${ya.pto}</span>`:''}</div>`;
+      }).join('') : '<div class="vacio" style="padding:12px">Nadie con ese nombre.</div>';
+}
+function dondeEstaCadaServicio(){
+    const m={};
+    RED.elementos.filter(e=>e.tipo==='caja').forEach(cj=>{
+        Object.keys(cj.puertos||{}).forEach(p=>{
+            const s=cj.puertos[p].servicio; if(s) m[s]={caja:cj.nombre, pto:p, id:cj.id};
+        });
+    });
+    return m;
+}
+
+/* ── Arrastrar y soltar ────────────────────────────────────────────
+   Lo arrastrado se guarda en una variable propia y no en dataTransfer,
+   porque durante el "dragover" el navegador no deja leer esos datos, y
+   sin leerlos no se sabe si el puerto de destino sirve o no.        */
+function ptoDrag(ev, d){
+    const c=RED.elementos.find(e=>e.id===d.dataset.caja); if(!c) return;
+    const o=(c.puertos||{})[+d.dataset.n]; if(!o) return;
+    _arrastre={tipo:'puerto', caja:d.dataset.caja, n:+d.dataset.n,
+               nombre:o.cliente||'', servicio:o.servicio||''};
+    ev.dataTransfer.effectAllowed='move';
+    ev.dataTransfer.setData('text/plain', o.cliente||'cliente');
+    document.body.classList.add('arrastrando');
+}
+function cliDrag(ev, d){
+    _arrastre={tipo:'cliente', servicio:d.dataset.serv||'', nombre:d.dataset.nom||''};
+    ev.dataTransfer.effectAllowed='copy';
+    ev.dataTransfer.setData('text/plain', d.dataset.nom||'cliente');
+    document.body.classList.add('arrastrando');
+}
+function ptoFin(){
+    _arrastre=null;
+    document.body.classList.remove('arrastrando');
+    document.querySelectorAll('.vpto.dest,.vpto.no').forEach(x=>x.classList.remove('dest','no'));
+}
+function ptoSale(d){ d.classList.remove('dest','no'); }
+function ptoAdmite(d){
+    if(!_arrastre) return false;
+    const c=RED.elementos.find(e=>e.id===d.dataset.caja); if(!c) return false;
+    const n=+d.dataset.n;
+    if((c.puertos||{})[n])    return false;     // ya hay alguien
+    if((c.bloqueados||{})[n]) return false;     // reservado
+    if(n>capacidadCaja(c))    return false;
+    if(_arrastre.tipo==='puerto' && _arrastre.caja===d.dataset.caja && _arrastre.n===n) return false;
+    return true;
+}
+function ptoOver(ev, d){
+    if(!_arrastre) return;
+    if(ptoAdmite(d)){
+        d.classList.add('dest'); ev.preventDefault();
+        ev.dataTransfer.dropEffect = _arrastre.tipo==='puerto' ? 'move' : 'copy';
+    } else d.classList.add('no');
+}
+async function ptoSuelta(ev, d){
+    ev.preventDefault();
+    const a=_arrastre, ok=ptoAdmite(d);
+    const destino=d.dataset.caja, n=+d.dataset.n;
+    ptoFin();
+    if(!a||!ok) return;
+    if(a.tipo==='puerto') await moverEntrePuertos(a.caja, a.n, destino, n);
+    else                  await conectarEnPuerto(destino, n, a.servicio, a.nombre);
+}
+
+async function moverEntrePuertos(idA, nA, idB, nB){
+    const A=RED.elementos.find(e=>e.id===idA), B=RED.elementos.find(e=>e.id===idB);
+    if(!A||!B) return;
+    const o=(A.puertos||{})[nA]; if(!o) return;
+    if(A.id!==B.id && !confirm('¿Pasar a '+(o.cliente||'este cliente')+'\n\n'
+        +'de '+A.nombre+' · puerto '+nA+'\na '+B.nombre+' · puerto '+nB+'?')) return;
+    delete A.puertos[nA];
+    B.puertos=B.puertos||{};
+    B.puertos[nB]=Object.assign({}, o, {conectadoEn:Date.now(), conectadoPor:(USER&&USER.nombre)||''});
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){
+        delete B.puertos[nB]; A.puertos=A.puertos||{}; A.puertos[nA]=o;
+        ocultarCarga(); refrescarVentanas();
+        return alert('No se pudo guardar:\n\n'+(e.message||e));
+    }
+    ocultarCarga(); dibujar(); refrescarVentanas();
+}
+
+async function conectarEnPuerto(idCaja, n, servicio, nombre){
+    const c=RED.elementos.find(e=>e.id===idCaja); if(!c) return;
+    // Un servicio no puede estar en dos puertos: si ya estaba, se mueve
+    let movidoDe=null, antes=null, cajaAntes=null, ptoAntes=null;
+    if(servicio) RED.elementos.filter(e=>e.tipo==='caja').forEach(cj=>{
+        Object.keys(cj.puertos||{}).forEach(p=>{
+            if(cj.puertos[p].servicio===servicio && !(cj.id===idCaja && +p===n)){
+                movidoDe=cj.nombre+' pto '+p;
+                antes=cj.puertos[p]; cajaAntes=cj; ptoAntes=p;
+                delete cj.puertos[p];
+            }
+        });
+    });
+    c.puertos=c.puertos||{};
+    c.puertos[n]={cliente:nombre, servicio:servicio||'',
+                  conectadoEn:Date.now(), conectadoPor:(USER&&USER.nombre)||''};
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){
+        delete c.puertos[n];
+        if(cajaAntes) cajaAntes.puertos[ptoAntes]=antes;
+        ocultarCarga(); refrescarVentanas();
+        return alert('No se pudo guardar:\n\n'+(e.message||e));
+    }
+    ocultarCarga(); dibujar(); refrescarVentanas();
+    if(movidoDe) setTimeout(()=>alert(nombre+' se movió desde '+movidoDe+'.'), 200);
+}
+
 
 /* ════════════════════════════════════════════════════════════════════
    ILUMINACIÓN DE RUTA — por dónde le llega la señal a una caja
@@ -3541,6 +4052,9 @@ async function soltarEn(punto){
     if(!el) return;
     const antes=el.g;
     el.g=[punto]; el.editadoEn=Date.now();
+    // Si es un cliente, su drop tiene que seguirlo: si no, queda colgando
+    // en el sitio viejo y el recorrido deja de tener sentido.
+    if(el.tipo==='cliente') try{ reubicarDrop(el); }catch(e){ console.warn('reubicarDrop',e); }
     mostrarCarga('Guardando…');
     try{ await guardarRed(SEDE.id, RED.elementos); }
     catch(e){ el.g=antes; ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e)); }
