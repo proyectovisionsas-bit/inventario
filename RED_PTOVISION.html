@@ -181,6 +181,13 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
         white-space:nowrap;pointer-events:none;}
 .leaflet-marker-icon{background:none;border:none;}
 
+/* ── Vértices al corregir el trazo de un cable ── */
+.vtx{width:100%;height:100%;border-radius:50%;background:#22d3ee;border:2px solid #fff;
+     box-shadow:0 1px 5px rgba(0,0,0,.6);cursor:grab;}
+.vtx:active{cursor:grabbing;}
+.vtx-punta{background:#a855f7;}
+.vtx-medio{background:rgba(34,211,238,.35);border:2px dashed #22d3ee;box-shadow:none;}
+
 /* ── Ventana flotante de caja (estilo Box Editor de OZmap) ─────────
    Se abre al tocar una caja, se puede mover con el mouse y se pueden
    tener varias abiertas: asi se arrastra un cliente de una caja a otra
@@ -296,13 +303,24 @@ body.arrastrando .vpto.libre{box-shadow:0 0 0 1px rgba(16,185,129,.55);}
     <p class="sub">Planta externa · PROYECTOVISION</p>
     <div class="tabs">
       <div class="tab on" id="tabOfi" onclick="verTab('oficina')">Bodega</div>
-      <div class="tab" id="tabAdm" onclick="verTab('admin')">Administrador</div>
+      <div class="tab" id="tabTec" onclick="verTab('tecnico')">Técnico</div>
+      <div class="tab" id="tabAdm" onclick="verTab('admin')">Admin</div>
     </div>
     <div id="frmOficina">
       <label>Bodega</label>
       <select id="selOfi"><option>Cargando…</option></select>
       <label>Contraseña</label>
       <input type="password" id="passOfi" placeholder="••••••••" onkeydown="if(event.key==='Enter')entrar('oficina')">
+    </div>
+    <div id="frmTecnico" class="hidden">
+      <label>Documento</label>
+      <input type="text" id="tecDoc" placeholder="Cédula" autocomplete="off"
+             onkeydown="if(event.key==='Enter')entrar('tecnico')">
+      <label>Contraseña</label>
+      <input type="password" id="tecPass" placeholder="••••••••" onkeydown="if(event.key==='Enter')entrar('tecnico')">
+      <p style="color:var(--muted);font-size:.72rem;margin:-6px 0 12px;">
+        La misma con la que entras a TECNICOS. Ves la red completa; lo que puedes
+        cambiar lo define tu oficina.</p>
     </div>
     <div id="frmAdmin" class="hidden">
       <label>Contraseña de administrador</label>
@@ -343,6 +361,7 @@ body.arrastrando .vpto.libre{box-shadow:0 0 0 1px rgba(16,185,129,.55);}
       <button class="lb" id="h_cliente" onclick="modo('cliente')"    title="Ubicar un cliente en el mapa">👤</button>
       <button class="lb" id="h_nota"    onclick="modo('nota')"       title="Reportar algo en campo">🚩</button>
       <div class="lsep"></div>
+      <button class="lb" id="h_permisos" onclick="abrirPermisos()" title="Qué pueden hacer los técnicos">👷</button>
       <button class="lb" onclick="abrirBuscarLugar()" title="Ir a una ubicación">🎯</button>
       <button class="lb" id="h_capas"   onclick="verPanel('capas')"  title="Capas">🗂️</button>
       <button class="lb" id="h_calor"   onclick="alternarCalor()"    title="Mapa de calor">🔥</button>
@@ -406,7 +425,7 @@ body.arrastrando .vpto.libre{box-shadow:0 0 0 1px rgba(16,185,129,.55);}
    la cambia aqui.
    ════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION_RED = 17;
+const APP_VERSION_RED = 18;
 
 const firebaseConfig = {
     apiKey: "AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w",
@@ -458,10 +477,10 @@ function ocultarCarga(){ document.getElementById('cargando').classList.add('hidd
 
 function verTab(t){
     window._tab=t;
-    document.getElementById('tabOfi').classList.toggle('on',t==='oficina');
-    document.getElementById('tabAdm').classList.toggle('on',t==='admin');
-    document.getElementById('frmOficina').classList.toggle('hidden',t!=='oficina');
-    document.getElementById('frmAdmin').classList.toggle('hidden',t!=='admin');
+    [['tabOfi','oficina'],['tabTec','tecnico'],['tabAdm','admin']].forEach(([id,k])=>
+        document.getElementById(id).classList.toggle('on',t===k));
+    [['frmOficina','oficina'],['frmTecnico','tecnico'],['frmAdmin','admin']].forEach(([id,k])=>
+        document.getElementById(id).classList.toggle('hidden',t!==k));
 }
 
 async function entrar(tipo){
@@ -469,6 +488,21 @@ async function entrar(tipo){
     if(tipo==='admin'){
         if(document.getElementById('passAdm').value!==INV.adminPass) return alert('❌ Contraseña incorrecta');
         USER={role:'admin', nombre:'Administrador'};
+    }else if(tipo==='tecnico'){
+        // Los tecnicos son los mismos de TECNICOS: viven en rrhh_empleados,
+        // con su documento y su tecnicoPass. No se crean claves nuevas.
+        const doc=(document.getElementById('tecDoc').value||'').trim();
+        const pw =(document.getElementById('tecPass').value||'').trim();
+        if(!doc||!pw) return alert('Escribe tu documento y tu clave.');
+        const t=(DB.rrhh_empleados||[]).find(e=>String(e.documento||'').trim()===doc
+            && String(e.tecnicoPass||'').trim()===pw && (e.estado||'Activo')==='Activo');
+        if(!t) return alert('\u274c Documento o clave incorrectos, o no est\u00e1s habilitado como t\u00e9cnico.');
+        const suyas=(Array.isArray(t.oficinas)?t.oficinas:[]).map(String)
+            .map(id=>(DB.oficinas||[]).find(o=>String(o.id)===id)).filter(Boolean);
+        if(!suyas.length) return alert('\u26a0\ufe0f No tienes ninguna oficina asignada.\n\n'
+            +'La oficina te la asigna el administrador en OFICINAS \u2192 RRHH.');
+        USER={role:'tecnico', id:suyas[0].id, nombre:t.nombre, doc:t.documento,
+              sedes:suyas.map(o=>o.id), sede:suyas[0].nombre};
     }else{
         const idb=document.getElementById('selOfi').value;
         const b=(INV.bodegas||[]).find(x=>x.id===idb);
@@ -484,6 +518,18 @@ async function entrar(tipo){
     document.getElementById('app').classList.remove('hidden');
 
     const ofis=(DB.oficinas||[]).filter(o=>o&&o.id);
+    if(USER.role==='tecnico'){
+        const mias=ofis.filter(o=>USER.sedes.includes(o.id));
+        const sel=document.getElementById('selSede');
+        if(mias.length>1){
+            sel.innerHTML=mias.map(o=>`<option value="${o.id}">${esc(o.nombre)}</option>`).join('');
+            sel.classList.remove('hidden');
+            document.getElementById('chipSede').classList.add('hidden');
+        } else document.getElementById('chipSede').textContent='👷 '+USER.nombre;
+        await cambiarSede(mias[0]?mias[0].id:USER.id);
+        aplicarPermisos();
+        return;
+    }
     if(USER.role==='admin'){
         const sel=document.getElementById('selSede');
         sel.innerHTML=ofis.map(o=>`<option value="${o.id}">${esc(o.nombre)}</option>`).join('');
@@ -521,6 +567,7 @@ async function cambiarSede(id){
     if(!mapa) await crearMapa();
     ocultarCarga();
     dibujar();
+    try{ aplicarPermisos(); }catch(e){}
 }
 
 /* ── Guardado fragmentado ─────────────────────────────────────────
@@ -1453,10 +1500,12 @@ function iconoCaja(el){
     if(window._porFase) fondo=FASES[faseDe(el)].color;
     const rot = mapa && mapa.getZoom()>=17
         ? `<span class="mk-rot">${esc((el.nombre||'').slice(0,26))}</span>` : '';
-    const w = el.clase==='pop'?30:el.clase==='mufla'?22:26;
-    const h = el.clase==='pop'?30:el.clase==='mufla'?22:20;
+    const e=escalaPuntos();
+    const w = Math.round((el.clase==='pop'?30:el.clase==='mufla'?22:26)*e);
+    const h = Math.round((el.clase==='pop'?30:el.clase==='mufla'?22:20)*e);
     return L.divIcon({className:'', iconSize:[w,h], iconAnchor:[w/2,h/2],
-        html:`<div style="position:relative"><div class="mk ${clase}" style="background:${fondo}">${dentro}</div>${rot}</div>`});
+        html:`<div style="position:relative"><div class="mk ${clase}" style="background:${fondo};
+              width:${w}px;height:${h}px;font-size:${(el.clase==='pop'?.9:el.clase==='mufla'?.6:.62)*Math.max(1,e*.85)}rem">${dentro}</div>${rot}</div>`});
 }
 
 var capaReg=null;
@@ -1584,6 +1633,7 @@ function dibujar(){
     dibujarRegiones();
     dibujarNotas();
     const lienzo=L.canvas({padding:0.4});
+    const _esc=escalaPuntos();
     const puntos=[];
     const soloLibres=window._soloLibres;
     RED.elementos.forEach(el=>{
@@ -1601,7 +1651,9 @@ function dibujar(){
             capa=L.marker(el.g[0],{icon:iconoCaja(el)});
             puntos.push(el.g[0]);
         }else{
-            capa=L.circleMarker(el.g[0],{radius:cfg.r, color:cfg.color, weight:1,
+            // El radio se escala con lo que haya elegido cada quien: los puntos
+            // de fabrica son dificiles de acertar con el dedo.
+            capa=L.circleMarker(el.g[0],{radius:cfg.r*_esc, color:cfg.color, weight:1,
                                 fillColor:cfg.color, fillOpacity:.85, renderer:lienzo});
             puntos.push(el.g[0]);
         }
@@ -1700,6 +1752,8 @@ function pintarPanel(el){
 
       ${sinCap?`<div class="aviso" style="margin-top:12px">⚠️ ${sinCap} caja(s) sin capacidad definida.
         Ábrelas y dile qué splitter llevan; hasta entonces no cuentan como espacio disponible.</div>`:''}
+
+      ${selectorEscala()}
 
       <div class="sec">Buscar</div>
       <input type="text" id="q" placeholder="Caja, cliente, cable…" oninput="buscar(this.value)">
@@ -1871,6 +1925,7 @@ function verPuerto(idCaja, n){
 }
 
 async function conectarCliente(idCaja,n){
+    if(!puede('conectar')) return noPuede('conectar');
     const c=RED.elementos.find(e=>e.id===idCaja); if(!c) return;
     window._conCaja=idCaja; window._conPto=n;
     abrirModal(`🔌 Conectar en el puerto ${n}`, `
@@ -1975,6 +2030,7 @@ async function liberarPuerto(idCaja,n){
 }
 
 async function desconectarPuerto(idCaja,n){
+    if(!puede('conectar')) return noPuede('conectar');
     const c=RED.elementos.find(e=>e.id===idCaja); if(!c) return;
     const o=(c.puertos||{})[n];
     if(!confirm(`¿Desconectar a ${o.cliente||'este cliente'} del puerto ${n}?\n\n`
@@ -2111,6 +2167,7 @@ function fichaHTML(el){
 const SPLITTERS=['1x2','1x4','1x8','1x16','1x32','1x64','2x4','2x8','2x16','2x32'];
 const RATIOS=['','50/50','55/45','60/40','70/30','80/20','90/10'];
 function agregarSplitter(id){
+    if(!puede('caja')) return noPuede('caja');
     const el=RED.elementos.find(e=>e.id===id); if(!el) return;
     window._splitId=id;
     abrirModal('🔀 Splitter en '+esc(el.nombre||'la caja'), `
@@ -2388,6 +2445,11 @@ async function modo(m){
     if(!SEDE) return alert('Primero elige una sede.');
     // Solo los modos que ESCRIBEN piden el candado. Mirar, medir y consultar
     // viabilidad no estorban a nadie.
+    if(m==='cable'||m==='region'){ if(!puede('caja')) return noPuede('caja'); }
+    if(m==='editar' && esTecnico() && !puede('caja') && !puede('poste') && !puede('reserva'))
+        return noPuede('poste');
+    if(m==='cliente' && !puede('cliente')) return noPuede('cliente');
+    if(m==='nota' && !puede('nota')) return noPuede('nota');
     if(['editar','cable','region'].includes(m) && MODO!==m){
         const c=await tomarCandado(SEDE.id);
         if(!c.ok){
@@ -2475,6 +2537,7 @@ function datosOficinaDe(el){
 /* ── Ubicar un cliente nuevo ────────────────────────────────────────
    Se entra por el modo 👤 y un clic donde vive la persona. */
 async function nuevoCliente(punto){
+    if(!puede('cliente')) return noPuede('cliente');
     window._nvCliPunto=punto;
     window._nvCliServicio=null; window._nvCliCaja=null; window._nvCliPuerto=null;
     abrirModal('👤 Ubicar un cliente', `
@@ -2725,6 +2788,7 @@ function reubicarDrop(el){
 }
 
 async function quitarClienteDelMapa(id){
+    if(!puede('borrar')) return noPuede('borrar');
     const el=RED.elementos.find(e=>e.id===id); if(!el) return;
     const nom=el.nombreReal||el.nombre||'este cliente';
     if(!confirm('¿Quitar a '+nom+' del mapa?\n\n'
@@ -2779,8 +2843,19 @@ function fichaCliente(el){
         <button class="btn btn-sm btn-out" style="flex:1" onclick="moverElemento('${el.id}')">📍 Mover</button>
         <button class="btn btn-sm btn-out" style="flex:1" onclick="recolocarCliente('${el.id}')">🔌 Otra caja</button>
       </div>
+      ${dp?`<button class="btn btn-sm btn-out" style="width:100%;margin-top:6px"
+         onclick="editarTrazo('${dp.id}')">🧵 Corregir el trazo del drop</button>`:''}
       ${!dp&&caja?`<button class="btn btn-sm btn-out" style="width:100%;margin-top:6px"
          onclick="dibujarDropDe('${el.id}')">🧵 Dibujarle el drop hasta ${esc((caja.nombre||'').slice(0,18))}</button>`:''}
+
+      <div class="sec" style="margin-top:14px">Dónde queda</div>
+      <div class="dato"><b>Coordenadas</b>
+        <span style="font-family:monospace;font-size:.76rem">${el.g[0][0].toFixed(6)}, ${el.g[0][1].toFixed(6)}</span></div>
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+        <button class="btn btn-sm btn-out" style="flex:1" onclick="copiarCoord('${el.id}')">📋 Copiar</button>
+        <button class="btn btn-sm btn-out" style="flex:1" onclick="abrirEnMapas('${el.id}')">🗺️ Google Maps</button>
+        <button class="btn btn-sm btn-out" style="flex:1" onclick="comoLlegar('${el.id}')">🧭 Cómo llegar</button>
+      </div>
 
       <div class="sec" style="margin-top:14px">En la oficina</div>
       ${of?`
@@ -2827,6 +2902,7 @@ async function dibujarDropDe(id){
 
 /* Pasar un cliente a otra caja u otro puerto, arrastrando el drop con el. */
 function recolocarCliente(id){
+    if(!puede('conectar')) return noPuede('conectar');
     const el=RED.elementos.find(e=>e.id===id); if(!el) return;
     window._reCli=id;
     const p=el.g[0];
@@ -3292,6 +3368,304 @@ async function conectarEnPuerto(idCaja, n, servicio, nombre){
 
 
 /* ════════════════════════════════════════════════════════════════════
+   QUIEN PUEDE HACER QUE
+   ────────────────────────────────────────────────────────────────────
+   Entran tres clases de usuario: el administrador, la bodega (que maneja
+   su sede) y el TECNICO, que entra con su documento y su clave de
+   TECNICOS. El tecnico anda en la calle: le sirve VER la red y marcar
+   los postes que va plantando, pero no tiene por que mover una caja ni
+   borrar un cable. Por eso entra en solo lectura y cada oficina le
+   habilita a mano lo que crea.
+
+   OJO CON QUE ESTO ES: son barandas, no seguridad. Las reglas del
+   Firestore estan abiertas, asi que esto evita el error de buena fe, no
+   al que quiera hacer dano a proposito.
+   ════════════════════════════════════════════════════════════════════ */
+const PERM=[
+    ['poste',    'Crear postes',                 '📍', 'Marcar los postes que va plantando'],
+    ['nota',     'Reportar novedades',           '🚩', 'Avisar de un cable caido, una caja abierta…'],
+    ['reserva',  'Crear reservas',               '🌀', 'Anotar las reservas de fibra en los postes'],
+    ['cliente',  'Ubicar clientes',              '👤', 'Poner en el mapa al cliente que acaba de instalar'],
+    ['conectar', 'Conectar y desconectar',       '🔌', 'Ocupar y liberar puertos de las cajas'],
+    ['trazo',    'Corregir el trazo de un drop', '🧵', 'Ajustar por dónde va el cable hasta la casa'],
+    ['caja',     'Crear y editar cajas',         '📦', 'Cajas, muflas y sus splitters'],
+    ['mover',    'Mover elementos',              '✥',  'Cambiar de sitio lo que ya está puesto'],
+    ['borrar',   'Borrar elementos',             '🗑️', 'Quitar cosas de la red']
+];
+/* Lo que trae un tecnico si la oficina todavia no ha configurado nada:
+   ver, plantar postes y reportar novedades. Nada que destruya. */
+const PERM_DEF={poste:true, nota:true};
+
+function permisosSede(id){
+    const p=(DB.permisosRed||{})[id||(SEDE&&SEDE.id)];
+    return p||PERM_DEF;
+}
+function puede(q){
+    if(!USER) return false;
+    if(USER.role!=='tecnico') return true;      // admin y bodega, todo
+    return !!permisosSede()[q];
+}
+function esTecnico(){ return !!(USER&&USER.role==='tecnico'); }
+/* Aviso unico y claro cuando el tecnico intenta algo que no tiene */
+function noPuede(q){
+    const d=PERM.find(x=>x[0]===q);
+    alert('🔒 Tu cuenta no tiene permiso para '+((d?d[1]:q).toLowerCase())+'.\n\n'
+        +'Si lo necesitas, pídele a la oficina que te lo habilite en\n'
+        +'RED → 👷 Permisos de técnicos.');
+    return false;
+}
+
+/* Panel donde la oficina decide que puede hacer su cuadrilla. */
+function abrirPermisos(){
+    if(esTecnico()) return alert('🔒 Solo la oficina y el administrador deciden qué puede\n'
+        +'hacer la cuadrilla. Pídeselo a tu oficina.');
+    if(!SEDE) return alert('Primero elige una sede.');
+    const p=permisosSede();
+    abrirModal('👷 Qué pueden hacer los técnicos en '+esc(SEDE.nombre), `
+      <p class="ayuda" style="margin-top:0">Los técnicos entran con su documento y su clave de
+         TECNICOS. Siempre pueden <b>ver</b> la red; lo demás lo habilitas tú.</p>
+      ${PERM.map(([k,et,ic,ay])=>`
+        <div class="fila" style="cursor:pointer" onclick="_permTog('${k}')">
+          <span class="cas ${p[k]?'si':''}" id="pm_${k}">${p[k]?'✓':''}</span>
+          <span class="nom">${ic} ${et}<i style="display:block;font-size:.68rem;color:var(--muted)">${ay}</i></span>
+        </div>`).join('')}
+      <p class="ayuda" style="margin-top:10px">⚠️ Esto son barandas para evitar equivocaciones,
+         no una cerradura: la base de datos del proyecto es de lectura abierta.</p>`,
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cancelar</button>
+       <button class="btn btn-sm btn-primary" style="width:auto" onclick="guardarPermisos()">Guardar</button>`);
+    window._perm=Object.assign({}, p);
+}
+function _permTog(k){
+    window._perm[k]=!window._perm[k];
+    const c=document.getElementById('pm_'+k);
+    if(c){ c.classList.toggle('si', !!window._perm[k]); c.textContent=window._perm[k]?'✓':''; }
+}
+async function guardarPermisos(){
+    if(!SEDE) return cerrarModal();
+    const antes=DB.permisosRed?Object.assign({},DB.permisosRed):null;
+    DB.permisosRed=DB.permisosRed||{};
+    DB.permisosRed[SEDE.id]=window._perm;
+    cerrarModal();
+    mostrarCarga('Guardando…');
+    try{
+        await db.collection(COLECCION).doc(DOC_ID).update({permisosRed:DB.permisosRed});
+    }catch(e){
+        if(antes) DB.permisosRed=antes; else delete DB.permisosRed;
+        ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e));
+    }
+    ocultarCarga(); pintarPanel();
+    alert('Listo. Los técnicos verán el cambio la próxima vez que entren.');
+}
+
+/* Se apagan los botones que el tecnico no puede usar, para que no ande
+   descubriendo a punta de avisos lo que no le dejan hacer. */
+function aplicarPermisos(){
+    const cerrar=(btn,q)=>{
+        const b=document.getElementById(btn); if(!b) return;
+        const ok=puede(q);
+        b.style.display = ok?'':'none';
+    };
+    cerrar('h_editar','caja');
+    cerrar('h_cable','caja');
+    cerrar('h_region','caja');
+    cerrar('h_cliente','cliente');
+    cerrar('h_nota','nota');
+    const bp=document.getElementById('h_permisos');
+    if(bp) bp.style.display = esTecnico()?'none':'';
+    // El de postes vive dentro de "editar", asi que si solo tiene postes
+    // se le deja el lapiz pero por dentro solo le sale poste.
+    if(esTecnico() && (puede('poste')||puede('reserva'))){
+        const b=document.getElementById('h_editar'); if(b) b.style.display='';
+    }
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   CORREGIR EL TRAZO DE UN CABLE
+   ────────────────────────────────────────────────────────────────────
+   El drop se dibuja recto de la caja a la casa, pero en la calle no va
+   recto: sube por un poste, cruza, baja. Aqui se le agarran los vertices
+   y se acomodan. Los redondos son los que ya existen; los huecos, en la
+   mitad de cada tramo, crean uno nuevo al arrastrarlos.
+   Las dos PUNTAS tambien se pueden mover, pero avisa: la primera es la
+   caja y la ultima la casa, y correrlas desconecta el dibujo de la
+   realidad.
+   ════════════════════════════════════════════════════════════════════ */
+var _trazo=null;     // {id, g:[...], capa}
+
+function editarTrazo(id){
+    const el=RED.elementos.find(e=>e.id===id);
+    if(!el||el.tipo!=='cable') return;
+    if(!puede('trazo')) return noPuede('trazo');
+    if(!el.g||el.g.length<2) return alert('Este cable no tiene recorrido dibujado.');
+    limpiarTemporal();
+    MODO='trazo';
+    _trazo={id, g:el.g.map(p=>p.slice())};
+    if(mapa) mapa.getContainer().style.cursor='';
+    const p=document.getElementById('pista');
+    p.style.display='flex';
+    p.innerHTML='<span>🧵 Arrastra los puntos para acomodar el trazo. Los huecos crean uno nuevo</span>'
+      +'<button onclick="cerrarTrazo()">Salir</button>';
+    pintarTrazo();
+    pintarPanelTrazo(el);
+}
+function cerrarTrazo(){ _trazo=null; modo('ver'); }
+
+function pintarTrazo(){
+    if(!_trazo) return;
+    if(temp&&mapa) mapa.removeLayer(temp);
+    temp=L.layerGroup().addTo(mapa);
+    const g=_trazo.g;
+    L.polyline(g,{color:'#22d3ee',weight:3,opacity:.95}).addTo(temp);
+    L.polyline(g,{color:'#22d3ee',weight:12,opacity:.15}).addTo(temp);
+    // Vertices reales: se arrastran y con doble clic se quitan
+    g.forEach((p,i)=>{
+        const punta = i===0 || i===g.length-1;
+        const m=L.marker(p,{draggable:true, pane:'ruta', icon:L.divIcon({className:'',
+            iconSize:[punta?16:14,punta?16:14], iconAnchor:[punta?8:7,punta?8:7],
+            html:`<div class="vtx${punta?' vtx-punta':''}"></div>`})}).addTo(temp);
+        m.on('drag',ev=>{ const q=ev.target.getLatLng(); _trazo.g[i]=[q.lat,q.lng]; redibujarLinea(); });
+        m.on('dragend',()=>pintarTrazo());
+        m.on('dblclick',ev=>{
+            L.DomEvent.stop(ev);
+            if(g.length<=2) return alert('Un cable necesita al menos dos puntos.');
+            if(punta) return alert('Esa punta es donde arranca o termina el cable.');
+            _trazo.g.splice(i,1); pintarTrazo(); actualizarLargoTrazo();
+        });
+        if(punta) m.bindTooltip(i===0?'Sale de la caja':'Llega al cliente',{direction:'top'});
+    });
+    // Puntos huecos en la mitad de cada tramo: al arrastrarlos nace un vertice
+    for(let i=0;i+1<g.length;i++){
+        const med=[(g[i][0]+g[i+1][0])/2, (g[i][1]+g[i+1][1])/2];
+        const m=L.marker(med,{draggable:true, pane:'ruta', icon:L.divIcon({className:'',
+            iconSize:[11,11], iconAnchor:[5.5,5.5], html:'<div class="vtx vtx-medio"></div>'})}).addTo(temp);
+        let nacido=false;
+        m.on('dragstart',()=>{ nacido=false; });
+        m.on('drag',ev=>{
+            const q=ev.target.getLatLng();
+            if(!nacido){ _trazo.g.splice(i+1,0,[q.lat,q.lng]); nacido=true; }
+            else _trazo.g[i+1]=[q.lat,q.lng];
+            redibujarLinea();
+        });
+        m.on('dragend',()=>{ pintarTrazo(); actualizarLargoTrazo(); });
+    }
+    actualizarLargoTrazo();
+}
+var _lineaTrazo=null;
+function redibujarLinea(){
+    if(!_trazo||!temp) return;
+    if(!_lineaTrazo){
+        temp.eachLayer(l=>{ if(l instanceof L.Polyline && !_lineaTrazo) _lineaTrazo=l; });
+    }
+    if(_lineaTrazo) _lineaTrazo.setLatLngs(_trazo.g);
+}
+function largoTrazo(){
+    let m=0; for(let i=0;i+1<_trazo.g.length;i++) m+=metros(_trazo.g[i],_trazo.g[i+1]);
+    return Math.round(m);
+}
+function actualizarLargoTrazo(){
+    const e=document.getElementById('tz_largo');
+    if(e&&_trazo) e.textContent=largoTrazo()+' m · '+_trazo.g.length+' puntos';
+}
+function pintarPanelTrazo(el){
+    document.getElementById('panel').innerHTML=`
+      <button class="btn btn-sm btn-out" style="margin-bottom:12px" onclick="cerrarTrazo()">← Salir sin guardar</button>
+      <div class="sec">Trazo de ${esc((el.nombre||'').slice(0,26))}</div>
+      <div class="kpis" style="grid-template-columns:1fr">
+        <div class="kpi"><div class="v" id="tz_largo">—</div><div class="e">Largo del cable</div></div>
+      </div>
+      <p class="ayuda">
+        🔵 Arrastra un punto para moverlo.<br>
+        ⚪ Los huecos, en la mitad de cada tramo, crean un punto nuevo.<br>
+        Doble clic sobre un punto lo quita.<br>
+        Las dos puntas son la caja y la casa: muévelas solo si están mal.</p>
+      <button class="btn btn-sm btn-primary" style="width:100%;margin-top:6px" onclick="guardarTrazo()">Guardar el trazo</button>
+      <button class="btn btn-sm btn-out" style="width:100%;margin-top:6px" onclick="enderezarTrazo()">📏 Dejarlo recto otra vez</button>`;
+    actualizarLargoTrazo();
+}
+function enderezarTrazo(){
+    if(!_trazo) return;
+    _trazo.g=[_trazo.g[0], _trazo.g[_trazo.g.length-1]];
+    pintarTrazo();
+}
+async function guardarTrazo(){
+    if(!_trazo) return;
+    const el=RED.elementos.find(e=>e.id===_trazo.id); if(!el) return;
+    const antes=el.g, antesM=el.metros;
+    el.g=_trazo.g.map(p=>p.slice());
+    el.metros=largoTrazo();
+    el.editadoEn=Date.now(); el.editadoPor=(USER&&USER.nombre)||'';
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){ el.g=antes; el.metros=antesM; ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e)); }
+    ocultarCarga();
+    const id=_trazo.id; _trazo=null;
+    modo('ver'); dibujar(); pintarPanel(RED.elementos.find(e=>e.id===id));
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   TAMAÑO DE LOS PUNTOS
+   ────────────────────────────────────────────────────────────────────
+   Los puntos venian de un tamano fijo pensado para ver el conjunto, y
+   asi son dificiles de acertar con el dedo o el mouse. Ahora se escalan
+   y la eleccion se guarda en el navegador de cada quien: en el celular
+   se quieren grandes, en el monitor de la oficina no tanto.
+   ════════════════════════════════════════════════════════════════════ */
+const ESCALAS=[['S',0.75,'Pequeños'],['M',1,'Normales'],['L',1.5,'Grandes'],['XL',2.2,'Muy grandes']];
+function escalaPuntos(){
+    const v=parseFloat(localStorage.getItem('red_escala_puntos'));
+    return (v&&v>0)?v:1;
+}
+function fijarEscala(v){
+    try{ localStorage.setItem('red_escala_puntos', String(v)); }catch(e){}
+    dibujar();
+}
+function selectorEscala(){
+    const e=escalaPuntos();
+    return `<div class="sec">Tamaño de los puntos</div>
+      <div class="rejilla" style="grid-template-columns:repeat(4,1fr)">
+        ${ESCALAS.map(([et,v,ay])=>`<div class="opc ${Math.abs(e-v)<.01?'on':''}"
+           title="${ay}" onclick="fijarEscala(${v})">
+           <span class="ic" style="font-size:${8+v*7}px;line-height:1.6">●</span>${et}</div>`).join('')}
+      </div>
+      <p class="ayuda">Si te cuesta acertarle a un punto, súbelo. Se guarda en este dispositivo.</p>`;
+}
+
+/* ── Georreferenciación: llevarle las coordenadas al técnico ────────
+   Un punto en el mapa no sirve de nada si el que va a la casa no lo
+   puede abrir en su celular. Copiar sirve para pegarlo en WhatsApp;
+   "cómo llegar" abre la navegación desde donde esté parado.        */
+function _coordDe(id){
+    const el=RED.elementos.find(e=>e.id===id);
+    return (el&&el.g&&el.g.length) ? el.g[0] : null;
+}
+function copiarCoord(id){
+    const g=_coordDe(id); if(!g) return;
+    const t=g[0].toFixed(6)+', '+g[1].toFixed(6);
+    const listo=()=>alert('📋 Copiado:\n\n'+t+'\n\nPégalo en WhatsApp o en Google Maps.');
+    if(navigator.clipboard&&navigator.clipboard.writeText)
+        return navigator.clipboard.writeText(t).then(listo).catch(()=>_copiarViejo(t,listo));
+    _copiarViejo(t,listo);
+}
+/* El portapapeles moderno pide HTTPS y permiso, y en el celular de un
+   tecnico eso falla mas de lo que uno cree: por eso queda el respaldo. */
+function _copiarViejo(t,listo){
+    try{
+        const a=document.createElement('textarea');
+        a.value=t; a.style.position='fixed'; a.style.opacity='0';
+        document.body.appendChild(a); a.select();
+        document.execCommand('copy'); document.body.removeChild(a); listo();
+    }catch(e){ prompt('Copia estas coordenadas:', t); }
+}
+function abrirEnMapas(id){
+    const g=_coordDe(id); if(!g) return;
+    window.open('https://www.google.com/maps/search/?api=1&query='+g[0]+','+g[1], '_blank', 'noopener');
+}
+function comoLlegar(id){
+    const g=_coordDe(id); if(!g) return;
+    window.open('https://www.google.com/maps/dir/?api=1&destination='+g[0]+','+g[1], '_blank', 'noopener');
+}
+
+/* ════════════════════════════════════════════════════════════════════
    ILUMINACIÓN DE RUTA — por dónde le llega la señal a una caja
    ────────────────────────────────────────────────────────────────────
    Sube por los cables de caja en caja hasta dar con el POP, y de paso
@@ -3497,6 +3871,7 @@ function alternarCalor(){
 /* Notas de campo: el tecnico marca una anomalia donde la ve, con foto
    opcional, y queda en el mapa hasta que alguien la resuelva. */
 function nuevaNota(p){
+    if(!puede('nota')) return noPuede('nota');
     window._notaPunto=p;
     abrirModal('🚩 Reportar algo aquí', `
       <label>¿Qué pasa?</label>
@@ -3873,6 +4248,16 @@ const CREABLES=[
     ['poste','Poste','📍'], ['reserva','Reserva','🌀'], ['pop','POP','🏛️'],
     ['condominio','Condominio','🏢']
 ];
+/* Un tecnico con permiso de postes solo debe ver postes en el menu de
+   crear: si le salen cajas y muflas, la primera equivocacion es cuestion
+   de tiempo. */
+function _creables(){
+    if(!esTecnico()) return CREABLES;
+    const suyo=CREABLES.filter(([c])=>(c==='poste'&&puede('poste'))
+                                    ||(c==='reserva'&&puede('reserva'))
+                                    ||(c!=='poste'&&c!=='reserva'&&puede('caja')));
+    return suyo.length?suyo:[CREABLES[3]];   // poste, que es el minimo
+}
 const ESTADOS=['Implementado','Implementada y certificada','Planeado','En construcción','Fuera de servicio'];
 
 /* Fase de obra de cada elemento. OZmap distingue diseño, aprobación,
@@ -3907,11 +4292,12 @@ function cerrarModal(){ document.getElementById('modal').classList.add('hidden')
 function val(id){ const e=document.getElementById(id); return e?e.value.trim():''; }
 
 function nuevoElemento(punto){
-    window._nuevoPunto=punto; window._nuevaClase='nap';
+    window._nuevoPunto=punto;
+    window._nuevaClase=_creables()[0][0];
     abrirModal('➕ Nuevo elemento de red', `
       <label>¿Qué vas a instalar aquí?</label>
       <div class="rejilla" id="gClase">
-        ${CREABLES.map(([c,t,ic])=>`<div class="opc ${c==='nap'?'on':''}" data-c="${c}"
+        ${_creables().map(([c,t,ic])=>`<div class="opc ${c===_creables()[0][0]?'on':''}" data-c="${c}"
            onclick="elegirClase('${c}')"><span class="ic">${ic}</span>${t}</div>`).join('')}
       </div>
       <label style="margin-top:14px">Nombre <span style="color:#f87171">*</span></label>
@@ -3925,7 +4311,7 @@ function nuevoElemento(punto){
       <p class="ayuda">📍 ${punto[0].toFixed(6)}, ${punto[1].toFixed(6)}</p>`,
       `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cancelar</button>
        <button class="btn btn-sm btn-primary" style="width:auto" onclick="guardarNuevo()">Crear</button>`);
-    elegirClase('nap');
+    elegirClase(_creables()[0][0]);
     setTimeout(()=>{ const i=document.getElementById('nEl_nombre'); if(i) i.focus(); },60);
 }
 function elegirClase(c){
@@ -3966,6 +4352,10 @@ function elegirClase(c){
     }
 }
 async function guardarNuevo(){
+    // Aqui si se comprueba: cada clase tiene su permiso.
+    const _c=window._nuevaClase;
+    const _q = _c==='poste' ? 'poste' : _c==='reserva' ? 'reserva' : 'caja';
+    if(!puede(_q)) return noPuede(_q);
     const nombre=val('nEl_nombre');
     if(!nombre) return alert('Ponle un nombre.');
     const c=window._nuevaClase, punto=window._nuevoPunto;
@@ -4039,6 +4429,7 @@ async function guardarEdicion(){
 
 var moviendo=null;
 function moverElemento(id){
+    if(!puede('mover')) return noPuede('mover');
     const el=RED.elementos.find(e=>e.id===id); if(!el) return;
     if(el.tipo==='cable') return alert('Los recorridos de cable todavía no se pueden mover desde aquí.\n\nSe actualizan reimportando el KML.');
     moviendo=id;
@@ -4063,6 +4454,7 @@ async function soltarEn(punto){
 }
 
 async function borrarElemento(id){
+    if(!puede('borrar')) return noPuede('borrar');
     const el=RED.elementos.find(e=>e.id===id); if(!el) return;
     const usados=el.tipo==='caja'?Object.keys(el.puertos||{}).length:0;
     if(usados && !confirm(`⚠️ "${el.nombre}" tiene ${usados} cliente(s) conectados.\n\n`
