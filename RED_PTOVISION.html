@@ -255,8 +255,10 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
       <button class="lb" id="h_ruta"    onclick="modo('ruta')"       title="Seguir la ruta hasta el POP">💡</button>
       <button class="lb" id="h_nota"    onclick="modo('nota')"       title="Reportar algo en campo">🚩</button>
       <div class="lsep"></div>
+      <button class="lb" onclick="abrirBuscarLugar()" title="Ir a una ubicación">🎯</button>
       <button class="lb" id="h_capas"   onclick="verPanel('capas')"  title="Capas">🗂️</button>
       <button class="lb" id="h_calor"   onclick="alternarCalor()"    title="Mapa de calor">🔥</button>
+      <button class="lb" onclick="abrirPlantillas()" title="Plantillas de caja">📐</button>
       <button class="lb" onclick="abrirCruce()"  title="Clientes vs. Red">👥</button>
       <button class="lb" onclick="abrirGrupos()" title="Dónde se concentra la demanda">👪</button>
       <button class="lb" onclick="abrirPendientes()" title="Pendientes">🚩</button>
@@ -315,7 +317,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
    la cambia aqui.
    ════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION_RED = 14;
+const APP_VERSION_RED = 15;
 
 const firebaseConfig = {
     apiKey: "AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w",
@@ -625,12 +627,13 @@ const TIPOS={
     cto     :{et:'Cajas CTO',           color:'#0ea5e9', forma:'punto', r:5},
     mufla   :{et:'Muflas',              color:'#f59e0b', forma:'punto', r:6},
     pop     :{et:'POP',                 color:'#a855f7', forma:'punto', r:8},
+    condominio:{et:'Condominios',       color:'#ec4899', forma:'punto', r:7},
     primario:{et:'Cable primario',      color:'#ef4444', forma:'linea', w:3.5},
     secundario:{et:'Cable secundario',  color:'#fb923c', forma:'linea', w:2.5},
     terciario:{et:'Cable terciario',    color:'#8b5cf6', forma:'linea', w:2.5},
     drop    :{et:'Drops',               color:'#64748b', forma:'linea', w:1}
 };
-const ORDEN=['drop','terciario','secundario','primario','poste','reserva','cliente','nap','cto','mufla','pop'];
+const ORDEN=['drop','terciario','secundario','primario','poste','reserva','cliente','nap','cto','condominio','mufla','pop'];
 
 /* ════════════════════════════════════════════════════════════════════
    IMPORTADOR DE KML / KMZ
@@ -1327,10 +1330,12 @@ function iconoCaja(el){
     const clase = el.clase==='pop' ? 'mk-pop' : el.clase==='mufla' ? 'mk-mufla' : 'mk-caja';
     const dentro = el.clase==='pop' ? '🏛️'
                  : el.clase==='mufla' ? '⬤'
+                 : el.clase==='condominio' ? '🏢'
                  : (s.cap? s.libres+'/'+s.cap : '?');
     // Con "pintar por fase" manda la fase de obra; si no, la ocupacion.
     let fondo = el.clase==='mufla' ? TIPOS.mufla.color
-              : el.clase==='pop'   ? TIPOS.pop.color : s.color;
+              : el.clase==='pop'   ? TIPOS.pop.color
+              : el.clase==='condominio' ? (s.cap?s.color:TIPOS.condominio.color) : s.color;
     if(window._porFase) fondo=FASES[faseDe(el)].color;
     const rot = mapa && mapa.getZoom()>=17
         ? `<span class="mk-rot">${esc((el.nombre||'').slice(0,26))}</span>` : '';
@@ -1372,8 +1377,64 @@ function fichaRegion(r){
         </div>
         ${r.notas?`<div class="dato"><b>Notas</b><span>${esc(r.notas)}</span></div>`:''}
       </div>
+      <button class="btn btn-sm btn-out" style="width:100%;margin-bottom:6px"
+              onclick="informeArea('${r.id}')">📄 Informe del área</button>
       <button class="btn btn-sm" style="width:100%;background:rgba(239,68,68,.12);color:#f87171;
               border:1px solid rgba(239,68,68,.35)" onclick="borrarRegion('${r.id}')">🗑️ Borrar región</button>`;
+}
+
+/* Informe de un área: lo que hay dentro, para cotizar una obra o pasarle
+   a alguien el estado de un barrio sin que tenga que abrir la app. */
+function informeArea(idReg){
+    const r=(RED.regiones||[]).find(x=>x.id===idReg); if(!r) return;
+    const dentro=e=>e.g.some(p=>enPoligono(p,r.g));
+    const els=RED.elementos.filter(dentro);
+    const cajas=els.filter(e=>e.tipo==='caja'&&e.clase!=='pop');
+    const porClase={}; els.forEach(e=>{const t=claseDe(e); porClase[t]=(porClase[t]||0)+1;});
+    let cap=0,ocu=0,lib=0,bloq=0;
+    cajas.forEach(c=>{const s=estadoCaja(c); cap+=s.cap; ocu+=s.usados; lib+=s.libres||0; bloq+=s.bloq||0;});
+    const cables=els.filter(e=>e.tipo==='cable');
+    const metrosPorTipo={};
+    cables.forEach(c=>{ const t=(TIPOS[c.clase]||{}).et||c.clase;
+        metrosPorTipo[t]=(metrosPorTipo[t]||0)+(c.metros||0); });
+    const clientes=els.filter(e=>e.tipo==='cliente').length;
+    abrirModal('📄 '+esc(r.nombre), `
+      <div class="kpis">
+        <div class="kpi"><div class="v">${(areaDe(r.g)/10000).toFixed(1)}<span style="font-size:.7rem"> ha</span></div><div class="e">Superficie</div></div>
+        <div class="kpi"><div class="v">${cajas.length}</div><div class="e">Cajas</div></div>
+        <div class="kpi"><div class="v" style="color:#10b981">${lib}</div><div class="e">Puertos libres</div></div>
+        <div class="kpi"><div class="v" style="color:#f87171">${ocu}</div><div class="e">Ocupados</div></div>
+      </div>
+      <div class="sec">Qué hay dentro</div>
+      ${Object.entries(porClase).sort((a,b)=>b[1]-a[1]).map(([t,n])=>`
+        <div class="dato"><b style="color:var(--text)">
+          <span class="${(TIPOS[t]||{}).forma==='linea'?'raya':'punto'}"
+                style="display:inline-block;background:${(TIPOS[t]||{}).color||'#888'}"></span>
+          ${(TIPOS[t]||{}).et||t}</b><span>${n}</span></div>`).join('')}
+      <div class="sec">Fibra tendida</div>
+      ${Object.entries(metrosPorTipo).sort((a,b)=>b[1]-a[1]).map(([t,m])=>`
+        <div class="dato"><b>${esc(t)}</b><span>${(m/1000).toFixed(2)} km</span></div>`).join('')
+        ||'<p class="ayuda">Sin cables dentro del área.</p>'}
+      <div class="dato" style="border-top:1px solid var(--border);margin-top:4px;padding-top:6px">
+        <b style="color:var(--text)">TOTAL</b>
+        <span style="font-weight:700">${(Object.values(metrosPorTipo).reduce((a,b)=>a+b,0)/1000).toFixed(2)} km</span></div>
+      <div class="sec">Capacidad</div>
+      <div class="dato"><b>Puertos instalados</b><span>${cap}</span></div>
+      <div class="dato"><b>Ocupados</b><span>${ocu} (${cap?Math.round(100*ocu/cap):0}%)</span></div>
+      <div class="dato"><b>Reservados</b><span>${bloq}</span></div>
+      <div class="dato"><b>Libres</b><span style="color:#10b981;font-weight:700">${lib}</span></div>
+      <div class="dato"><b>Clientes ubicados</b><span>${clientes}</span></div>
+      ${r.notas?`<div class="sec">Notas</div><p class="ayuda">${esc(r.notas)}</p>`:''}`,
+      `<button class="btn btn-sm btn-out" onclick="copiarInforme('${r.id}')">📋 Copiar</button>
+       <button class="btn btn-sm btn-out" onclick="cerrarModal()">Cerrar</button>`);
+}
+function copiarInforme(idReg){
+    const t=document.getElementById('mCuerpo').innerText.replace(/\n{2,}/g,'\n');
+    const r=(RED.regiones||[]).find(x=>x.id===idReg);
+    const txt=`INFORME DE ÁREA — ${r?r.nombre:''}\n${SEDE.nombre} · ${new Date().toLocaleDateString('es-CO')}\n\n${t}`;
+    navigator.clipboard.writeText(txt)
+        .then(()=>alert('✅ Copiado. Ya lo puedes pegar en WhatsApp o en un correo.'))
+        .catch(()=>alert('No se pudo copiar. Selecciónalo a mano.'));
 }
 // Punto dentro de polígono: cuenta cruces de una raya hacia la derecha.
 function enPoligono(p, poly){
@@ -1534,7 +1595,7 @@ function verCapa(t,on){ if(!capas[t]) return; on?capas[t].addTo(mapa):mapa.remov
 /* Árbol de capas con grupos plegables y casillas, como el de OZmap.
    Se agrupa por familia porque doce casillas sueltas no se leen. */
 const GRUPOS=[
-    {n:'Cajas',   ico:'📦', hijos:['pop','mufla','cto','nap']},
+    {n:'Cajas',   ico:'📦', hijos:['pop','mufla','cto','nap','condominio']},
     {n:'Cables',  ico:'🧵', hijos:['primario','secundario','terciario','drop']},
     {n:'Puntos',  ico:'📍', hijos:['poste','reserva','cliente']}
 ];
@@ -1859,7 +1920,13 @@ function fichaHTML(el){
               +((capacidadRed(el))?`<p class="ayuda">🔗 ${capacidadRed(el)} salida(s) van hacia otras cajas
                  y por eso no cuentan como puertos disponibles.</p>`:'')
             : '<div class="vacio" style="padding:12px">Sin splitters. Sin ellos no sabemos cuántos clientes caben.</div>'}
-          <button class="btn btn-sm btn-out" style="width:100%;margin-top:8px" onclick="agregarSplitter('${el.id}')">➕ Agregar splitter</button>
+          ${el.unidades?`<div class="dato"><b>Unidades del condominio</b><span>${el.unidades}</span></div>`:''}
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <button class="btn btn-sm btn-out" style="flex:1" onclick="agregarSplitter('${el.id}')">➕ Splitter</button>
+            <button class="btn btn-sm btn-out" style="flex:1" onclick="abrirPlantillas('${el.id}')">📐 Plantilla</button>
+            ${(el.splitters||[]).length?`<button class="btn btn-sm btn-out" style="flex:1"
+               onclick="crearPlantilla('${el.id}')" title="Guardar esta configuración para reutilizarla">💾</button>`:''}
+          </div>
           ${cap?`<div class="sec" style="margin-top:14px">Puertos <span style="font-weight:400;text-transform:none">— clic para ver quién está</span></div>
             <div class="puertos">${Array.from({length:cap},(_,i)=>{
                 const n=i+1, o=(el.puertos||{})[n], b=(el.bloqueados||{})[n];
@@ -2731,7 +2798,8 @@ async function confirmarCable(){
 
 const CREABLES=[
     ['nap','Caja NAP','🟩'], ['cto','Caja CTO','🟦'], ['mufla','Mufla','🟠'],
-    ['poste','Poste','📍'], ['reserva','Reserva','🌀'], ['pop','POP','🏛️']
+    ['poste','Poste','📍'], ['reserva','Reserva','🌀'], ['pop','POP','🏛️'],
+    ['condominio','Condominio','🏢']
 ];
 const ESTADOS=['Implementado','Implementada y certificada','Planeado','En construcción','Fuera de servicio'];
 
@@ -2802,6 +2870,18 @@ function elegirClase(c){
         ex.innerHTML=`<label style="margin-top:12px">Tipo de poste</label>
           <select id="nEl_sub"><option>POSTE CONCRETO</option><option>POSTE MADERA</option>
           <option>POSTE METALICO</option><option>NO</option></select>`;
+    } else if(c==='condominio'){
+        ex.innerHTML=`<label style="margin-top:12px">¿Cómo es?</label>
+          <select id="nEl_sub"><option>VERTICAL (edificio)</option><option>HORIZONTAL (conjunto cerrado)</option></select>
+          <label style="margin-top:12px">¿Cuántas unidades tiene?</label>
+          <input type="number" id="nEl_unid" value="12" min="1">
+          <label style="margin-top:12px">Splitter interno</label>
+          <select id="nEl_split">
+            <option value="">— se lo pongo después —</option>
+            ${['1x2','1x4','1x8','1x16','1x32'].map(s=>`<option ${s==='1x16'?'selected':''}>${s}</option>`).join('')}
+          </select>
+          <p class="ayuda">Un condominio entra por un solo drop y adentro se reparte. Anotar cuántas
+             unidades tiene sirve para saber cuánto puede crecer sin tender nada nuevo.</p>`;
     } else if(c==='pop'){
         ex.innerHTML='';
     } else {
@@ -2829,8 +2909,9 @@ async function guardarNuevo(){
     else {
         el.tipo='caja'; el.clase=c; el.puertos={};
         const sp=val('nEl_split');
-        el.splitters=sp?[{tipo:sp, ratio:''}]:[];
-        if(sp) el.subtipo=el.subtipo||('NAP '+sp.toUpperCase());
+        el.splitters=sp?[{tipo:sp, ratio:'', uso:'cliente'}]:[];
+        if(c==='condominio') el.unidades=parseInt(val('nEl_unid'),10)||null;
+        else if(sp) el.subtipo=el.subtipo||('NAP '+sp.toUpperCase());
     }
     cerrarModal();
     RED.elementos.push(el);
@@ -3376,6 +3457,120 @@ function abrirGrupos(){
       <p class="ayuda">Se agrupan por cercanía. Un grupo con más clientes que puertos libres alrededor
          es una zona donde ya no cabe crecer.</p>`,
       `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cerrar</button>`);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   PLANTILLAS DE CAJA
+   ────────────────────────────────────────────────────────────────────
+   Las capacidades varian de caja en caja segun los splitters que lleve
+   dentro. Armar eso a mano en cada una es repetir el mismo trabajo
+   cientos de veces, asi que se guarda la configuracion una vez y se
+   aplica. Es lo mismo que hacen las "box templates" de OZmap.
+   ════════════════════════════════════════════════════════════════════ */
+function plantillasCaja(){ return (DB.config&&DB.config.plantillasCaja)||[]; }
+async function guardarPlantillas(lista){
+    DB.config=DB.config||{}; DB.config.plantillasCaja=lista;
+    await db.collection(COLECCION).doc(DOC_ID).set({config:DB.config},{merge:true});
+}
+function abrirPlantillas(idCaja){
+    const pl=plantillasCaja();
+    const el=idCaja?RED.elementos.find(e=>e.id===idCaja):null;
+    abrirModal('📐 Plantillas de caja', `
+      ${el?`<p class="ayuda" style="margin-bottom:10px">Se aplicará a <b>${esc(el.nombre||'')}</b>,
+             reemplazando sus splitters actuales.</p>`:''}
+      ${pl.length? pl.map((p,i)=>`
+        <div class="viab" ${el?`onclick="aplicarPlantilla('${idCaja}',${i})"`:''}>
+          <div class="cab"><b style="flex:1">${esc(p.nombre)}</b>
+            <span class="dist">${p.splitters.reduce((s,x)=>s+(x.uso==='red'?0:salidasDe(x)),0)} puerto(s)</span></div>
+          <p class="ayuda" style="margin:0">${p.splitters.map(x=>
+            `<span style="display:inline-block;width:9px;height:9px;border-radius:2px;vertical-align:-1px;
+             border:1px solid rgba(0,0,0,.5);background:${x.uso==='red'?'#8a8f98':'#f1f3f5'}"></span> ${esc(x.tipo)}`).join(' + ')}</p>
+          ${!el?`<button class="btn btn-sm btn-out" style="margin-top:6px"
+                  onclick="event.stopPropagation();borrarPlantilla(${i})">🗑️ Borrar</button>`:''}
+        </div>`).join('')
+      : '<div class="vacio" style="padding:20px">Todavía no hay ninguna.<br>Arma los splitters en una caja y guárdalos como plantilla.</div>'}
+      ${el?'':`<p class="ayuda">Para crear una: abre una caja, ponle sus splitters y usa
+        <b>Guardar como plantilla</b>.</p>`}`,
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cerrar</button>`);
+}
+async function aplicarPlantilla(idCaja,i){
+    const el=RED.elementos.find(e=>e.id===idCaja), p=plantillasCaja()[i];
+    if(!el||!p) return;
+    const usados=Object.keys(el.puertos||{}).length;
+    const nuevaCap=p.splitters.reduce((s,x)=>s+(x.uso==='red'?0:salidasDe(x)),0);
+    if(usados>nuevaCap && !confirm(`⚠️ La plantilla deja ${nuevaCap} puertos, pero la caja tiene `
+        +`${usados} clientes conectados.\n\n¿Aplicar de todas formas?`)) return;
+    const antes=el.splitters;
+    el.splitters=JSON.parse(JSON.stringify(p.splitters));
+    cerrarModal();
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){ el.splitters=antes; ocultarCarga(); return alert('No se pudo guardar.'); }
+    ocultarCarga(); dibujar(); pintarPanel(el);
+}
+function crearPlantilla(idCaja){
+    const el=RED.elementos.find(e=>e.id===idCaja);
+    if(!el||!(el.splitters||[]).length) return alert('Esta caja no tiene splitters que guardar.');
+    window._plCaja=idCaja;
+    abrirModal('📐 Guardar como plantilla', `
+      <label>Nombre de la plantilla</label>
+      <input id="pl_nombre" placeholder="NAP 1x16 estándar" autocomplete="off"
+             value="${esc(el.subtipo||'')}">
+      <p class="ayuda">Se guardará esta configuración:</p>
+      ${el.splitters.map(x=>`<div class="dato"><b>${esc(x.tipo)}</b>
+        <span>${x.uso==='red'?'de red':'de atención'}${x.ratio?' · '+esc(x.ratio):''}</span></div>`).join('')}
+      <p class="ayuda">Después la aplicas a cualquier otra caja con dos clics, en vez de armar
+         los splitters uno por uno.</p>`,
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cancelar</button>
+       <button class="btn btn-sm btn-primary" style="width:auto" onclick="confirmarPlantilla()">Guardar</button>`);
+}
+async function confirmarPlantilla(){
+    const el=RED.elementos.find(e=>e.id===window._plCaja); if(!el) return cerrarModal();
+    const n=val('pl_nombre'); if(!n) return alert('Ponle un nombre.');
+    const lista=plantillasCaja().slice();
+    lista.push({nombre:n, splitters:JSON.parse(JSON.stringify(el.splitters)),
+                creadaPor:(USER&&USER.nombre)||'', en:Date.now()});
+    cerrarModal(); mostrarCarga('Guardando…');
+    try{ await guardarPlantillas(lista); }
+    catch(e){ ocultarCarga(); return alert('No se pudo guardar la plantilla.'); }
+    ocultarCarga(); alert('✅ Plantilla guardada. Ya la puedes aplicar a otras cajas.');
+}
+async function borrarPlantilla(i){
+    const lista=plantillasCaja().slice();
+    if(!confirm('¿Borrar la plantilla "'+(lista[i]||{}).nombre+'"?')) return;
+    lista.splice(i,1);
+    await guardarPlantillas(lista);
+    abrirPlantillas();
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   BUSCADOR DE UBICACIÓN
+   Para llegar a un punto que alguien pasa por teléfono o WhatsApp.
+   ════════════════════════════════════════════════════════════════════ */
+function abrirBuscarLugar(){
+    abrirModal('📍 Ir a una ubicación', `
+      <label>Pega la coordenada o el enlace</label>
+      <input id="bl_txt" placeholder="1.6179, -75.6082  ·  o el enlace de Google Maps" autocomplete="off"
+             onkeydown="if(event.key==='Enter')irALugar()">
+      <p class="ayuda">Sirve el enlace de Google Maps tal cual, la coordenada separada por coma,
+         o grados minutos segundos. Es lo que manda un vendedor desde el celular.</p>`,
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cancelar</button>
+       <button class="btn btn-sm btn-primary" style="width:auto" onclick="irALugar()">Ir</button>`);
+    setTimeout(()=>{const i=document.getElementById('bl_txt'); if(i) i.focus();},60);
+}
+function irALugar(){
+    const c=coordDeTexto(val('bl_txt'));
+    if(!c) return alert('No pude leer esa ubicación.\n\nPrueba con "1.6179, -75.6082" o pegando el enlace de Google Maps.');
+    cerrarModal();
+    mapa.setView(c,18);
+    limpiarTemporal();
+    temp=L.layerGroup().addTo(mapa);
+    L.circleMarker(c,{radius:9,color:'#fff',weight:2,fillColor:'#0ea5e9',fillOpacity:1}).addTo(temp);
+    L.circle(c,{radius:DROP_MAX,color:'#0ea5e9',weight:1,dashArray:'5,6',fill:false}).addTo(temp);
+    // Y de una se responde lo que casi siempre se quiere saber
+    verViabilidad(c);
+    MODO='viabilidad';
+    BOTONES.forEach(([id,btn])=>{const b=document.getElementById(btn); if(b) b.classList.toggle('on',id==='viabilidad');});
 }
 
 /* ════════════════════════════════════════════════════════════════════
