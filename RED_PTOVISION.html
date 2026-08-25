@@ -315,7 +315,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
    la cambia aqui.
    ════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION_RED = 13;
+const APP_VERSION_RED = 14;
 
 const firebaseConfig = {
     apiKey: "AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w",
@@ -2928,16 +2928,35 @@ async function borrarElemento(id){
    sus buffers e hilos en color, los splitters, y de que puerto sale
    cada cliente. Dibujado en SVG para que se pueda leer e imprimir.
    ════════════════════════════════════════════════════════════════════ */
+/* Tres formas de mirar las fibras, como en el Box Editor de OZmap:
+     · NÚMEROS: relleno = tiene señal, hueco = no llega nada
+     · SEÑAL:   flecha si pasa, corte si se pierde
+     · COLOR:   solo el codigo de colores, sin estado                    */
+var vistaFibra='numeros';
 function abrirDiagrama(id){
     const el=RED.elementos.find(e=>e.id===id); if(!el) return;
+    window._diagAbierto=id;
+    const vistas=[['numeros','🔢 Números'],['senal','➡️ Señal'],['color','🎨 Color']];
     abrirModal('📊 Interior de '+esc(el.nombre||'la caja'),
-        `<div style="overflow:auto;background:#0b1220;border:1px solid var(--border);border-radius:10px;padding:8px">
+        `<div style="display:flex;gap:5px;margin-bottom:9px">
+           ${vistas.map(([v,t])=>`<button class="btn btn-sm ${vistaFibra===v?'btn-primary':'btn-out'}"
+             style="width:auto;flex:1" onclick="vistaFibra='${v}';abrirDiagrama('${el.id}')">${t}</button>`).join('')}
+         </div>
+         <div style="overflow:auto;background:#0b1220;border:1px solid var(--border);border-radius:10px;padding:8px">
            ${diagramaSVG(el)}
          </div>
-         <p class="ayuda" style="margin-top:10px">Los colores son los de la norma: cada hilo y cada
-            buffer llevan el suyo. Pasa el cursor por un hilo para ver su número.</p>`,
-        `<button class="btn btn-sm btn-out" onclick="descargarDiagrama('${el.id}')">🖼️ Descargar</button>
+         <p class="ayuda" style="margin-top:10px">${
+           vistaFibra==='numeros'?'Relleno = ese hilo tiene señal · hueco = no llega nada. La señal se deduce de las fusiones anotadas.'
+          :vistaFibra==='senal'?'La flecha marca por dónde sigue la señal; el corte, dónde se pierde.'
+          :'Solo el código de colores de la norma, sin estado.'}
+            Pasa el cursor por un hilo para ver su número.</p>`,
+        `<button class="btn btn-sm btn-out" onclick="abrirFusiones('${el.id}')">🔗 Fusiones</button>
+         <button class="btn btn-sm btn-out" onclick="descargarDiagrama('${el.id}')">🖼️ Descargar</button>
          <button class="btn btn-sm btn-out" onclick="cerrarModal()">Cerrar</button>`);
+}
+// Un hilo "tiene señal" si esta empalmado con algo dentro de la caja.
+function hiloConSenal(el, cableId, n){
+    return (el.fusiones||[]).some(f=>f.a===cableId+'|'+n || f.b===cableId+'|'+n);
 }
 
 function diagramaSVG(el){
@@ -2975,11 +2994,24 @@ function diagramaSVG(el){
                  fill="${buf.c.hex}" stroke="#000" stroke-opacity=".35"/>`;
             s+=`<title>Buffer ${buf.buffer} · ${buf.c.n}</title>`;
             buf.hilos.forEach(h=>{
-                s+=`<g><title>Hilo ${h.n} · buffer ${buf.buffer} (${buf.c.n}) · hilo ${h.dentro} (${h.c.n})</title>`
-                 + `<rect x="${margen+18}" y="${yy}" width="26" height="${filaH-4}" rx="2" fill="${h.c.hex}"`
-                 + ` stroke="#000" stroke-opacity=".3"/>`
-                 + `<text x="${margen+50}" y="${yy+filaH-7}" fill="#94a3b8" font-size="8.5">${h.n}</text></g>`;
-                anclas.push({x:margen+250, y:yy+(filaH-4)/2, color:h.c.hex, hilo:h.n});
+                const luz=hiloConSenal(el, cb.id, h.n);
+                s+=`<g><title>Hilo ${h.n} · buffer ${buf.buffer} (${buf.c.n}) · hilo ${h.dentro} (${h.c.n})`
+                 + `${vistaFibra!=='color'?(luz?' · con señal':' · sin señal'):''}</title>`;
+                // El cuadro del hilo: relleno si lleva señal, hueco si no
+                const hueco = vistaFibra==='numeros' && !luz;
+                s+=`<rect x="${margen+18}" y="${yy}" width="26" height="${filaH-4}" rx="2"`
+                 + ` fill="${hueco?'none':h.c.hex}" stroke="${h.c.hex}" stroke-width="${hueco?1.5:0.6}"`
+                 + ` stroke-opacity="${hueco?1:.45}"/>`;
+                s+=`<text x="${margen+50}" y="${yy+filaH-7}" fill="${luz?'#e6edf6':'#64748b'}" font-size="8.5">${h.n}</text>`;
+                // Vista de señal: flecha si pasa, corte si no
+                if(vistaFibra==='senal'){
+                    if(luz) s+=`<path d="M${margen+62} ${yy+(filaH-4)/2} l7 0 m-2.5 -2.5 l2.5 2.5 l-2.5 2.5"
+                                 stroke="#10b981" stroke-width="1.3" fill="none"/>`;
+                    else    s+=`<path d="M${margen+63} ${yy+1} l5 ${filaH-6} M${margen+68} ${yy+1} l-5 ${filaH-6}"
+                                 stroke="#ef4444" stroke-width="1.2"/>`;
+                }
+                s+='</g>';
+                anclas.push({x:margen+250, y:yy+(filaH-4)/2, color:h.c.hex, hilo:h.n, luz});
                 yy+=filaH;
             });
         });
