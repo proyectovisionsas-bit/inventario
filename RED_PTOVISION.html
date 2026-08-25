@@ -264,7 +264,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
    la cambia aqui.
    ════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION_RED = 7;
+const APP_VERSION_RED = 8;
 
 const firebaseConfig = {
     apiKey: "AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w",
@@ -352,6 +352,9 @@ async function cambiarSede(id){
     mostrarCarga('Cargando la red de '+(SEDE?SEDE.nombre:'')+'…');
     window._yaEncuadrado=false;   // al cambiar de sede el mapa vuelve a centrarse
     RED=await cargarRed(id);
+    // Las conexiones cable↔caja se recalculan al abrir, no se guardan: son
+    // geometria pura y asi no se quedan viejas si alguien mueve una caja.
+    try{ if(RED.elementos.length) enlazarCables(RED.elementos); }catch(e){ console.warn('enlazarCables',e); }
     // OJO: crearMapa es asincrono (carga Leaflet). Sin await, dibujar() corria
     // antes de que existiera el mapa, se salia por su guarda y la sede se veia
     // VACIA aunque los datos estuvieran bien guardados. Al importar si se veia,
@@ -499,6 +502,8 @@ async function importarKML(archivo){
 
         mostrarCarga('Deduciendo qué cliente cuelga de qué caja…');
         enlazarTopologia(nuevos);
+        mostrarCarga('Deduciendo por dónde va cada cable…');
+        enlazarCables(nuevos);
 
         // Fusion con lo que ya hay. La llave NO puede ser solo tipo + nombre:
         //  · las 940 reservas se llaman todas "20m" o "30m" → con esa llave
@@ -928,6 +933,77 @@ function avisarZoom(){
     if(fondoSat && z>18) a.textContent='🔍 Imagen ampliada — el satélite gratuito llega hasta aquí';
 }
 
+/* ════════════════════════════════════════════════════════════════════
+   CÓDIGO DE COLORES DE LA FIBRA (norma EIA/TIA-598)
+   ────────────────────────────────────────────────────────────────────
+   Los doce colores se repiten en el mismo orden dentro de cada buffer,
+   y los buffers usan la MISMA secuencia: buffer 1 azul, 2 naranja, 3
+   verde, y asi.
+   Cuantos hilos van por buffer sale del propio cable, NO son siempre 12:
+   un 48H 6B son 6 tubos de 8, y un 48H 4B son 4 tubos de 12. Los dos
+   existen y en el archivo real conviven.
+   Ejemplo comprobado con TRONCAL Z1-B (48H 6B): el hilo 27 cae en el
+   buffer 4 (café) y es el hilo 3 dentro de el (verde).
+   ════════════════════════════════════════════════════════════════════ */
+const COLORES_FIBRA=[
+    {n:'Azul',       hex:'#0d6efd', txt:'#fff'},
+    {n:'Naranja',    hex:'#fd7e14', txt:'#000'},
+    {n:'Verde',      hex:'#198754', txt:'#fff'},
+    {n:'Café',       hex:'#8b4513', txt:'#fff'},
+    {n:'Gris',       hex:'#8a8f98', txt:'#000'},
+    {n:'Blanco',     hex:'#f1f3f5', txt:'#000'},
+    {n:'Rojo',       hex:'#dc3545', txt:'#fff'},
+    {n:'Negro',      hex:'#212529', txt:'#fff'},
+    {n:'Amarillo',   hex:'#ffc107', txt:'#000'},
+    {n:'Violeta',    hex:'#8b00ff', txt:'#fff'},
+    {n:'Rosa',       hex:'#ff69b4', txt:'#000'},
+    {n:'Aguamarina', hex:'#40e0d0', txt:'#000'}
+];
+const colorN=i=>COLORES_FIBRA[((i-1)%12+12)%12];
+
+// Reparte los hilos de un cable en sus buffers, con el color de cada uno.
+function mapaFibra(cable){
+    const hilos=cable.hilos||0;
+    if(!hilos) return null;
+    let bufs=cable.buffers||Math.ceil(hilos/12);
+    const porBuf=Math.ceil(hilos/bufs);
+    const out=[];
+    for(let b=1;b<=bufs;b++){
+        const desde=(b-1)*porBuf+1, hasta=Math.min(hilos,b*porBuf);
+        if(desde>hilos) break;
+        const lista=[];
+        for(let h=desde;h<=hasta;h++) lista.push({n:h, dentro:h-desde+1, c:colorN(h-desde+1)});
+        out.push({buffer:b, c:colorN(b), hilos:lista});
+    }
+    return out;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   CONEXIONES ENTRE ELEMENTOS
+   Los cables NO traen en el KML a que caja llegan, pero sus extremos
+   caen justo encima de ellas: medido, 471 de 472 cables tienen caja en
+   LOS DOS extremos. De ahi sale la cadena completa POP → mufla → caja
+   de primer nivel → caja de segundo nivel → cliente.
+   ════════════════════════════════════════════════════════════════════ */
+function enlazarCables(els){
+    const cajas=els.filter(e=>e.tipo==='caja');
+    if(!cajas.length) return;
+    const cerca=(p)=>{ let e=null,d=1e9;
+        cajas.forEach(x=>{ const q=metros(p,x.g[0]); if(q<d){d=q;e=x;} }); return {el:e,d}; };
+    cajas.forEach(c=>{ c.cables=[]; });
+    els.filter(e=>e.tipo==='cable'&&e.clase!=='drop').forEach(cb=>{
+        const a=cerca(cb.g[0]), b=cerca(cb.g[cb.g.length-1]);
+        cb.cajaA = a.d<30 ? a.el.nombre : '';
+        cb.cajaB = b.d<30 ? b.el.nombre : '';
+        cb.cajaAId = a.d<30 ? a.el.id : '';
+        cb.cajaBId = b.d<30 ? b.el.id : '';
+        if(a.d<30) a.el.cables.push({id:cb.id, nombre:cb.nombre, hacia:cb.cajaB, sub:cb.subtipo,
+                                     hilos:cb.hilos, buffers:cb.buffers, clase:cb.clase, extremo:'A'});
+        if(b.d<30 && b.el!==a.el) b.el.cables.push({id:cb.id, nombre:cb.nombre, hacia:cb.cajaA, sub:cb.subtipo,
+                                     hilos:cb.hilos, buffers:cb.buffers, clase:cb.clase, extremo:'B'});
+    });
+}
+
 /* El color de una caja dice si SIRVE PARA VENDER, que es lo unico que se
    quiere ver de un vistazo cuando se mira el mapa:
      verde  = queda espacio de sobra   ambar = va quedando poco
@@ -1233,6 +1309,18 @@ function fichaHTML(el){
             <div class="kpi" style="flex:1;text-align:center"><div class="v">${cap||'?'}</div><div class="e">Capacidad</div></div>
           </div>
           <div class="dato"><b>Estado de la caja</b><span style="color:${s.color};font-weight:700">${s.et}</span></div>
+          <button class="btn btn-sm btn-out" style="width:100%;margin-top:10px"
+                  onclick="abrirDiagrama('${el.id}')">📊 Ver el interior</button>
+          ${(el.cables||[]).length?`
+            <div class="sec" style="margin-top:14px">Cables que llegan</div>
+            ${el.cables.map(c=>`<div class="dato" style="cursor:pointer" onclick="irA('${c.id}')">
+               <b style="color:var(--text)">
+                 <span style="display:inline-block;width:13px;height:3px;border-radius:2px;
+                       background:${(TIPOS[c.clase]||{}).color||'#888'};vertical-align:3px"></span>
+                 ${esc((c.nombre||'').slice(0,24))}</b>
+               <span style="font-size:.72rem">${c.hilos||'?'}H · hacia ${esc((c.hacia||'—').slice(0,16))}</span>
+             </div>`).join('')}`
+           :'<p class="ayuda" style="margin-top:10px">No hay cables enlazados. Reimporta el KML para que se deduzcan.</p>'}
           <div class="sec" style="margin-top:14px">Splitters</div>
           ${(el.splitters||[]).length
             ? el.splitters.map((sp,i)=>`<div class="dato">
@@ -1253,13 +1341,33 @@ function fichaHTML(el){
                 <div class="dato"><b style="color:var(--text)">Pto ${n}</b>
                   <span>${esc(el.puertos[n].cliente||'—')}</span></div>`).join('')}`:''}`:''}`;
     } else if(el.tipo==='cable'){
+        const mapa=mapaFibra(el);
         cuerpo=`
           <div class="dato"><b>Hilos</b><span>${el.hilos||'—'}</span></div>
           <div class="dato"><b>Buffers</b><span>${el.buffers||'—'}</span></div>
           <div class="dato"><b>Longitud</b><span>${el.metros?el.metros+' m':'—'}</span></div>
-          <div class="dato"><b>Vértices</b><span>${el.g.length}</span></div>
+          ${el.cajaA||el.cajaB?`<div class="dato"><b>Conecta</b>
+            <span style="font-size:.74rem">${esc(el.cajaA||'?')} ↔ ${esc(el.cajaB||'?')}</span></div>`:''}
           ${el.cliente?`<div class="dato"><b>Cliente</b><span>${esc(el.cliente)}</span></div>`:''}
-          ${el.caja?`<div class="dato"><b>Va a</b><span>${esc(el.caja)}</span></div>`:''}`;
+          ${mapa?`
+            <div class="sec" style="margin-top:14px">Fibras <span style="font-weight:400;text-transform:none">— código de colores</span></div>
+            ${mapa.map(b=>`
+              <div style="margin-bottom:9px">
+                <div style="display:flex;align-items:center;gap:7px;margin-bottom:4px">
+                  <span style="width:16px;height:11px;border-radius:2px;background:${b.c.hex};
+                        border:1px solid rgba(0,0,0,.4)"></span>
+                  <b style="font-size:.76rem">Buffer ${b.buffer} · ${b.c.n}</b>
+                  <span class="cuenta">${b.hilos.length} hilos</span>
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:3px;padding-left:23px">
+                  ${b.hilos.map(h=>`<span title="Hilo ${h.n} · ${h.c.n}"
+                     style="width:19px;height:19px;border-radius:3px;background:${h.c.hex};color:${h.c.txt};
+                     font-size:.6rem;font-weight:700;display:flex;align-items:center;justify-content:center;
+                     border:1px solid rgba(0,0,0,.35);cursor:default">${h.dentro}</span>`).join('')}
+                </div>
+              </div>`).join('')}
+            <p class="ayuda">Norma EIA/TIA-598. El número dentro es el hilo dentro de su buffer;
+               pasa el cursor para ver el número absoluto.</p>`:''}`;
     } else if(el.tipo==='cliente'){
         cuerpo=`
           ${el.nombreReal?`<div class="dato"><b>Cliente</b><span>${esc(el.nombreReal)}</span></div>`:''}
@@ -1877,6 +1985,120 @@ async function borrarElemento(id){
     catch(e){ RED.elementos.splice(i,0,el); ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e)); }
     ocultarCarga();
     dibujar(); pintarPanel();
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   DIAGRAMA INTERNO DE LA CAJA
+   ────────────────────────────────────────────────────────────────────
+   Lo que se ve al abrir una caja de verdad: los cables que entran con
+   sus buffers e hilos en color, los splitters, y de que puerto sale
+   cada cliente. Dibujado en SVG para que se pueda leer e imprimir.
+   ════════════════════════════════════════════════════════════════════ */
+function abrirDiagrama(id){
+    const el=RED.elementos.find(e=>e.id===id); if(!el) return;
+    abrirModal('📊 Interior de '+esc(el.nombre||'la caja'),
+        `<div style="overflow:auto;background:#0b1220;border:1px solid var(--border);border-radius:10px;padding:8px">
+           ${diagramaSVG(el)}
+         </div>
+         <p class="ayuda" style="margin-top:10px">Los colores son los de la norma: cada hilo y cada
+            buffer llevan el suyo. Pasa el cursor por un hilo para ver su número.</p>`,
+        `<button class="btn btn-sm btn-out" onclick="descargarDiagrama('${el.id}')">🖼️ Descargar</button>
+         <button class="btn btn-sm btn-out" onclick="cerrarModal()">Cerrar</button>`);
+}
+
+function diagramaSVG(el){
+    const cables=el.cables||[];
+    const sps=el.splitters||[];
+    const cap=capacidadCaja(el);
+    const puertos=el.puertos||{};
+    const filaH=16, margen=14;
+    // Altura: lo que mas ocupe entre cables y puertos
+    const altoCables=cables.reduce((s,c)=>s+((c.hilos||1)*filaH+34),0)+20;
+    const altoPtos=Math.max(cap*20+40, sps.length*70+40);
+    const H=Math.max(altoCables, altoPtos, 220);
+    const W=760;
+    let s=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg"
+             style="font-family:Segoe UI,sans-serif">`;
+    s+=`<rect x="0" y="0" width="${W}" height="${H}" fill="#0b1220"/>`;
+
+    // ── Izquierda: los cables que llegan, con sus buffers e hilos ──
+    let y=margen;
+    const anclas=[];
+    if(!cables.length){
+        s+=`<text x="${margen}" y="40" fill="#94a3b8" font-size="12">No hay cables enlazados a esta caja.</text>`;
+        s+=`<text x="${margen}" y="58" fill="#64748b" font-size="10.5">Se deducen del KML: los extremos del cable deben caer sobre la caja.</text>`;
+    }
+    cables.forEach(cb=>{
+        const mapa=mapaFibra(cb);
+        const alto=(cb.hilos||1)*filaH+22;
+        s+=`<rect x="${margen}" y="${y}" width="250" height="${alto}" rx="6" fill="#131c2e" stroke="#243044"/>`;
+        s+=`<text x="${margen+8}" y="${y+15}" fill="#e6edf6" font-size="11" font-weight="700">${esc((cb.nombre||'').slice(0,30))}</text>`;
+        s+=`<text x="${margen+8}" y="${y+28}" fill="#94a3b8" font-size="9.5">${esc(cb.sub||'')} · hacia ${esc(cb.hacia||'—')}</text>`;
+        let yy=y+36;
+        if(mapa) mapa.forEach(buf=>{
+            // La barra del buffer, en su color
+            s+=`<rect x="${margen+6}" y="${yy-2}" width="7" height="${buf.hilos.length*filaH}" rx="2"
+                 fill="${buf.c.hex}" stroke="#000" stroke-opacity=".35"/>`;
+            s+=`<title>Buffer ${buf.buffer} · ${buf.c.n}</title>`;
+            buf.hilos.forEach(h=>{
+                s+=`<g><title>Hilo ${h.n} · buffer ${buf.buffer} (${buf.c.n}) · hilo ${h.dentro} (${h.c.n})</title>`
+                 + `<rect x="${margen+18}" y="${yy}" width="26" height="${filaH-4}" rx="2" fill="${h.c.hex}"`
+                 + ` stroke="#000" stroke-opacity=".3"/>`
+                 + `<text x="${margen+50}" y="${yy+filaH-7}" fill="#94a3b8" font-size="8.5">${h.n}</text></g>`;
+                anclas.push({x:margen+250, y:yy+(filaH-4)/2, color:h.c.hex, hilo:h.n});
+                yy+=filaH;
+            });
+        });
+        y+=alto+12;
+    });
+
+    // ── Centro: los splitters ──
+    const cx=340;
+    let sy=margen+20;
+    sps.forEach((sp,i)=>{
+        const salidas=parseInt(String(sp.tipo).split(/[xX]/)[1],10)||0;
+        s+=`<g><title>Splitter ${sp.tipo}${sp.ratio?' · '+sp.ratio:' · balanceado'}</title>`;
+        s+=`<polygon points="${cx},${sy} ${cx},${sy+44} ${cx+52},${sy+22}" fill="#1a2740" stroke="#0ea5e9" stroke-width="1.5"/>`;
+        s+=`<text x="${cx+26}" y="${sy+26}" fill="#7dd3fc" font-size="10" font-weight="700" text-anchor="middle">${esc(sp.tipo)}</text>`;
+        s+=`<text x="${cx+26}" y="${sy+58}" fill="#94a3b8" font-size="8.5" text-anchor="middle">${esc(sp.ratio||'balanceado')}</text>`;
+        s+='</g>';
+        // Entrada del splitter desde los cables
+        if(anclas.length) s+=`<path d="M${anclas[0].x} ${anclas[0].y} C ${cx-40} ${anclas[0].y}, ${cx-40} ${sy+22}, ${cx} ${sy+22}"
+                               stroke="#0ea5e9" stroke-width="1.5" fill="none" opacity=".8"/>`;
+        sy+=76;
+    });
+    if(!sps.length){
+        s+=`<text x="${cx}" y="${margen+40}" fill="#f59e0b" font-size="11">Sin splitters</text>`;
+        s+=`<text x="${cx}" y="${margen+56}" fill="#64748b" font-size="9.5">No se sabe su capacidad</text>`;
+    }
+
+    // ── Derecha: los puertos y quién está en cada uno ──
+    const px=470;
+    if(cap){
+        s+=`<text x="${px}" y="${margen+2}" fill="#94a3b8" font-size="10" font-weight="700">PUERTOS</text>`;
+        for(let n=1;n<=cap;n++){
+            const yy=margen+10+(n-1)*20, o=puertos[n];
+            const col=o?'#ef4444':'#10b981';
+            s+=`<g><title>Puerto ${n}${o?' · '+(o.cliente||''):' · libre'}</title>`;
+            s+=`<path d="M${cx+56} ${margen+22+(sps.length?0:0)} C ${px-40} ${yy+7}, ${px-40} ${yy+7}, ${px} ${yy+7}"
+                 stroke="${col}" stroke-width="1.2" fill="none" opacity=".55"/>`;
+            s+=`<rect x="${px}" y="${yy}" width="16" height="14" rx="3" fill="${col}" opacity=".85"/>`;
+            s+=`<text x="${px+7.5}" y="${yy+11}" fill="#04121f" font-size="8.5" font-weight="700" text-anchor="middle">${n}</text>`;
+            s+=`<text x="${px+24}" y="${yy+11}" fill="${o?'#e6edf6':'#64748b'}" font-size="9.5">`
+             + `${esc(o?(o.cliente||'ocupado').slice(0,34):'libre')}</text></g>`;
+        }
+    }
+    s+='</svg>';
+    return s;
+}
+
+function descargarDiagrama(id){
+    const el=RED.elementos.find(e=>e.id===id); if(!el) return;
+    const svg=diagramaSVG(el);
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'}));
+    a.download=`Caja_${(el.nombre||'').replace(/[^\w.-]+/g,'_')}.svg`;
+    a.click();
 }
 
 /* ════════════════════════════════════════════════════════════════════
