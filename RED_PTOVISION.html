@@ -315,7 +315,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
    la cambia aqui.
    ════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION_RED = 12;
+const APP_VERSION_RED = 13;
 
 const firebaseConfig = {
     apiKey: "AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w",
@@ -1589,12 +1589,38 @@ function grupoCapas(n,on){
 }
 function verPanel(){ pintarPanel(); }
 
+/* CAPACIDAD = SOLO las salidas que pueden atender CLIENTES.
+   OZmap distingue dos usos y es una diferencia de fondo, no cosmetica:
+     · splitter de ATENCION (blanco): de sus salidas cuelgan clientes
+     · splitter de RED (gris): sus salidas alimentan OTRAS cajas
+   Contar las de red como puertos disponibles infla el cupo y lleva a
+   prometer instalaciones donde no caben. Por defecto se asume atencion,
+   que es lo que trae el KML importado; lo de red se marca a mano. */
+/* OZmap escribe los splitters de dos formas y hay que distinguirlas:
+     · BALANCEADO por puertos: "1x16" o "01/04" = 1 entrada, 4 salidas
+     · DESBALANCEADO por potencia: "80/20", "55/45" = DOS salidas, y los
+       numeros son el reparto de la luz, que siempre suma 100.
+   Confundirlos hace que un 01/04 cuente 2 puertos en vez de 4. */
+function salidasDe(sp){
+    const t=String(sp.tipo||'').trim();
+    const x=t.match(/(\d+)\s*[xX]\s*(\d+)/);
+    if(x) return +x[2];
+    const b=t.match(/^(\d+)\s*\/\s*(\d+)$/);
+    if(b){
+        const a=+b[1], c=+b[2];
+        if(a+c===100) return 2;      // reparto de potencia
+        return c;                    // entradas / salidas
+    }
+    return 0;
+}
+function esDeRed(sp){ return sp && sp.uso==='red'; }
 function capacidadCaja(c){
     if(!c.splitters||!c.splitters.length) return 0;
-    return c.splitters.reduce((s,sp)=>{
-        const m=String(sp.tipo||'').match(/(\d+)\s*[xX]\s*(\d+)/);
-        return s+(m?+m[2]:0);
-    },0);
+    return c.splitters.reduce((s,sp)=>s+(esDeRed(sp)?0:salidasDe(sp)),0);
+}
+function capacidadRed(c){
+    if(!c.splitters||!c.splitters.length) return 0;
+    return c.splitters.reduce((s,sp)=>s+(esDeRed(sp)?salidasDe(sp):0),0);
 }
 
 function buscar(q){
@@ -1817,10 +1843,21 @@ function fichaHTML(el){
           <div class="sec" style="margin-top:14px">Splitters</div>
           ${(el.splitters||[]).length
             ? el.splitters.map((sp,i)=>`<div class="dato">
-                <b style="color:var(--text)">🔀 ${esc(sp.tipo)}${sp.ratio?' · '+esc(sp.ratio):' · balanceado'}
+                <b style="color:var(--text)">
+                  <span title="${esDeRed(sp)?'De red: no admite clientes':'De atención: de aquí cuelgan clientes'}"
+                        style="display:inline-block;width:11px;height:11px;border-radius:2px;vertical-align:-1px;
+                        border:1px solid rgba(0,0,0,.5);background:${esDeRed(sp)?'#8a8f98':'#f1f3f5'}"></span>
+                  ${esc(sp.tipo)}${sp.ratio?' · '+esc(sp.ratio):''}
+                  <i style="font-size:.68rem;color:var(--muted)">${esDeRed(sp)?' red':' atención'}</i>
                   ${sp.deducido?'<i style="font-size:.68rem;color:#f59e0b"> (supuesto)</i>':''}</b>
-                <span><button class="btn btn-sm btn-out" title="Quitar" onclick="quitarSplitter('${el.id}',${i})">✕</button></span></div>
+                <span>
+                  <button class="btn btn-sm btn-out" title="Cambiar entre red y atención"
+                          onclick="cambiarUsoSplitter('${el.id}',${i})">⇄</button>
+                  <button class="btn btn-sm btn-out" title="Quitar" onclick="quitarSplitter('${el.id}',${i})">✕</button>
+                </span></div>
                 ${sp.entrada?`<p class="ayuda">Entra por ${esc(sp.entrada)}</p>`:''}`).join('')
+              +((capacidadRed(el))?`<p class="ayuda">🔗 ${capacidadRed(el)} salida(s) van hacia otras cajas
+                 y por eso no cuentan como puertos disponibles.</p>`:'')
             : '<div class="vacio" style="padding:12px">Sin splitters. Sin ellos no sabemos cuántos clientes caben.</div>'}
           <button class="btn btn-sm btn-out" style="width:100%;margin-top:8px" onclick="agregarSplitter('${el.id}')">➕ Agregar splitter</button>
           ${cap?`<div class="sec" style="margin-top:14px">Puertos <span style="font-weight:400;text-transform:none">— clic para ver quién está</span></div>
@@ -1902,25 +1939,45 @@ function agregarSplitter(id){
         ${SPLITTERS.map(s=>`<div class="opc ${s==='1x8'?'on':''}" data-s="${s}"
            onclick="elegirSplit('${s}')">${s}</div>`).join('')}
       </div>
-      <label style="margin-top:14px">Reparto de potencia</label>
+      <label style="margin-top:14px">¿Para qué es?</label>
+      <div class="rejilla" style="grid-template-columns:1fr 1fr">
+        <div class="opc on" data-u="cliente" onclick="elegirUso('cliente')" style="text-align:left;padding:10px">
+          <span style="display:inline-block;width:11px;height:11px;background:#f1f3f5;border:1px solid #000;
+                border-radius:2px;vertical-align:-1px"></span> <b>Atención</b><br>
+          <span style="font-weight:400;color:var(--muted);font-size:.7rem">De aquí cuelgan clientes</span></div>
+        <div class="opc" data-u="red" onclick="elegirUso('red')" style="text-align:left;padding:10px">
+          <span style="display:inline-block;width:11px;height:11px;background:#8a8f98;border:1px solid #000;
+                border-radius:2px;vertical-align:-1px"></span> <b>Red</b><br>
+          <span style="font-weight:400;color:var(--muted);font-size:.7rem">Alimenta otras cajas</span></div>
+      </div>
+      <p class="ayuda">Las salidas de un splitter <b>de red</b> NO cuentan como puertos disponibles:
+         van hacia otras cajas, no hacia clientes.</p>
+      <label style="margin-top:12px">Reparto de potencia</label>
       <select id="sp_ratio">
         ${RATIOS.map(r=>`<option value="${r}">${r||'Balanceado (por igual)'}</option>`).join('')}
       </select>
       <p class="ayuda">Los desbalanceados (55/45, 70/30) se usan para encadenar cajas:
          una parte sigue de largo y la otra atiende clientes.</p>
+      <label style="margin-top:12px">Salidas</label>
+      <select id="sp_salida"><option value="fusion">Fusionadas</option><option value="conector">Con conector</option></select>
       <label style="margin-top:12px">Entrada <span style="color:var(--muted);font-weight:400">(opcional)</span></label>
       <input id="sp_entrada" placeholder="Cable e hilo del que llega" autocomplete="off">`,
       `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cancelar</button>
        <button class="btn btn-sm btn-primary" style="width:auto" onclick="guardarSplitter()">Agregar</button>`);
-    window._splitTipo='1x8';
+    window._splitTipo='1x8'; window._splitUso='cliente';
 }
 function elegirSplit(s){
     window._splitTipo=s;
-    document.querySelectorAll('.rejilla .opc').forEach(o=>o.classList.toggle('on',o.dataset.s===s));
+    document.querySelectorAll('.rejilla .opc[data-s]').forEach(o=>o.classList.toggle('on',o.dataset.s===s));
+}
+function elegirUso(u){
+    window._splitUso=u;
+    document.querySelectorAll('.rejilla .opc[data-u]').forEach(o=>o.classList.toggle('on',o.dataset.u===u));
 }
 async function guardarSplitter(){
     const el=RED.elementos.find(e=>e.id===window._splitId); if(!el) return cerrarModal();
-    const nuevo={tipo:window._splitTipo, ratio:val('sp_ratio'), entrada:val('sp_entrada')};
+    const nuevo={tipo:window._splitTipo, ratio:val('sp_ratio'), entrada:val('sp_entrada'),
+                 uso:window._splitUso||'cliente', salida:val('sp_salida')||'fusion'};
     cerrarModal();
     // Los deducidos eran una suposicion nuestra: en cuanto alguien dice el
     // splitter de verdad, esa suposicion sobra.
@@ -1931,11 +1988,25 @@ async function guardarSplitter(){
     catch(e){ el.splitters.pop(); ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e)); }
     ocultarCarga(); dibujar(); pintarPanel(el);
 }
+async function cambiarUsoSplitter(id,i){
+    const el=RED.elementos.find(e=>e.id===id); if(!el||!el.splitters||!el.splitters[i]) return;
+    const sp=el.splitters[i], antes=sp.uso;
+    const nuevo=esDeRed(sp)?'cliente':'red';
+    const dif=salidasDe(sp);
+    if(!confirm(`Pasar este ${sp.tipo} de ${esDeRed(sp)?'RED a ATENCIÓN':'ATENCIÓN a RED'}.\n\n`
+        +(nuevo==='red'?`La caja pierde ${dif} puerto(s) disponibles: esas salidas van a otras cajas.`
+                       :`La caja gana ${dif} puerto(s) disponibles para clientes.`)+'\n\n¿Seguro?')) return;
+    sp.uso=nuevo; delete sp.deducido;
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){ sp.uso=antes; ocultarCarga(); return alert('No se pudo guardar.'); }
+    ocultarCarga(); dibujar(); pintarPanel(el);
+}
 async function quitarSplitter(id,i){
     const el=RED.elementos.find(e=>e.id===id); if(!el||!el.splitters) return;
     const s=el.splitters[i];
     const usados=Object.keys(el.puertos||{}).length;
-    const cap=capacidadCaja(el), quedaria=cap-(parseInt(String(s.tipo).split(/[xX]/)[1],10)||0);
+    const cap=capacidadCaja(el), quedaria=cap-(esDeRed(s)?0:salidasDe(s));
     if(usados>quedaria && !confirm(`⚠️ Quitando este ${s.tipo} la caja baja a ${quedaria} puertos, `
         +`pero tiene ${usados} clientes conectados.\n\n¿Seguro?`)) return;
     if(usados<=quedaria && !confirm('¿Quitar el splitter '+s.tipo+'?')) return;
@@ -2190,9 +2261,15 @@ function rutaHastaPOP(caja){
     while(actual && !visto.has(actual.id) && pasos.length<40){
         visto.add(actual.id);
         // La perdida del splitter de ESTA caja
+        // La perdida la mete CUALQUIER splitter que atraviese la señal, sea de
+        // red o de atencion: el splitter parte la luz igual.
         (actual.splitters||[]).forEach(s=>{
-            const n=parseInt(String(s.tipo).split(/[xX]/)[1],10);
+            const n=salidasDe(s);
             if(DB_SPLITTER[n]) dbTotal+=DB_SPLITTER[n];
+            else if(s.ratio){  // desbalanceado: la perdida del lado que sigue de largo
+                const p=parseInt(String(s.ratio).split('/')[0],10);
+                if(p) dbTotal+= -10*Math.log10(p/100) + 0.5;
+            }
         });
         if(actual.clase==='pop'){ pasos.push({caja:actual, fin:true}); break; }
         // El cable que sube: el mas grueso que salga de aqui hacia una caja no visitada
@@ -2913,11 +2990,22 @@ function diagramaSVG(el){
     const cx=340;
     let sy=margen+20;
     sps.forEach((sp,i)=>{
-        const salidas=parseInt(String(sp.tipo).split(/[xX]/)[1],10)||0;
-        s+=`<g><title>Splitter ${sp.tipo}${sp.ratio?' · '+sp.ratio:' · balanceado'}</title>`;
-        s+=`<polygon points="${cx},${sy} ${cx},${sy+44} ${cx+52},${sy+22}" fill="#1a2740" stroke="#0ea5e9" stroke-width="1.5"/>`;
-        s+=`<text x="${cx+26}" y="${sy+26}" fill="#7dd3fc" font-size="10" font-weight="700" text-anchor="middle">${esc(sp.tipo)}</text>`;
-        s+=`<text x="${cx+26}" y="${sy+58}" fill="#94a3b8" font-size="8.5" text-anchor="middle">${esc(sp.ratio||'balanceado')}</text>`;
+        const salidas=salidasDe(sp);
+        const red=esDeRed(sp);
+        // Blanco = atiende clientes, gris = alimenta red. Igual que OZmap.
+        const relleno=red?'#8a8f98':'#f1f3f5', letra=red?'#0b1220':'#0b1220';
+        s+=`<g><title>Splitter ${sp.tipo}${sp.ratio?' · '+sp.ratio:' · balanceado'} · ${red?'de red (no admite clientes)':'de atención'}</title>`;
+        s+=`<polygon points="${cx},${sy} ${cx},${sy+44} ${cx+52},${sy+22}" fill="${relleno}" stroke="#0ea5e9" stroke-width="1.5"/>`;
+        s+=`<text x="${cx+22}" y="${sy+26}" fill="${letra}" font-size="10" font-weight="700" text-anchor="middle">${esc(sp.tipo)}</text>`;
+        s+=`<text x="${cx+26}" y="${sy+58}" fill="#94a3b8" font-size="8.5" text-anchor="middle">${esc(sp.ratio||'balanceado')}${red?' · RED':''}</text>`;
+        // Las salidas: punto si van fusionadas, cuadrito si llevan conector
+        for(let k=0;k<Math.min(salidas,16);k++){
+            const yy=sy+4+k*(36/Math.max(1,Math.min(salidas,16)-1||1));
+            if(sp.salida==='conector')
+                s+=`<rect x="${cx+50}" y="${yy-2}" width="5" height="5" fill="#0ea5e9"/>`;
+            else
+                s+=`<circle cx="${cx+52}" cy="${yy}" r="2.4" fill="#0ea5e9"/>`;
+        }
         s+='</g>';
         // Entrada del splitter desde los cables
         if(anclas.length) s+=`<path d="M${anclas[0].x} ${anclas[0].y} C ${cx-40} ${anclas[0].y}, ${cx-40} ${sy+22}, ${cx} ${sy+22}"
