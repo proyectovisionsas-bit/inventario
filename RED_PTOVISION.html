@@ -240,6 +240,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
     <select id="selSede" class="hidden" style="width:auto;margin:0;padding:6px 10px;font-size:.82rem;" onchange="cambiarSede(this.value)"></select>
     <div class="crece"></div>
     <span class="chip" id="chipTotal">0 elementos</span>
+    <span class="chip" id="chipRed" style="display:none"></span>
     <button class="btn btn-sm btn-out" onclick="cambiarFondo()" id="btnFondo" title="Calles o satélite">🛰️</button>
     <button class="btn btn-sm btn-out" onclick="salir()">Salir</button>
   </div>
@@ -260,6 +261,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
       <div class="lsep"></div>
       <button class="lb" onclick="pedirKML()"    title="Importar KML o Excel">📥</button>
       <button class="lb" onclick="exportarKML()" title="Llevar a Google Earth">🌍</button>
+      <button class="lb" onclick="exportarExcel()" title="Listado a Excel">📊</button>
       <button class="lb" onclick="abrirGuia()"   title="¿Qué es cada cosa?">❓</button>
     </div>
     <div id="mapa">
@@ -295,6 +297,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
 </div>
 
 <input type="file" id="fileKML" accept=".kml,.kmz" class="hidden" onchange="importarKML(this.files[0])">
+<input type="file" id="fileXLS" accept=".xlsx,.xls,.csv" class="hidden" onchange="importarTabla(this.files[0])">
 <div id="cargando"><div class="spin"></div><div id="cargandoTxt" style="color:var(--muted);font-size:.86rem;">Cargando…</div></div>
 
 <script>
@@ -310,7 +313,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
    la cambia aqui.
    ════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION_RED = 9;
+const APP_VERSION_RED = 10;
 
 const firebaseConfig = {
     apiKey: "AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w",
@@ -450,8 +453,57 @@ function buscarAnidados(obj, ruta){
     return null;
 }
 
+/* ════════════════════════════════════════════════════════════════════
+   MODO SIN INTERNET
+   ────────────────────────────────────────────────────────────────────
+   En campo no hay señal justo donde esta la caja. Cada vez que se carga
+   una sede se guarda una copia en el equipo; si al abrir no hay
+   internet, se trabaja con esa copia. Las teselas del mapa que ya se
+   vieron tambien quedan en el cache del navegador.
+   Lo que se edite sin señal se guarda al recuperarla.
+   ════════════════════════════════════════════════════════════════════ */
+function guardarLocal(oficinaId, red){
+    try{
+        localStorage.setItem('red_'+oficinaId, JSON.stringify({
+            elementos:red.elementos.map(aplanar), regiones:red.regiones||[], cuando:Date.now()
+        }));
+    }catch(e){ console.warn('No cupo la copia local:',e.message); }
+}
+function leerLocal(oficinaId){
+    try{
+        const s=localStorage.getItem('red_'+oficinaId); if(!s) return null;
+        const d=JSON.parse(s);
+        return {elementos:(d.elementos||[]).map(desaplanar),
+                regiones:(d.regiones||[]).map(r=>{const c=Object.assign({},r),p=[];
+                    for(let k=0;k+1<(r.g||[]).length;k+=2) p.push([r.g[k],r.g[k+1]]); c.g=p; return c;}),
+                cuando:d.cuando};
+    }catch(e){ return null; }
+}
+var _pendientesGuardar=false;
+function marcarPendiente(){ _pendientesGuardar=true; pintarEstadoRed(); }
+function pintarEstadoRed(){
+    const c=document.getElementById('chipRed'); if(!c) return;
+    if(!navigator.onLine){ c.textContent='📴 Sin internet'; c.style.color='#f59e0b'; c.style.display=''; }
+    else if(_pendientesGuardar){ c.textContent='⏳ Falta guardar'; c.style.color='#f59e0b'; c.style.display=''; }
+    else c.style.display='none';
+}
+window.addEventListener('online', async()=>{
+    pintarEstadoRed();
+    if(_pendientesGuardar && SEDE){
+        try{ await guardarRed(SEDE.id, RED.elementos, RED.regiones);
+             _pendientesGuardar=false; pintarEstadoRed();
+             alert('✅ Volvió el internet y se guardaron los cambios que quedaron pendientes.');
+        }catch(e){ console.warn(e); }
+    }
+});
+window.addEventListener('offline', pintarEstadoRed);
+
 async function cargarRed(oficinaId){
     const out={elementos:[], regiones:[]};
+    if(!navigator.onLine){
+        const l=leerLocal(oficinaId);
+        if(l){ console.log('📴 Sin internet: se abre la copia guardada en este equipo.'); return l; }
+    }
     try{
         const idx=await db.collection(COLECCION).doc('red_index').get();
         const info=(idx.exists?idx.data():{})[oficinaId];
@@ -467,9 +519,57 @@ async function cargarRed(oficinaId){
                 c.g=p; return c;
             });
         }
-    }catch(e){ console.warn('cargarRed',e); }
+    }catch(e){
+        console.warn('cargarRed',e);
+        const l=leerLocal(oficinaId);
+        if(l){ alert('No se pudo leer de la nube. Se abre la copia guardada en este equipo del '
+                    +new Date(l.cuando).toLocaleString('es-CO')+'.'); return l; }
+    }
+    if(out.elementos.length) guardarLocal(oficinaId, out);
     return out;
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   BLOQUEO ENTRE USUARIOS
+   ────────────────────────────────────────────────────────────────────
+   Dos personas editando la misma sede a la vez se pisan: la segunda en
+   guardar borra lo de la primera, porque cada una escribe SU copia
+   entera. Se marca quien esta editando y desde cuando; el candado
+   CADUCA a los 15 minutos para que una pestaña cerrada no deje la sede
+   bloqueada para siempre.
+   ════════════════════════════════════════════════════════════════════ */
+const CANDADO_MS=15*60*1000;
+var _miCandado=null;
+
+async function tomarCandado(oficinaId){
+    try{
+        const ref=db.collection(COLECCION).doc('red_candados');
+        const s=await ref.get();
+        const d=s.exists?s.data():{};
+        const c=d[oficinaId];
+        const mio=(USER&&USER.nombre)||'?';
+        if(c && c.por!==mio && (Date.now()-c.desde)<CANDADO_MS){
+            const min=Math.round((Date.now()-c.desde)/60000);
+            return {ok:false, por:c.por, min};
+        }
+        d[oficinaId]={por:mio, desde:Date.now()};
+        await ref.set(d);
+        _miCandado=oficinaId;
+        return {ok:true};
+    }catch(e){ console.warn('candado',e); return {ok:true}; }  // si falla, no bloquear el trabajo
+}
+async function soltarCandado(){
+    if(!_miCandado) return;
+    try{
+        const ref=db.collection(COLECCION).doc('red_candados');
+        const s=await ref.get(); const d=s.exists?s.data():{};
+        if(d[_miCandado] && d[_miCandado].por===((USER&&USER.nombre)||'?')){ delete d[_miCandado]; await ref.set(d); }
+    }catch(e){}
+    _miCandado=null;
+}
+// Refresca el candado mientras la pestaña siga abierta
+setInterval(()=>{ if(_miCandado&&db) tomarCandado(_miCandado); }, 5*60*1000);
+window.addEventListener('beforeunload',()=>{ if(_miCandado) soltarCandado(); });
 
 async function guardarRed(oficinaId, elementos, regiones){
     // Se parte en fragmentos por PESO, no por cantidad: un cable de 359
@@ -503,6 +603,8 @@ async function guardarRed(oficinaId, elementos, regiones){
     }
     datos[oficinaId]={fragmentos:frags.length, elementos:elementos.length, actualizado:Date.now()};
     await db.collection(COLECCION).doc('red_index').set(datos);
+    guardarLocal(oficinaId, {elementos, regiones:regiones||RED.regiones||[]});
+    _pendientesGuardar=false; pintarEstadoRed();
     return frags.length;
 }
 
@@ -533,7 +635,139 @@ const ORDEN=['drop','terciario','secundario','primario','poste','reserva','clien
    ════════════════════════════════════════════════════════════════════ */
 function pedirKML(){
     if(!SEDE) return alert('Primero elige una sede.');
-    document.getElementById('fileKML').click();
+    abrirModal('📥 Traer datos a '+esc(SEDE.nombre), `
+      <label>¿De dónde?</label>
+      <div class="rejilla" style="grid-template-columns:1fr">
+        <div class="opc on" style="text-align:left;padding:12px" onclick="document.getElementById('fileKML').click();cerrarModal()">
+          <b>🗺️ Archivo KML o KMZ</b><br><span style="font-weight:400;color:var(--muted);font-size:.72rem">
+          Lo que exporta OZmap. Trae recorridos, cajas, postes y clientes de una vez.</span></div>
+        <div class="opc" style="text-align:left;padding:12px" onclick="document.getElementById('fileXLS').click();cerrarModal()">
+          <b>📊 Excel o CSV</b><br><span style="font-weight:400;color:var(--muted);font-size:.72rem">
+          Un listado de postes o cajas con sus coordenadas.</span></div>
+        <div class="opc" style="text-align:left;padding:12px" onclick="cerrarModal();plantillaExcel()">
+          <b>⬇️ Bajar la plantilla</b><br><span style="font-weight:400;color:var(--muted);font-size:.72rem">
+          Para saber qué columnas debe llevar el Excel.</span></div>
+      </div>`,
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cancelar</button>`);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   IMPORTACIÓN MASIVA DESDE EXCEL / CSV
+   ────────────────────────────────────────────────────────────────────
+   Para levantar postes y cajas cuando NO hay KML: se sale a campo con
+   el GPS, se anota en una hoja y se sube. Las columnas se reconocen por
+   su nombre sin importar tildes ni mayusculas, porque nadie escribe la
+   cabecera igual dos veces.
+   ════════════════════════════════════════════════════════════════════ */
+const COLS_EQUIV={
+    nombre:['nombre','name','id','codigo','código','etiqueta'],
+    tipo  :['tipo','type','clase','elemento'],
+    lat   :['lat','latitud','latitude','y'],
+    lon   :['lon','lng','long','longitud','longitude','x'],
+    coord :['coordenadas','coordenada','coords','ubicacion','ubicación','gps'],
+    cap   :['capacidad','puertos','splitter','ports'],
+    estado:['estado','status','fase'],
+    notas :['notas','nota','observacion','observación','comentarios','descripcion','descripción']
+};
+function columnaDe(cab){
+    const n=String(cab||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim();
+    for(const k of Object.keys(COLS_EQUIV)) if(COLS_EQUIV[k].some(v=>n===v||n.startsWith(v))) return k;
+    return null;
+}
+function plantillaExcel(){
+    const filas=[
+        ['nombre','tipo','latitud','longitud','capacidad','estado','notas'],
+        ['Z9-T1-CEP1','nap','1.617930','-75.608226','1x16','Implementado','ejemplo de caja'],
+        ['P0500','poste','1.618100','-75.608500','','Implementado','ejemplo de poste'],
+        ['MUFLA 9','mufla','1.618400','-75.609000','','En construcción','ejemplo de mufla']
+    ];
+    const csv='﻿'+filas.map(f=>f.map(v=>`"${v}"`).join(';')).join('\r\n');
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+    a.download='Plantilla_red_PROYECTOVISION.csv'; a.click();
+    setTimeout(()=>alert('✅ Plantilla lista.\n\nLlénala y súbela desde 📥 → Excel o CSV.\n\n'
+        +'Tipos válidos: nap, cto, mufla, pop, poste, reserva.\n'
+        +'Las coordenadas pueden ir en dos columnas (latitud y longitud) o en una sola\n'
+        +'como "1.6179, -75.6082", o incluso pegando el enlace de Google Maps.'),300);
+}
+
+async function importarTabla(archivo){
+    if(!archivo) return;
+    document.getElementById('fileXLS').value='';
+    mostrarCarga('Leyendo la hoja…');
+    try{
+        let filas;
+        if(/\.csv$/i.test(archivo.name)){
+            const t=await archivo.text();
+            const sep=(t.split('\n')[0].match(/;/g)||[]).length>=(t.split('\n')[0].match(/,/g)||[]).length?';':',';
+            filas=t.split(/\r?\n/).filter(Boolean).map(l=>l.split(sep).map(c=>c.replace(/^"|"$/g,'').trim()));
+        }else{
+            await cargarScript('https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js');
+            const wb=XLSX.read(await archivo.arrayBuffer(),{type:'array'});
+            filas=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''});
+        }
+        if(filas.length<2) throw new Error('La hoja está vacía o solo tiene la cabecera.');
+        const cab=filas[0].map(columnaDe);
+        if(!cab.includes('nombre')) throw new Error('No encontré una columna de NOMBRE. '
+            +'Baja la plantilla desde 📥 para ver las columnas que espera.');
+        if(!cab.includes('lat')&&!cab.includes('coord'))
+            throw new Error('No encontré las coordenadas. Pon columnas "latitud" y "longitud", '
+            +'o una sola "coordenadas".');
+        const nuevos=[], malas=[];
+        filas.slice(1).forEach((f,i)=>{
+            const d={};
+            cab.forEach((k,j)=>{ if(k) d[k]=String(f[j]==null?'':f[j]).trim(); });
+            if(!d.nombre) return;
+            let lat=parseFloat(String(d.lat||'').replace(',','.')),
+                lon=parseFloat(String(d.lon||'').replace(',','.'));
+            if(isNaN(lat)||isNaN(lon)){
+                const c=coordDeTexto(d.coord||'');
+                if(c){ lat=c[0]; lon=c[1]; }
+            }
+            if(isNaN(lat)||isNaN(lon)||Math.abs(lat)>90||Math.abs(lon)>180){
+                malas.push('fila '+(i+2)+': '+d.nombre); return;
+            }
+            const t=(d.tipo||'nap').toLowerCase();
+            const el={id:'e'+Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4),
+                nombre:d.nombre, subtipo:d.cap||'', estado:d.estado||'Implementado',
+                notas:d.notas||'', etiquetas:[], g:[[lat,lon]],
+                creadoEn:Date.now(), creadoPor:(USER&&USER.nombre)||''};
+            if(t==='poste'){ el.tipo='poste'; }
+            else if(t==='reserva'){ el.tipo='reserva'; el.metros=parseFloat(d.cap)||null; el.cable=''; }
+            else { el.tipo='caja'; el.clase=['nap','cto','mufla','pop'].includes(t)?t:'nap';
+                   el.puertos={}; const c=capacidadDe(d.cap); el.splitters=c?[{tipo:'1x'+c,ratio:''}]:[]; }
+            nuevos.push(el);
+        });
+        if(!nuevos.length) throw new Error('No pude leer ninguna fila con coordenadas válidas.');
+        ocultarCarga();
+        if(!confirm(`Se van a agregar ${nuevos.length} elemento(s) a ${SEDE.nombre}.`
+            +(malas.length?`\n\n⚠️ ${malas.length} fila(s) sin coordenada válida se van a saltar:\n`
+              +malas.slice(0,5).join('\n')+(malas.length>5?'\n…':''):'')
+            +'\n\n¿Continuar?')) return;
+        mostrarCarga('Guardando…');
+        RED.elementos.push(...nuevos);
+        enlazarCables(RED.elementos);
+        await guardarRed(SEDE.id, RED.elementos);
+        ocultarCarga(); dibujar();
+        alert(`✅ Listo: ${nuevos.length} elemento(s) agregados.`
+            +(malas.length?`\n${malas.length} fila(s) se saltaron por coordenada inválida.`:''));
+    }catch(e){ ocultarCarga(); alert('❌ No se pudo importar:\n\n'+(e.message||e)); }
+}
+
+// Acepta "1.61,-75.60", grados/min/seg y el enlace de Google Maps, que es
+// como vienen las coordenadas en WispHub.
+function coordDeTexto(s){
+    s=String(s||'');
+    let m=s.match(/query=(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/);
+    if(m) return [parseFloat(m[1]),parseFloat(m[2])];
+    m=s.match(/([NSns])\s*(\d+)°(\d+)'([\d.]+)"?\s*.*?([EWew])\s*(\d+)°(\d+)'([\d.]+)"?/);
+    if(m){ const g=(a,b,c)=>parseFloat(a)+parseFloat(b)/60+parseFloat(c)/3600;
+        let la=g(m[2],m[3],m[4]); if(/[Ss]/.test(m[1])) la=-la;
+        let lo=g(m[6],m[7],m[8]); if(/[Ww]/.test(m[5])) lo=-lo;
+        return [la,lo]; }
+    m=s.match(/(-?\d+[.,]\d+)\s*[,;]\s*(-?\d+[.,]\d+)/);
+    if(m) return [parseFloat(m[1].replace(',','.')), parseFloat(m[2].replace(',','.'))];
+    return null;
 }
 
 async function importarKML(archivo){
@@ -1874,8 +2108,18 @@ const PISTAS={
 const BOTONES=[['ver','h_ver'],['viabilidad','h_viab'],['medir','h_medir'],['editar','h_editar'],
                ['cable','h_cable'],['region','h_region'],['ruta','h_ruta']];
 
-function modo(m){
+async function modo(m){
     if(!SEDE) return alert('Primero elige una sede.');
+    // Solo los modos que ESCRIBEN piden el candado. Mirar, medir y consultar
+    // viabilidad no estorban a nadie.
+    if(['editar','cable','region'].includes(m) && MODO!==m){
+        const c=await tomarCandado(SEDE.id);
+        if(!c.ok){
+            return alert(`🔒 ${c.por} está editando ${SEDE.nombre} desde hace ${c.min} minuto(s).\n\n`
+                +`Si editan los dos a la vez, el último en guardar borra lo del otro.\n\n`
+                +`Espera a que termine, o pídele que cierre la pestaña.`);
+        }
+    }
     limpiarTemporal();
     MODO=m; editando=(m==='editar');
     BOTONES.forEach(([id,btn])=>{
@@ -2621,13 +2865,124 @@ function imprimirEtiqueta(){
     v.document.close(); setTimeout(()=>{ v.focus(); v.print(); },400);
 }
 
+/* El diagrama sale en tres formatos: SVG para editarlo, PNG para mandarlo
+   por WhatsApp y PDF para imprimirlo y llevarlo a campo. */
 function descargarDiagrama(id){
     const el=RED.elementos.find(e=>e.id===id); if(!el) return;
+    window._diagId=id;
+    abrirModal('🖼️ Descargar el diagrama', `
+      <div class="rejilla" style="grid-template-columns:1fr">
+        <div class="opc" style="text-align:left;padding:12px" onclick="bajarDiag('svg')">
+          <b>SVG</b><br><span style="font-weight:400;color:var(--muted);font-size:.72rem">
+          Se puede ampliar sin perder nitidez y editar</span></div>
+        <div class="opc" style="text-align:left;padding:12px" onclick="bajarDiag('png')">
+          <b>PNG</b><br><span style="font-weight:400;color:var(--muted);font-size:.72rem">
+          Imagen para mandar por WhatsApp o pegar en un informe</span></div>
+        <div class="opc" style="text-align:left;padding:12px" onclick="bajarDiag('pdf')">
+          <b>PDF</b><br><span style="font-weight:400;color:var(--muted);font-size:.72rem">
+          Para imprimir y llevarlo a campo</span></div>
+      </div>`,
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cancelar</button>`);
+}
+async function bajarDiag(fmt){
+    const el=RED.elementos.find(e=>e.id===window._diagId); if(!el) return cerrarModal();
+    cerrarModal();
     const svg=diagramaSVG(el);
-    const a=document.createElement('a');
-    a.href=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'}));
-    a.download=`Caja_${(el.nombre||'').replace(/[^\w.-]+/g,'_')}.svg`;
-    a.click();
+    const base=`Caja_${(el.nombre||'').replace(/[^\w.-]+/g,'_')}`;
+    if(fmt==='svg'){
+        const a=document.createElement('a');
+        a.href=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'}));
+        a.download=base+'.svg'; a.click(); return;
+    }
+    mostrarCarga('Generando…');
+    try{
+        const png=await svgAPng(svg);
+        if(fmt==='png'){
+            const a=document.createElement('a'); a.href=png; a.download=base+'.png'; a.click();
+        }else{
+            await cargarScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+            const img=new Image(); img.src=png;
+            await new Promise(r=>{ img.onload=r; });
+            const horiz=img.width>img.height;
+            const pdf=new (window.jspdf.jsPDF)({orientation:horiz?'l':'p', unit:'mm', format:'a4'});
+            const anchoP=horiz?297:210, altoP=horiz?210:297, m=10;
+            const esc=Math.min((anchoP-2*m)/img.width,(altoP-2*m-14)/img.height);
+            pdf.setFontSize(13); pdf.text(el.nombre||'Caja', m, m+5);
+            pdf.setFontSize(8); pdf.setTextColor(120);
+            pdf.text(`${SEDE.nombre} · ${el.subtipo||''} · ${new Date().toLocaleDateString('es-CO')}`, m, m+10);
+            pdf.addImage(png,'PNG',m,m+14,img.width*esc,img.height*esc);
+            pdf.save(base+'.pdf');
+        }
+    }catch(e){ alert('No se pudo generar:\n\n'+(e.message||e)); }
+    ocultarCarga();
+}
+// El SVG se pinta en un lienzo para poder sacarlo como imagen.
+function svgAPng(svg, escala){
+    escala=escala||2;
+    return new Promise((ok,mal)=>{
+        const m=svg.match(/width="(\d+)"\s+height="(\d+)"/);
+        const w=m?+m[1]:800, h=m?+m[2]:600;
+        const img=new Image();
+        img.onload=()=>{
+            const c=document.createElement('canvas');
+            c.width=w*escala; c.height=h*escala;
+            const x=c.getContext('2d');
+            x.fillStyle='#0b1220'; x.fillRect(0,0,c.width,c.height);
+            x.drawImage(img,0,0,c.width,c.height);
+            ok(c.toDataURL('image/png'));
+        };
+        img.onerror=()=>mal(new Error('No se pudo convertir el diagrama a imagen.'));
+        img.src='data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(svg)));
+    });
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   LISTADO DE LA RED A EXCEL
+   ════════════════════════════════════════════════════════════════════ */
+async function exportarExcel(){
+    if(!SEDE||!RED.elementos.length) return alert('No hay red cargada.');
+    mostrarCarga('Armando el archivo…');
+    try{
+        await cargarScript('https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js');
+        const wb=XLSX.utils.book_new();
+        const cab=(f)=>{ const ws=XLSX.utils.aoa_to_sheet(f);
+            if(f.length>1) ws['!autofilter']={ref:'A1:'+XLSX.utils.encode_cell({r:f.length-1,c:f[0].length-1})};
+            return ws; };
+        // Cajas con su ocupacion
+        const cj=[['Nombre','Clase','Tipo','Estado','Capacidad','Ocupados','Reservados','Libres',
+                   'Splitters','Cables que llegan','Latitud','Longitud','Notas']];
+        RED.elementos.filter(e=>e.tipo==='caja').forEach(c=>{
+            const s=estadoCaja(c);
+            cj.push([c.nombre||'', (TIPOS[c.clase]||{}).et||c.clase, c.subtipo||'', c.estado||'',
+                s.cap||'', s.usados, s.bloq||0, s.cap?s.libres:'',
+                (c.splitters||[]).map(x=>x.tipo).join(' + '),
+                (c.cables||[]).map(x=>x.nombre).join(' / '),
+                c.g[0][0], c.g[0][1], c.notas||'']);
+        });
+        XLSX.utils.book_append_sheet(wb, cab(cj), 'Cajas');
+        // Cables con hilos
+        const cb=[['Nombre','Clase','Tipo de fibra','Hilos','Buffers','Metros','De','Hacia','Estado']];
+        RED.elementos.filter(e=>e.tipo==='cable').forEach(c=>cb.push([c.nombre||'',
+            (TIPOS[c.clase]||{}).et||c.clase, c.subtipo||'', c.hilos||'', c.buffers||'',
+            c.metros||'', c.cajaA||'', c.cajaB||'', c.estado||'']));
+        XLSX.utils.book_append_sheet(wb, cab(cb), 'Cables');
+        // Clientes conectados
+        const cl=[['Cliente','Servicio','Caja','Puerto','Conectado','Por']];
+        RED.elementos.filter(e=>e.tipo==='caja').forEach(c=>{
+            Object.keys(c.puertos||{}).forEach(n=>{ const o=c.puertos[n];
+                cl.push([o.cliente||'', o.servicio||'', c.nombre||'', +n,
+                    o.conectadoEn?new Date(o.conectadoEn).toLocaleDateString('es-CO'):'', o.conectadoPor||'']); });
+        });
+        XLSX.utils.book_append_sheet(wb, cab(cl), 'Clientes en red');
+        // Postes y reservas
+        const pt=[['Nombre','Tipo','Detalle','Latitud','Longitud','Estado']];
+        RED.elementos.filter(e=>e.tipo==='poste'||e.tipo==='reserva').forEach(p=>pt.push([p.nombre||'',
+            p.tipo, p.tipo==='reserva'?((p.metros||'')+' m · '+(p.cable||'')):(p.subtipo||''),
+            p.g[0][0], p.g[0][1], p.estado||'']));
+        XLSX.utils.book_append_sheet(wb, cab(pt), 'Postes y reservas');
+        XLSX.writeFile(wb, `RED_${SEDE.nombre.replace(/\s+/g,'_')}_${new Date().toISOString().slice(0,10)}.xlsx`);
+    }catch(e){ alert('No se pudo exportar:\n\n'+(e.message||e)); }
+    ocultarCarga();
 }
 
 /* ════════════════════════════════════════════════════════════════════
