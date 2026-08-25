@@ -257,6 +257,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
       <button class="lb" id="h_capas"   onclick="verPanel('capas')"  title="Capas">🗂️</button>
       <button class="lb" id="h_calor"   onclick="alternarCalor()"    title="Mapa de calor">🔥</button>
       <button class="lb" onclick="abrirCruce()"  title="Clientes vs. Red">👥</button>
+      <button class="lb" onclick="abrirGrupos()" title="Dónde se concentra la demanda">👪</button>
       <button class="lb" onclick="abrirPendientes()" title="Pendientes">🚩</button>
       <div class="lsep"></div>
       <button class="lb" onclick="pedirKML()"    title="Importar KML o Excel">📥</button>
@@ -313,7 +314,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
    la cambia aqui.
    ════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION_RED = 10;
+const APP_VERSION_RED = 11;
 
 const firebaseConfig = {
     apiKey: "AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w",
@@ -1775,8 +1776,9 @@ function fichaHTML(el){
             <div class="kpi" style="flex:1;text-align:center"><div class="v">${cap||'?'}</div><div class="e">Capacidad</div></div>
           </div>
           <div class="dato"><b>Estado de la caja</b><span style="color:${s.color};font-weight:700">${s.et}</span></div>
-          <div style="display:flex;gap:6px;margin-top:10px">
+          <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
             <button class="btn btn-sm btn-out" style="flex:1" onclick="abrirDiagrama('${el.id}')">📊 Interior</button>
+            <button class="btn btn-sm btn-out" style="flex:1" onclick="abrirFusiones('${el.id}')">🔗 Fusiones${(el.fusiones||[]).length?' ('+el.fusiones.length+')':''}</button>
             <button class="btn btn-sm btn-out" style="flex:1" onclick="etiquetaCaja('${el.id}')">🏷️ Etiqueta</button>
             <button class="btn btn-sm btn-out" style="flex:1" onclick="modo('ruta');iluminarRuta(RED.elementos.find(e=>e.id==='${el.id}'))">💡 Ruta</button>
           </div>
@@ -2135,7 +2137,7 @@ async function modo(m){
 
 function limpiarTemporal(){
     if(temp&&mapa){ mapa.removeLayer(temp); }
-    temp=null; puntos=[]; window._viabPunto=null;
+    temp=null; puntos=[]; window._viabPunto=null; window._relieve=null;
 }
 
 // Todo clic en el mapa entra por aqui y lo reparte segun el modo.
@@ -2457,9 +2459,20 @@ function panelMedicion(){
         <div class="e">${puntos.length} punto(s) marcado(s)</div></div></div>
       ${d>0?`<p class="ayuda" style="text-align:center">${(d/1000).toFixed(2)} km</p>`:''}
       ${MODO==='medir'
-        ? `<p class="ayuda">Sigue marcando por donde iría el cable. Cada clic suma un tramo.</p>
-           ${puntos.length>1?`<button class="btn btn-sm btn-out" style="width:100%;margin-top:8px"
-              onclick="deshacerPunto()">↩️ Quitar el último punto</button>`:''}`
+        ? `${window._relieve?`
+             <div class="ficha" style="margin-top:10px">
+               <div class="dato"><b>En plano</b><span>${window._relieve.plano} m</span></div>
+               <div class="dato"><b>Con relieve</b><span style="color:#10b981;font-weight:700">${window._relieve.real} m</span></div>
+               <div class="dato"><b>Diferencia</b><span>+${window._relieve.real-window._relieve.plano} m</span></div>
+               <div class="dato"><b>Desnivel</b><span>${window._relieve.desnivel} m (${Math.round(window._relieve.min)}–${Math.round(window._relieve.max)} msnm)</span></div>
+             </div>
+             <p class="ayuda">El cable se compra por metro: pide el largo con relieve, no el plano.</p>`
+           :`<p class="ayuda">Sigue marcando por donde iría el cable. Cada clic suma un tramo.</p>`}
+           ${puntos.length>1?`
+             <button class="btn btn-sm btn-out" style="width:100%;margin-top:8px"
+               onclick="medirConRelieve()">⛰️ Calcular con el relieve</button>
+             <button class="btn btn-sm btn-out" style="width:100%;margin-top:6px"
+               onclick="deshacerPunto()">↩️ Quitar el último punto</button>`:''}`
         : `<p class="ayuda">Marca por dónde pasa el cable, poste por poste.</p>
            ${puntos.length>1?`
              <button class="btn btn-sm btn-primary" style="margin-top:10px" onclick="guardarCable()">
@@ -2468,6 +2481,54 @@ function panelMedicion(){
                onclick="deshacerPunto()">↩️ Quitar el último punto</button>`
             :'<p class="ayuda">Necesitas al menos dos puntos.</p>'}`}`;
 }
+/* ════════════════════════════════════════════════════════════════════
+   ALTIMETRÍA — el metraje real sube con el relieve
+   ────────────────────────────────────────────────────────────────────
+   Una medición plana se queda corta en terreno quebrado, y el cable se
+   compra por metro. Se piden las alturas a Open-Elevation, que es
+   gratuito y no pide llave, y se recalcula el largo en 3D.
+   Si el servicio no responde se dice y se deja la medida plana: mejor
+   un dato honesto que uno inventado.
+   ════════════════════════════════════════════════════════════════════ */
+async function medirConRelieve(){
+    if(puntos.length<2) return;
+    mostrarCarga('Consultando el relieve…');
+    try{
+        // Se densifica el recorrido para que el perfil no se salte lomas
+        const densos=[];
+        for(let i=1;i<puntos.length;i++){
+            const a=puntos[i-1], b=puntos[i], d=metros(a,b);
+            const n=Math.min(20,Math.max(1,Math.round(d/50)));
+            for(let k=0;k<n;k++) densos.push([a[0]+(b[0]-a[0])*k/n, a[1]+(b[1]-a[1])*k/n]);
+        }
+        densos.push(puntos[puntos.length-1]);
+        if(densos.length>100) throw new Error('El recorrido es muy largo para consultar el relieve de una vez. '
+            +'Pártelo en tramos más cortos.');
+        const r=await fetch('https://api.open-elevation.com/api/v1/lookup',{
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({locations:densos.map(p=>({latitude:p[0],longitude:p[1]}))})
+        });
+        if(!r.ok) throw new Error('El servicio de relieve respondió '+r.status);
+        const j=await r.json();
+        const alt=(j.results||[]).map(x=>x.elevation);
+        if(alt.length!==densos.length) throw new Error('El servicio devolvió menos puntos de los pedidos.');
+        let plano=0, real=0;
+        for(let i=1;i<densos.length;i++){
+            const d=metros(densos[i-1],densos[i]);
+            const dh=(alt[i]-alt[i-1]);
+            plano+=d; real+=Math.sqrt(d*d+dh*dh);
+        }
+        window._relieve={plano:Math.round(plano), real:Math.round(real),
+                         min:Math.min(...alt), max:Math.max(...alt),
+                         desnivel:Math.round(Math.max(...alt)-Math.min(...alt))};
+        ocultarCarga(); pintarPanel();
+    }catch(e){
+        ocultarCarga();
+        alert('No se pudo consultar el relieve:\n\n'+(e.message||e)
+            +'\n\nLa medida plana sigue siendo válida; solo le falta el desnivel.');
+    }
+}
+
 function deshacerPunto(){
     puntos.pop();
     if(!puntos.length){ limpiarTemporal(); pintarPanel(); return; }
@@ -2983,6 +3044,141 @@ async function exportarExcel(){
         XLSX.writeFile(wb, `RED_${SEDE.nombre.replace(/\s+/g,'_')}_${new Date().toISOString().slice(0,10)}.xlsx`);
     }catch(e){ alert('No se pudo exportar:\n\n'+(e.message||e)); }
     ocultarCarga();
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   FUSIONES DENTRO DE LA CAJA — qué hilo va a qué
+   ────────────────────────────────────────────────────────────────────
+   Es la capa que el KML NO trae y hay que capturar: dentro de una mufla
+   o una caja, cada hilo que entra se empalma con otro o va a un
+   splitter. Sin esto no se puede responder "si corto este hilo, quién
+   se cae".
+   ════════════════════════════════════════════════════════════════════ */
+function abrirFusiones(id){
+    const el=RED.elementos.find(e=>e.id===id); if(!el) return;
+    window._fusCaja=id;
+    el.fusiones=el.fusiones||[];
+    const cables=el.cables||[];
+    const opcHilo=(sel)=>cables.map(cb=>{
+        const m=mapaFibra(cb); if(!m) return '';
+        return `<optgroup label="${esc((cb.nombre||'').slice(0,28))} (${cb.hilos}H)">`
+             + m.flatMap(b=>b.hilos.map(h=>
+                `<option value="${cb.id}|${h.n}" ${sel===cb.id+'|'+h.n?'selected':''}>`
+                +`buffer ${b.buffer} ${b.c.n} · hilo ${h.n} ${h.c.n}</option>`)).join('')
+             + '</optgroup>';
+    }).join('');
+    const opcDestino=(el.splitters||[]).map((s,i)=>
+        `<option value="split|${i}">Splitter ${s.tipo}${s.ratio?' ('+s.ratio+')':''}</option>`).join('');
+    abrirModal('🔗 Fusiones de '+esc(el.nombre||''), `
+      ${cables.length?`
+        <label>Hilo que entra</label>
+        <select id="fu_a">${opcHilo()}</select>
+        <label style="margin-top:10px">Se empalma con</label>
+        <select id="fu_b">
+          ${opcDestino?`<optgroup label="Splitters">${opcDestino}</optgroup>`:''}
+          <optgroup label="Hilos">${opcHilo()}</optgroup>
+        </select>
+        <label style="margin-top:10px">Tipo</label>
+        <select id="fu_tipo"><option>Fusión</option><option>Conector</option><option>Paso directo</option></select>
+        <button class="btn btn-sm btn-primary" style="margin-top:12px" onclick="agregarFusion()">➕ Agregar</button>
+      `:'<div class="vacio">Esta caja no tiene cables enlazados, así que no hay hilos que empalmar.</div>'}
+      <div class="sec" style="margin-top:16px">Empalmes anotados <span class="cuenta">${el.fusiones.length}</span></div>
+      ${el.fusiones.length? el.fusiones.map((f,i)=>`
+          <div class="fila">
+            <span class="punto" style="background:${f.colorA||'#888'}"></span>
+            <span class="nom" style="font-size:.76rem">${esc(f.et)}</span>
+            <button class="btn btn-sm btn-out" onclick="quitarFusion(${i})">✕</button>
+          </div>`).join('')
+        : '<div class="vacio" style="padding:14px">Todavía no hay ninguno anotado.</div>'}
+      <p class="ayuda">Esto es lo único de la red que no se puede deducir del mapa: hay que abrir la
+         caja y anotarlo. Con esto queda registrado qué se cae si se corta un hilo.</p>`,
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cerrar</button>`);
+}
+async function agregarFusion(){
+    const el=RED.elementos.find(e=>e.id===window._fusCaja); if(!el) return;
+    const a=val('fu_a'), b=val('fu_b'), t=val('fu_tipo');
+    if(!a||!b) return;
+    if(a===b) return alert('Un hilo no se empalma consigo mismo.');
+    const nom=(id)=>{ const c=(el.cables||[]).find(x=>x.id===id); return c?(c.nombre||'').slice(0,18):'?'; };
+    const [ca,ha]=a.split('|');
+    let etB;
+    if(b.startsWith('split|')){
+        const s=(el.splitters||[])[+b.split('|')[1]];
+        etB='splitter '+(s?s.tipo:'');
+    }else{ const [cb,hb]=b.split('|'); etB=nom(cb)+' h'+hb; }
+    const rep=el.fusiones.find(f=>f.a===a||f.b===a);
+    if(rep && !confirm('Ese hilo ya tiene un empalme anotado.\n\n¿Agregar otro de todas formas?')) return;
+    el.fusiones=el.fusiones||[];
+    el.fusiones.push({a, b, tipo:t, et:`${nom(ca)} h${ha}  →  ${etB}  (${t})`,
+        colorA:colorN(+ha).hex, en:Date.now(), por:(USER&&USER.nombre)||''});
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){ el.fusiones.pop(); ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e)); }
+    ocultarCarga(); abrirFusiones(window._fusCaja);
+}
+async function quitarFusion(i){
+    const el=RED.elementos.find(e=>e.id===window._fusCaja); if(!el||!el.fusiones) return;
+    const f=el.fusiones.splice(i,1)[0];
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){ el.fusiones.splice(i,0,f); ocultarCarga(); return alert('No se pudo guardar.'); }
+    ocultarCarga(); abrirFusiones(window._fusCaja);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   AGRUPACIÓN DE CLIENTES — dónde se está pidiendo servicio
+   ────────────────────────────────────────────────────────────────────
+   Junta los clientes que estan cerca unos de otros para ver donde hay
+   densidad y decidir si vale la pena llevar una caja nueva.
+   ════════════════════════════════════════════════════════════════════ */
+function abrirGrupos(){
+    if(!SEDE||!RED.elementos.length) return alert('No hay red cargada.');
+    const cli=RED.elementos.filter(e=>e.tipo==='cliente');
+    if(!cli.length) return alert('No hay clientes ubicados en el mapa.');
+    const RADIO=120;
+    // Agrupacion sencilla: se toma un cliente y se le pegan todos los que
+    // esten a menos de RADIO metros, y asi hasta que no quede ninguno suelto.
+    const libres=cli.slice(), grupos=[];
+    while(libres.length){
+        const semilla=libres.shift(), miembros=[semilla];
+        for(let i=libres.length-1;i>=0;i--){
+            if(metros(semilla.g[0], libres[i].g[0])<=RADIO) miembros.push(libres.splice(i,1)[0]);
+        }
+        const lat=miembros.reduce((s,m)=>s+m.g[0][0],0)/miembros.length;
+        const lon=miembros.reduce((s,m)=>s+m.g[0][1],0)/miembros.length;
+        // Cuanta capacidad hay a la redonda de ese grupo
+        let libresCerca=0;
+        RED.elementos.filter(e=>e.tipo==='caja'&&e.clase!=='pop').forEach(c=>{
+            if(metros([lat,lon],c.g[0])<=250){ const s=estadoCaja(c); if(s.libres) libresCerca+=s.libres; }
+        });
+        grupos.push({n:miembros.length, lat, lon, libresCerca, miembros});
+    }
+    grupos.sort((a,b)=>b.n-a.n);
+    const apretados=grupos.filter(g=>g.n>=5&&g.libresCerca<g.n);
+    abrirModal('👪 Dónde se concentra la demanda', `
+      <div class="kpis">
+        <div class="kpi"><div class="v">${grupos.length}</div><div class="e">Grupos</div></div>
+        <div class="kpi"><div class="v">${cli.length}</div><div class="e">Clientes</div></div>
+        <div class="kpi"><div class="v">${grupos[0].n}</div><div class="e">El mayor</div></div>
+        <div class="kpi"><div class="v" style="color:${apretados.length?'#f59e0b':'#10b981'}">${apretados.length}</div>
+          <div class="e">Sin capacidad</div></div>
+      </div>
+      ${apretados.length?`<div class="aviso" style="background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.4);color:#fcd34d">
+        ⚠️ ${apretados.length} zona(s) con más demanda que puertos libres a 250 m. Ahí conviene una caja nueva.
+      </div>`:''}
+      <div class="sec">Grupos de clientes (a menos de ${RADIO} m entre sí)</div>
+      ${grupos.slice(0,30).map((g,i)=>`
+        <div class="viab" onclick="cerrarModal();mapa.setView([${g.lat},${g.lon}],18)">
+          <div class="cab">
+            <span class="punto" style="background:${g.libresCerca<g.n?'#f59e0b':'#10b981'}"></span>
+            <b style="flex:1">${g.n} cliente(s)</b>
+            <span class="dist">${g.libresCerca} puerto(s) libre(s) cerca</span>
+          </div>
+          <p class="ayuda" style="margin:0">${g.lat.toFixed(5)}, ${g.lon.toFixed(5)}</p>
+        </div>`).join('')}
+      <p class="ayuda">Se agrupan por cercanía. Un grupo con más clientes que puertos libres alrededor
+         es una zona donde ya no cabe crecer.</p>`,
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cerrar</button>`);
 }
 
 /* ════════════════════════════════════════════════════════════════════
