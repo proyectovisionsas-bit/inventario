@@ -181,6 +181,89 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
         white-space:nowrap;pointer-events:none;}
 .leaflet-marker-icon{background:none;border:none;}
 
+/* ── Ventana flotante de caja (estilo Box Editor de OZmap) ─────────
+   Se abre al tocar una caja, se puede mover con el mouse y se pueden
+   tener varias abiertas: asi se arrastra un cliente de una caja a otra
+   viendo las dos al tiempo.                                          */
+#ventanas{position:absolute;inset:0;z-index:900;pointer-events:none;overflow:hidden;}
+.vcaja{position:absolute;width:372px;max-width:calc(100vw - 24px);pointer-events:auto;
+       background:rgba(19,28,46,.985);border:1px solid var(--border);border-radius:13px;
+       box-shadow:0 18px 46px rgba(0,0,0,.62);display:flex;flex-direction:column;
+       max-height:calc(100% - 24px);overflow:hidden;}
+.vcaja.min{max-height:none;}
+.vcaja.min .vc-cuerpo,.vcaja.min .vc-pie{display:none;}
+.vc-tit{display:flex;align-items:center;gap:8px;padding:9px 10px;cursor:grab;
+        background:linear-gradient(180deg,var(--card2),rgba(26,39,64,.55));
+        border-bottom:1px solid var(--border);user-select:none;flex-shrink:0;}
+.vc-tit:active{cursor:grabbing;}
+.vc-tit .ico{width:26px;height:20px;border-radius:5px;display:flex;align-items:center;
+             justify-content:center;font-size:.6rem;font-weight:800;color:#04121f;flex-shrink:0;}
+.vc-tit .nom{flex:1;min-width:0;font-size:.83rem;font-weight:800;line-height:1.2;
+             overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.vc-tit .sub{font-size:.65rem;color:var(--muted);font-weight:600;}
+.vc-tit button{border:none;background:transparent;color:var(--muted);cursor:pointer;
+               font-size:.85rem;width:24px;height:24px;border-radius:6px;flex-shrink:0;}
+.vc-tit button:hover{background:rgba(255,255,255,.09);color:var(--text);}
+.vc-cuerpo{overflow-y:auto;padding:10px 11px 12px;}
+.vc-pie{display:flex;gap:5px;padding:8px 9px;border-top:1px solid var(--border);
+        background:rgba(11,18,32,.6);flex-wrap:wrap;flex-shrink:0;}
+.vc-pie .btn{flex:1;min-width:74px;}
+.vc-tabs{display:flex;gap:5px;margin-bottom:9px;}
+.vc-tabs div{flex:1;text-align:center;padding:6px;border-radius:8px;cursor:pointer;
+             font-size:.73rem;font-weight:700;color:var(--muted);border:1px solid var(--border);}
+.vc-tabs div.on{background:rgba(16,185,129,.15);border-color:#10b981;color:#10b981;}
+.vc-chips{display:flex;gap:5px;margin-bottom:10px;}
+.vc-chips div{flex:1;text-align:center;background:var(--card2);border:1px solid var(--border);
+              border-radius:9px;padding:6px 4px;}
+.vc-chips b{display:block;font-size:1.05rem;font-variant-numeric:tabular-nums;line-height:1.1;}
+.vc-chips i{font-style:normal;font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;}
+
+/* Rejilla de puertos: cada casilla recibe lo que se le arrastre */
+.vc-ptos{display:grid;grid-template-columns:repeat(auto-fill,minmax(66px,1fr));gap:5px;}
+.vpto{border-radius:7px;padding:5px 3px;text-align:center;font-size:.66rem;font-weight:700;
+      border:1px solid var(--border);cursor:pointer;position:relative;overflow:hidden;
+      transition:transform .1s,box-shadow .1s;}
+.vpto .q{display:block;font-size:.56rem;font-weight:600;opacity:.9;white-space:nowrap;
+         overflow:hidden;text-overflow:ellipsis;}
+.vpto.libre{background:rgba(16,185,129,.12);color:#10b981;border-color:rgba(16,185,129,.4);}
+.vpto.ocup {background:rgba(239,68,68,.13);color:#f87171;border-color:rgba(239,68,68,.35);cursor:grab;}
+.vpto.bloq {background:rgba(245,158,11,.14);color:#f59e0b;border-color:rgba(245,158,11,.45);}
+.vpto.ocup:active{cursor:grabbing;}
+.vpto.dest{background:rgba(14,165,233,.3);border-color:#0ea5e9;color:#e6edf6;
+           transform:scale(1.08);box-shadow:0 0 0 2px rgba(14,165,233,.5);}
+.vpto.no{opacity:.35;}
+body.arrastrando .vpto.libre{box-shadow:0 0 0 1px rgba(16,185,129,.55);}
+.vc-cli{display:flex;align-items:center;gap:7px;padding:6px 8px;margin-bottom:4px;cursor:grab;
+        background:var(--card2);border:1px solid var(--border);border-radius:8px;font-size:.76rem;}
+.vc-cli:active{cursor:grabbing;}
+.vc-cli .ag{color:var(--muted);font-size:.85rem;}
+.vc-cli .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.vc-cli .ya{font-size:.62rem;color:#f59e0b;white-space:nowrap;}
+.vc-nodo{display:flex;align-items:center;gap:8px;padding:6px 8px;margin-bottom:4px;cursor:pointer;
+         border:1px solid var(--border);border-radius:8px;font-size:.76rem;background:rgba(255,255,255,.02);}
+.vc-nodo:hover{background:var(--card2);}
+.vc-nodo .fl{font-size:.9rem;flex-shrink:0;}
+.vc-nodo .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.vc-nodo .mt{font-size:.65rem;color:var(--muted);white-space:nowrap;}
+
+/* ── Ruta iluminada ────────────────────────────────────────────────
+   Cuando se pregunta "por donde le llega la señal a esta caja", el resto
+   del mapa se APAGA y solo queda encendido el camino. Con mas de mil
+   cables dibujados, un trazo amarillo mas no se alcanzaba a ver.      */
+.atenuado .leaflet-tile-pane   {filter:grayscale(.85) brightness(.4);}
+.atenuado .leaflet-overlay-pane{opacity:.13;}
+.atenuado .leaflet-marker-pane {opacity:.10;}
+.leaflet-ruta-pane{filter:drop-shadow(0 0 7px rgba(253,224,71,.85));}
+.ruta-viva {animation:latido 1.9s ease-in-out infinite;}
+.ruta-flujo{animation:flujo 1.1s linear infinite;}
+.mk-ruta{width:24px;height:24px;border-radius:50%;font-size:.7rem;font-weight:900;
+         display:flex;align-items:center;justify-content:center;border:2px solid #fff;
+         box-shadow:0 0 0 3px rgba(253,224,71,.35),0 2px 8px rgba(0,0,0,.6);}
+@keyframes latido{0%,100%{stroke-opacity:1}50%{stroke-opacity:.5}}
+@keyframes flujo {to{stroke-dashoffset:-48}}
+@media (prefers-reduced-motion:reduce){ .ruta-viva,.ruta-flujo{animation:none;} }
+@media (max-width:700px){ .vcaja{width:calc(100vw - 20px);} }
+
 /* ── Leyenda ── */
 .leyenda{position:absolute;left:10px;bottom:20px;z-index:500;background:rgba(19,28,46,.94);
          border:1px solid var(--border);border-radius:11px;padding:10px 12px;font-size:.72rem;
@@ -212,11 +295,11 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
     <h1>RED</h1>
     <p class="sub">Planta externa · PROYECTOVISION</p>
     <div class="tabs">
-      <div class="tab on" id="tabOfi" onclick="verTab('oficina')">Oficina</div>
+      <div class="tab on" id="tabOfi" onclick="verTab('oficina')">Bodega</div>
       <div class="tab" id="tabAdm" onclick="verTab('admin')">Administrador</div>
     </div>
     <div id="frmOficina">
-      <label>Oficina</label>
+      <label>Bodega</label>
       <select id="selOfi"><option>Cargando…</option></select>
       <label>Contraseña</label>
       <input type="password" id="passOfi" placeholder="••••••••" onkeydown="if(event.key==='Enter')entrar('oficina')">
@@ -227,7 +310,10 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
     </div>
     <button class="btn btn-primary" onclick="entrar(window._tab||'oficina')">Entrar</button>
     <p style="text-align:center;color:var(--muted);font-size:.72rem;margin-top:14px;">
-      Se entra con la misma clave de OFICINAS.
+      Se entra con la misma clave del INVENTARIO.
+    </p>
+    <p style="text-align:center;margin-top:10px;">
+      <a href="index.html" style="color:var(--muted);font-size:.75rem;text-decoration:none;">← Volver al inicio</a>
     </p>
   </div>
 </div>
@@ -242,6 +328,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
     <span class="chip" id="chipTotal">0 elementos</span>
     <span class="chip" id="chipRed" style="display:none"></span>
     <button class="btn btn-sm btn-out" onclick="cambiarFondo()" id="btnFondo" title="Calles o satélite">🛰️</button>
+    <button class="btn btn-sm btn-out" onclick="volverAlInicio()" title="Ir al portal de sistemas">🏠 Inicio</button>
     <button class="btn btn-sm btn-out" onclick="salir()">Salir</button>
   </div>
   <div class="cuerpo">
@@ -269,6 +356,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
       <button class="lb" onclick="abrirGuia()"   title="¿Qué es cada cosa?">❓</button>
     </div>
     <div id="mapa">
+      <div id="ventanas"></div>
       <div class="leyenda" id="leyenda"></div>
       <div id="avisoZoom" style="position:absolute;right:10px;bottom:20px;z-index:500;display:none;
            background:rgba(19,28,46,.94);border:1px solid var(--border);border-radius:9px;
@@ -307,6 +395,361 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
 <script>
 'use strict';
 /* ════════════════════════════════════════════════════════════════════
+   VENTANA DE CAJA — el cuadro flotante que se abre al tocar una caja
+   ────────────────────────────────────────────────────────────────────
+   Es lo que en OZmap llaman el "Box Editor": la caja abierta, con sus
+   puertos, sus splitters y los cables que llegan. Aqui ademas se puede
+   MOVER con el mouse y tener VARIAS abiertas al tiempo, que es lo que
+   permite arrastrar un cliente de una caja a otra viendo las dos.
+   ════════════════════════════════════════════════════════════════════ */
+var VENT={}, _vseq=0, _zVent=900, _arrastre=null;
+
+function ventanaCaja(id){
+    const el=RED.elementos.find(e=>e.id===id);
+    if(!el || el.tipo!=='caja') return;
+    if(!VENT[id]) VENT[id]={dom:'vc'+(++_vseq), x:null, y:null, min:false, tab:'ptos', q:''};
+    VENT[id].z=++_zVent;
+    pintarVentana(id);
+}
+function cerrarVentana(id){
+    const v=VENT[id]; if(!v) return;
+    const d=document.getElementById(v.dom); if(d) d.remove();
+    delete VENT[id];
+}
+function cerrarVentanas(){ Object.keys(VENT).forEach(cerrarVentana); }
+function refrescarVentanas(){ Object.keys(VENT).forEach(pintarVentana); }
+function vcTab(id,t){ if(VENT[id]){ VENT[id].tab=t; pintarVentana(id); } }
+function vcMin(id){ if(VENT[id]){ VENT[id].min=!VENT[id].min; pintarVentana(id); } }
+
+function pintarVentana(id){
+    const el=RED.elementos.find(e=>e.id===id), v=VENT[id];
+    if(!el||!v) return cerrarVentana(id);
+    const cont=document.getElementById('ventanas'); if(!cont) return;
+    let d=document.getElementById(v.dom);
+    if(!d){
+        d=document.createElement('div');
+        d.id=v.dom; d.className='vcaja';
+        // La segunda ventana se abre AL LADO, no encima: si se tapan no se
+        // puede arrastrar un cliente de una caja a la otra, que es la gracia.
+        if(v.x==null){ const h=sitioLibre(cont); v.x=h.x; v.y=h.y; }
+        cont.appendChild(d);
+        d.addEventListener('mousedown',()=>{ v.z=++_zVent; d.style.zIndex=v.z; });
+    }
+    d.style.left=v.x+'px'; d.style.top=v.y+'px'; d.style.zIndex=v.z;
+    d.classList.toggle('min', !!v.min);
+    d.innerHTML=ventanaHTML(id, el, v);
+    const barra=d.querySelector('.vc-tit');
+    barra.onmousedown  = ev=>arrastrarVentana(ev,id,d);
+    barra.ontouchstart = ev=>arrastrarVentana(ev,id,d);
+    if(v.tab==='ptos' && v.q) vcBuscar(id, v.q);
+}
+
+/* Busca un hueco donde la ventana no tape a las que ya estan abiertas.
+   Va probando columnas de derecha a izquierda; si no cabe ninguna, las
+   escalona como hace cualquier escritorio. */
+function sitioLibre(cont){
+    const AN=382, AL=200, sep=8;
+    const abiertas=[...cont.querySelectorAll('.vcaja')].map(x=>x.getBoundingClientRect());
+    const base=cont.getBoundingClientRect();
+    const columnas=Math.max(1, Math.floor((cont.clientWidth-sep)/(AN+sep)));
+    for(let c=0;c<columnas;c++){
+        const x=cont.clientWidth-AN-sep-c*(AN+sep);
+        if(x<0) break;
+        const choca=abiertas.some(r=>Math.abs((r.left-base.left)-x)<AN-30 && (r.top-base.top)<AL);
+        if(!choca) return {x:Math.max(8,x), y:14};
+    }
+    const n=(cont.querySelectorAll('.vcaja').length)%6;
+    return {x:Math.max(8, cont.clientWidth-AN-sep-n*26), y:14+n*26};
+}
+function arrastrarVentana(ev,id,d){
+    if(ev.target.closest('button')) return;
+    const v=VENT[id]; if(!v) return;
+    const cont=d.parentElement;
+    const t=ev.touches?ev.touches[0]:ev;
+    const dx=t.clientX-d.offsetLeft, dy=t.clientY-d.offsetTop;
+    const mover=e=>{
+        const q=e.touches?e.touches[0]:e;
+        // Puede asomar un poco por fuera, pero nunca al punto de perder la barra
+        v.x=Math.max(-40, Math.min(cont.clientWidth-100, q.clientX-dx));
+        v.y=Math.max(0,   Math.min(cont.clientHeight-36, q.clientY-dy));
+        d.style.left=v.x+'px'; d.style.top=v.y+'px';
+        e.preventDefault();
+    };
+    const soltar=()=>{
+        document.removeEventListener('mousemove',mover); document.removeEventListener('mouseup',soltar);
+        document.removeEventListener('touchmove',mover); document.removeEventListener('touchend',soltar);
+    };
+    document.addEventListener('mousemove',mover); document.addEventListener('mouseup',soltar);
+    document.addEventListener('touchmove',mover,{passive:false}); document.addEventListener('touchend',soltar);
+    ev.preventDefault();
+}
+
+function ventanaHTML(id, el, v){
+    const s=estadoCaja(el), cap=s.cap;
+    const cfg=TIPOS[claseDe(el)]||{};
+    const insignia = el.clase==='pop' ? '🏛️' : el.clase==='mufla' ? '⬤' : (cap? s.libres+'/'+cap : '?');
+    const cabeza=`
+      <div class="vc-tit">
+        <span class="ico" style="background:${s.cap?s.color:(cfg.color||'#64748b')}">${insignia}</span>
+        <span class="nom">${esc(el.nombreReal||el.nombre||'(sin nombre)')}
+          <span class="sub">${esc(cfg.et||'')}${el.subtipo?' · '+esc(el.subtipo):''}</span></span>
+        <button onclick="irA('${el.id}')" title="Centrar en el mapa">🎯</button>
+        <button onclick="vcMin('${el.id}')" title="${v.min?'Desplegar':'Plegar'}">${v.min?'▢':'—'}</button>
+        <button onclick="cerrarVentana('${el.id}')" title="Cerrar">✕</button>
+      </div>`;
+    if(v.min) return cabeza;
+
+    const cuerpo = v.tab==='con' ? vcConexiones(id,el) : vcPuertos(id,el,s);
+    return cabeza+`
+      <div class="vc-cuerpo">
+        <div class="vc-chips">
+          <div><b style="color:#10b981">${cap?s.libres:'—'}</b><i>Libres</i></div>
+          <div><b style="color:#f87171">${s.usados}</b><i>Ocupados</i></div>
+          <div><b>${cap||'?'}</b><i>Capacidad</i></div>
+        </div>
+        <div class="vc-tabs">
+          <div class="${v.tab==='con'?'':'on'}" onclick="vcTab('${el.id}','ptos')">🔌 Puertos</div>
+          <div class="${v.tab==='con'?'on':''}" onclick="vcTab('${el.id}','con')">🔗 Conexiones</div>
+        </div>
+        ${cuerpo}
+      </div>
+      <div class="vc-pie">
+        <button class="btn btn-sm btn-out" onclick="abrirDiagrama('${el.id}')">📊 Interior</button>
+        <button class="btn btn-sm btn-out" onclick="modo('ruta');iluminarRuta(RED.elementos.find(e=>e.id==='${el.id}'))">💡 Ruta</button>
+        <button class="btn btn-sm btn-out" onclick="etiquetaCaja('${el.id}')">🏷️ Etiqueta</button>
+        ${editando?`<button class="btn btn-sm btn-out" onclick="editarElemento('${el.id}')">✏️ Editar</button>`:''}
+      </div>`;
+}
+
+function vcPuertos(id, el, s){
+    const cap=s.cap;
+    if(!cap) return `<div class="vacio" style="padding:14px">Esta caja no tiene splitters, así que
+        no sabemos cuántos clientes caben.<br><br>
+        <button class="btn btn-sm btn-out" onclick="agregarSplitter('${el.id}')">➕ Poner un splitter</button>
+        <button class="btn btn-sm btn-out" onclick="abrirPlantillas('${el.id}')">📐 Plantilla</button></div>`;
+    const ptos=Array.from({length:cap},(_,i)=>{
+        const n=i+1, o=(el.puertos||{})[n], b=(el.bloqueados||{})[n];
+        const cls=o?'ocup':b?'bloq':'libre';
+        const rot=o?esc((o.cliente||'').split(' ').slice(0,2).join(' ')):b?'reservado':'libre';
+        const tit=o?esc(o.cliente||'Ocupado')+' — arrástralo a otro puerto para moverlo'
+                  :b?esc(b.motivo||'Reservado'):'Libre — suéltale un cliente encima';
+        return `<div class="vpto ${cls}" data-caja="${el.id}" data-n="${n}"
+                  ${o?'draggable="true" ondragstart="ptoDrag(event,this)" ondragend="ptoFin()"':''}
+                  ondragover="ptoOver(event,this)" ondragleave="ptoSale(this)" ondrop="ptoSuelta(event,this)"
+                  onclick="verPuerto('${el.id}',${n})" title="${tit}">
+                  ${b&&!o?'🔒':n}<span class="q">${rot}</span></div>`;
+    }).join('');
+    return `
+      <div class="vc-ptos">${ptos}</div>
+      <p class="ayuda" style="margin-top:8px">Arrastra un cliente de un puerto a otro para moverlo,
+         incluso a otra caja si la tienes abierta al lado.</p>
+      <div class="sec">Conectar arrastrando</div>
+      <input type="text" placeholder="Busca al cliente…" autocomplete="off" value="${esc(VENT[id].q||'')}"
+             oninput="vcBuscar('${el.id}',this.value)" style="margin-bottom:6px">
+      <div id="cl_${VENT[id].dom}"><p class="ayuda">Escribe dos letras y arrastra el nombre
+         hasta un puerto verde.</p></div>`;
+}
+
+/* Las conexiones de la caja: por donde le entra la señal, que cables
+   llegan y a que otras cajas alimenta. Es la pregunta que uno se hace
+   parado frente a la caja: "esto, ¿de donde viene y para donde sigue?" */
+function vcConexiones(id, el){
+    const porNombre={}; RED.elementos.filter(e=>e.tipo==='caja').forEach(c=>porNombre[c.nombre]=c);
+    const r=rutaHastaPOP(el);
+    const arriba = r.pasos[1] ? r.pasos[1].caja : null;   // la siguiente caja hacia el POP
+    const vecinos=[];
+    (el.cables||[]).forEach(c=>{
+        const d=porNombre[c.hacia]; if(!d||d.id===el.id) return;
+        vecinos.push({caja:d, cable:c, sube: !!(arriba && d.id===arriba.id)});
+    });
+    const nodo=(x)=>`
+      <div class="vc-nodo" onclick="ventanaCaja('${x.caja.id}');irA('${x.caja.id}')"
+           title="Abrir ${esc(x.caja.nombre||'')}">
+        <span class="fl">${x.sube?'⬆️':'⬇️'}</span>
+        <span class="nm">${esc(x.caja.nombre||'(sin nombre)')}</span>
+        <span class="mt">${x.cable.hilos||'?'}H</span>
+      </div>`;
+    const sube=vecinos.filter(x=>x.sube), baja=vecinos.filter(x=>!x.sube);
+    return `
+      <div class="sec">Por dónde le llega la señal</div>
+      ${sube.length?sube.map(nodo).join('')
+        :el.clase==='pop'?'<p class="ayuda">Es el POP: aquí nace la red.</p>'
+        :'<p class="ayuda" style="color:#f59e0b">No se sabe: falta enlazar el cable que sube.</p>'}
+      <div class="dato" style="margin-top:6px"><b>Hasta el POP</b>
+        <span>${r.pasos.length} salto(s) · ${(r.metros/1000).toFixed(2)} km ·
+        <b style="color:${r.db>28?'#ef4444':r.db>24?'#f59e0b':'#10b981'}">−${r.db} dB</b></span></div>
+      <button class="btn btn-sm btn-out" style="width:100%;margin-top:7px"
+              onclick="modo('ruta');iluminarRuta(RED.elementos.find(e=>e.id==='${el.id}'))">💡 Iluminar el recorrido</button>
+
+      <div class="sec">Alimenta a</div>
+      ${baja.length?baja.map(nodo).join(''):'<p class="ayuda">No alimenta a otras cajas.</p>'}
+
+      <div class="sec">Cables que llegan</div>
+      ${(el.cables||[]).length?el.cables.map(c=>`
+        <div class="vc-nodo" onclick="irA('${c.id}')">
+          <span style="display:inline-block;width:14px;height:3px;border-radius:2px;flex-shrink:0;
+                background:${(TIPOS[c.clase]||{}).color||'#888'}"></span>
+          <span class="nm">${esc(c.nombre||'(sin nombre)')}</span>
+          <span class="mt">${c.hilos||'?'}H${c.buffers?'/'+c.buffers+'B':''}</span>
+        </div>`).join('')
+       :'<p class="ayuda">Ninguno enlazado. Los extremos del cable deben caer sobre la caja.</p>'}
+
+      <div class="sec">Splitters</div>
+      ${(el.splitters||[]).length?el.splitters.map((sp,i)=>`
+        <div class="vc-nodo" style="cursor:default">
+          <span title="${esDeRed(sp)?'De red: no admite clientes':'De atención: de aquí cuelgan clientes'}"
+                style="width:11px;height:11px;border-radius:2px;flex-shrink:0;
+                border:1px solid rgba(0,0,0,.5);background:${esDeRed(sp)?'#8a8f98':'#f1f3f5'}"></span>
+          <span class="nm">${esc(sp.tipo)}${sp.ratio?' · '+esc(sp.ratio):''}
+            <i style="font-size:.62rem;color:var(--muted)">${esDeRed(sp)?'red':'atención'}</i></span>
+          <button class="btn btn-sm btn-out" title="Cambiar entre red y atención"
+                  onclick="cambiarUsoSplitter('${el.id}',${i})">⇄</button>
+        </div>`).join('')
+       :'<p class="ayuda" style="color:#f59e0b">Sin splitters: no se sabe su capacidad.</p>'}
+      <div style="display:flex;gap:5px;margin-top:7px">
+        <button class="btn btn-sm btn-out" style="flex:1" onclick="agregarSplitter('${el.id}')">➕ Splitter</button>
+        <button class="btn btn-sm btn-out" style="flex:1" onclick="abrirPlantillas('${el.id}')">📐 Plantilla</button>
+      </div>`;
+}
+
+/* ── Buscador de clientes dentro de la ventana ─────────────────────
+   Se repinta SOLO la lista, no la ventana entera: si se repintara todo,
+   el cursor se saldria del cuadro de busqueda en cada letra.        */
+async function vcBuscar(id, q){
+    const v=VENT[id]; if(!v) return;
+    v.q=q;
+    const cont=document.getElementById('cl_'+v.dom); if(!cont) return;
+    if((q||'').trim().length<2){
+        cont.innerHTML='<p class="ayuda">Escribe dos letras y arrastra el nombre hasta un puerto verde.</p>';
+        return;
+    }
+    cont.innerHTML='<p class="ayuda">Buscando…</p>';
+    let lista;
+    try{ lista=await clientesParaConectar(); }
+    catch(e){ cont.innerHTML='<p class="ayuda" style="color:#f59e0b">No se pudo leer la lista de clientes.</p>'; return; }
+    if(v.q!==q) return;                     // ya escribio otra cosa mientras cargaba
+    const n=normNom(q), num=q.trim();
+    const hits=lista.filter(c=>normNom(c.nombre).includes(n)||String(c.cedula||'').includes(num)).slice(0,20);
+    const yaEn=dondeEstaCadaServicio();
+    cont.innerHTML = hits.length ? hits.map(c=>{
+        const ya=yaEn[c.servicioWisphub||''];
+        return `<div class="vc-cli" draggable="true" ondragstart="cliDrag(event,this)" ondragend="ptoFin()"
+                  data-serv="${esc(c.servicioWisphub||'')}" data-nom="${esc(c.nombre||'')}">
+                  <span class="ag">⠿</span><span class="nm">${esc(c.nombre)}</span>
+                  ${ya?`<span class="ya">${esc(ya.caja)} · ${ya.pto}</span>`:''}</div>`;
+      }).join('') : '<div class="vacio" style="padding:12px">Nadie con ese nombre.</div>';
+}
+function dondeEstaCadaServicio(){
+    const m={};
+    RED.elementos.filter(e=>e.tipo==='caja').forEach(cj=>{
+        Object.keys(cj.puertos||{}).forEach(p=>{
+            const s=cj.puertos[p].servicio; if(s) m[s]={caja:cj.nombre, pto:p, id:cj.id};
+        });
+    });
+    return m;
+}
+
+/* ── Arrastrar y soltar ────────────────────────────────────────────
+   Lo arrastrado se guarda en una variable propia y no en dataTransfer,
+   porque durante el "dragover" el navegador no deja leer esos datos, y
+   sin leerlos no se sabe si el puerto de destino sirve o no.        */
+function ptoDrag(ev, d){
+    const c=RED.elementos.find(e=>e.id===d.dataset.caja); if(!c) return;
+    const o=(c.puertos||{})[+d.dataset.n]; if(!o) return;
+    _arrastre={tipo:'puerto', caja:d.dataset.caja, n:+d.dataset.n,
+               nombre:o.cliente||'', servicio:o.servicio||''};
+    ev.dataTransfer.effectAllowed='move';
+    ev.dataTransfer.setData('text/plain', o.cliente||'cliente');
+    document.body.classList.add('arrastrando');
+}
+function cliDrag(ev, d){
+    _arrastre={tipo:'cliente', servicio:d.dataset.serv||'', nombre:d.dataset.nom||''};
+    ev.dataTransfer.effectAllowed='copy';
+    ev.dataTransfer.setData('text/plain', d.dataset.nom||'cliente');
+    document.body.classList.add('arrastrando');
+}
+function ptoFin(){
+    _arrastre=null;
+    document.body.classList.remove('arrastrando');
+    document.querySelectorAll('.vpto.dest,.vpto.no').forEach(x=>x.classList.remove('dest','no'));
+}
+function ptoSale(d){ d.classList.remove('dest','no'); }
+function ptoAdmite(d){
+    if(!_arrastre) return false;
+    const c=RED.elementos.find(e=>e.id===d.dataset.caja); if(!c) return false;
+    const n=+d.dataset.n;
+    if((c.puertos||{})[n])    return false;     // ya hay alguien
+    if((c.bloqueados||{})[n]) return false;     // reservado
+    if(n>capacidadCaja(c))    return false;
+    if(_arrastre.tipo==='puerto' && _arrastre.caja===d.dataset.caja && _arrastre.n===n) return false;
+    return true;
+}
+function ptoOver(ev, d){
+    if(!_arrastre) return;
+    if(ptoAdmite(d)){
+        d.classList.add('dest'); ev.preventDefault();
+        ev.dataTransfer.dropEffect = _arrastre.tipo==='puerto' ? 'move' : 'copy';
+    } else d.classList.add('no');
+}
+async function ptoSuelta(ev, d){
+    ev.preventDefault();
+    const a=_arrastre, ok=ptoAdmite(d);
+    const destino=d.dataset.caja, n=+d.dataset.n;
+    ptoFin();
+    if(!a||!ok) return;
+    if(a.tipo==='puerto') await moverEntrePuertos(a.caja, a.n, destino, n);
+    else                  await conectarEnPuerto(destino, n, a.servicio, a.nombre);
+}
+
+async function moverEntrePuertos(idA, nA, idB, nB){
+    const A=RED.elementos.find(e=>e.id===idA), B=RED.elementos.find(e=>e.id===idB);
+    if(!A||!B) return;
+    const o=(A.puertos||{})[nA]; if(!o) return;
+    if(A.id!==B.id && !confirm('¿Pasar a '+(o.cliente||'este cliente')+'\n\n'
+        +'de '+A.nombre+' · puerto '+nA+'\na '+B.nombre+' · puerto '+nB+'?')) return;
+    delete A.puertos[nA];
+    B.puertos=B.puertos||{};
+    B.puertos[nB]=Object.assign({}, o, {conectadoEn:Date.now(), conectadoPor:(USER&&USER.nombre)||''});
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){
+        delete B.puertos[nB]; A.puertos=A.puertos||{}; A.puertos[nA]=o;
+        ocultarCarga(); refrescarVentanas();
+        return alert('No se pudo guardar:\n\n'+(e.message||e));
+    }
+    ocultarCarga(); dibujar(); refrescarVentanas();
+}
+
+async function conectarEnPuerto(idCaja, n, servicio, nombre){
+    const c=RED.elementos.find(e=>e.id===idCaja); if(!c) return;
+    // Un servicio no puede estar en dos puertos: si ya estaba, se mueve
+    let movidoDe=null, antes=null, cajaAntes=null, ptoAntes=null;
+    if(servicio) RED.elementos.filter(e=>e.tipo==='caja').forEach(cj=>{
+        Object.keys(cj.puertos||{}).forEach(p=>{
+            if(cj.puertos[p].servicio===servicio && !(cj.id===idCaja && +p===n)){
+                movidoDe=cj.nombre+' pto '+p;
+                antes=cj.puertos[p]; cajaAntes=cj; ptoAntes=p;
+                delete cj.puertos[p];
+            }
+        });
+    });
+    c.puertos=c.puertos||{};
+    c.puertos[n]={cliente:nombre, servicio:servicio||'',
+                  conectadoEn:Date.now(), conectadoPor:(USER&&USER.nombre)||''};
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){
+        delete c.puertos[n];
+        if(cajaAntes) cajaAntes.puertos[ptoAntes]=antes;
+        ocultarCarga(); refrescarVentanas();
+        return alert('No se pudo guardar:\n\n'+(e.message||e));
+    }
+    ocultarCarga(); dibujar(); refrescarVentanas();
+    if(movidoDe) setTimeout(()=>alert(nombre+' se movió desde '+movidoDe+'.'), 200);
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
    RED · PROYECTOVISION — planta externa
    ────────────────────────────────────────────────────────────────────
    Vive aparte de OFICINAS a proposito: solo Florencia trae 6.536
@@ -317,7 +760,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
    la cambia aqui.
    ════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION_RED = 15;
+const APP_VERSION_RED = 16;
 
 const firebaseConfig = {
     apiKey: "AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w",
@@ -336,9 +779,9 @@ const TOPE_FRAGMENTO = 700*1024;
 // Con var y no let: quedan alcanzables desde la consola del navegador, que es
 // como se diagnostica cuando algo falla en una oficina y no hay forma de
 // reproducirlo aqui.
-var db=null, DB=null, USER=null, SEDE=null;
+var db=null, DB=null, INV=null, USER=null, SEDE=null;
 var RED={elementos:[]};          // la red de la sede abierta
-var mapa=null, capas={}, fondoSat=false, capaBase=null;
+var mapa=null, capas={}, fondoSat=false, capaBase=null, rendRuta=null;
 
 /* ── Arranque ───────────────────────────────────────────────────── */
 (async function init(){
@@ -347,10 +790,15 @@ var mapa=null, capas={}, fondoSat=false, capaBase=null;
         db=firebase.firestore();
         const snap=await db.collection(COLECCION).doc(DOC_ID).get();
         DB=snap.exists?snap.data():{};
-        const ofis=(DB.oficinas||[]).filter(o=>o&&o.id);
+        // El acceso sale del INVENTARIO, no de oficinas: es la misma gente que
+        // maneja bodega la que anda en campo con la red. Cada oficina ya guarda
+        // su bodegaId, asi que el enlace bodega → sede sale solo.
+        const si=await db.collection('inventario').doc('datos').get();
+        INV=si.exists?si.data():{};
+        const bodegas=(INV.bodegas||[]).filter(b=>b&&b.id);
         document.getElementById('selOfi').innerHTML =
-            ofis.length ? ofis.map(o=>`<option value="${o.id}">${esc(o.nombre)}</option>`).join('')
-                        : '<option value="">No hay oficinas</option>';
+            bodegas.length ? bodegas.map(b=>`<option value="${b.id}">${esc(b.nombre)}</option>`).join('')
+                           : '<option value="">No hay bodegas</option>';
     }catch(e){
         alert('No se pudo conectar con la base de datos.\n\n'+(e.message||e));
     }
@@ -371,16 +819,20 @@ function verTab(t){
 }
 
 async function entrar(tipo){
-    if(!DB) return alert('Todavía no cargaron los datos. Espera un momento.');
+    if(!DB||!INV) return alert('Todavía no cargaron los datos. Espera un momento.');
     if(tipo==='admin'){
-        if(document.getElementById('passAdm').value!==DB.adminPass) return alert('❌ Contraseña incorrecta');
+        if(document.getElementById('passAdm').value!==INV.adminPass) return alert('❌ Contraseña incorrecta');
         USER={role:'admin', nombre:'Administrador'};
     }else{
-        const id=document.getElementById('selOfi').value;
-        const o=(DB.oficinas||[]).find(x=>x.id===id);
-        if(!o) return alert('❌ Selecciona una oficina');
-        if(document.getElementById('passOfi').value!==o.password) return alert('❌ Contraseña incorrecta');
-        USER={role:'oficina', id:o.id, nombre:o.nombre};
+        const idb=document.getElementById('selOfi').value;
+        const b=(INV.bodegas||[]).find(x=>x.id===idb);
+        if(!b) return alert('❌ Selecciona una bodega');
+        if(document.getElementById('passOfi').value!==b.password) return alert('❌ Contraseña incorrecta');
+        // La sede es la oficina vinculada a esa bodega
+        const o=(DB.oficinas||[]).find(x=>String(x.bodegaId)===String(b.id));
+        if(!o) return alert('⚠️ La bodega "'+b.nombre+'" no está vinculada a ninguna oficina.\n\n'
+            +'El administrador la vincula en OFICINAS → Admin → Editar oficina → Bodega del Inventario.');
+        USER={role:'oficina', id:o.id, nombre:b.nombre, bodega:b.id, sede:o.nombre};
     }
     document.getElementById('login').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
@@ -393,14 +845,22 @@ async function entrar(tipo){
         document.getElementById('chipSede').classList.add('hidden');
         await cambiarSede(ofis[0]?ofis[0].id:null);
     }else{
-        document.getElementById('chipSede').textContent=USER.nombre;
+        document.getElementById('chipSede').textContent=
+            USER.sede && USER.sede!==USER.nombre ? USER.nombre+' · '+USER.sede : USER.nombre;
         await cambiarSede(USER.id);
     }
 }
-function salir(){ location.reload(); }
+function salir(){ soltarCandado().finally(()=>location.reload()); }
+function volverAlInicio(){
+    // Si quedo algo sin guardar por falta de señal, mejor avisar antes de salir.
+    if(_pendientesGuardar && !confirm('Hay cambios que no se han guardado porque no hay internet.\n\n'
+        +'Si sales ahora se pierden. ¿Salir de todas formas?')) return;
+    soltarCandado().finally(()=>{ location.href='index.html'; });
+}
 
 async function cambiarSede(id){
     if(!id) return;
+    cerrarVentanas(); _cliOficina=null;
     SEDE=(DB.oficinas||[]).find(o=>o.id===id)||null;
     mostrarCarga('Cargando la red de '+(SEDE?SEDE.nombre:'')+'…');
     window._yaEncuadrado=false;   // al cambiar de sede el mapa vuelve a centrarse
@@ -1184,6 +1644,11 @@ async function crearMapa(){
     await cargarScript('https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js');
     mapa=L.map('mapa',{preferCanvas:true, zoomControl:true}).setView([1.61,-75.61],13);
     ponerFondo();
+    // Panel propio para la ruta iluminada, POR ENCIMA de todo. Asi se puede
+    // apagar el resto del mapa sin que se apague tambien el trazo resaltado.
+    mapa.createPane('ruta'); mapa.getPane('ruta').style.zIndex=680;
+    // En SVG (no canvas) para que la linea viva pueda animarse por CSS.
+    rendRuta=L.svg({pane:'ruta'});
     ORDEN.forEach(t=>{ capas[t]=L.layerGroup().addTo(mapa); });
     mapa.on('click',ev=>{
         if(moviendo) return soltarEn([ev.latlng.lat, ev.latlng.lng]);
@@ -1198,6 +1663,9 @@ async function crearMapa(){
         }
     });
     mapa.doubleClickZoom.disable();
+    // Sin esto, arrastrar una ventana arrastraria tambien el mapa de fondo.
+    const cv=document.getElementById('ventanas');
+    if(cv){ L.DomEvent.disableClickPropagation(cv); L.DomEvent.disableScrollPropagation(cv); }
     // Los nombres de las cajas aparecen desde el zoom 17: hay que redibujarlas
     // al cruzar ese umbral. Y de paso se avisa si la foto ya viene ampliada.
     mapa.on('zoomend',()=>{
@@ -1464,6 +1932,7 @@ function dibujarNotas(){
 }
 
 function dibujar(){
+    _arbolPOP=null;   // la red pudo cambiar: el camino al POP se recalcula
     if(!mapa) return;
     ORDEN.forEach(t=>capas[t]&&capas[t].clearLayers());
     dibujarRegiones();
@@ -1494,7 +1963,7 @@ function dibujar(){
             L.DomEvent.stopPropagation(ev); window._fijado=true;
             // En modo ruta, un clic en una caja ilumina su camino hasta el POP
             if(MODO==='ruta' && el.tipo==='caja') iluminarRuta(el);
-            else pintarPanel(el);
+            else { if(el.tipo==='caja') ventanaCaja(el.id); pintarPanel(el); }
             setTimeout(()=>window._fijado=false,50);
         });
         capa.addTo(capas[t]);
@@ -1885,6 +2354,7 @@ function fichaHTML(el){
           </div>
           <div class="dato"><b>Estado de la caja</b><span style="color:${s.color};font-weight:700">${s.et}</span></div>
           <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+            <button class="btn btn-sm btn-out" style="flex:1" onclick="ventanaCaja('${el.id}')">🪟 Cuadro</button>
             <button class="btn btn-sm btn-out" style="flex:1" onclick="abrirDiagrama('${el.id}')">📊 Interior</button>
             <button class="btn btn-sm btn-out" style="flex:1" onclick="abrirFusiones('${el.id}')">🔗 Fusiones${(el.fusiones||[]).length?' ('+el.fusiones.length+')':''}</button>
             <button class="btn btn-sm btn-out" style="flex:1" onclick="etiquetaCaja('${el.id}')">🏷️ Etiqueta</button>
@@ -2296,6 +2766,7 @@ async function modo(m){
 }
 
 function limpiarTemporal(){
+    if(mapa) mapa.getContainer().classList.remove('atenuado');
     if(temp&&mapa){ mapa.removeLayer(temp); }
     temp=null; puntos=[]; window._viabPunto=null; window._relieve=null;
 }
@@ -2322,24 +2793,97 @@ function clicEnMapa(ev){
 const DB_KM=0.35, DB_FUSION=0.1, DB_CONECTOR=0.5;
 const DB_SPLITTER={2:3.6, 4:7.2, 8:10.5, 16:13.7, 32:17.0, 64:21.0};
 
+/* El camino hasta el POP NO se puede adivinar cable a cable "yendo por el
+   mas grueso": en una red mallada eso se va por donde no es. En Florencia
+   se iba 26 cajas para abajo y nunca llegaba al POP.
+   Lo correcto es al reves: se calcula UNA VEZ, desde el POP hacia afuera,
+   el camino mas corto en metros a cada caja (Dijkstra), y despues cada
+   caja solo tiene que devolverse por sus padres. */
+var _arbolPOP=null;
+function arbolDesdePOP(){
+    if(_arbolPOP) return _arbolPOP;
+    const cajas=RED.elementos.filter(e=>e.tipo==='caja');
+    const porNombre={}, porId={}, cableDe={};
+    cajas.forEach(c=>{ porNombre[c.nombre]=c; porId[c.id]=c; });
+    RED.elementos.filter(e=>e.tipo==='cable').forEach(c=>cableDe[c.id]=c);
+    const vec={};
+    cajas.forEach(c=>{
+        vec[c.id]=[];
+        (c.cables||[]).forEach(x=>{
+            const d=porNombre[x.hacia];
+            if(d && d.id!==c.id)
+                vec[c.id].push({id:d.id, cableId:x.id, metros:(cableDe[x.id]||{}).metros||0});
+        });
+    });
+    const pops=cajas.filter(c=>c.clase==='pop');
+    const dist={}, padre={}, pend=new Set();
+    pops.forEach(p=>{ dist[p.id]=0; pend.add(p.id); });
+    // Son cientos de cajas, no miles: con sacar cada vez la mas cercana basta.
+    while(pend.size){
+        let mejor=null, dm=Infinity;
+        pend.forEach(id=>{ if(dist[id]<dm){ dm=dist[id]; mejor=id; } });
+        if(mejor===null) break;
+        pend.delete(mejor);
+        (vec[mejor]||[]).forEach(v=>{
+            const nd=dm+Math.max(v.metros,1);
+            if(dist[v.id]===undefined || nd<dist[v.id]){
+                dist[v.id]=nd;
+                padre[v.id]={id:mejor, cableId:v.cableId, metros:v.metros};
+                pend.add(v.id);
+            }
+        });
+    }
+    _arbolPOP={padre, dist, porId, cableDe, hayPOP:pops.length>0};
+    return _arbolPOP;
+}
+
 function rutaHastaPOP(caja){
-    const porNombre={}; RED.elementos.filter(e=>e.tipo==='caja').forEach(c=>porNombre[c.nombre]=c);
-    const pasos=[]; let actual=caja, visto=new Set(), dbTotal=0, metrosTotal=0;
-    while(actual && !visto.has(actual.id) && pasos.length<40){
+    const A=arbolDesdePOP();
+    if(!A.hayPOP) return rutaGreedy(caja);      // todavia no han marcado el POP
+    const pasos=[]; let dbTotal=0, metrosTotal=0, actual=caja, visto=new Set();
+    while(actual && !visto.has(actual.id) && pasos.length<60){
         visto.add(actual.id);
-        // La perdida del splitter de ESTA caja
-        // La perdida la mete CUALQUIER splitter que atraviese la señal, sea de
-        // red o de atencion: el splitter parte la luz igual.
+        // La perdida de los splitters: en la caja del cliente cuenta el de
+        // atencion (por ahi sale su drop); en las de paso solo cuenta el de
+        // RED, porque la fibra que sigue de largo no atraviesa el otro.
+        const esDestino = actual===caja;
         (actual.splitters||[]).forEach(s=>{
+            if(!esDestino && !esDeRed(s)) return;
             const n=salidasDe(s);
             if(DB_SPLITTER[n]) dbTotal+=DB_SPLITTER[n];
-            else if(s.ratio){  // desbalanceado: la perdida del lado que sigue de largo
+            else if(s.ratio){
                 const p=parseInt(String(s.ratio).split('/')[0],10);
                 if(p) dbTotal+= -10*Math.log10(p/100) + 0.5;
             }
         });
         if(actual.clase==='pop'){ pasos.push({caja:actual, fin:true}); break; }
-        // El cable que sube: el mas grueso que salga de aqui hacia una caja no visitada
+        const pa=A.padre[actual.id];
+        if(!pa){ pasos.push({caja:actual, sinSalida:true}); break; }
+        const m=pa.metros||0;
+        metrosTotal+=m; dbTotal+=m/1000*DB_KM + DB_FUSION*2;
+        pasos.push({caja:actual, cable:A.cableDe[pa.cableId]||{id:pa.cableId}, metros:m});
+        actual=A.porId[pa.id];
+    }
+    return {pasos, db:Math.round(dbTotal*10)/10, metros:Math.round(metrosTotal),
+            llegaAlPOP: pasos.length>0 && !!pasos[pasos.length-1].fin};
+}
+
+/* Sin POP marcado no hay de donde partir, asi que se hace lo que se pueda:
+   subir por el cable mas grueso. Es aproximado y se avisa en pantalla. */
+function rutaGreedy(caja){
+    const porNombre={}; RED.elementos.filter(e=>e.tipo==='caja').forEach(c=>porNombre[c.nombre]=c);
+    const pasos=[]; let actual=caja, visto=new Set(), dbTotal=0, metrosTotal=0;
+    while(actual && !visto.has(actual.id) && pasos.length<40){
+        visto.add(actual.id);
+        (actual.splitters||[]).forEach(s=>{
+            const n=salidasDe(s);
+            if(DB_SPLITTER[n]) dbTotal+=DB_SPLITTER[n];
+            else if(s.ratio){
+                const p=parseInt(String(s.ratio).split('/')[0],10);
+                if(p) dbTotal+= -10*Math.log10(p/100) + 0.5;
+            }
+        });
+        if(actual.clase==='pop'){ pasos.push({caja:actual, fin:true}); break; }
         const salidas=(actual.cables||[])
             .map(c=>({c, dest:porNombre[c.hacia]}))
             .filter(x=>x.dest && !visto.has(x.dest.id))
@@ -2353,21 +2897,37 @@ function rutaHastaPOP(caja){
         actual=s.dest;
     }
     return {pasos, db:Math.round(dbTotal*10)/10, metros:Math.round(metrosTotal),
-            llegaAlPOP: pasos.length>0 && !!pasos[pasos.length-1].fin};
+            sinPOP:true, llegaAlPOP: pasos.length>0 && !!pasos[pasos.length-1].fin};
 }
 
 function iluminarRuta(caja){
     limpiarTemporal();
     const r=rutaHastaPOP(caja);
     temp=L.layerGroup().addTo(mapa);
+    // Se APAGA el resto del mapa. Con los 1.151 cables encendidos, un trazo
+    // amarillo mas no se distinguia: ese era el reclamo del usuario.
+    mapa.getContainer().classList.add('atenuado');
+    const opt={pane:'ruta', renderer:rendRuta};
+    // Cuatro trazos superpuestos: resplandor, halo, cuerpo y linea viva.
+    r.pasos.forEach(p=>{
+        if(p.cable&&p.cable.g&&p.cable.g.length>1){
+            L.polyline(p.cable.g,{...opt,color:'#fde047',weight:22,opacity:.14}).addTo(temp);
+            L.polyline(p.cable.g,{...opt,color:'#fde047',weight:12,opacity:.30}).addTo(temp);
+            L.polyline(p.cable.g,{...opt,color:'#ffe066',weight:5, opacity:1, className:'ruta-viva'}).addTo(temp);
+            L.polyline(p.cable.g,{...opt,color:'#fffbe8',weight:2, opacity:1,
+                dashArray:'8,16', className:'ruta-flujo'}).addTo(temp);
+        }
+    });
+    // Las cajas del camino, numeradas para leer el orden
     r.pasos.forEach((p,i)=>{
-        if(p.cable&&p.cable.g&&p.cable.g.length>1)
-            L.polyline(p.cable.g,{color:'#fde047',weight:6,opacity:.85}).addTo(temp);
-        L.circleMarker(p.caja.g[0],{radius:7,color:'#fde047',weight:2,
-            fillColor:p.fin?'#a855f7':'#0b1220',fillOpacity:1}).addTo(temp);
+        L.circleMarker(p.caja.g[0],{...opt,radius:15,weight:0,fillColor:'#fde047',fillOpacity:.25,
+            className:'ruta-halo'}).addTo(temp);
+        L.marker(p.caja.g[0],{pane:'ruta', icon:L.divIcon({className:'',iconSize:[26,26],iconAnchor:[13,13],
+            html:`<div class="mk mk-ruta" style="background:${p.fin?'#a855f7':'#fde047'};color:${p.fin?'#fff':'#111'}">${p.fin?'🏛️':(i+1)}</div>`})}).addTo(temp);
     });
     pintarRuta(caja, r);
 }
+
 function pintarRuta(caja, r){
     const pan=document.getElementById('panel');
     pan.innerHTML=`
@@ -2386,7 +2946,8 @@ function pintarRuta(caja, r){
          :r.db>24?'Va justo: entre 24 y 28 dB conviene medir en sitio.'
          :'✅ Dentro de lo normal para GPON (hasta unos 28 dB).'}
       </div>
-      ${!r.llegaAlPOP?'<div class="aviso" style="background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.4);color:#fcd34d">No llegué hasta el POP: la cadena se corta antes. Puede faltar enlazar algún cable.</div>':''}
+      ${r.sinPOP?'<div class="aviso" style="background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.4);color:#fcd34d">Ninguna caja está marcada como POP, así que este camino es aproximado. Abre la caja de la central y ponle tipo POP.</div>'
+        :!r.llegaAlPOP?'<div class="aviso" style="background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.4);color:#fcd34d">No llegué hasta el POP: la cadena se corta antes. Puede faltar enlazar algún cable.</div>':''}
       <div class="sec">El camino</div>
       ${r.pasos.map((p,i)=>`
         <div class="dato" style="cursor:pointer" onclick="irA('${p.caja.id}')">
