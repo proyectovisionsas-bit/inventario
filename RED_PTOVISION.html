@@ -253,6 +253,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
       <button class="lb" id="h_cable"   onclick="modo('cable')"      title="Trazar cable">🧵</button>
       <button class="lb" id="h_region"  onclick="modo('region')"     title="Dibujar una región">⬟</button>
       <button class="lb" id="h_ruta"    onclick="modo('ruta')"       title="Seguir la ruta hasta el POP">💡</button>
+      <button class="lb" id="h_nota"    onclick="modo('nota')"       title="Reportar algo en campo">🚩</button>
       <div class="lsep"></div>
       <button class="lb" id="h_capas"   onclick="verPanel('capas')"  title="Capas">🗂️</button>
       <button class="lb" id="h_calor"   onclick="alternarCalor()"    title="Mapa de calor">🔥</button>
@@ -314,7 +315,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
    la cambia aqui.
    ════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION_RED = 11;
+const APP_VERSION_RED = 12;
 
 const firebaseConfig = {
     apiKey: "AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w",
@@ -500,7 +501,7 @@ window.addEventListener('online', async()=>{
 window.addEventListener('offline', pintarEstadoRed);
 
 async function cargarRed(oficinaId){
-    const out={elementos:[], regiones:[]};
+    const out={elementos:[], regiones:[], notas:[]};
     if(!navigator.onLine){
         const l=leerLocal(oficinaId);
         if(l){ console.log('📴 Sin internet: se abre la copia guardada en este equipo.'); return l; }
@@ -514,6 +515,7 @@ async function cargarRed(oficinaId){
             if(!d.exists) continue;
             const dd=d.data();
             if(Array.isArray(dd.elementos)) out.elementos.push(...dd.elementos.map(desaplanar));
+            if(i===0&&Array.isArray(dd.notas)) out.notas=dd.notas;
             if(i===0&&Array.isArray(dd.regiones)) out.regiones=dd.regiones.map(r=>{
                 const c=Object.assign({},r), p=[];
                 for(let k=0;k+1<(r.g||[]).length;k+=2) p.push([r.g[k], r.g[k+1]]);
@@ -590,9 +592,11 @@ async function guardarRed(oficinaId, elementos, regiones){
         const c=Object.assign({},r); const p=[];
         (r.g||[]).forEach(q=>{ p.push(q[0],q[1]); }); c.g=p; return c;
     });
+    // Las notas de campo son un punto suelto: no llevan arreglo anidado.
+    const nts=(RED.notas||[]).map(n=>Object.assign({},n,{g:[n.g[0],n.g[1]]}));
     for(let i=0;i<frags.length;i++){
         const doc={elementos:frags[i], actualizado:Date.now()};
-        if(i===0) doc.regiones=regs;
+        if(i===0){ doc.regiones=regs; doc.notas=nts; }
         await db.collection(COLECCION).doc(`red_${oficinaId}_${i}`).set(doc);
     }
     // Si antes habia mas fragmentos, se vacian para no dejar datos zombis
@@ -1382,10 +1386,27 @@ function enPoligono(p, poly){
     return d;
 }
 
+var capaNotas=null;
+function dibujarNotas(){
+    if(capaNotas){ mapa.removeLayer(capaNotas); capaNotas=null; }
+    const ab=(RED.notas||[]).filter(n=>n.abierta);
+    if(!ab.length) return;
+    capaNotas=L.layerGroup().addTo(mapa);
+    ab.forEach(n=>{
+        const col=n.urgencia==='Alta'?'#ef4444':n.urgencia==='Baja'?'#64748b':'#f59e0b';
+        const m=L.marker(n.g,{icon:L.divIcon({className:'',iconSize:[22,22],iconAnchor:[11,11],
+            html:`<div class="mk mk-mufla" style="background:${col};font-size:.7rem">🚩</div>`})});
+        m.bindTooltip(`<b>${esc(n.tipo)}</b><br>${esc((n.texto||'').slice(0,60))}`,{direction:'top'});
+        m.on('click',ev=>{ L.DomEvent.stopPropagation(ev); abrirPendientes(); });
+        m.addTo(capaNotas);
+    });
+}
+
 function dibujar(){
     if(!mapa) return;
     ORDEN.forEach(t=>capas[t]&&capas[t].clearLayers());
     dibujarRegiones();
+    dibujarNotas();
     const lienzo=L.canvas({padding:0.4});
     const puntos=[];
     const soloLibres=window._soloLibres;
@@ -2105,10 +2126,11 @@ const PISTAS={
     editar:'✏️ Clic en el mapa para crear · clic en un elemento para cambiarlo',
     cable:'🧵 Marca por dónde pasa el cable. Doble clic para terminar',
     region:'⬟ Marca las esquinas del área. Doble clic para cerrarla',
-    ruta:'💡 Haz clic en una caja y te muestro por dónde le llega la señal'
+    ruta:'💡 Haz clic en una caja y te muestro por dónde le llega la señal',
+    nota:'🚩 Haz clic donde viste el problema para reportarlo'
 };
 const BOTONES=[['ver','h_ver'],['viabilidad','h_viab'],['medir','h_medir'],['editar','h_editar'],
-               ['cable','h_cable'],['region','h_region'],['ruta','h_ruta']];
+               ['cable','h_cable'],['region','h_region'],['ruta','h_ruta'],['nota','h_nota']];
 
 async function modo(m){
     if(!SEDE) return alert('Primero elige una sede.');
@@ -2144,6 +2166,7 @@ function limpiarTemporal(){
 function clicEnMapa(ev){
     const p=[ev.latlng.lat, ev.latlng.lng];
     if(MODO==='editar')     return nuevoElemento(p);
+    if(MODO==='nota')       return nuevaNota(p);
     if(MODO==='viabilidad') return verViabilidad(p);
     if(MODO==='medir'||MODO==='cable'||MODO==='region') return marcarPunto(p);
 }
@@ -2255,6 +2278,50 @@ function alternarCalor(){
 /* ════════════════════════════════════════════════════════════════════
    PENDIENTES — lo que hay que arreglar en la documentación
    ════════════════════════════════════════════════════════════════════ */
+/* Notas de campo: el tecnico marca una anomalia donde la ve, con foto
+   opcional, y queda en el mapa hasta que alguien la resuelva. */
+function nuevaNota(p){
+    window._notaPunto=p;
+    abrirModal('🚩 Reportar algo aquí', `
+      <label>¿Qué pasa?</label>
+      <select id="nt_tipo">
+        <option>Poste en mal estado</option>
+        <option>Caja abierta o dañada</option>
+        <option>Cable colgando o roto</option>
+        <option>Reserva mal asegurada</option>
+        <option>Falta documentar algo</option>
+        <option>Otro</option>
+      </select>
+      <label style="margin-top:12px">Detalle</label>
+      <textarea id="nt_txt" rows="3" placeholder="Lo que viste"></textarea>
+      <label style="margin-top:8px">Urgencia</label>
+      <select id="nt_urg"><option>Normal</option><option>Alta</option><option>Baja</option></select>
+      <p class="ayuda">Queda marcado en el mapa hasta que alguien lo dé por resuelto.</p>`,
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cancelar</button>
+       <button class="btn btn-sm btn-primary" style="width:auto" onclick="guardarNota()">Reportar</button>`);
+}
+async function guardarNota(){
+    const t=val('nt_txt');
+    RED.notas=RED.notas||[];
+    const n={id:'n'+Date.now().toString(36), tipo:val('nt_tipo'), texto:t, urgencia:val('nt_urg'),
+             g:window._notaPunto, abierta:true, en:Date.now(), por:(USER&&USER.nombre)||''};
+    RED.notas.push(n);
+    cerrarModal();
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos, RED.regiones); }
+    catch(e){ RED.notas.pop(); ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e)); }
+    ocultarCarga(); dibujar();
+}
+async function resolverNota(id){
+    const n=(RED.notas||[]).find(x=>x.id===id); if(!n) return;
+    if(!confirm('¿Dar por resuelto "'+(n.tipo||'')+'"?')) return;
+    n.abierta=false; n.resueltaEn=Date.now(); n.resueltaPor=(USER&&USER.nombre)||'';
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos, RED.regiones); }
+    catch(e){ n.abierta=true; ocultarCarga(); return alert('No se pudo guardar.'); }
+    ocultarCarga(); cerrarModal(); dibujar(); abrirPendientes();
+}
+
 function abrirPendientes(){
     if(!SEDE) return alert('Primero elige una sede.');
     const cajas=RED.elementos.filter(e=>e.tipo==='caja'&&e.clase!=='pop');
@@ -2270,13 +2337,23 @@ function abrirPendientes(){
          <span class="punto" style="background:${color}"></span>
          <span class="nom">${esc(x.nombre||'(sin nombre)')}</span></div>`).join('')}
       ${arr.length>25?`<p class="ayuda">…y ${arr.length-25} más.</p>`:''}`:'';
+    const abiertas=(RED.notas||[]).filter(n=>n.abierta);
     abrirModal('🚩 Pendientes de '+esc(SEDE.nombre), `
       <div class="kpis">
+        <div class="kpi"><div class="v" style="color:${abiertas.length?'#ef4444':'#10b981'}">${abiertas.length}</div><div class="e">Reportes abiertos</div></div>
         <div class="kpi"><div class="v" style="color:#f59e0b">${sinCap.length}</div><div class="e">Sin capacidad</div></div>
         <div class="kpi"><div class="v" style="color:#ef4444">${llenas.length}</div><div class="e">Llenas</div></div>
         <div class="kpi"><div class="v">${sinCable.length}</div><div class="e">Sin cable</div></div>
-        <div class="kpi"><div class="v">${cablesSinHilos.length}</div><div class="e">Cable sin hilos</div></div>
       </div>
+      ${abiertas.length?`
+        <div class="sec">Reportes de campo <span class="cuenta">${abiertas.length}</span></div>
+        ${abiertas.map(n=>`<div class="fila">
+           <span class="punto" style="background:${n.urgencia==='Alta'?'#ef4444':n.urgencia==='Baja'?'#64748b':'#f59e0b'}"></span>
+           <span class="nom"><b>${esc(n.tipo)}</b>${n.texto?' · '+esc(n.texto.slice(0,40)):''}
+             <i style="color:var(--muted);font-size:.68rem">— ${esc(n.por||'')} ${new Date(n.en).toLocaleDateString('es-CO')}</i></span>
+           <button class="btn btn-sm btn-out" onclick="cerrarModal();mapa.setView([${n.g[0]},${n.g[1]}],19)">Ver</button>
+           <button class="btn btn-sm btn-out" onclick="resolverNota('${n.id}')">✓</button>
+         </div>`).join('')}`:''}
       ${bloque('Cajas sin capacidad definida',sinCap,'No cuentan como espacio disponible. Ábrelas y dile qué splitter llevan.','#f59e0b')}
       ${bloque('Cajas llenas',llenas,'No cabe nadie más. Si va a crecer la zona, toca ampliar.','#ef4444')}
       ${bloque('Cajas sin cable enlazado',sinCable,'No se sabe por dónde les llega la señal.','#64748b')}
@@ -3214,12 +3291,25 @@ function abrirGuia(){
       <p class="ayuda">Una caja gris no es que esté mal: es que nadie le ha dicho qué splitter lleva.
          Ábrela y agrégaselo.</p>
 
-      <div class="sec">Las herramientas</div>
+      <div class="sec">Las herramientas de la barra</div>
       <div class="dato"><b>👁️ Ver</b><span>Solo mirar, sin tocar nada</span></div>
       <div class="dato"><b>🔍 Viabilidad</b><span>¿Puedo vender en esta dirección?</span></div>
-      <div class="dato"><b>📏 Medir</b><span>Cuánto cable hace falta</span></div>
+      <div class="dato"><b>📏 Medir</b><span>Cuánto cable hace falta, con relieve</span></div>
       <div class="dato"><b>✏️ Editar</b><span>Crear, mover y borrar</span></div>
       <div class="dato"><b>🧵 Trazar</b><span>Dibujar un cable nuevo</span></div>
+      <div class="dato"><b>⬟ Región</b><span>Marcar un barrio o zona</span></div>
+      <div class="dato"><b>💡 Ruta</b><span>Por dónde llega la señal y cuánta se pierde</span></div>
+      <div class="dato"><b>🚩 Reportar</b><span>Anotar un problema visto en campo</span></div>
+      <div class="dato"><b>🗂️ Capas</b><span>Prender y apagar lo que se ve</span></div>
+      <div class="dato"><b>🔥 Calor</b><span>Dónde se concentra la demanda</span></div>
+      <div class="dato"><b>👥 / 👪</b><span>Clientes contra la red · agrupación</span></div>
+      <div class="dato"><b>📥 / 🌍 / 📊</b><span>Importar · Google Earth · Excel</span></div>
+
+      <div class="sec">Dentro de una caja</div>
+      <div class="dato"><b>📊 Interior</b><span>El diagrama con hilos y splitters</span></div>
+      <div class="dato"><b>🔗 Fusiones</b><span>Qué hilo se empalma con cuál</span></div>
+      <div class="dato"><b>🏷️ Etiqueta</b><span>Con QR, para pegar en la caja</span></div>
+      <div class="dato"><b>🔒 Reservar</b><span>Guardar un puerto para una obra</span></div>
 
       <div class="sec">Ojo con esto</div>
       <p class="ayuda">El satélite gratuito llega hasta cierto acercamiento; más allá se ve borroso.
