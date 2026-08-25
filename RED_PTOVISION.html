@@ -88,6 +88,28 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
 .fila:hover{background:var(--card2);}
 .fila .nom{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .fila .meta{font-size:.72rem;color:var(--muted);white-space:nowrap;}
+/* ── Barra de herramientas: el mapa se comporta distinto según la elegida ── */
+.herramientas{display:flex;gap:3px;background:var(--card2);border:1px solid var(--border);
+              border-radius:10px;padding:3px;}
+.hb{border:none;background:transparent;color:var(--muted);font-size:1rem;cursor:pointer;
+    padding:6px 10px;border-radius:7px;transition:.12s;line-height:1;}
+.hb:hover{background:rgba(255,255,255,.06);}
+.hb.on{background:rgba(16,185,129,.18);color:#10b981;box-shadow:inset 0 0 0 1px rgba(16,185,129,.4);}
+.pista{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:600;
+       background:rgba(16,185,129,.95);color:#04121f;font-weight:700;font-size:.79rem;
+       padding:8px 15px;border-radius:9px;box-shadow:0 6px 20px rgba(0,0,0,.45);
+       display:none;align-items:center;gap:9px;}
+.pista button{background:rgba(0,0,0,.22);border:none;color:#04121f;font-weight:700;
+              border-radius:6px;padding:3px 9px;cursor:pointer;font-size:.72rem;}
+/* Resultado de viabilidad */
+.viab{border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px;
+      background:var(--card2);cursor:pointer;transition:.12s;}
+.viab:hover{border-color:#10b981;}
+.viab .cab{display:flex;align-items:center;gap:8px;margin-bottom:5px;}
+.viab .dist{margin-left:auto;font-size:.74rem;color:var(--muted);font-variant-numeric:tabular-nums;}
+.viab .lib{font-weight:800;font-size:1.05rem;}
+.pasos{counter-reset:p;}
+.pasos li{margin-bottom:9px;font-size:.82rem;line-height:1.5;}
 /* ── Ventanas propias (en vez de los prompt del navegador) ── */
 #modal{position:fixed;inset:0;background:rgba(4,8,16,.78);z-index:1200;display:flex;
        align-items:center;justify-content:center;padding:18px;backdrop-filter:blur(3px);}
@@ -177,13 +199,20 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
     <div class="marca">🛰️ PROYECTO<span>VISION</span> · RED</div>
     <span class="chip" id="chipSede">—</span>
     <select id="selSede" class="hidden" style="width:auto;margin:0;padding:6px 10px;font-size:.82rem;" onchange="cambiarSede(this.value)"></select>
+    <div class="herramientas">
+      <button class="hb on" id="h_ver"    onclick="modo('ver')"        title="Solo mirar">👁️</button>
+      <button class="hb" id="h_viab"      onclick="modo('viabilidad')" title="¿Hay cupo aquí?">🔍</button>
+      <button class="hb" id="h_medir"     onclick="modo('medir')"      title="Medir distancia">📏</button>
+      <button class="hb" id="h_editar"    onclick="modo('editar')"     title="Crear y editar">✏️</button>
+      <button class="hb" id="h_cable"     onclick="modo('cable')"      title="Trazar un cable">🧵</button>
+    </div>
     <div class="crece"></div>
     <span class="chip" id="chipTotal">0 elementos</span>
-    <button class="btn btn-sm btn-out" id="btnEditar" onclick="alternarEdicion()">✏️ Editar</button>
-    <button class="btn btn-sm btn-out" onclick="abrirCruce()">👥 Clientes vs. Red</button>
-    <button class="btn btn-sm btn-out" onclick="pedirKML()">📥 Importar KML</button>
-    <button class="btn btn-sm btn-out" onclick="exportarKML()">🌍 Google Earth</button>
-    <button class="btn btn-sm btn-out" onclick="cambiarFondo()" id="btnFondo">🛰️ Satélite</button>
+    <button class="btn btn-sm btn-out" onclick="abrirCruce()">👥 Clientes</button>
+    <button class="btn btn-sm btn-out" onclick="pedirKML()">📥 KML</button>
+    <button class="btn btn-sm btn-out" onclick="exportarKML()">🌍 Earth</button>
+    <button class="btn btn-sm btn-out" onclick="cambiarFondo()" id="btnFondo">🛰️</button>
+    <button class="btn btn-sm btn-out" onclick="abrirGuia()" title="¿Qué es cada cosa?">❓</button>
     <button class="btn btn-sm btn-out" onclick="salir()">Salir</button>
   </div>
   <div class="cuerpo">
@@ -192,6 +221,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
       <div id="avisoZoom" style="position:absolute;right:10px;bottom:20px;z-index:500;display:none;
            background:rgba(19,28,46,.94);border:1px solid var(--border);border-radius:9px;
            padding:7px 11px;font-size:.72rem;color:#f59e0b;"></div>
+      <div class="pista" id="pista"></div>
     </div>
     <div class="panel" id="panel"></div>
   </div>
@@ -234,7 +264,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
    la cambia aqui.
    ════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION_RED = 6;
+const APP_VERSION_RED = 7;
 
 const firebaseConfig = {
     apiKey: "AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w",
@@ -852,9 +882,13 @@ async function crearMapa(){
     ORDEN.forEach(t=>{ capas[t]=L.layerGroup().addTo(mapa); });
     mapa.on('click',ev=>{
         if(moviendo) return soltarEn([ev.latlng.lat, ev.latlng.lng]);
-        if(editando) return clicEnMapa(ev);
+        if(MODO!=='ver') return clicEnMapa(ev);
         if(!window._fijado) pintarPanel();
     });
+    mapa.on('dblclick',ev=>{
+        if(MODO==='medir'||MODO==='cable'){ L.DomEvent.stop(ev); }
+    });
+    mapa.doubleClickZoom.disable();
     // Los nombres de las cajas aparecen desde el zoom 17: hay que redibujarlas
     // al cruzar ese umbral. Y de paso se avisa si la foto ya viene ampliada.
     mapa.on('zoomend',()=>{
@@ -979,6 +1013,15 @@ function pintarLeyenda(){
    ════════════════════════════════════════════════════════════════════ */
 function pintarPanel(el){
     const p=document.getElementById('panel');
+    if(MODO==='medir'||MODO==='cable'){ p.innerHTML=panelMedicion(); return; }
+    if(MODO==='viabilidad'&&!window._viabPunto){
+        p.innerHTML=`<button class="btn btn-sm btn-out" style="margin-bottom:12px" onclick="modo('ver')">← Salir</button>
+          <div class="sec">¿Hay cupo aquí?</div>
+          <div class="vacio">Haz clic en el mapa donde vive el cliente.<br><br>
+          Te digo a qué cajas alcanza, cuántos puertos les quedan libres<br>
+          y a qué distancia están.</div>`;
+        return;
+    }
     if(el){ p.innerHTML=fichaHTML(el); return; }
 
     if(!RED.elementos.length){
@@ -1066,20 +1109,116 @@ function irA(id){
     const el=RED.elementos.find(e=>e.id===id); if(!el||!el.g||!el.g.length) return;
     mapa.setView(el.g[0], 19); dibujar(); pintarPanel(el);
 }
+/* ════════════════════════════════════════════════════════════════════
+   CONECTAR Y DESCONECTAR CLIENTES EN LOS PUERTOS
+   Hasta aqui la ocupacion solo se podia importar del KML. Sin esto, la
+   red envejece desde el dia uno: se instala a alguien y el mapa sigue
+   diciendo que ese puerto esta libre.
+   Los clientes salen de la OFICINA (los mismos de WispHub), no se
+   escriben a mano, para que el nombre no se invente dos veces.
+   ════════════════════════════════════════════════════════════════════ */
+var _cliOficina=null;
+async function clientesParaConectar(){
+    if(_cliOficina) return _cliOficina;
+    _cliOficina=await clientesDeOficina(SEDE.id);
+    return _cliOficina;
+}
+
 function verPuerto(idCaja, n){
     const c=RED.elementos.find(e=>e.id===idCaja); if(!c) return;
     const o=(c.puertos||{})[n];
-    if(!o) return abrirModal('Puerto '+n+' de '+esc(c.nombre||''),
-        `<div class="vacio" style="padding:16px">Está <b style="color:#10b981">libre</b>.<br>
-         Se puede conectar un cliente aquí.</div>`,
-        `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cerrar</button>`);
+    if(!o) return abrirModal(`Puerto ${n} · ${esc(c.nombre||'')}`,
+        `<div style="text-align:center;padding:14px 10px">
+           <div style="font-size:2.2rem">🟢</div>
+           <b style="color:#10b981;font-size:1.05rem">Libre</b>
+           <p class="ayuda" style="margin-top:6px">Se puede conectar un cliente aquí.</p>
+         </div>`,
+        `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cerrar</button>
+         <button class="btn btn-sm btn-primary" style="width:auto"
+                 onclick="conectarCliente('${idCaja}',${n})">🔌 Conectar cliente</button>`);
     const cli=RED.elementos.find(e=>e.id===o.clienteId);
-    abrirModal('Puerto '+n+' de '+esc(c.nombre||''), `
+    abrirModal(`Puerto ${n} · ${esc(c.nombre||'')}`, `
       <div class="dato"><b>Cliente</b><span>${esc(o.cliente||'—')}</span></div>
-      ${cli?`<div class="dato"><b>Código en el mapa</b><span>${esc(cli.nombre||'—')}</span></div>
-             <div class="dato"><b>Ubicación</b><span style="font-size:.72rem">${cli.g[0][0].toFixed(6)}, ${cli.g[0][1].toFixed(6)}</span></div>`:''}`,
-      `${cli?`<button class="btn btn-sm btn-out" onclick="cerrarModal();irA('${cli.id}')">Ver en el mapa</button>`:''}
+      ${o.servicio?`<div class="dato"><b>Servicio</b><span style="font-family:monospace;font-size:.76rem">${esc(o.servicio)}</span></div>`:''}
+      ${o.conectadoEn?`<div class="dato"><b>Conectado</b><span>${new Date(o.conectadoEn).toLocaleDateString('es-CO')} · ${esc(o.conectadoPor||'')}</span></div>`:''}
+      ${cli?`<div class="dato"><b>Ubicación</b><span style="font-size:.72rem">${cli.g[0][0].toFixed(6)}, ${cli.g[0][1].toFixed(6)}</span></div>`:''}`,
+      `<button class="btn btn-sm" style="background:rgba(239,68,68,.12);color:#f87171;border:1px solid rgba(239,68,68,.35)"
+               onclick="desconectarPuerto('${idCaja}',${n})">Desconectar</button>
+       ${cli?`<button class="btn btn-sm btn-out" onclick="cerrarModal();irA('${cli.id}')">Ver en el mapa</button>`:''}
        <button class="btn btn-sm btn-out" onclick="cerrarModal()">Cerrar</button>`);
+}
+
+async function conectarCliente(idCaja,n){
+    const c=RED.elementos.find(e=>e.id===idCaja); if(!c) return;
+    window._conCaja=idCaja; window._conPto=n;
+    abrirModal(`🔌 Conectar en el puerto ${n}`, `
+      <label>Busca al cliente</label>
+      <input id="cn_q" placeholder="Nombre o cédula…" autocomplete="off" oninput="buscarCliente(this.value)">
+      <p class="ayuda">Salen los clientes de ${esc(SEDE.nombre)}. Si no aparece, revisa que esté
+         sincronizado desde WispHub.</p>
+      <div id="cn_res" style="max-height:230px;overflow-y:auto;margin-top:8px"></div>`,
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cancelar</button>`);
+    const lista=await clientesParaConectar();
+    document.getElementById('cn_res').innerHTML=
+        `<p class="ayuda">${lista.length.toLocaleString('es-CO')} clientes en esta oficina. Escribe para filtrar.</p>`;
+    setTimeout(()=>{ const i=document.getElementById('cn_q'); if(i) i.focus(); },60);
+}
+function buscarCliente(q){
+    const r=document.getElementById('cn_res'); if(!r||!_cliOficina) return;
+    q=normNom(q);
+    if(q.length<2){ r.innerHTML='<p class="ayuda">Escribe al menos dos letras.</p>'; return; }
+    const hits=_cliOficina.filter(c=>normNom(c.nombre).includes(q)||String(c.cedula||'').includes(q)).slice(0,30);
+    // Avisamos si ese cliente YA figura en otro puerto: es el error tipico
+    const yaEn={};
+    RED.elementos.filter(e=>e.tipo==='caja').forEach(cj=>{
+        Object.keys(cj.puertos||{}).forEach(p=>{
+            const s=cj.puertos[p].servicio; if(s) yaEn[s]={caja:cj.nombre,pto:p};
+        });
+    });
+    r.innerHTML = hits.length ? hits.map(c=>{
+        const ya=yaEn[c.servicioWisphub||''];
+        return `<div class="fila" style="cursor:pointer" onclick="fijarCliente('${(c.servicioWisphub||'').replace(/'/g,'')}')">
+          <span class="punto" style="background:${String(c.estado).toLowerCase()==='activo'?'#10b981':'#64748b'}"></span>
+          <span class="nom">${esc(c.nombre)}${ya?`<i style="color:#f59e0b;font-size:.7rem"> · ya está en ${esc(ya.caja)} pto ${ya.pto}</i>`:''}</span>
+          <span class="meta">${esc(c.estado||'')}</span></div>`;
+      }).join('') : '<div class="vacio" style="padding:14px">Nadie con ese nombre.</div>';
+}
+async function fijarCliente(servicio){
+    const cli=(_cliOficina||[]).find(c=>String(c.servicioWisphub||'')===servicio);
+    if(!cli) return;
+    const c=RED.elementos.find(e=>e.id===window._conCaja); if(!c) return;
+    const n=window._conPto;
+    // Si ya estaba en otro puerto, se quita de alli: un servicio no puede
+    // estar conectado en dos sitios a la vez.
+    let movidoDe=null;
+    RED.elementos.filter(e=>e.tipo==='caja').forEach(cj=>{
+        Object.keys(cj.puertos||{}).forEach(p=>{
+            if(cj.puertos[p].servicio===servicio && !(cj===c && +p===n)){
+                movidoDe=`${cj.nombre} pto ${p}`; delete cj.puertos[p];
+            }
+        });
+    });
+    c.puertos=c.puertos||{};
+    c.puertos[n]={cliente:cli.nombre, servicio:cli.servicioWisphub||'',
+                  conectadoEn:Date.now(), conectadoPor:(USER&&USER.nombre)||''};
+    cerrarModal();
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){ delete c.puertos[n]; ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e)); }
+    ocultarCarga(); dibujar(); pintarPanel(c);
+    if(movidoDe) setTimeout(()=>alert(`Se movió desde ${movidoDe}.`),200);
+}
+async function desconectarPuerto(idCaja,n){
+    const c=RED.elementos.find(e=>e.id===idCaja); if(!c) return;
+    const o=(c.puertos||{})[n];
+    if(!confirm(`¿Desconectar a ${o.cliente||'este cliente'} del puerto ${n}?\n\n`
+        +`El puerto queda libre para otro.`)) return;
+    delete c.puertos[n];
+    cerrarModal();
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){ c.puertos[n]=o; ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e)); }
+    ocultarCarga(); dibujar(); pintarPanel(c);
 }
 
 function fichaHTML(el){
@@ -1368,24 +1507,204 @@ function pintarCruce(){
    que todo elemento se puede tocar a mano. Al reimportar, lo editado
    aqui se conserva (ver la fusion del importador).
    ════════════════════════════════════════════════════════════════════ */
-var editando=false;
+/* ════════════════════════════════════════════════════════════════════
+   MODOS DE TRABAJO
+   El mapa hace cosas distintas segun la herramienta elegida. Cada modo
+   dice EN PANTALLA que hacer, para que nadie tenga que adivinar ni
+   acordarse de nada.
+   ════════════════════════════════════════════════════════════════════ */
+var MODO='ver', editando=false;
+var temp=null;              // capa de trabajo (medicion, trazado, viabilidad)
+var puntos=[];              // puntos que se van marcando en medir/trazar
 
-function alternarEdicion(){
+const PISTAS={
+    ver:'',
+    viabilidad:'🔍 Haz clic donde vive el cliente y te digo a qué cajas alcanza',
+    medir:'📏 Ve marcando el recorrido. Doble clic para terminar',
+    editar:'✏️ Clic en el mapa para crear · clic en un elemento para cambiarlo',
+    cable:'🧵 Marca por dónde pasa el cable. Doble clic para terminar'
+};
+
+function modo(m){
     if(!SEDE) return alert('Primero elige una sede.');
-    editando=!editando;
-    const b=document.getElementById('btnEditar');
-    b.textContent = editando ? '✅ Terminar edición' : '✏️ Editar';
-    b.style.background = editando ? 'rgba(16,185,129,.18)' : '';
-    b.style.borderColor = editando ? '#10b981' : '';
-    b.style.color = editando ? '#10b981' : '';
-    if(mapa) mapa.getContainer().style.cursor = editando ? 'crosshair' : '';
+    limpiarTemporal();
+    MODO=m; editando=(m==='editar');
+    ['ver','viab','medir','editar','cable'].forEach((k,i)=>{
+        const id=['ver','viabilidad','medir','editar','cable'][i];
+        const b=document.getElementById('h_'+k); if(b) b.classList.toggle('on', MODO===id);
+    });
+    if(mapa) mapa.getContainer().style.cursor = (m==='ver')?'':'crosshair';
+    const p=document.getElementById('pista');
+    if(PISTAS[m]){ p.style.display='flex';
+        p.innerHTML=`<span>${PISTAS[m]}</span><button onclick="modo('ver')">Salir</button>`; }
+    else p.style.display='none';
     pintarPanel();
 }
 
-// Con la edición encendida, un clic en el mapa crea un elemento ahí mismo.
+function limpiarTemporal(){
+    if(temp&&mapa){ mapa.removeLayer(temp); }
+    temp=null; puntos=[]; window._viabPunto=null;
+}
+
+// Todo clic en el mapa entra por aqui y lo reparte segun el modo.
 function clicEnMapa(ev){
-    if(!editando) return;
-    nuevoElemento([ev.latlng.lat, ev.latlng.lng]);
+    const p=[ev.latlng.lat, ev.latlng.lng];
+    if(MODO==='editar')     return nuevoElemento(p);
+    if(MODO==='viabilidad') return verViabilidad(p);
+    if(MODO==='medir'||MODO==='cable') return marcarPunto(p);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   VIABILIDAD — "¿puedo vender en esta dirección?"
+   Es la pregunta comercial de todos los dias, y hasta ahora habia que
+   mandar un tecnico a mirar. Se marca donde vive el cliente y salen
+   las cajas con PUERTO LIBRE ordenadas por distancia, con lo que
+   mediria el drop en linea recta.
+   ════════════════════════════════════════════════════════════════════ */
+const DROP_MAX=250;   // mas alla de esto ya no es un drop, es obra
+
+function verViabilidad(p){
+    limpiarTemporal();
+    window._viabPunto=p;
+    const cerca=RED.elementos
+        .filter(e=>e.tipo==='caja'&&e.clase!=='pop')
+        .map(c=>({c, d:Math.round(metros(p,c.g[0])), s:estadoCaja(c)}))
+        .filter(x=>x.d<=DROP_MAX*3)
+        .sort((a,b)=>a.d-b.d);
+    const conCupo=cerca.filter(x=>x.s.libres>0);
+
+    temp=L.layerGroup().addTo(mapa);
+    L.circleMarker(p,{radius:8,color:'#fff',weight:2,fillColor:'#0ea5e9',fillOpacity:1}).addTo(temp);
+    L.circle(p,{radius:DROP_MAX,color:'#0ea5e9',weight:1,dashArray:'5,6',fill:false}).addTo(temp);
+    conCupo.slice(0,5).forEach((x,i)=>{
+        L.polyline([p,x.c.g[0]],{color:i===0?'#10b981':'#64748b',weight:i===0?3:1.5,
+                    dashArray:i===0?null:'4,5',opacity:.9}).addTo(temp);
+    });
+    pintarViabilidad(p, cerca, conCupo);
+}
+
+function pintarViabilidad(p, cerca, conCupo){
+    const pan=document.getElementById('panel');
+    const fila=(x,i)=>{
+        const dentro=x.d<=DROP_MAX;
+        return `<div class="viab" onclick="irA('${x.c.id}')" style="${i===0?'border-color:#10b981;':''}">
+          <div class="cab">
+            <span class="punto" style="background:${x.s.color}"></span>
+            <b style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.c.nombre||'')}</b>
+            <span class="dist">${x.d} m</span>
+          </div>
+          <div style="display:flex;align-items:baseline;gap:8px">
+            <span class="lib" style="color:${x.s.color}">${x.s.libres}</span>
+            <span style="font-size:.74rem;color:var(--muted)">puerto(s) libre(s) de ${x.s.cap}</span>
+          </div>
+          ${!dentro?`<p class="ayuda" style="color:#f59e0b">⚠️ Pasa de ${DROP_MAX} m: toca tender obra, no un drop normal</p>`:''}
+        </div>`;
+    };
+    pan.innerHTML=`
+      <button class="btn btn-sm btn-out" style="margin-bottom:12px" onclick="modo('ver')">← Salir de viabilidad</button>
+      <div class="sec">¿Hay cupo aquí?</div>
+      <p class="ayuda" style="margin-bottom:10px">📍 ${p[0].toFixed(6)}, ${p[1].toFixed(6)}</p>
+      ${conCupo.length ? `
+        <div class="aviso" style="background:rgba(16,185,129,.1);border-color:rgba(16,185,129,.4);color:#6ee7b7">
+          ✅ <b>SÍ se puede.</b> La más cercana con cupo está a <b>${conCupo[0].d} m</b>.
+        </div>
+        ${conCupo.slice(0,6).map(fila).join('')}`
+      : cerca.length ? `
+        <div class="aviso" style="background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.4);color:#fca5a5">
+          ❌ <b>No hay cupo cerca.</b> Hay ${cerca.length} caja(s) a la redonda pero todas están llenas
+          o sin capacidad definida.
+        </div>
+        ${cerca.slice(0,5).map((x,i)=>`<div class="viab" onclick="irA('${x.c.id}')">
+          <div class="cab"><span class="punto" style="background:${x.s.color}"></span>
+            <b style="flex:1">${esc(x.c.nombre||'')}</b><span class="dist">${x.d} m</span></div>
+          <span style="font-size:.76rem;color:${x.s.color}">${x.s.et}</span></div>`).join('')}`
+      : `<div class="aviso" style="background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.4);color:#fca5a5">
+          ❌ <b>No hay red por aquí.</b> No encontré ninguna caja en ${DROP_MAX*3} metros a la redonda.
+        </div>`}
+      <p class="ayuda" style="margin-top:10px">El círculo azul marca los ${DROP_MAX} m que suele
+        alcanzar un drop. Las distancias son en línea recta: por poste siempre da más.</p>`;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   MEDIR y TRAZAR — comparten el ir marcando puntos
+   ════════════════════════════════════════════════════════════════════ */
+function marcarPunto(p){
+    puntos.push(p);
+    if(!temp) temp=L.layerGroup().addTo(mapa);
+    else { mapa.removeLayer(temp); temp=L.layerGroup().addTo(mapa); }
+    const color=MODO==='medir'?'#0ea5e9':'#fb923c';
+    L.polyline(puntos,{color, weight:3, dashArray:MODO==='medir'?'6,5':null}).addTo(temp);
+    puntos.forEach((q,i)=>L.circleMarker(q,{radius:4,color:'#fff',weight:2,
+        fillColor:color,fillOpacity:1}).addTo(temp));
+    pintarPanel();
+}
+function largoActual(){ let d=0; for(let i=1;i<puntos.length;i++) d+=metros(puntos[i-1],puntos[i]); return d; }
+
+function panelMedicion(){
+    const d=largoActual();
+    return `
+      <button class="btn btn-sm btn-out" style="margin-bottom:12px" onclick="modo('ver')">← Salir</button>
+      <div class="sec">${MODO==='medir'?'Midiendo':'Trazando cable'}</div>
+      <div class="kpis"><div class="kpi" style="grid-column:1/-1;text-align:center">
+        <div class="v" style="font-size:1.7rem">${Math.round(d).toLocaleString('es-CO')}<span style="font-size:.8rem"> m</span></div>
+        <div class="e">${puntos.length} punto(s) marcado(s)</div></div></div>
+      ${d>0?`<p class="ayuda" style="text-align:center">${(d/1000).toFixed(2)} km</p>`:''}
+      ${MODO==='medir'
+        ? `<p class="ayuda">Sigue marcando por donde iría el cable. Cada clic suma un tramo.</p>
+           ${puntos.length>1?`<button class="btn btn-sm btn-out" style="width:100%;margin-top:8px"
+              onclick="deshacerPunto()">↩️ Quitar el último punto</button>`:''}`
+        : `<p class="ayuda">Marca por dónde pasa el cable, poste por poste.</p>
+           ${puntos.length>1?`
+             <button class="btn btn-sm btn-primary" style="margin-top:10px" onclick="guardarCable()">
+               💾 Guardar este cable (${Math.round(d)} m)</button>
+             <button class="btn btn-sm btn-out" style="width:100%;margin-top:6px"
+               onclick="deshacerPunto()">↩️ Quitar el último punto</button>`
+            :'<p class="ayuda">Necesitas al menos dos puntos.</p>'}`}`;
+}
+function deshacerPunto(){
+    puntos.pop();
+    if(!puntos.length){ limpiarTemporal(); pintarPanel(); return; }
+    const p=puntos.pop(); marcarPunto(p);
+}
+
+const TIPOS_CABLE=[['primario','Primario / troncal'],['secundario','Secundario'],
+                   ['terciario','Terciario'],['drop','Drop']];
+function guardarCable(){
+    if(puntos.length<2) return;
+    const d=Math.round(largoActual());
+    abrirModal('🧵 Guardar cable', `
+      <label>Nombre <span style="color:#f87171">*</span></label>
+      <input id="cb_nombre" placeholder="SUB TRONCAL 3 Z1" autocomplete="off">
+      <label style="margin-top:12px">¿Qué es?</label>
+      <select id="cb_clase">${TIPOS_CABLE.map(([v,t])=>`<option value="${v}">${t}</option>`).join('')}</select>
+      <label style="margin-top:12px">Tipo de fibra</label>
+      <input id="cb_sub" value="FIBRA 12H 1B" autocomplete="off">
+      <p class="ayuda">De aquí se leen los hilos y los buffers. "FIBRA 48H 6B" queda como 48 hilos y 6 buffers.</p>
+      <label style="margin-top:12px">Estado</label>
+      <select id="cb_estado">${ESTADOS.map(e=>`<option>${e}</option>`).join('')}</select>
+      <div class="kpis" style="margin-top:14px"><div class="kpi" style="grid-column:1/-1;text-align:center">
+        <div class="v">${d.toLocaleString('es-CO')}<span style="font-size:.75rem"> m</span></div>
+        <div class="e">${puntos.length} puntos marcados</div></div></div>`,
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cancelar</button>
+       <button class="btn btn-sm btn-primary" style="width:auto" onclick="confirmarCable()">Guardar</button>`);
+}
+async function confirmarCable(){
+    const nombre=val('cb_nombre');
+    if(!nombre) return alert('Ponle un nombre al cable.');
+    const sub=val('cb_sub'), hb=hilosDe(sub);
+    const el={
+        id:'e'+Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4),
+        tipo:'cable', clase:val('cb_clase'), nombre, subtipo:sub,
+        hilos:hb.hilos, buffers:hb.buffers, estado:val('cb_estado'), notas:'', etiquetas:[],
+        g:puntos.slice(), metros:Math.round(largoActual()),
+        creadoEn:Date.now(), creadoPor:(USER&&USER.nombre)||''
+    };
+    cerrarModal();
+    RED.elementos.push(el);
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){ RED.elementos.pop(); ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e)); }
+    ocultarCarga(); limpiarTemporal(); modo('ver'); dibujar(); pintarPanel(el);
 }
 
 const CREABLES=[
@@ -1558,6 +1877,53 @@ async function borrarElemento(id){
     catch(e){ RED.elementos.splice(i,0,el); ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e)); }
     ocultarCarga();
     dibujar(); pintarPanel();
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   GUIA — para quien entra y no sabe de fibra
+   ════════════════════════════════════════════════════════════════════ */
+function abrirGuia(){
+    abrirModal('❓ ¿Qué es cada cosa?', `
+      <div class="sec" style="margin-top:0">Cómo llega la señal a un cliente</div>
+      <ol class="pasos" style="padding-left:18px">
+        <li>Sale del <b>POP</b> 🏛️, que es la central donde están los equipos.</li>
+        <li>Viaja por el <b>cable primario</b> (troncal), el más grueso: 48 o 96 hilos.</li>
+        <li>En una <b>mufla</b> 🟠 se empalma y se reparte hacia otros lados.</li>
+        <li>Sigue por <b>cables secundarios</b> hasta una <b>caja NAP</b> 🟩.</li>
+        <li>Dentro de la caja, un <b>splitter</b> parte una fibra en varias
+            (un 1x16 la vuelve 16).</li>
+        <li>De cada puerto sale un <b>drop</b> hasta la casa del cliente.</li>
+      </ol>
+
+      <div class="sec">Las palabras</div>
+      <div class="dato"><b>Hilo</b><span>Cada fibra dentro del cable</span></div>
+      <div class="dato"><b>Buffer</b><span>El tubito que agrupa 12 hilos</span></div>
+      <div class="dato"><b>NAP / CTO</b><span>La caja de donde cuelgan los clientes</span></div>
+      <div class="dato"><b>Mufla</b><span>Donde se empalman cables entre sí</span></div>
+      <div class="dato"><b>Splitter</b><span>Divide una fibra en varias salidas</span></div>
+      <div class="dato"><b>Drop</b><span>El cable de la caja a la casa</span></div>
+      <div class="dato"><b>Reserva</b><span>Rollo de cable sobrante en un poste</span></div>
+
+      <div class="sec">Los colores de las cajas</div>
+      <div class="dato"><b style="color:#10b981">Verde</b><span>Queda espacio de sobra</span></div>
+      <div class="dato"><b style="color:#f59e0b">Amarillo</b><span>Va quedando poco</span></div>
+      <div class="dato"><b style="color:#ef4444">Rojo</b><span>Llena, no cabe nadie más</span></div>
+      <div class="dato"><b style="color:#64748b">Gris</b><span>No sabemos su capacidad</span></div>
+      <p class="ayuda">Una caja gris no es que esté mal: es que nadie le ha dicho qué splitter lleva.
+         Ábrela y agrégaselo.</p>
+
+      <div class="sec">Las herramientas</div>
+      <div class="dato"><b>👁️ Ver</b><span>Solo mirar, sin tocar nada</span></div>
+      <div class="dato"><b>🔍 Viabilidad</b><span>¿Puedo vender en esta dirección?</span></div>
+      <div class="dato"><b>📏 Medir</b><span>Cuánto cable hace falta</span></div>
+      <div class="dato"><b>✏️ Editar</b><span>Crear, mover y borrar</span></div>
+      <div class="dato"><b>🧵 Trazar</b><span>Dibujar un cable nuevo</span></div>
+
+      <div class="sec">Ojo con esto</div>
+      <p class="ayuda">El satélite gratuito llega hasta cierto acercamiento; más allá se ve borroso.
+        Para mirar poste por poste, usa <b>🌍 Earth</b> y ábrelo en Google Earth.<br><br>
+        Y lo que cambies en Google Earth <b>no vuelve aquí</b>: allá se mira, aquí se lleva la red.</p>`,
+      `<button class="btn btn-sm btn-primary" style="width:auto" onclick="cerrarModal()">Entendido</button>`);
 }
 
 function exportarCruce(){
