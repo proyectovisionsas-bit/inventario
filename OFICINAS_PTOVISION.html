@@ -588,6 +588,7 @@
     </header>
     <nav class="nav" id="navBar">
         <button class="nav-btn active" data-tab="dash">📊 Dashboard</button>
+        <button class="nav-sync-btn admin-only" onclick="chequearWisphub()" title="Comparar con WispHub sin cambiar nada" style="padding:9px 15px;margin:5px 6px;border:none;border-radius:9px;cursor:pointer;font-weight:700;font-size:0.8rem;color:#e6edf6;background:rgba(148,163,184,0.25);white-space:nowrap;">🔎 Chequear</button>
         <button class="nav-sync-btn" onclick="sincronizarTodoMenu()" title="Sincronizar clientes y pagos desde WispHub" style="padding:9px 15px;margin:5px 6px;border:none;border-radius:9px;cursor:pointer;font-weight:700;font-size:0.8rem;color:#06281b;background:linear-gradient(135deg,#10b981,#059669);white-space:nowrap;box-shadow:0 3px 10px rgba(16,185,129,0.3);">⭐🔄 Sincronizar WispHub</button>
 
         <!-- FINANZAS -->
@@ -900,7 +901,7 @@ let db = null;
 const DOC_ID = 'main'; // documento único en colección "oficinas_sistema"
 // ─── CONTROL DE VERSIÓN ───
 // Incrementa este número cada vez que publiques una actualización.
-const APP_VERSION = 262; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 264; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -921,7 +922,7 @@ const APP_VERSION = 262; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '26 Ago 2026 (v262 - LA FECHA DEL ESTADO DE UN CLIENTE. Pedido desde RED: que al ver un puerto se sepa desde cuando esta suspendido el cliente, para que el tecnico sepa que ese puerto se puede reutilizar. NO SE PODIA, y la causa estaba aqui: estadoActualizadoEn se re-sella cuando cambia CUALQUIER campo (plan, tarifa, facturas, fecha de corte), asi que despues de una sincronizacion masiva las 318 personas no activas de Florencia tenian todas la misma fecha, 18/08/2026 22:05, que es la de la sincronizacion y no la de su suspension. Ahora se guarda estadoDesde aparte, que SOLO se mueve cuando el estado de verdad cambia, y estadoAnterior con el que tenia antes. De aqui en adelante RED puede decir Suspendido desde el tal dia; para los que ya estaban suspendidos antes de este cambio, RED anota su propia primera observacion y lo dice como tal. Este cambio NO toca el emparejamiento por servicio, que sigue igual: solo agrega dos campos.)' // el base64 vive en contrato.js
+const APP_VERSION_FECHA = '26 Ago 2026 (v264 - QUITAR UN CONTRATO MAL HECHO, Y POR QUE FALTABAN USUARIOS DE WISPHUB. [1] CONTRATOS: dos caminos, porque los casos no se parecen. Uno SIN FIRMAR nunca llego a ser nada y se borra con una confirmacion. Uno FIRMADO existio: el cliente puso su firma, asi que se ANULA con motivo obligatorio y queda tachado en la lista con quien lo anulo y cuando, fuera de los contadores de pendientes, y con boton para revertirlo. Borrar uno firmado queda solo para el administrador, con doble aviso, y SE DICE CLARO que la copia de Drive no se borra: el Apps Script solo sabe subir. La oficina solo toca los suyos. [2] REPORTADO: usuarios que no se ven reflejados. Se comparo contra WispHub cliente por cliente: faltaban 11 activos (2 YESCENIA, 1 ESNEIDER, 4 NATALIA, 4 THOMAS). LA SINCRONIZACION NO ESTABA ROTA: al simular el boton los 11 se agregaban bien, y el emparejamiento por servicio sigue intacto. Nueve se instalaron hace uno o dos dias, o sea que nadie habia sincronizado desde entonces, Y NO HABIA COMO SABERLO porque no quedaba marca de la ultima sincronizacion. Ahora se sella en los tres botones y se ve en rojo si nunca o si lleva mas de una semana. Aparecieron ademas dos cosas que sincronizar nunca arregla: MAYERLY ESPINOSA figuraba en YESCENIA pero WispHub la tiene en zona DONCELLO, y sincronizar la habria AGREGADO a NATALIA sin quitarla de YESCENIA (duplicada, peor que faltar); y hay 130 clientes en la app que ya no estan en WispHub, 90 de ellos en THOMAS. El boton nuevo Chequear compara SIN ESCRIBIR NADA y separa las tres cosas: cuantos faltan, quienes cambiaron de oficina y cuantos ya no estan. Mover los pasa de oficina de verdad en vez de duplicarlos. Los 130 que ya no estan NO se borran solos a proposito: pueden ser retiros, cambios de nombre o errores de la otra punta.)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -18133,6 +18134,129 @@ function _clientePorCedulaGlobal(ced){
     return null;
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// QUITAR UN CONTRATO QUE QUEDÓ MAL
+// ────────────────────────────────────────────────────────────────────────────
+// Un contrato no es un registro cualquiera: es un documento legal. Por eso hay
+// DOS caminos distintos y no uno solo, porque los dos casos no se parecen:
+//
+//   · SIN FIRMAR — no llegó a ser nada. Se escribió mal, se equivocaron de
+//     cliente, se hizo de prueba. Se borra y ya.
+//
+//   · FIRMADO — el cliente puso su firma; ese documento EXISTIÓ. Borrarlo deja
+//     al negocio sin rastro de algo que sí pasó. Lo correcto es ANULARLO, con
+//     su motivo y su responsable, y que se siga viendo tachado.
+//
+// Borrar uno firmado queda solo para el administrador, con doble aviso. Y hay
+// que decirlo claro: LA COPIA DE DRIVE NO SE BORRA. El Apps Script que sube los
+// PDF solo sabe subir, no tiene forma de borrar, asi que ese archivo se queda
+// en la carpeta y hay que quitarlo a mano si de verdad se quiere.
+// ════════════════════════════════════════════════════════════════════════════
+
+function _puedeTocarContrato(c){
+    if(USER.role==='admin') return true;
+    return String(c.oficinaId)===String(USER.id);
+}
+
+async function _anularContrato(id){
+    const c=(window._contratosCache||[]).find(x=>x.id===id);
+    if(!c) return alert('No se encontró ese contrato.');
+    if(!_puedeTocarContrato(c)) return alert('Ese contrato es de otra oficina.');
+    window._anulId=id;
+    openModal('🚫 Anular contrato', `
+      <div class="dato"><b>Cliente</b><span>${_cEsc(c.clienteNombre||'—')}</span></div>
+      <div class="dato"><b>Cédula</b><span>${_cEsc(c.clienteCedula||'—')}</span></div>
+      <div class="dato"><b>Número</b><span>${_cEsc(c.numero||'—')}</span></div>
+      <p style="font-size:0.8rem;color:var(--muted);margin:12px 0 6px;line-height:1.5;">
+        Este contrato <b>está firmado</b>, así que no se borra: queda anulado y se sigue viendo
+        tachado, con el motivo y quién lo anuló. Así queda claro qué pasó si alguien pregunta.</p>
+      <label style="margin-top:8px;">¿Por qué se anula?</label>
+      <select class="form-control" id="an_motivo">
+        <option>Datos del cliente equivocados</option>
+        <option>Valor o plan equivocado</option>
+        <option>El cliente desistió</option>
+        <option>Se hizo dos veces</option>
+        <option>Se reemplazó por otro contrato</option>
+        <option>Otro</option>
+      </select>
+      <label style="margin-top:10px;">Detalle</label>
+      <input class="form-control" id="an_nota" placeholder="Opcional, pero ayuda a entenderlo después">`,
+      `<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+       <button class="btn btn-danger" onclick="_confirmarAnular()">Anular contrato</button>`);
+}
+async function _confirmarAnular(){
+    const id=window._anulId;
+    const c=(window._contratosCache||[]).find(x=>x.id===id);
+    if(!c) return closeModal();
+    const nota=(document.getElementById('an_nota').value||'').trim();
+    const motivo=document.getElementById('an_motivo').value+(nota?' — '+nota:'');
+    closeModal();
+    try{
+        if(typeof showToastMini==='function') showToastMini('Anulando…');
+        await db.collection('oficinas_sistema').doc(id).update({
+            anulado:true, anuladoMotivo:motivo,
+            anuladoPor:(USER.nombre||USER.role||''), anuladoEn:Date.now()
+        });
+    }catch(e){ return alert('No se pudo anular:\n\n'+(e.message||e)); }
+    registrarLog('CONTRATO_ANULADO', (c.clienteNombre||'')+' · N° '+(c.numero||'')+' · '+motivo);
+    window._contratosCache=null;
+    await renderContratos();
+    if(typeof showToastMini==='function') showToastMini('🚫 Contrato anulado');
+}
+
+async function _reactivarContrato(id){
+    const c=(window._contratosCache||[]).find(x=>x.id===id);
+    if(!c) return;
+    if(!_puedeTocarContrato(c)) return alert('Ese contrato es de otra oficina.');
+    if(!confirm('¿Volver a dejar válido el contrato de '+(c.clienteNombre||'')+'?')) return;
+    try{
+        await db.collection('oficinas_sistema').doc(id).update({
+            anulado:false, anuladoMotivo:'', anuladoPor:'', anuladoEn:null
+        });
+    }catch(e){ return alert('No se pudo:\n\n'+(e.message||e)); }
+    registrarLog('CONTRATO_REACTIVADO', (c.clienteNombre||'')+' · N° '+(c.numero||''));
+    window._contratosCache=null;
+    await renderContratos();
+}
+
+async function _eliminarContrato(id){
+    const c=(window._contratosCache||[]).find(x=>x.id===id);
+    if(!c) return alert('No se encontró ese contrato.');
+    if(!_puedeTocarContrato(c)) return alert('Ese contrato es de otra oficina.');
+    const firmado=c.estado==='firmado';
+    if(firmado && USER.role!=='admin')
+        return alert('🔒 Ese contrato está FIRMADO.\n\n'
+            +'Anúlalo con el botón 🚫 para que quede constancia. Borrarlo del todo\n'
+            +'solo lo puede hacer el administrador.');
+    const quien=(c.clienteNombre||'este cliente')+' · N° '+(c.numero||'—');
+    if(!confirm('¿Borrar el contrato de '+quien+'?\n\nNo se puede deshacer.')) return;
+    if(firmado){
+        if(!confirm('⚠️ OJO: ese contrato ESTÁ FIRMADO.\n\n'
+            +'El cliente lo firmó, así que ese documento existió. Al borrarlo el sistema\n'
+            +'se queda sin ningún rastro de él.\n\n'
+            +(c.pdfUrl?'Además, LA COPIA DE DRIVE NO SE BORRA: hay que quitarla a mano de\nla carpeta.\n\n':'')
+            +'¿Seguro que no prefieres anularlo?')) return;
+    }
+    try{
+        if(typeof showToastMini==='function') showToastMini('Borrando…');
+        await db.collection('oficinas_sistema').doc(id).delete();
+    }catch(e){ return alert('No se pudo borrar:\n\n'+(e.message||e)); }
+    registrarLog('CONTRATO_ELIMINADO', quien+(firmado?' (estaba FIRMADO)':' (sin firmar)'));
+    window._contratosCache=null;
+    await renderContratos();
+    if(typeof showToastMini==='function') showToastMini('🗑️ Contrato borrado');
+    if(firmado && c.pdfUrl)
+        alert('Se borró del sistema.\n\nRecuerda que la copia en Drive sigue ahí:\n'+c.pdfUrl);
+}
+
+function _cEsc(s){ return String(s==null?'':s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+window._anularContrato=_anularContrato;
+window._confirmarAnular=_confirmarAnular;
+window._reactivarContrato=_reactivarContrato;
+window._eliminarContrato=_eliminarContrato;
+
 async function renderContratos(){
     const cont=document.getElementById('appContent');
     if(!cont) return;
@@ -18146,14 +18270,20 @@ async function renderContratos(){
     const q=(window._qContrato||'').toLowerCase().trim();
     const filtro=window._filContrato||'todos';
     let vista=items.slice();
+    if(filtro==='anulados')   vista=vista.filter(c=>c.anulado);
+    else if(filtro!=='todos') vista=vista.filter(c=>!c.anulado);
     if(filtro==='sin_firma') vista=vista.filter(c=>c.estado!=='firmado');
     if(filtro==='sin_drive')  vista=vista.filter(c=>c.estado==='firmado' && !c.pdfUrl);
     if(filtro==='sin_cliente') vista=vista.filter(c=>!_clientePorCedulaGlobal(c.clienteCedula));
     if(q) vista=vista.filter(c=>`${c.clienteNombre||''} ${c.clienteCedula||''} ${c.numero||''}`.toLowerCase().includes(q));
 
-    const nFirmados=items.filter(c=>c.estado==='firmado').length;
-    const nSinDrive=items.filter(c=>c.estado==='firmado' && !c.pdfUrl).length;
-    const nSinCliente=items.filter(c=>!_clientePorCedulaGlobal(c.clienteCedula)).length;
+    // Un contrato anulado no es un pendiente: no debe salir en "falta firmar"
+    // ni empujar a nadie a subirlo a Drive.
+    const vivos=items.filter(c=>!c.anulado);
+    const nAnulados=items.length-vivos.length;
+    const nFirmados=vivos.filter(c=>c.estado==='firmado').length;
+    const nSinDrive=vivos.filter(c=>c.estado==='firmado' && !c.pdfUrl).length;
+    const nSinCliente=vivos.filter(c=>!_clientePorCedulaGlobal(c.clienteCedula)).length;
 
     const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     const fecha=ms=>{ if(!ms) return '—'; const d=new Date(ms); return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear(); };
@@ -18162,14 +18292,15 @@ async function renderContratos(){
         const enlace=_clientePorCedulaGlobal(c.clienteCedula);
         const firmado=c.estado==='firmado';
         const ofi=(DB.oficinas||[]).find(o=>String(o.id)===String(c.oficinaId));
-        return `<tr>
+        return `<tr ${c.anulado?'style="opacity:.55;"':''}>
             <td style="padding:8px;border-bottom:1px solid var(--border);">
-                <div style="font-weight:700;font-size:0.86rem;">${esc(c.clienteNombre||'(sin nombre)')}</div>
+                <div style="font-weight:700;font-size:0.86rem;${c.anulado?'text-decoration:line-through;':''}">${esc(c.clienteNombre||'(sin nombre)')}</div>
+                ${c.anulado?`<div style="font-size:0.68rem;color:#f59e0b;">🚫 Anulado ${fecha(c.anuladoEn)} por ${esc(c.anuladoPor||'—')}<br>${esc(c.anuladoMotivo||'')}</div>`:''}
                 <div style="font-size:0.72rem;color:var(--muted);">CC ${esc(c.clienteCedula||'—')} · N° ${esc(c.numero||'—')}</div>
             </td>
             <td style="padding:8px;border-bottom:1px solid var(--border);font-size:0.78rem;">${esc((ofi&&ofi.nombre)||'—')}<br><span style="color:var(--muted);">${fecha(c.creadoEn)}</span></td>
             <td style="padding:8px;border-bottom:1px solid var(--border);text-align:center;">
-                <span style="font-size:0.7rem;font-weight:700;padding:2px 8px;border-radius:20px;background:${firmado?'rgba(16,185,129,0.15)':'rgba(245,158,11,0.15)'};color:${firmado?'#10b981':'#f59e0b'};">${firmado?'✔ Firmado':'✍️ Sin firma'}</span>
+                <span style="font-size:0.7rem;font-weight:700;padding:2px 8px;border-radius:20px;background:${c.anulado?'rgba(239,68,68,0.15)':firmado?'rgba(16,185,129,0.15)':'rgba(245,158,11,0.15)'};color:${c.anulado?'#ef4444':firmado?'#10b981':'#f59e0b'};">${c.anulado?'🚫 Anulado':firmado?'✔ Firmado':'✍️ Sin firma'}</span>
             </td>
             <td style="padding:8px;border-bottom:1px solid var(--border);text-align:center;font-size:0.76rem;">
                 ${c.pdfUrl?`<a href="${esc(c.pdfUrl)}" target="_blank" rel="noopener" style="color:#3b82f6;font-weight:600;">📂 Ver en Drive</a>`
@@ -18183,7 +18314,11 @@ async function renderContratos(){
             <td style="padding:8px;border-bottom:1px solid var(--border);text-align:center;">
                 <button class="btn btn-outline btn-sm" onclick="_verContratoPDF(\'${c.id}\')" style="font-size:0.72rem;" title="Abrir para imprimir">🖨️</button>
                 <button class="btn btn-outline btn-sm" onclick="_compartirContratoPDFmod(\'${c.id}\')" style="font-size:0.72rem;" title="Generar el PDF y compartirlo">📤</button>
-                ${c.estado!=='firmado'?`<button class="btn btn-ok btn-sm" onclick="_firmarContratoOficina(\'${c.id}\')" style="font-size:0.72rem;" title="Que el cliente firme aquí">✍️</button>`:''}
+                ${c.estado!=='firmado'&&!c.anulado?`<button class="btn btn-ok btn-sm" onclick="_firmarContratoOficina(\'${c.id}\')" style="font-size:0.72rem;" title="Que el cliente firme aquí">✍️</button>`:''}
+                ${c.anulado
+                  ? `<button class="btn btn-outline btn-sm" onclick="_reactivarContrato(\'${c.id}\')" style="font-size:0.72rem;" title="Volver a dejarlo válido">↩️</button>`
+                  : (firmado?`<button class="btn btn-outline btn-sm" onclick="_anularContrato(\'${c.id}\')" style="font-size:0.72rem;color:#f59e0b;" title="Anular dejando constancia">🚫</button>`:'')}
+                ${(!firmado||USER.role==='admin')?`<button class="btn btn-danger btn-sm" onclick="_eliminarContrato(\'${c.id}\')" style="font-size:0.72rem;" title="${firmado?'Borrarlo del todo (solo administrador)':'Borrarlo'}">🗑️</button>`:''}
             </td>
         </tr>`;
     }).join('') : `<tr><td colspan="6" style="padding:26px;text-align:center;color:var(--muted);">No hay contratos que coincidan.</td></tr>`;
@@ -18195,8 +18330,11 @@ async function renderContratos(){
         <div class="reporte-item clic" onclick="window._filContrato='todos';renderContratos()">
             <div class="r-label">📄 Total</div><div class="r-val">${items.length}</div>
             <div style="font-size:0.72rem;color:var(--muted);margin-top:4px;">${nFirmados} firmados</div></div>
+        <div class="reporte-item clic" onclick="window._filContrato='anulados';renderContratos()">
+            <div class="r-label">🚫 Anulados</div><div class="r-val" style="color:${nAnulados?'#ef4444':'inherit'};">${nAnulados}</div>
+            <div style="font-size:0.72rem;color:var(--muted);margin-top:4px;">no cuentan como pendientes</div></div>
         <div class="reporte-item clic" onclick="window._filContrato='sin_firma';renderContratos()">
-            <div class="r-label">✍️ Sin firmar</div><div class="r-val" style="color:#f59e0b;">${items.length-nFirmados}</div>
+            <div class="r-label">✍️ Sin firmar</div><div class="r-val" style="color:#f59e0b;">${vivos.length-nFirmados}</div>
             <div style="font-size:0.72rem;color:var(--muted);margin-top:4px;">pendientes de firma</div></div>
         <div class="reporte-item clic" onclick="window._filContrato='sin_drive';renderContratos()">
             <div class="r-label">☁️ Sin subir</div><div class="r-val" style="color:${nSinDrive?'#ef4444':'#10b981'};">${nSinDrive}</div>
@@ -22217,6 +22355,169 @@ window._generarOrdenesInstalacion=_generarOrdenesInstalacion;
 const WISPHUB_INTERMEDIARIO = 'https://intermediario-wisphub.proyectovisions-a-s.workers.dev';
 
 // Filtra clientes/facturas por las zonas de la oficina (si tiene zonas definidas)
+// ════════════════════════════════════════════════════════════════════════════
+// CHEQUEO CONTRA WISPHUB — SIN TOCAR NADA
+// ────────────────────────────────────────────────────────────────────────────
+// Reportado: "hay usuarios que no se estan viendo reflejados". Se comprobo
+// contra WispHub cliente por cliente y salieron 11 activos que no estaban:
+// 2 en YESCENIA, 1 en ESNEIDER, 4 en NATALIA y 4 en THOMAS.
+//
+// LA SINCRONIZACION NO ESTABA ROTA: al simular el boton, los 11 se agregaban
+// bien. Nueve de ellos se instalaron en WispHub hace uno o dos dias, o sea que
+// nadie habia sincronizado desde entonces. El hueco real es que NO HABIA COMO
+// SABERLO: no quedaba ninguna marca de cuando fue la ultima sincronizacion, asi
+// que todo el mundo daba por hecho que estaba al dia.
+//
+// Y aparecieron dos cosas mas que la sincronizacion sola nunca arregla:
+//   · SE MUEVEN DE OFICINA. MAYERLY ESPINOSA figura en YESCENIA pero WispHub la
+//     tiene en zona DONCELLO. Sincronizar la AGREGARIA a NATALIA sin quitarla de
+//     YESCENIA: quedaria dos veces. Por eso ahora se detecta y se ofrece MOVER.
+//   · SE QUEDAN LOS QUE YA NO ESTAN. Hay 130 clientes en la app que ya no
+//     aparecen en WispHub, 90 de ellos en THOMAS. Nunca se retiran solos.
+//
+// Este chequeo no escribe nada: solo dice la verdad para poder decidir.
+// ════════════════════════════════════════════════════════════════════════════
+
+function _sincHace(o){
+    const t=o.ultimoSyncWisphub;
+    if(!t) return {txt:'nunca', dias:9999, color:'#ef4444'};
+    const d=Math.floor((Date.now()-t)/86400000);
+    const txt = d<1 ? 'hoy' : d===1 ? 'ayer' : 'hace '+d+' días';
+    return {txt, dias:d, ts:t, color: d>=7?'#ef4444' : d>=3?'#f59e0b' : '#10b981'};
+}
+function _marcarSync(o){ o.ultimoSyncWisphub=Date.now(); }
+
+async function chequearWisphub(){
+    if(USER.role!=='admin') return alert('Solo el administrador puede correr el chequeo.');
+    const ofis=(DB.oficinas||[]).filter(o=>o.cuentaWisphub);
+    if(!ofis.length) return alert('Ninguna oficina tiene cuenta de WispHub configurada.');
+    openModal('🔎 Comparando con WispHub…', `
+        <div style="text-align:center;padding:20px;">
+            <div style="font-size:3rem;">⏳</div>
+            <p id="chk_est">Leyendo WispHub…</p>
+            <p style="font-size:0.78rem;color:var(--muted);">Esto NO cambia nada: solo compara y te dice qué encontró.</p>
+        </div>`, '');
+    const dig=s=>String(s||'').replace(/[^0-9]/g,'');
+    const cache={}, filas=[];
+    let totalFaltan=0, totalSobran=0, totalMovidos=0;
+    try{
+        for(const o of ofis){
+            document.getElementById('chk_est').textContent='Comparando '+o.nombre+'…';
+            if(!cache[o.cuentaWisphub]) cache[o.cuentaWisphub]=await _wisphubTraerTodosClientes(o.cuentaWisphub, null);
+            const raw=cache[o.cuentaWisphub];
+            const suyos=_filtrarPorZonaOficina(o, raw, c=>c.zona?.nombre||c.zona);
+            const enApp=new Map();
+            (o.clientes||[]).forEach(c=>{ if(c.servicioWisphub) enApp.set(String(c.servicioWisphub), c); });
+            const enWisp=new Set(suyos.map(c=>String(c.servicio||c.id_servicio||'')));
+
+            const faltan=suyos.filter(cw=>{ const s=String(cw.servicio||cw.id_servicio||''); return s && !enApp.has(s); });
+            const sobran=(o.clientes||[]).filter(c=>c.servicioWisphub && !enWisp.has(String(c.servicioWisphub)));
+            // De los que faltan, ¿cuáles ya están en OTRA oficina? Esos se MUEVEN.
+            const movidos=[];
+            faltan.forEach(f=>{
+                const s=String(f.servicio||f.id_servicio||'');
+                for(const x of (DB.oficinas||[])){
+                    if(String(x.id)===String(o.id)) continue;
+                    const hit=(x.clientes||[]).find(c=>String(c.servicioWisphub||'')===s
+                                                    || (dig(c.cedula)&&dig(c.cedula)===dig(f.cedula)));
+                    if(hit){ movidos.push({cw:f, desde:x, cli:hit}); break; }
+                }
+            });
+            const movSet=new Set(movidos.map(m=>String(m.cw.servicio||m.cw.id_servicio||'')));
+            const nuevosDeVerdad=faltan.filter(f=>!movSet.has(String(f.servicio||f.id_servicio||'')));
+            totalFaltan+=nuevosDeVerdad.length; totalSobran+=sobran.length; totalMovidos+=movidos.length;
+            filas.push({o, sync:_sincHace(o), enWisp:suyos.length, enApp:(o.clientes||[]).length,
+                        nuevos:nuevosDeVerdad, sobran, movidos});
+        }
+    }catch(e){ closeModal(); return alert('No se pudo comparar con WispHub:\n\n'+(e.message||e)); }
+    window._chk=filas;
+    _pintarChequeo(totalFaltan, totalMovidos, totalSobran);
+}
+
+function _pintarChequeo(nf, nm, ns){
+    const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const filas=window._chk||[];
+    const cuerpo=filas.map((f,i)=>`
+      <div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:9px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
+          <b>${esc(f.o.nombre)}</b>
+          <span style="font-size:0.74rem;color:${f.sync.color};">🔄 Sincronizada ${f.sync.txt}</span>
+        </div>
+        <div style="font-size:0.76rem;color:var(--muted);margin:3px 0 7px;">
+          WispHub: ${f.enWisp} · en la app: ${f.enApp}</div>
+        ${f.nuevos.length?`<div style="font-size:0.8rem;color:#10b981;margin-bottom:4px;">
+          ➕ <b>${f.nuevos.length}</b> cliente(s) de WispHub que faltan aquí</div>
+          <div style="font-size:0.72rem;color:var(--muted);padding-left:16px;">
+          ${f.nuevos.slice(0,6).map(c=>esc(c.nombre)+' <i>('+esc((c.fecha_instalacion||'').slice(0,10))+')</i>').join('<br>')}
+          ${f.nuevos.length>6?'<br>…y '+(f.nuevos.length-6)+' más':''}</div>`:''}
+        ${f.movidos.length?`<div style="font-size:0.8rem;color:#f59e0b;margin:6px 0 4px;">
+          ↔️ <b>${f.movidos.length}</b> cambiaron de oficina en WispHub</div>
+          <div style="font-size:0.72rem;color:var(--muted);padding-left:16px;">
+          ${f.movidos.slice(0,5).map(m=>esc(m.cw.nombre)+' <i>— hoy figura en '+esc(m.desde.nombre)+'</i>').join('<br>')}
+          ${f.movidos.length>5?'<br>…y '+(f.movidos.length-5)+' más':''}</div>`:''}
+        ${f.sobran.length?`<div style="font-size:0.8rem;color:#94a3b8;margin:6px 0 4px;">
+          ➖ <b>${f.sobran.length}</b> están en la app pero ya no en WispHub</div>`:''}
+        ${!f.nuevos.length&&!f.movidos.length&&!f.sobran.length?
+          '<div style="font-size:0.8rem;color:#10b981;">✅ Al día, todo coincide.</div>':''}
+      </div>`).join('');
+    openModal('🔎 Comparación con WispHub', `
+      <div class="reporte-resumen" style="margin-bottom:12px;">
+        <div class="reporte-item"><div class="r-label">➕ Faltan</div>
+          <div class="r-val" style="color:${nf?'#10b981':'inherit'};">${nf}</div>
+          <div style="font-size:0.72rem;color:var(--muted);">clientes por agregar</div></div>
+        <div class="reporte-item"><div class="r-label">↔️ Se movieron</div>
+          <div class="r-val" style="color:${nm?'#f59e0b':'inherit'};">${nm}</div>
+          <div style="font-size:0.72rem;color:var(--muted);">cambiaron de oficina</div></div>
+        <div class="reporte-item"><div class="r-label">➖ Ya no están</div>
+          <div class="r-val" style="color:${ns?'#94a3b8':'inherit'};">${ns}</div>
+          <div style="font-size:0.72rem;color:var(--muted);">salieron de WispHub</div></div>
+      </div>
+      ${nm?`<div class="card" style="border:1px solid rgba(245,158,11,0.5);background:rgba(245,158,11,0.08);padding:10px 12px;margin-bottom:10px;font-size:0.8rem;">
+        ⚠️ Los que <b>cambiaron de oficina</b> no se arreglan sincronizando: al sincronizar
+        quedarían en las dos. Usa <b>Mover</b> para pasarlos de verdad.</div>`:''}
+      ${cuerpo}
+      <p style="font-size:0.75rem;color:var(--muted);line-height:1.5;margin-top:10px;">
+        Los que <b>ya no están en WispHub</b> no se borran solos a propósito: pueden ser
+        retiros, cambios de nombre o errores de la otra punta. Revísalos antes de quitar nada.</p>`,
+      `<button class="btn btn-outline" onclick="closeModal()">Cerrar</button>
+       ${nm?`<button class="btn btn-outline" onclick="_moverLosQueCambiaron()">↔️ Mover los ${nm}</button>`:''}
+       ${nf?`<button class="btn btn-primary" onclick="closeModal();sincronizarTodasOficinasWisphub()">🔄 Sincronizar ahora</button>`:''}`);
+}
+
+/* Mover de oficina a los que WispHub ya tiene en otra zona. Sin esto quedan
+   duplicados en las dos, que es peor que faltar. */
+async function _moverLosQueCambiaron(){
+    const filas=window._chk||[];
+    const todos=[];
+    filas.forEach(f=>f.movidos.forEach(m=>todos.push({hacia:f.o, ...m})));
+    if(!todos.length) return;
+    const lista=todos.slice(0,8).map(m=>'· '+m.cw.nombre+': '+m.desde.nombre+' → '+m.hacia.nombre).join('\n');
+    if(!confirm('Se van a mover '+todos.length+' cliente(s) de oficina:\n\n'+lista
+        +(todos.length>8?'\n…y '+(todos.length-8)+' más':'')
+        +'\n\nSe quitan de donde están y quedan en la que dice WispHub. ¿Sigo?')) return;
+    let n=0;
+    todos.forEach(m=>{
+        const i=(m.desde.clientes||[]).indexOf(m.cli);
+        if(i<0) return;
+        m.desde.clientes.splice(i,1);
+        m.hacia.clientes=m.hacia.clientes||[];
+        m.cli.zona=(m.cw.zona&&m.cw.zona.nombre)||m.cw.zona||m.cli.zona;
+        m.cli.servicioWisphub=String(m.cw.servicio||m.cw.id_servicio||m.cli.servicioWisphub||'');
+        m.cli.movidoDe=m.desde.nombre; m.cli.movidoEn=Date.now();
+        m.hacia.clientes.push(m.cli);
+        n++;
+    });
+    closeModal();
+    try{ await save(); }
+    catch(e){ return alert('No se pudo guardar:\n\n'+(e.message||e)); }
+    registrarLog('CLIENTES_MOVIDOS_OFICINA', n+' cliente(s) movidos según la zona de WispHub');
+    alert('✅ Se movieron '+n+' cliente(s).\n\nAhora aparecen en la oficina que dice WispHub.');
+    if(typeof renderClientes==='function') renderClientes();
+}
+
+window.chequearWisphub=chequearWisphub;
+window._moverLosQueCambiaron=_moverLosQueCambiaron;
+
 function _filtrarPorZonaOficina(o, items, getZona){
     // Normaliza: minúsculas, sin espacios, sin caracteres de control invisibles (incluido U+007F que WispHub mete al final)
     const norm = s => (s||'').toString().toLowerCase().replace(/[\s\u00A0\u200B-\u200D\uFEFF\u0000-\u001F\u007F]+/g,' ').trim();
@@ -22567,6 +22868,7 @@ function _agregarNuevosDeWisphub(o, nuevos, opts={}){
         }
     });
 
+    _marcarSync(o);
     registrarLog('SYNC_WISPHUB',{ oficinaId: o.id, cuenta: o.cuentaWisphub, nuevos: nuevos.length });
     // Modo silencioso (lo usa la sincronización única): aplica en memoria y NO guarda aquí.
     if(opts.silent){
@@ -22647,6 +22949,7 @@ async function sincronizarTodasOficinasWisphub(){
                 });
                 totalNuevos += nuevos.length;
             }
+            _marcarSync(o);
             resumen.push({ oficina: o.nombre, total: todos.length, nuevos: nuevos.length, alDia: est.actualizados, error: null });
         } catch(e){
             resumen.push({ oficina: o.nombre, total: 0, nuevos: 0, alDia: 0, error: (e.message||String(e)).substring(0,100) });
