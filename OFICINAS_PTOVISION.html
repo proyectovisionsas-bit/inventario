@@ -900,7 +900,7 @@ let db = null;
 const DOC_ID = 'main'; // documento único en colección "oficinas_sistema"
 // ─── CONTROL DE VERSIÓN ───
 // Incrementa este número cada vez que publiques una actualización.
-const APP_VERSION = 261; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 262; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -921,8 +921,7 @@ const APP_VERSION = 261; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '25 Ago 2026 (v261 - MODULO NUEVO: ANTENAS STARLINK. Elkin lleva 24 antenas Starlink en 7 municipios, 3.570.000 al mes, en un Excel que ademas guarda las 24 contrasenas al lado. Queria monitorearlas desde el programa. LO QUE SE PUEDE Y LO QUE NO: Starlink solo abre su API de telemetria a cuentas Business, y las de PROYECTOVISION son residenciales sueltas, un correo por antena, asi que por API oficial no hay nada. El plato SI publica su estado en 192.168.100.1:9200 pero solo dentro de la red de esa antena, y el navegador de la oficina no le puede llegar. POR ESO EL MODULO SEPARA DOS ESTADOS: el del SERVICIO (activa / suspendida / fuera de servicio), que es de la cuenta y se marca a mano, y el de CONEXION (en linea / sin senal / sin datos), que es del plato y queda en sin datos hasta que algo en el sitio reporte; para ese dia queda lista la funcion reportarAntena(serial, datos), y un reporte de mas de 40 minutos deja de contar como en linea para que no mienta. Cada oficina ve solo sus antenas y no puede borrarlas; el admin las ve todas y filtra por oficina o municipio. El costo mensual solo suma las que estan cobrando, asi que al suspender una el total baja solo, y avisa si una suspendida quedo con plan asignado. Avisa tambien que facturacionptovision tiene 7 antenas colgando de una sola cuenta. Carga inicial de las 24 desde el Excel que cruza municipio contra la ciudad de cada oficina: Cartagena 9, Doncello 7, Paujil 3, Montanita 2 y 3 sin oficina porque Puerto Rico, San Vicente y La Macarena no tienen. LAS CONTRASENAS NO SE GUARDAN A PROPOSITO: las reglas del Firestore siguen en allow read write if true, o sea que todo lo guardado es de lectura publica. Verificado en el navegador con las escrituras anuladas: las 24 cargan y se reparten bien, suspender baja el costo de 3.570.000 a 3.420.000 y deja rastro en el historial, el reporte automatico enciende la columna y uno viejo de una hora vuelve a sin datos, la oficina THOMAS solo ve sus 9 y le rebotan las ajenas, y el Excel sale con titulo, filtros y total.)'
-const LOGO_PV = (typeof PV_LOGO !== 'undefined') ? PV_LOGO : ''; // el base64 vive en contrato.js
+const APP_VERSION_FECHA = '26 Ago 2026 (v262 - LA FECHA DEL ESTADO DE UN CLIENTE. Pedido desde RED: que al ver un puerto se sepa desde cuando esta suspendido el cliente, para que el tecnico sepa que ese puerto se puede reutilizar. NO SE PODIA, y la causa estaba aqui: estadoActualizadoEn se re-sella cuando cambia CUALQUIER campo (plan, tarifa, facturas, fecha de corte), asi que despues de una sincronizacion masiva las 318 personas no activas de Florencia tenian todas la misma fecha, 18/08/2026 22:05, que es la de la sincronizacion y no la de su suspension. Ahora se guarda estadoDesde aparte, que SOLO se mueve cuando el estado de verdad cambia, y estadoAnterior con el que tenia antes. De aqui en adelante RED puede decir Suspendido desde el tal dia; para los que ya estaban suspendidos antes de este cambio, RED anota su propia primera observacion y lo dice como tal. Este cambio NO toca el emparejamiento por servicio, que sigue igual: solo agrega dos campos.)' // el base64 vive en contrato.js
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -23383,7 +23382,16 @@ function _actualizarEstadosClientesWisphub(o, clientesW){
         if(!cw) return;
         let cambio=false;
         const setIf=(campo,val)=>{ if(val!==undefined && val!==null && val!=='' && cli[campo]!==val){ cli[campo]=val; cambio=true; } };
+        // La fecha del ESTADO va aparte: estadoActualizadoEn se re-sella con
+        // cualquier cambio (plan, tarifa, facturas), asi que no sirve para
+        // saber desde cuando alguien esta suspendido. estadoDesde solo se
+        // mueve cuando el estado de verdad cambia.
+        const _estAntes=cli.estado;
         setIf('estado', cw.estado);
+        if(cw.estado && String(_estAntes||'')!==String(cw.estado)){
+            cli.estadoAnterior=_estAntes||'';
+            cli.estadoDesde=now();
+        }
         setIf('estadoFacturas', cw.estado_facturas);
         setIf('fechaCorte', cw.fecha_corte);
         setIf('plan', cw.plan_internet?.nombre || cw.plan);
