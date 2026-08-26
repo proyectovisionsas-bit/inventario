@@ -900,7 +900,7 @@ let db = null;
 const DOC_ID = 'main'; // documento único en colección "oficinas_sistema"
 // ─── CONTROL DE VERSIÓN ───
 // Incrementa este número cada vez que publiques una actualización.
-const APP_VERSION = 265; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 266; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -921,7 +921,7 @@ const APP_VERSION = 265; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '27 Ago 2026 (v265 - LA SINCRONIZACION DEJA CADA OFICINA IGUAL A SU WISPHUB, NI MAS NI MENOS. Pedido: nada de botones nuevos, que sincronizar refleje exactamente lo de cada oficina. Antes SOLO AGREGABA, y por eso la oficina se iba separando de WispHub sin que nadie lo notara: 11 clientes activos que no estaban, 130 en la app que ya no aparecian, y 1 que al sincronizar habria quedado duplicado. Ahora concilia cinco cosas: AGREGA los que faltan, ACTUALIZA el servicio de quien se lo cambiaron, MUEVE al que de verdad se mudo de oficina, RETIRA al que ya no esta y REACTIVA al que volvio. LA TRAMPA QUE COSTO TRES VUELTAS: de los 130 que sobraban, 31 son la misma persona con OTRO id de servicio (a WALTER RUIZ le cambiaron 1006487407 por 17690870, a otros les pusieron un -1 o un -3). Si "sobra" se hubiera traducido a "borrar", se borraban 31 clientes activos. Al mirarlos uno por uno resulto que los 31 son DUPLICADOS: la app ya los tenia con su servicio vivo en otro registro, y el viejo estaba muerto (por ese servicio no cruzaba ningun pago). Verificado antes de tocar nada: 31 duplicados + 99 que ya no son clientes = 130, y CERO casos de cambio de numero sin cubrir. Y MOVER SOLO SI DE VERDAD SE MUDO: MAYERLY ESPINOSA esta en DOS cuentas de WispHub al tiempo, en florencia zona FLORENCIA y en paujil zona DONCELLO, misma cedula y mismo servicio. Moverla dejaba a la primera incompleta y la siguiente sincronizacion la devolvia: ping-pong eterno. Eso es un dato repetido en WispHub y no lo puede decidir el programa, asi que se avisa y no se toca. RETIRAR NO ES BORRAR: se marca retiradoWisphub, deja de verse y de contar (medido: la lista pasa de 837 a 836 y el nombre desaparece), pero el registro se queda porque los pagos y las ordenes viejas lo nombran, y porque un retiro puede ser un error de la otra punta. Si vuelve a WispHub, se reactiva solo. Los 21 clientes creados A MANO, sin servicio de WispHub, no se tocan nunca. Ademas se avisa si hay ZONAS de WispHub que ninguna oficina reclama (hoy no hay), y se sella la fecha de la ultima sincronizacion, que no existia: por eso nadie sabia que llevaba dias sin correr. Se quito el boton Chequear de v264: su trabajo lo hace ahora la propia sincronizacion, que muestra como va a quedar todo ANTES de tocar nada. Resultado medido sobre produccion: cuatro de las cinco oficinas quedan EXACTAS (0 faltan, 0 sobran, 0 duplicados) y NATALIA queda con 1 pendiente a proposito, que es MAYERLY, reportada como conflicto. De paso: al escribir esta nota la primera vez se rompio la expresion que normaliza las zonas, porque los caracteres invisibles no sobreviven a la edicion del archivo; ahora se filtran uno por uno, sin regex.)';
+const APP_VERSION_FECHA = '27 Ago 2026 (v266 - LA SINCRONIZACION COMPRUEBA SU PROPIO TRABAJO. Reportado: se sincronizo NATALIA, mostro el plan, se acepto, y los clientes no aparecieron. Revisado contra produccion: no quedo NADA, ni los 3 clientes nuevos, ni los 25 retirados, ni la marca de fecha; los fragmentos seguian en 1.408 y en el registro de auditoria no habia ninguna entrada de hoy. En local el MISMO codigo hace lo correcto: 1.408 a 1.411, 25 retirados, marca sellada y dos guardados. O sea que la logica esta bien y lo que fallo fue la ESCRITURA, que no se logro reproducir. Como no se arregla a ciegas lo que no se reproduce, se hizo lo unico honesto: que no pueda volver a fallar EN SILENCIO. Despues de guardar se vuelve a leer Firestore y se cuentan los clientes de esa oficina; si no coincide con lo esperado se avisa, con el numero de cada lado, en vez de mostrar el visto bueno. Probado con un guardado falso a proposito: en vez de decir que todo quedo bien, avisa que en la nube quedaron 1408 y debian quedar 1411, y pide no cerrar la pagina y volver a darle. Lo mismo en la sincronizacion de todas las oficinas, que lista cuales fallaron. Corregido ademas un error de orden que explica por que no habia rastro: registrarLog corria DESPUES de save(), asi que el registro de la sincronizacion no se persistia hasta el siguiente guardado. Ahora va antes.)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -22613,6 +22613,43 @@ function _resumenPlan(planes, huerfanas){
     return s;
 }
 
+/* ¿DE VERDAD QUEDO GUARDADO?
+   ────────────────────────────────────────────────────────────────────
+   Reportado: la sincronizacion mostro el plan, se acepto, y los clientes
+   no aparecieron. En local el codigo hace lo correcto (1.408 -> 1.411,
+   25 retirados) y en produccion no quedo NADA: ni los clientes, ni los
+   retirados, ni la marca de fecha. O sea que el guardado no llego.
+
+   No se puede arreglar a ciegas lo que no se logra reproducir, pero SI se
+   puede impedir que vuelva a fallar EN SILENCIO. Despues de guardar se
+   vuelve a leer de Firestore y se cuenta: si lo que quedo no coincide con
+   lo que se esperaba, se dice, con el numero de cada lado, en vez de
+   cantar victoria.                                                      */
+async function _clientesEnLaNube(oficinaId){
+    try{
+        const idx=await db.collection('oficinas_sistema').doc('clientes_index').get();
+        const n=((idx.exists?idx.data():{}).chunkInfo||{})[oficinaId]||0;
+        let total=0;
+        for(let i=0;i<n;i++){
+            const s=await db.collection('oficinas_sistema').doc('clientes_'+oficinaId+'_'+i).get();
+            if(s.exists) total+=((s.data().clientes)||[]).length;
+        }
+        return total;
+    }catch(e){ console.warn('verificar', e); return null; }
+}
+async function _verificarGuardado(o, esperado){
+    const enNube=await _clientesEnLaNube(o.id);
+    if(enNube===null) return {ok:null, enNube:null, esperado};
+    return {ok: enNube===esperado, enNube, esperado};
+}
+function _textoVerificacion(v, o){
+    if(v.ok===null) return '\n\n(No se pudo comprobar contra la nube; revisa tu internet.)';
+    if(v.ok) return '\n\n✔️ Comprobado contra la nube: quedaron '+v.enNube+' guardados.';
+    return '\n\n❌ OJO: EN LA NUBE QUEDARON '+v.enNube+' Y DEBIAN QUEDAR '+v.esperado+'.\n'
+         + 'Los cambios NO se guardaron bien. NO cierres la página: dale otra vez a\n'
+         + 'sincronizar. Si vuelve a pasar, recarga con Ctrl+F5 y avisa.';
+}
+
 /* Los clientes que se muestran y se cuentan: los retirados quedan fuera. */
 function clientesVivos(o){ return (o.clientes||[]).filter(c=>!c.retiradoWisphub); }
 
@@ -22745,14 +22782,20 @@ async function sincronizarConWisphub(oid){
         const ok = await _confirmSync(resumen+`\n¿Lo aplico?`);
         if(!ok) return;
         const hecho=aplicarConciliacion(plan);
-        await save();
+        // El log va ANTES de guardar: si va despues, no se escribe hasta el
+        // siguiente guardado y no queda rastro de lo que se hizo.
         registrarLog('SYNC_WISPHUB', o.nombre+': '+JSON.stringify(hecho));
-        await _avisoSync(`✅ ${o.nombre} quedó igual a su WispHub.\n\n`+
+        const _esperado=(o.clientes||[]).length;
+        await save();
+        const _v=await _verificarGuardado(o, _esperado);
+        await _avisoSync(`${_v.ok===false?'⚠️':'✅'} ${o.nombre}: `+
+            `${_v.ok===false?'los cambios NO quedaron guardados':'quedó igual a su WispHub'}.\n\n`+
             `• Agregados: ${hecho.agregados}\n`+
             `• Con servicio actualizado: ${hecho.servicio}\n`+
             `• Movidos desde otra oficina: ${hecho.movidos}\n`+
             `• Reactivados: ${hecho.reactivados}\n`+
-            `• Retirados (ya no están en WispHub): ${hecho.retirados}`);
+            `• Retirados (ya no están en WispHub): ${hecho.retirados}`+
+            _textoVerificacion(_v, o));
         if((hecho.candidatosInstalacion||[]).length)
             _mostrarCandidatosInstalacion(hecho.candidatosInstalacion, hecho.agregados, 0, 0);
         renderClientes();
@@ -23052,14 +23095,25 @@ async function sincronizarTodasOficinasWisphub(){
         Object.keys(tot).forEach(k=>tot[k]+=h[k]); });
     totalNuevos=tot.agregados;
     registrarLog('SYNC_WISPHUB_ALL', JSON.stringify(tot));
+    const _esp={}; planes.forEach(pl=>_esp[pl.o.id]=(pl.o.clientes||[]).length);
     await save();
+    const _fallos=[];
+    for(const pl of planes){
+        const v=await _verificarGuardado(pl.o, _esp[pl.o.id]);
+        if(v.ok===false) _fallos.push(pl.o.nombre+': quedaron '+v.enNube+' de '+v.esperado);
+    }
+    window._fallosSync=_fallos;
     alert(`✅ Listo. Cada oficina quedó igual a su WispHub.\n\n`+
           `• Agregados: ${tot.agregados}\n`+
           `• Con servicio actualizado: ${tot.servicio}\n`+
           `• Movidos de oficina: ${tot.movidos}\n`+
           `• Reactivados: ${tot.reactivados}\n`+
           `• Retirados (ya no están en WispHub): ${tot.retirados}\n`+
-          `• Puestos al día (estado, plan o tarifa): ${totalAlDia}`);
+          `• Puestos al día (estado, plan o tarifa): ${totalAlDia}`+
+          ((window._fallosSync||[]).length
+            ? `\n\n❌ OJO: NO se guardó bien en:\n   ${window._fallosSync.join('\n   ')}\n\n`+
+              `Vuelve a darle a sincronizar. Si sigue igual, recarga con Ctrl+F5 y avisa.`
+            : `\n\n✔️ Comprobado contra la nube.`));
     renderClientes();
 }
 window.sincronizarTodasOficinasWisphub = sincronizarTodasOficinasWisphub;
