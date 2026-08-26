@@ -271,6 +271,53 @@ body.arrastrando .vpto.libre{box-shadow:0 0 0 1px rgba(16,185,129,.55);}
 @media (prefers-reduced-motion:reduce){ .ruta-viva,.ruta-flujo{animation:none;} }
 @media (max-width:700px){ .vcaja{width:calc(100vw - 20px);} }
 
+/* ── Interior de la caja: tablero de conexiones ── */
+#tablero{position:relative;}
+.tab3{position:relative;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;
+      background:#0b1220;border:1px solid var(--border);border-radius:10px;padding:8px;
+      max-height:52vh;overflow:auto;}
+.tab3 .col{min-width:0;}
+.tab3 .colt{position:sticky;top:-8px;background:#0b1220;z-index:3;padding:4px 0 6px;
+            font-size:.68rem;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;}
+#conSVG{position:absolute;inset:0;pointer-events:none;z-index:1;}
+.tab3 .grp,.tab3 .spl,.tab3 .pto-f,.tab3 .hil,.tab3 .sal{position:relative;z-index:2;}
+.tab3 .grp{margin-bottom:8px;}
+.tab3 .grp>b{display:block;font-size:.7rem;}
+.tab3 .grp>i{display:block;font-size:.62rem;color:var(--muted);margin-bottom:3px;}
+.buf{display:flex;align-items:center;gap:5px;margin:4px 0 2px;}
+.bufc{width:9px;height:14px;border-radius:2px;border:1px solid rgba(0,0,0,.5);}
+.bufn{font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;}
+.hil{display:flex;align-items:center;gap:5px;padding:1px 0;}
+.sw{width:16px;height:11px;border-radius:2px;border:1px solid rgba(0,0,0,.4);flex-shrink:0;}
+.hn{font-size:.62rem;color:var(--text);width:16px;text-align:right;font-variant-numeric:tabular-nums;}
+.hc{font-size:.58rem;color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.spl{border:1px solid var(--border);border-radius:8px;padding:6px;margin-bottom:8px;background:rgba(241,243,245,.06);}
+.spl-red{background:rgba(138,143,152,.12);}
+.spl-cab{display:flex;align-items:center;gap:6px;}
+.spl-cab b{font-size:.74rem;}
+.spl-cab i{font-size:.6rem;color:var(--muted);}
+.spl-sal{margin-top:5px;padding-left:4px;}
+.sal{display:flex;align-items:center;gap:5px;justify-content:flex-end;padding:1px 0;}
+.sn{font-size:.6rem;color:var(--muted);}
+.pto-f{display:flex;align-items:center;gap:5px;padding:2px 0;}
+.pto-f .pn{font-size:.62rem;width:16px;font-variant-numeric:tabular-nums;}
+.pto-f .pc{font-size:.6rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pto-f.ocup .pc{color:#f87171;}
+.pto-f.bloq .pc{color:#f59e0b;}
+/* Los puntos de conexion */
+.pin{width:11px;height:11px;border-radius:50%;flex-shrink:0;cursor:crosshair;display:inline-block;
+     background:var(--card2);border:2px solid var(--pc,#475569);transition:transform .1s;}
+.pin.lleno{background:var(--pc,#475569);}
+.pin.ok{transform:scale(1.5);box-shadow:0 0 0 3px rgba(16,185,129,.45);border-color:#10b981;}
+.pin.no{opacity:.3;}
+body.conectando .pin{transform:scale(1.25);}
+.pin-izq{margin-right:3px;}
+.pin-der{margin-left:3px;}
+@media (max-width:700px){
+  .tab3{grid-template-columns:1fr;max-height:60vh;}
+  #conSVG{display:none;}
+}
+
 /* ── Leyenda ── */
 .leyenda{position:absolute;left:10px;bottom:20px;z-index:500;background:rgba(19,28,46,.94);
          border:1px solid var(--border);border-radius:11px;padding:10px 12px;font-size:.72rem;
@@ -361,6 +408,8 @@ body.arrastrando .vpto.libre{box-shadow:0 0 0 1px rgba(16,185,129,.55);}
       <button class="lb" id="h_cliente" onclick="modo('cliente')"    title="Ubicar un cliente en el mapa">👤</button>
       <button class="lb" id="h_nota"    onclick="modo('nota')"       title="Reportar algo en campo">🚩</button>
       <div class="lsep"></div>
+      <button class="lb" onclick="abrirGuiaCero()" title="Cómo armar la red / cómo va">🚀</button>
+      <button class="lb" onclick="abrirCajasSinSplitter()" title="Cajas sin splitter definido">📦</button>
       <button class="lb" id="h_permisos" onclick="abrirPermisos()" title="Qué pueden hacer los técnicos">👷</button>
       <button class="lb" onclick="abrirBuscarLugar()" title="Ir a una ubicación">🎯</button>
       <button class="lb" id="h_capas"   onclick="verPanel('capas')"  title="Capas">🗂️</button>
@@ -425,7 +474,7 @@ body.arrastrando .vpto.libre{box-shadow:0 0 0 1px rgba(16,185,129,.55);}
    la cambia aqui.
    ════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION_RED = 18;
+const APP_VERSION_RED = 19;
 
 const firebaseConfig = {
     apiKey: "AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w",
@@ -467,6 +516,7 @@ var mapa=null, capas={}, fondoSat=false, capaBase=null, rendRuta=null;
     }catch(e){
         alert('No se pudo conectar con la base de datos.\n\n'+(e.message||e));
     }
+    try{ avisarQR(); }catch(e){}
     ocultarCarga();
 })();
 
@@ -528,6 +578,7 @@ async function entrar(tipo){
         } else document.getElementById('chipSede').textContent='👷 '+USER.nombre;
         await cambiarSede(mias[0]?mias[0].id:USER.id);
         aplicarPermisos();
+        try{ await abrirDesdeQR(); }catch(e){ console.warn('QR',e); }
         return;
     }
     if(USER.role==='admin'){
@@ -541,6 +592,8 @@ async function entrar(tipo){
             USER.sede && USER.sede!==USER.nombre ? USER.nombre+' · '+USER.sede : USER.nombre;
         await cambiarSede(USER.id);
     }
+    // Si se entro escaneando la etiqueta de una caja, se abre esa caja.
+    try{ await abrirDesdeQR(); }catch(e){ console.warn('QR',e); }
 }
 function salir(){ soltarCandado().finally(()=>location.reload()); }
 function volverAlInicio(){
@@ -1713,6 +1766,8 @@ function pintarPanel(el){
 
     if(!RED.elementos.length){
         p.innerHTML=`<div class="aviso">Esta sede todavía no tiene red cargada.</div>
+          <button class="btn btn-sm btn-primary" style="width:100%;margin-bottom:10px"
+                  onclick="abrirGuiaCero()">🚀 Guíame para armarla</button>
           <div class="vacio">Tienes dos caminos:<br><br>
             <b>📥 Importar KML</b> si ya tienes el archivo de OZmap,<br>
             o <b>✏️ Editar</b> y empezar a marcar cajas y postes<br>uno a uno sobre el mapa.</div>`;
@@ -1751,7 +1806,9 @@ function pintarPanel(el){
       ${arbolCapas(cuenta)}
 
       ${sinCap?`<div class="aviso" style="margin-top:12px">⚠️ ${sinCap} caja(s) sin capacidad definida.
-        Ábrelas y dile qué splitter llevan; hasta entonces no cuentan como espacio disponible.</div>`:''}
+        El KML de OZmap no trae el splitter, así que hay que decírselo.
+        <button class="btn btn-sm btn-out" style="width:100%;margin-top:7px"
+                onclick="abrirCajasSinSplitter()">📦 Configurarlas</button></div>`:''}
 
       ${selectorEscala()}
 
@@ -2057,7 +2114,7 @@ function fichaHTML(el){
           <div class="dato"><b>Estado de la caja</b><span style="color:${s.color};font-weight:700">${s.et}</span></div>
           <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
             <button class="btn btn-sm btn-out" style="flex:1" onclick="ventanaCaja('${el.id}')">🪟 Cuadro</button>
-            <button class="btn btn-sm btn-out" style="flex:1" onclick="abrirDiagrama('${el.id}')">📊 Interior</button>
+            <button class="btn btn-sm btn-out" style="flex:1" onclick="abrirInterior('${el.id}')">📊 Interior</button>
             <button class="btn btn-sm btn-out" style="flex:1" onclick="abrirFusiones('${el.id}')">🔗 Fusiones${(el.fusiones||[]).length?' ('+el.fusiones.length+')':''}</button>
             <button class="btn btn-sm btn-out" style="flex:1" onclick="etiquetaCaja('${el.id}')">🏷️ Etiqueta</button>
             <button class="btn btn-sm btn-out" style="flex:1" onclick="modo('ruta');iluminarRuta(RED.elementos.find(e=>e.id==='${el.id}'))">💡 Ruta</button>
@@ -3132,7 +3189,7 @@ function ventanaHTML(id, el, v){
         ${cuerpo}
       </div>
       <div class="vc-pie">
-        <button class="btn btn-sm btn-out" onclick="abrirDiagrama('${el.id}')">📊 Interior</button>
+        <button class="btn btn-sm btn-out" onclick="abrirInterior('${el.id}')">📊 Interior</button>
         <button class="btn btn-sm btn-out" onclick="modo('ruta');iluminarRuta(RED.elementos.find(e=>e.id==='${el.id}'))">💡 Ruta</button>
         <button class="btn btn-sm btn-out" onclick="etiquetaCaja('${el.id}')">🏷️ Etiqueta</button>
         ${editando?`<button class="btn btn-sm btn-out" onclick="editarElemento('${el.id}')">✏️ Editar</button>`:''}
@@ -3663,6 +3720,584 @@ function abrirEnMapas(id){
 function comoLlegar(id){
     const g=_coordDe(id); if(!g) return;
     window.open('https://www.google.com/maps/dir/?api=1&destination='+g[0]+','+g[1], '_blank', 'noopener');
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   CAJAS SIN SPLITTER — LA COLA DE TRABAJO
+   ────────────────────────────────────────────────────────────────────
+   Reportado: "hay cajas que aparecen sin capacidad pero si tienen
+   splitter". Y es cierto en la calle: lo que pasa es que EL KML DE
+   OZMAP NO TRAE EL SPLITTER. Comprobado en el archivo de Florencia; de
+   cada caja solo exporta dos lineas:
+       Tipo: CAJA NAP SEGUNDO NIVEL
+       Estado de implementación: Implementada y certificada
+   Las que si tienen capacidad la tienen porque se DEDUJO de los
+   clientes conectados (si alguien esta en el puerto 14, es 1x16 minimo).
+   Las que no tienen ningun cliente no daban de donde deducir.
+
+   Dos caminos, ninguno inventado:
+     1. Si el splitter esta escrito en el NOMBRE ("NAP 1X16 4"), se lee.
+     2. El resto sale en una lista para irlas marcando de a dos clics,
+        sin tener que buscarlas una por una en el mapa.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* El nombre y el subtipo a veces traen el splitter escrito. Es un dato
+   real, no una suposicion, asi que se toma tal cual. */
+function splitterDelNombre(el){
+    const t=[el.nombre, el.subtipo].filter(Boolean).join(' ');
+    const m=t.match(/\b(\d+)\s*[xX]\s*(\d+)\b/);
+    if(!m) return null;
+    const ent=+m[1], sal=+m[2];
+    if(!sal||sal>MAX_PUERTOS||ent>8) return null;
+    return {tipo:ent+'x'+sal, ratio:'', uso:'cliente', delNombre:true};
+}
+function cajasSinSplitter(){
+    return RED.elementos.filter(e=>e.tipo==='caja' && e.clase!=='pop' && e.clase!=='mufla'
+        && !capacidadCaja(e));
+}
+/* Las que se pueden resolver solas, sin preguntarle nada a nadie */
+function cajasConSplitterEnElNombre(){
+    return cajasSinSplitter().filter(c=>!(c.splitters||[]).length && splitterDelNombre(c));
+}
+
+function abrirCajasSinSplitter(){
+    if(!puede('caja')) return noPuede('caja');
+    const todas=cajasSinSplitter();
+    if(!todas.length) return alert('✅ Todas las cajas tienen su splitter definido.');
+    const leibles=cajasConSplitterEnElNombre();
+    // Primero las que ya tienen gente colgando: son las que urgen
+    const orden=todas.slice().sort((a,b)=>
+        (Object.keys(b.puertos||{}).length)-(Object.keys(a.puertos||{}).length)
+        || (a.nombre||'').localeCompare(b.nombre||''));
+    window._pendCajas=orden.map(c=>c.id);
+    abrirModal('📦 Cajas sin splitter definido', `
+      <p class="ayuda" style="margin-top:0">
+        Son <b>${todas.length}</b>. No es que falten en la calle: el KML de OZmap
+        no exporta el splitter, así que el programa no sabe cuántos clientes caben
+        y por eso salen grises en el mapa.</p>
+      ${leibles.length?`
+      <div class="aviso">
+        <b>${leibles.length}</b> lo traen escrito en el nombre (ej. <code>${esc(leibles[0].nombre)}</code>).
+        Esas se pueden resolver de una.
+        <button class="btn btn-sm btn-primary" style="width:auto;margin-top:8px"
+                onclick="aplicarSplittersDelNombre()">Leerlas del nombre</button>
+      </div>`:''}
+      <div class="sec">Una por una</div>
+      <input type="text" id="pd_q" placeholder="Filtrar por nombre…" autocomplete="off"
+             oninput="pintarCajasSinSplitter(this.value)" style="margin-bottom:6px">
+      <div id="pd_lista" style="max-height:44vh;overflow-y:auto"></div>`,
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cerrar</button>`);
+    pintarCajasSinSplitter('');
+}
+const SPLIT_RAPIDOS=['1x2','1x4','1x8','1x16','1x32'];
+function pintarCajasSinSplitter(q){
+    const cont=document.getElementById('pd_lista'); if(!cont) return;
+    const n=(q||'').trim().toLowerCase();
+    const lista=(window._pendCajas||[]).map(id=>RED.elementos.find(e=>e.id===id)).filter(Boolean)
+        .filter(c=>!n||(c.nombre||'').toLowerCase().includes(n));
+    if(!lista.length){ cont.innerHTML='<div class="vacio" style="padding:14px">Nada con ese nombre.</div>'; return; }
+    cont.innerHTML=lista.slice(0,60).map(c=>{
+        const usa=Object.keys(c.puertos||{}).length;
+        const leido=splitterDelNombre(c);
+        return `<div class="fila" style="display:block;padding:8px 6px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="punto" style="background:${usa?'#f59e0b':'#64748b'}"></span>
+            <span class="nom"><b>${esc(c.nombre||'')}</b>
+              <i style="display:block;font-size:.66rem;color:var(--muted)">
+                ${esc(c.subtipo||'sin subtipo')}${usa?' · '+usa+' cliente(s) ya conectados':''}</i></span>
+            <button class="btn btn-sm btn-out" title="Verla en el mapa"
+                    onclick="cerrarModal();irA('${c.id}')">🎯</button>
+          </div>
+          <div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap">
+            ${SPLIT_RAPIDOS.map(s=>`<button class="btn btn-sm btn-out" style="flex:1;min-width:52px"
+               ${leido&&leido.tipo===s?'style="flex:1;min-width:52px;border-color:#10b981;color:#10b981"':''}
+               onclick="ponerSplitterRapido('${c.id}','${s}')">${s}</button>`).join('')}
+          </div>
+          ${usa?`<p class="ayuda" style="margin:4px 0 0">Tiene gente hasta el puerto
+             ${Math.max(...Object.keys(c.puertos).map(Number))}, así que es al menos
+             1x${[2,4,8,16,32,64].find(x=>x>=Math.max(...Object.keys(c.puertos).map(Number)))}.</p>`:''}
+        </div>`;
+    }).join('') + (lista.length>60?`<p class="ayuda">…y ${lista.length-60} más. Usa el filtro.</p>`:'');
+}
+async function ponerSplitterRapido(id, tipo){
+    const el=RED.elementos.find(e=>e.id===id); if(!el) return;
+    const usados=Object.keys(el.puertos||{}).map(Number);
+    const max=usados.length?Math.max(...usados):0;
+    const sal=+(tipo.split('x')[1]);
+    if(max>sal && !confirm(`Ojo: en ${el.nombre} ya hay un cliente en el puerto ${max},\n`
+        +`y un ${tipo} solo tiene ${sal} salidas.\n\n¿Aun así lo pongo?`)) return;
+    const antes=el.splitters;
+    el.splitters=[{tipo, ratio:'', uso:'cliente'}];
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){ el.splitters=antes; ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e)); }
+    ocultarCarga();
+    window._pendCajas=(window._pendCajas||[]).filter(x=>x!==id);
+    dibujar();
+    pintarCajasSinSplitter(val('pd_q'));
+    const quedan=(window._pendCajas||[]).length;
+    const t=document.getElementById('mTit');
+    if(t) t.textContent='📦 Cajas sin splitter definido ('+quedan+')';
+}
+async function aplicarSplittersDelNombre(){
+    const lista=cajasConSplitterEnElNombre();
+    if(!lista.length) return;
+    const detalle=lista.slice(0,6).map(c=>'· '+c.nombre+' → '+splitterDelNombre(c).tipo).join('\n');
+    if(!confirm(`Se le va a poner el splitter a ${lista.length} caja(s), leyéndolo de su propio nombre:\n\n`
+        +detalle+(lista.length>6?'\n…y '+(lista.length-6)+' más':'')+'\n\n¿Sigo?')) return;
+    const copia=lista.map(c=>({c, antes:c.splitters}));
+    lista.forEach(c=>{ c.splitters=[splitterDelNombre(c)]; });
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){ copia.forEach(x=>x.c.splitters=x.antes); ocultarCarga(); return alert('No se pudo guardar.'); }
+    ocultarCarga();
+    window._pendCajas=(window._pendCajas||[]).filter(id=>!lista.some(c=>c.id===id));
+    dibujar(); cerrarModal(); abrirCajasSinSplitter();
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   EL INTERIOR DE LA CAJA — CONEXIONES CON COLOR, ARRASTRANDO
+   ────────────────────────────────────────────────────────────────────
+   Una caja de PRIMER Y SEGUNDO NIVEL tiene dos splitters adentro: uno
+   reparte hacia otras cajas y el otro atiende a los clientes de esta.
+   Lo que hacia falta era ver CUAL SALIDA del primero alimenta al
+   segundo, y de que color es la fibra que entra. Sin eso, el que abre la
+   caja en la calle no sabe que esta tocando.
+
+   COMO SE GUARDA. Cada punta se nombra con un texto corto:
+       'c<idCable>.h12'  hilo 12 de ese cable
+       's0.in'           entrada del primer splitter
+       's0.o3'           salida 3 del primer splitter
+       'p7'              puerto 7 (el cliente)
+   y una conexion es {de:'...', a:'...', tipo:'fusion'|'conector'}.
+   Van en el elemento como el.conex, texto plano: Firestore no acepta
+   arreglos dentro de arreglos y asi no hay nada que aplanar.
+
+   EL COLOR VIAJA. Una salida de splitter no tiene color propio: hereda
+   el de la fibra que lo alimenta, que es justo lo que se quiere ver.
+   heredarColor() sube por las conexiones hasta dar con un hilo.
+   ════════════════════════════════════════════════════════════════════ */
+
+function _conex(el){ if(!el.conex) el.conex=[]; return el.conex; }
+function _puntaEt(el, k){
+    if(!k) return '';
+    if(k[0]==='p') return 'Puerto '+k.slice(1);
+    if(k[0]==='s'){
+        const [a,b]=k.slice(1).split('.');
+        const sp=(el.splitters||[])[+a];
+        const t=sp?sp.tipo:'splitter';
+        return b==='in' ? 'Entrada del '+t : t+' salida '+b.slice(1);
+    }
+    const [c,h]=k.split('.');
+    const cb=(el.cables||[]).find(x=>x.id===c.slice(1));
+    return (cb?(cb.nombre||'').slice(0,16):'cable')+' hilo '+h.slice(1);
+}
+/* De donde le llega la luz a una punta, subiendo hasta encontrar fibra. */
+function heredarColor(el, k, visto){
+    visto=visto||new Set();
+    if(!k||visto.has(k)) return null;
+    visto.add(k);
+    if(k[0]==='c'){
+        const [c,h]=k.split('.');
+        const cb=(el.cables||[]).find(x=>x.id===c.slice(1));
+        if(!cb) return null;
+        const m=mapaFibra(cb); if(!m) return null;
+        const n=+h.slice(1);
+        for(const b of m){ const hh=b.hilos.find(x=>x.n===n); if(hh) return hh.c; }
+        return null;
+    }
+    // Una salida hereda de la entrada de su splitter; la entrada, de quien la alimenta
+    const origen = k.endsWith('.in') ? k : (k[0]==='s' ? 's'+k.slice(1).split('.')[0]+'.in' : k);
+    const con=_conex(el).find(x=>x.a===origen);
+    if(con) return heredarColor(el, con.de, visto);
+    const con2=_conex(el).find(x=>x.a===k);
+    return con2 ? heredarColor(el, con2.de, visto) : null;
+}
+function colorDe(el,k){ const c=heredarColor(el,k); return c?c.hex:'#475569'; }
+
+/* ── El tablero ────────────────────────────────────────────────────
+   Tres columnas: los hilos que llegan, los splitters y los puertos.
+   Se arrastra de un punto a otro; el trazo se pinta del color de la
+   fibra que lo alimenta.                                            */
+var _arrCon=null;   // punta que se esta arrastrando
+
+function abrirInterior(id){
+    const el=RED.elementos.find(e=>e.id===id); if(!el) return;
+    window._intCaja=id;
+    abrirModal('📊 Interior de '+esc(el.nombre||''), tableroHTML(el),
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cerrar</button>
+       ${puede('caja')?`<button class="btn btn-sm btn-out" onclick="autoConectar('${id}')"
+          title="Propone las conexiones obvias">✨ Sugerir</button>`:''}`);
+    setTimeout(()=>pintarCables(el),40);
+}
+function refrescarInterior(){
+    const el=RED.elementos.find(e=>e.id===window._intCaja); if(!el) return;
+    const c=document.getElementById('tablero'); if(!c) return;
+    c.outerHTML=tableroHTML(el);
+    setTimeout(()=>pintarCables(el),40);
+}
+
+function tableroHTML(el){
+    const sps=el.splitters||[];
+    const cables=el.cables||[];
+    const cap=capacidadCaja(el);
+    const edita=puede('caja');
+    const punto=(k, lado, extra)=>{
+        const col=colorDe(el,k);
+        const con=_conex(el).some(x=>x.de===k||x.a===k);
+        return `<span class="pin pin-${lado} ${con?'lleno':''}" data-k="${k}"
+                  style="--pc:${col}" title="${esc(_puntaEt(el,k))}"
+                  ${edita?`draggable="true" ondragstart="conDrag(event,this)" ondragend="conFin()"
+                  ondragover="conOver(event,this)" ondragleave="conSale(this)" ondrop="conSuelta(event,this)"
+                  onclick="conClic(this)"`:''}>${extra||''}</span>`;
+    };
+    // ── Columna 1: los hilos que llegan ──
+    let hilos='';
+    if(!cables.length) hilos='<div class="vacio" style="padding:14px">Ningún cable enlazado.</div>';
+    cables.forEach(cb=>{
+        const m=mapaFibra(cb);
+        hilos+=`<div class="grp"><b>${esc((cb.nombre||'').slice(0,22))}</b>
+                <i>${cb.hilos||'?'}H · ${esc((cb.sub||'').slice(0,16))}</i>`;
+        if(m) m.forEach(b=>{
+            hilos+=`<div class="buf"><span class="bufc" style="background:${b.c.hex}"
+                      title="Buffer ${b.buffer} · ${b.c.n}"></span>
+                    <span class="bufn">${b.c.n}</span></div>`;
+            b.hilos.forEach(h=>{
+                const k='c'+cb.id+'.h'+h.n;
+                hilos+=`<div class="hil">
+                    <span class="sw" style="background:${h.c.hex}" title="Hilo ${h.n} · ${h.c.n}"></span>
+                    <span class="hn">${h.n}</span>
+                    <span class="hc">${h.c.n}</span>
+                    ${punto(k,'der')}</div>`;
+            });
+        });
+        hilos+='</div>';
+    });
+    // ── Columna 2: los splitters ──
+    let cols='';
+    if(!sps.length) cols=`<div class="vacio" style="padding:14px">Esta caja no tiene splitters.
+        ${edita?`<br><br><button class="btn btn-sm btn-out" onclick="cerrarModal();agregarSplitter('${el.id}')">➕ Ponerle uno</button>`:''}</div>`;
+    sps.forEach((sp,i)=>{
+        const sal=salidasDe(sp), red=esDeRed(sp);
+        cols+=`<div class="spl ${red?'spl-red':''}">
+            <div class="spl-cab">
+              ${punto('s'+i+'.in','izq')}
+              <b>${esc(sp.tipo)}</b>
+              <i>${red?'de red':'atención'}${sp.ratio?' · '+esc(sp.ratio):''}</i>
+            </div>
+            <div class="spl-sal">
+              ${Array.from({length:Math.min(sal,MAX_PUERTOS)},(_,j)=>`
+                <div class="sal"><span class="sn">${j+1}</span>${punto('s'+i+'.o'+(j+1),'der')}</div>`).join('')}
+            </div></div>`;
+    });
+    // ── Columna 3: los puertos y quien esta en cada uno ──
+    let ptos='';
+    if(!cap) ptos='<div class="vacio" style="padding:14px">Sin capacidad definida.</div>';
+    for(let n=1;n<=cap;n++){
+        const o=(el.puertos||{})[n], b=(el.bloqueados||{})[n];
+        ptos+=`<div class="pto-f ${o?'ocup':b?'bloq':''}">
+            ${punto('p'+n,'izq')}
+            <span class="pn">${n}</span>
+            <span class="pc">${o?esc((o.cliente||'').slice(0,26)):b?'reservado':'libre'}</span></div>`;
+    }
+    const lista=_conex(el);
+    return `<div id="tablero">
+      <div class="tab3">
+        <div class="col"><div class="colt">🧵 Fibras que llegan</div>${hilos}</div>
+        <div class="col"><div class="colt">🔀 Splitters</div>${cols}</div>
+        <div class="col"><div class="colt">🔌 Puertos</div>${ptos}</div>
+        <svg id="conSVG"></svg>
+      </div>
+      ${edita?`<p class="ayuda">Arrastra de un punto a otro para conectarlos — o toca uno y luego el otro.
+         Doble clic sobre una conexión de la lista la quita. El color lo hereda de la fibra que la alimenta.</p>`
+       :'<p class="ayuda">Estás en modo lectura: puedes ver las conexiones pero no cambiarlas.</p>'}
+      <div class="sec">Conexiones anotadas <span class="cuenta">${lista.length}</span></div>
+      ${lista.length?lista.map((c,i)=>`
+        <div class="fila">
+          <span class="punto" style="background:${colorDe(el,c.de)}"></span>
+          <span class="nom" style="font-size:.74rem">${esc(_puntaEt(el,c.de))} → ${esc(_puntaEt(el,c.a))}
+            <i style="color:var(--muted)"> · ${esc(c.tipo||'fusión')}</i></span>
+          ${edita?`<button class="btn btn-sm btn-out" onclick="quitarConexion(${i})">✕</button>`:''}
+        </div>`).join('')
+       :'<div class="vacio" style="padding:12px">Todavía no hay ninguna anotada.</div>'}`;
+}
+
+/* Los trazos entre columnas se dibujan encima, sobre un SVG que cubre
+   el tablero. Se recalculan al abrir y al cambiar algo. */
+function pintarCables(el){
+    const svg=document.getElementById('conSVG'); if(!svg) return;
+    const cont=svg.parentElement, r0=cont.getBoundingClientRect();
+    svg.setAttribute('width', cont.scrollWidth);
+    svg.setAttribute('height', cont.scrollHeight);
+    const pos=(k)=>{
+        const e=cont.querySelector('.pin[data-k="'+CSS.escape(k)+'"]');
+        if(!e) return null;
+        const r=e.getBoundingClientRect();
+        return [r.left-r0.left+r.width/2+cont.scrollLeft, r.top-r0.top+r.height/2+cont.scrollTop];
+    };
+    let d='';
+    _conex(el).forEach(c=>{
+        const a=pos(c.de), b=pos(c.a);
+        if(!a||!b) return;
+        const dx=Math.max(24,Math.abs(b[0]-a[0])*0.45);
+        const col=colorDe(el,c.de);
+        d+=`<path d="M${a[0]} ${a[1]} C ${a[0]+dx} ${a[1]}, ${b[0]-dx} ${b[1]}, ${b[0]} ${b[1]}"
+             stroke="${col}" stroke-width="2.4" fill="none" opacity=".92"
+             ${c.tipo==='conector'?'stroke-dasharray="5,4"':''}/>`;
+    });
+    svg.innerHTML=d;
+}
+
+/* ── Arrastrar de una punta a otra ─────────────────────────────── */
+function conDrag(ev,d){ _arrCon=d.dataset.k; ev.dataTransfer.effectAllowed='link';
+    ev.dataTransfer.setData('text/plain', d.dataset.k); document.body.classList.add('conectando'); }
+function conFin(){ _arrCon=null; document.body.classList.remove('conectando');
+    document.querySelectorAll('.pin.ok,.pin.no').forEach(x=>x.classList.remove('ok','no')); }
+function conSale(d){ d.classList.remove('ok','no'); }
+function conOver(ev,d){
+    if(!_arrCon) return;
+    if(conValida(_arrCon,d.dataset.k)){ d.classList.add('ok'); ev.preventDefault(); }
+    else d.classList.add('no');
+}
+function conSuelta(ev,d){ ev.preventDefault(); const a=_arrCon; conFin(); if(a) unir(a,d.dataset.k); }
+/* En celular arrastrar es incomodo: tocar uno y luego el otro hace lo mismo. */
+function conClic(d){
+    const k=d.dataset.k;
+    if(!_arrCon){ _arrCon=k; d.classList.add('ok'); return; }
+    if(_arrCon===k){ conFin(); return; }
+    const a=_arrCon; conFin(); unir(a,k);
+}
+/* Que se puede unir con que. Dos hilos SI se pueden fusionar (es un paso
+   directo), pero un puerto con otro puerto no significa nada. */
+function conValida(a,b){
+    if(!a||!b||a===b) return false;
+    const cl=k=> k[0]==='p' ? 'pto' : k[0]!=='s' ? 'hilo' : (k.endsWith('.in')?'in':'out');
+    const A=cl(a), B=cl(b);
+    if(A==='pto'&&B==='pto') return false;
+    if(A==='in'&&B==='in') return false;
+    if(A==='pto'&&B==='hilo') return true;      // un cliente colgado directo de un hilo
+    if(A==='hilo'&&B==='pto') return true;
+    return true;
+}
+async function unir(a,b){
+    const el=RED.elementos.find(e=>e.id===window._intCaja); if(!el) return;
+    if(!puede('caja')) return noPuede('caja');
+    if(!conValida(a,b)) return;
+    // La entrada de un splitter y un puerto solo admiten UNA fuente
+    const destinoUnico=(k)=> k[0]==='p' || k.endsWith('.in');
+    const lista=_conex(el);
+    let de=a, hacia=b;
+    if(destinoUnico(a) && !destinoUnico(b)){ de=b; hacia=a; }
+    if(destinoUnico(hacia)){
+        const ya=lista.findIndex(x=>x.a===hacia);
+        if(ya>=0){
+            if(!confirm(_puntaEt(el,hacia)+' ya está alimentado desde '+_puntaEt(el,lista[ya].de)
+                +'.\n\n¿Lo cambio por '+_puntaEt(el,de)+'?')) return;
+            lista.splice(ya,1);
+        }
+    }
+    if(lista.some(x=>x.de===de&&x.a===hacia)) return;
+    lista.push({de, a:hacia, tipo:'fusion', en:Date.now(), por:(USER&&USER.nombre)||''});
+    await guardarInterior(el, ()=>lista.pop());
+}
+async function quitarConexion(i){
+    const el=RED.elementos.find(e=>e.id===window._intCaja); if(!el) return;
+    if(!puede('caja')) return noPuede('caja');
+    const lista=_conex(el); const q=lista[i]; if(!q) return;
+    lista.splice(i,1);
+    await guardarInterior(el, ()=>lista.splice(i,0,q));
+}
+async function guardarInterior(el, deshacer){
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){ deshacer(); ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e)); }
+    ocultarCarga(); refrescarInterior();
+}
+
+/* Propone lo evidente para no tener que hacer 16 arrastres a mano:
+   el primer hilo libre alimenta el splitter de red, su primera salida
+   alimenta el de atencion, y las salidas de atencion caen en orden
+   sobre los puertos que ya tienen cliente. Todo queda como propuesta:
+   se ve, y lo que no cuadre se quita. */
+async function autoConectar(id){
+    const el=RED.elementos.find(e=>e.id===id); if(!el) return;
+    if(!puede('caja')) return noPuede('caja');
+    const sps=el.splitters||[];
+    if(!sps.length) return alert('Primero ponle un splitter a la caja.');
+    const lista=_conex(el), antes=lista.slice();
+    const hay=(k)=>lista.some(x=>x.a===k);
+    const meter=(de,a)=>{ if(!hay(a)&&de) lista.push({de, a, tipo:'fusion', auto:true}); };
+    // 1) el primer hilo del cable mas grueso entra al primer splitter
+    const cb=(el.cables||[]).slice().sort((a,b)=>(b.hilos||0)-(a.hilos||0))[0];
+    if(cb) meter('c'+cb.id+'.h1', 's0.in');
+    // 2) cadena entre splitters: la salida 1 de uno alimenta al siguiente
+    for(let i=0;i+1<sps.length;i++) meter('s'+i+'.o1', 's'+(i+1)+'.in');
+    // 3) las salidas del splitter de atencion caen sobre los puertos
+    const iAt=sps.findIndex(s=>!esDeRed(s));
+    if(iAt>=0){
+        const sal=salidasDe(sps[iAt]);
+        // si ese splitter recibe de otro, su salida 1 puede estar ocupada
+        let j=(iAt>0)?1:1;
+        for(let n=1;n<=Math.min(sal,capacidadCaja(el));n++) meter('s'+iAt+'.o'+n, 'p'+n);
+    }
+    if(lista.length===antes.length) return alert('No encontré nada evidente que proponer.');
+    if(!confirm('Voy a proponer '+(lista.length-antes.length)+' conexión(es).\n\n'
+        +'Míralas y quita las que no correspondan: son una propuesta, no la verdad.')){
+        el.conex=antes; return;
+    }
+    await guardarInterior(el, ()=>{ el.conex=antes; });
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   ARMAR UNA RED DESDE CERO
+   ────────────────────────────────────────────────────────────────────
+   Cuatro de las cinco sedes estan vacias. Las herramientas para armarla
+   ya existian todas, pero sueltas: nadie que no las conozca adivina que
+   el orden es POP, troncal, cajas, splitters y clientes, ni que sin POP
+   marcado no se puede calcular por donde llega la señal.
+   Esta guia no hace nada nuevo: lleva de la mano por lo que ya hay, y
+   sabe en que paso va mirando la red de verdad.
+   ════════════════════════════════════════════════════════════════════ */
+function pasosRed(){
+    const els=RED.elementos||[];
+    const cajas=els.filter(e=>e.tipo==='caja');
+    const pop=cajas.filter(e=>e.clase==='pop');
+    const otras=cajas.filter(e=>e.clase!=='pop');
+    const cables=els.filter(e=>e.tipo==='cable'&&e.clase!=='drop');
+    const conSplit=otras.filter(c=>capacidadCaja(c)>0);
+    const clientes=els.filter(e=>e.tipo==='cliente');
+    return [
+        {n:1, et:'Marcar el POP', ico:'🏛️', hecho:pop.length>0, cuenta:pop.length,
+         ay:'Donde está la OLT, la cabecera. Es el arranque de todo: sin POP no se puede saber por dónde le llega la señal a nadie.',
+         accion:'modo("editar")', bot:'✏️ Ir a crearlo', detalle:'En el mapa, clic donde queda la central → tipo POP.'},
+        {n:2, et:'Tender la troncal', ico:'🧵', hecho:cables.length>0, cuenta:cables.length,
+         ay:'El cable grueso que sale del POP. Se marca punto por punto, siguiendo los postes.',
+         accion:'modo("cable")', bot:'🧵 Trazar cable', detalle:'Clic en cada poste y doble clic para terminar.'},
+        {n:3, et:'Poner las cajas', ico:'📦', hecho:otras.length>0, cuenta:otras.length,
+         ay:'Muflas donde se parte la fibra, y CTO o NAP donde se cuelgan los clientes.',
+         accion:'modo("editar")', bot:'✏️ Crear cajas', detalle:'Los extremos del cable deben caer sobre la caja para que queden enlazados.'},
+        {n:4, et:'Ponerles el splitter', ico:'🔀', hecho:conSplit.length>0,
+         cuenta:conSplit.length+(otras.length?' de '+otras.length:''),
+         ay:'Sin splitter no se sabe cuántos clientes caben, y la caja sale gris en el mapa.',
+         accion:'abrirCajasSinSplitter()', bot:'📦 Ver las que faltan', detalle:'También puedes guardar plantillas para no repetir la misma configuración.'},
+        {n:5, et:'Conectar los clientes', ico:'👤', hecho:clientes.length>0, cuenta:clientes.length,
+         ay:'Clic donde vive la persona; salen los clientes de la oficina y las cajas con cupo más cercanas.',
+         accion:'modo("cliente")', bot:'👤 Ubicar clientes', detalle:'Se le crea el punto y su drop, y queda ocupado el puerto.'}
+    ];
+}
+function abrirGuiaCero(){
+    const ps=pasosRed();
+    const hechos=ps.filter(p=>p.hecho).length;
+    const vacia=!(RED.elementos||[]).length;
+    abrirModal(vacia?'🚀 Armar la red de '+esc(SEDE?SEDE.nombre:'') :'🚀 Cómo va la red de '+esc(SEDE?SEDE.nombre:''), `
+      ${vacia?`<p class="ayuda" style="margin-top:0">Esta sede está vacía. Hay dos caminos:</p>
+      <div class="fila" style="cursor:pointer" onclick="cerrarModal();pedirKML()">
+        <span style="font-size:1.3rem">📥</span>
+        <span class="nom"><b>Importar un KML</b>
+          <i style="display:block;font-size:.68rem;color:var(--muted)">Si ya la tienes dibujada en OZmap o Google Earth, es lo más rápido</i></span>
+      </div>
+      <div class="fila" style="cursor:pointer" onclick="_guiaPaso(1)">
+        <span style="font-size:1.3rem">✏️</span>
+        <span class="nom"><b>Empezar desde cero</b>
+          <i style="display:block;font-size:.68rem;color:var(--muted)">Ir marcando en el mapa, en este orden</i></span>
+      </div>
+      <div class="sec" style="margin-top:14px">El orden</div>`
+      :`<div class="barra" style="margin-bottom:10px">
+          <span style="width:${hechos/ps.length*100}%;background:#10b981"></span>
+          <span style="width:${100-hechos/ps.length*100}%;background:var(--card2)"></span>
+        </div>
+        <p class="ayuda" style="margin-top:0">${hechos} de ${ps.length} pasos con algo hecho.</p>`}
+      ${ps.map(p=>`
+        <div class="fila" style="display:block;padding:9px 6px;${p.hecho?'':'background:rgba(245,158,11,.05)'}">
+          <div style="display:flex;align-items:center;gap:9px">
+            <span style="font-size:1.15rem">${p.hecho?'✅':p.ico}</span>
+            <span class="nom"><b>${p.n}. ${p.et}</b>
+              <i style="display:block;font-size:.68rem;color:var(--muted)">${p.ay}</i></span>
+            ${p.cuenta?`<span class="cuenta">${p.cuenta}</span>`:''}
+          </div>
+          <div style="display:flex;gap:6px;margin-top:6px;padding-left:28px">
+            <button class="btn btn-sm btn-out" onclick="cerrarModal();${p.accion}">${p.bot}</button>
+          </div>
+          <p class="ayuda" style="margin:4px 0 0 28px">${p.detalle}</p>
+        </div>`).join('')}
+      <p class="ayuda" style="margin-top:12px">Lo único que no se puede deducir del mapa son las
+         <b>fusiones dentro de la caja</b>: eso hay que abrirla y anotarlo, desde 📊 Interior.</p>`,
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cerrar</button>`);
+}
+function _guiaPaso(n){
+    const p=pasosRed().find(x=>x.n===n); if(!p) return;
+    cerrarModal();
+    try{ eval(p.accion); }catch(e){ console.warn(e); }
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   ABRIR UNA CAJA DESDE SU ETIQUETA (QR)
+   ────────────────────────────────────────────────────────────────────
+   Reportado: "escaneo el QR y me lleva al inicio de la app, no me
+   muestra la caja". Cierto: la etiqueta si armaba la direccion con
+   ?sede=..&caja=.., pero NADIE la leia al abrir. URLSearchParams no
+   aparecia ni una vez en el archivo; el QR estaba a medias.
+
+   Como funciona ahora: se guarda lo que traiga la direccion, se avisa en
+   la pantalla de entrada para que el que escaneo sepa que si registro, y
+   apenas entra se le abre esa caja: se cambia de sede si hace falta, se
+   centra el mapa y se abre su cuadro.
+
+   La caja se busca primero por ID y despues por nombre. Por id porque es
+   lo unico que no cambia; por nombre para que las etiquetas ya impresas,
+   que solo llevan el nombre, sigan sirviendo.
+   ════════════════════════════════════════════════════════════════════ */
+var QR=null;
+(function leerQR(){
+    try{
+        const q=new URLSearchParams(location.search);
+        const caja=q.get('caja'), sede=q.get('sede');
+        if(!caja) return;
+        QR={sede, caja, nombre:q.get('n')||''};
+    }catch(e){}
+})();
+
+/* En la pantalla de entrada se avisa que se llego por una etiqueta. */
+function avisarQR(){
+    if(!QR) return;
+    const c=document.querySelector('.login-card'); if(!c) return;
+    const d=document.createElement('div');
+    d.style.cssText='background:rgba(14,165,233,.12);border:1px solid rgba(14,165,233,.4);'
+        +'border-radius:10px;padding:9px 11px;margin-bottom:14px;font-size:.78rem;line-height:1.5;';
+    d.innerHTML='🏷️ Vienes de la etiqueta de <b>'+esc(QR.nombre||QR.caja)+'</b>.<br>'
+        +'<span style="color:var(--muted);font-size:.72rem">Entra con tu clave y te la abro.</span>';
+    c.insertBefore(d, c.querySelector('.tabs'));
+}
+
+/* Se llama despues de entrar y de cargar la sede. */
+async function abrirDesdeQR(){
+    if(!QR) return;
+    const buscada=QR;
+    QR=null;                                   // una sola vez
+    try{ history.replaceState(null,'',location.pathname); }catch(e){}
+    // Si la etiqueta es de otra sede, hay que ir alla primero
+    if(buscada.sede && SEDE && String(buscada.sede)!==String(SEDE.id)){
+        const otra=(DB.oficinas||[]).find(o=>String(o.id)===String(buscada.sede));
+        if(!otra) return alert('🏷️ Esa etiqueta es de una oficina que ya no existe.');
+        const puedo = USER.role==='admin'
+            || (USER.role==='tecnico' && (USER.sedes||[]).includes(otra.id))
+            || String(USER.id)===String(otra.id);
+        if(!puedo) return alert('🏷️ La etiqueta de "'+(buscada.nombre||buscada.caja)+'" es de '
+            +otra.nombre+',\n\ny tú entraste a '+SEDE.nombre+'.\n\n'
+            +'Entra con la cuenta de esa oficina para verla.');
+        const sel=document.getElementById('selSede');
+        if(sel && !sel.classList.contains('hidden')) sel.value=otra.id;
+        await cambiarSede(otra.id);
+    }
+    const el = RED.elementos.find(e=>e.id===buscada.caja)
+            || RED.elementos.find(e=>e.tipo==='caja' && (e.nombre||'')===buscada.caja)
+            || RED.elementos.find(e=>e.tipo==='caja' &&
+                 normNom(e.nombre||'')===normNom(buscada.nombre||buscada.caja));
+    if(!el) return alert('🏷️ No encontré la caja "'+(buscada.nombre||buscada.caja)+'" en '
+        +(SEDE?SEDE.nombre:'esta sede')+'.\n\nPuede que le hayan cambiado el nombre.');
+    irA(el.id);
+    if(el.tipo==='caja') ventanaCaja(el.id);
+    else pintarPanel(el);
 }
 
 /* ════════════════════════════════════════════════════════════════════
@@ -4629,7 +5264,12 @@ function diagramaSVG(el){
 async function etiquetaCaja(id){
     const el=RED.elementos.find(e=>e.id===id); if(!el) return;
     const s=estadoCaja(el);
-    const url=location.origin+location.pathname+'?sede='+encodeURIComponent(SEDE.id)+'&caja='+encodeURIComponent(el.nombre||'');
+    // Va el ID (no cambia nunca) y de paso el nombre, para poder decir de
+    // que caja se trata aunque le hayan cambiado el nombre despues.
+    const url=location.origin+location.pathname
+        +'?sede='+encodeURIComponent(SEDE.id)
+        +'&caja='+encodeURIComponent(el.id)
+        +'&n='+encodeURIComponent((el.nombre||'').slice(0,40));
     abrirModal('🏷️ Etiqueta de '+esc(el.nombre||''), `
       <div id="etq" style="background:#fff;color:#000;border-radius:8px;padding:14px;
            font-family:Segoe UI,sans-serif;text-align:center">
@@ -4648,8 +5288,9 @@ async function etiquetaCaja(id){
         </div>
         <div style="font-size:.6rem;color:#999;margin-top:4px">PROYECTOVISION · ${new Date().toLocaleDateString('es-CO')}</div>
       </div>
-      <p class="ayuda" style="margin-top:10px">Imprímela y pégala en la caja. El código lleva a esta
-         misma ficha desde el celular.</p>`,
+      <p class="ayuda" style="margin-top:10px">Imprímela y pégala en la caja. Al escanear el código,
+         el técnico entra con su clave y le queda abierta <b>esta misma caja</b>:
+         sus puertos, quién está en cada uno y por dónde le llega la señal.</p>`,
       `<button class="btn btn-sm btn-out" onclick="imprimirEtiqueta()">🖨️ Imprimir</button>
        <button class="btn btn-sm btn-out" onclick="cerrarModal()">Cerrar</button>`);
     // El QR se dibuja despues, para que la etiqueta salga aunque falle
