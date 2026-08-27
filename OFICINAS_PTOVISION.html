@@ -900,7 +900,7 @@ let db = null;
 const DOC_ID = 'main'; // documento único en colección "oficinas_sistema"
 // ─── CONTROL DE VERSIÓN ───
 // Incrementa este número cada vez que publiques una actualización.
-const APP_VERSION = 266; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 267; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -921,7 +921,7 @@ const APP_VERSION = 266; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '27 Ago 2026 (v266 - LA SINCRONIZACION COMPRUEBA SU PROPIO TRABAJO. Reportado: se sincronizo NATALIA, mostro el plan, se acepto, y los clientes no aparecieron. Revisado contra produccion: no quedo NADA, ni los 3 clientes nuevos, ni los 25 retirados, ni la marca de fecha; los fragmentos seguian en 1.408 y en el registro de auditoria no habia ninguna entrada de hoy. En local el MISMO codigo hace lo correcto: 1.408 a 1.411, 25 retirados, marca sellada y dos guardados. O sea que la logica esta bien y lo que fallo fue la ESCRITURA, que no se logro reproducir. Como no se arregla a ciegas lo que no se reproduce, se hizo lo unico honesto: que no pueda volver a fallar EN SILENCIO. Despues de guardar se vuelve a leer Firestore y se cuentan los clientes de esa oficina; si no coincide con lo esperado se avisa, con el numero de cada lado, en vez de mostrar el visto bueno. Probado con un guardado falso a proposito: en vez de decir que todo quedo bien, avisa que en la nube quedaron 1408 y debian quedar 1411, y pide no cerrar la pagina y volver a darle. Lo mismo en la sincronizacion de todas las oficinas, que lista cuales fallaron. Corregido ademas un error de orden que explica por que no habia rastro: registrarLog corria DESPUES de save(), asi que el registro de la sincronizacion no se persistia hasta el siguiente guardado. Ahora va antes.)';
+const APP_VERSION_FECHA = '27 Ago 2026 (v267 - LA RECARGA YA NO PIDE LA CLAVE. Reportado hoy junto con tres cosas mas del inventario. Hasta ahora, cada F5 —y en el celular la recarga que se dispara sola al volver de otra app— mandaba a la pantalla de inicio de sesion. Ahora la sesion se recuerda en sessionStorage, que vive SOLO en esa pestana y se borra al cerrarla: asi una recarga no molesta, pero el PC compartido de la oficina no amanece con la sesion abierta. NO se guarda la contrasena, solo quien entro, y al volver se comprueba contra la base: si a la oficina le cambiaron la clave, la borraron, o al acceso SG-SST lo quitaron, la sesion no vale y se pide entrar de nuevo. Caduca a las 12 horas contadas desde el inicio de sesion REAL, no desde la ultima recarga, asi que recargar no alarga el plazo. Al dar Salir se olvida de inmediato. Mismo criterio en INVENTARIO v97 y RED v24. Incluye v266 - LA SINCRONIZACION COMPRUEBA SU PROPIO TRABAJO. Reportado: se sincronizo NATALIA, mostro el plan, se acepto, y los clientes no aparecieron. Revisado contra produccion: no quedo NADA, ni los 3 clientes nuevos, ni los 25 retirados, ni la marca de fecha; los fragmentos seguian en 1.408 y en el registro de auditoria no habia ninguna entrada de hoy. En local el MISMO codigo hace lo correcto: 1.408 a 1.411, 25 retirados, marca sellada y dos guardados. O sea que la logica esta bien y lo que fallo fue la ESCRITURA, que no se logro reproducir. Como no se arregla a ciegas lo que no se reproduce, se hizo lo unico honesto: que no pueda volver a fallar EN SILENCIO. Despues de guardar se vuelve a leer Firestore y se cuentan los clientes de esa oficina; si no coincide con lo esperado se avisa, con el numero de cada lado, en vez de mostrar el visto bueno. Probado con un guardado falso a proposito: en vez de decir que todo quedo bien, avisa que en la nube quedaron 1408 y debian quedar 1411, y pide no cerrar la pagina y volver a darle. Lo mismo en la sincronizacion de todas las oficinas, que lista cuales fallaron. Corregido ademas un error de orden que explica por que no habia rastro: registrarLog corria DESPUES de save(), asi que el registro de la sincronizacion no se persistia hasta el siguiente guardado. Ahora va antes.)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -4502,6 +4502,60 @@ function selLoginOficina(el,id){
     el.classList.add('selected'); selOficinaLogin=id;
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// LA SESIÓN SOBREVIVE A UNA RECARGA
+// ────────────────────────────────────────────────────────────────────────────
+// Mismo criterio que en INVENTARIO v97 y en TECNICOS: se guarda en
+// sessionStorage, que vive SOLO en esa pestaña y se borra al cerrarla. Así una
+// recarga (o el celular volviendo a la app) no cuesta escribir la clave otra
+// vez, pero el PC compartido de la oficina no amanece con la sesión abierta.
+//
+// NO se guarda la contraseña: solo quién entró. Al volver se comprueba contra
+// la base — si a la oficina le cambiaron la clave, la borraron, o al acceso
+// SG-SST lo quitaron, la sesión no vale y se pide entrar de nuevo. Caduca a
+// las 12 horas, y esas 12 horas cuentan desde el inicio de sesión REAL: una
+// recarga no las reinicia.
+// ════════════════════════════════════════════════════════════════════════════
+const _SES_OFI='ofi_sesion';
+const _SES_OFI_HORAS=12;
+function _guardarSesionOfi(){
+    try{
+        if(!USER) return;
+        // Si ya había una sesión de este mismo usuario se conserva su fecha:
+        // recargar no debe alargar el plazo indefinidamente.
+        let desde=Date.now();
+        try{
+            const p=JSON.parse(sessionStorage.getItem(_SES_OFI)||'null');
+            if(p && p.role===USER.role && String(p.id||'')===String(USER.id||'') && p.en) desde=p.en;
+        }catch(e){}
+        sessionStorage.setItem(_SES_OFI, JSON.stringify({
+            role:USER.role, id:USER.id||'', nombre:USER.nombre||'', en:desde
+        }));
+    }catch(e){}
+}
+function _olvidarSesionOfi(){ try{ sessionStorage.removeItem(_SES_OFI); }catch(e){} }
+/* Devuelve true si consiguió reanudar. Se llama con la base ya cargada:
+   antes no se puede comprobar que la oficina siga existiendo. */
+function _reanudarSesionOfi(){
+    try{
+        const s=JSON.parse(sessionStorage.getItem(_SES_OFI)||'null');
+        if(!s || !s.role) return false;
+        if(Date.now()-(s.en||0) > _SES_OFI_HORAS*3600000){ _olvidarSesionOfi(); return false; }
+        if(s.role==='admin'){
+            if(!DB || !DB.adminPass){ _olvidarSesionOfi(); return false; }
+            USER={role:'admin'};
+        } else if(s.role==='sgsst'){
+            const acc=(DB.config&&DB.config.sgsstAcceso)||null;
+            if(!acc||!acc.pass){ _olvidarSesionOfi(); return false; }
+            USER={role:'sgsst', id:'sgsst', nombre:acc.nombre||'SG-SST'};
+        } else {
+            const o=(DB.oficinas||[]).find(x=>x.id===s.id);
+            if(!o){ _olvidarSesionOfi(); return false; }   // la borraron: a entrar de nuevo
+            USER={role:'oficina', id:o.id, nombre:o.nombre};
+        }
+        return true;
+    }catch(e){ return false; }
+}
 function doLogin(type){
     if(type==='sgsst'){
         const acc=(DB.config&&DB.config.sgsstAcceso)||null;
@@ -4509,7 +4563,7 @@ function doLogin(type){
         if(document.getElementById('passSGSST').value!==acc.pass) return alert('❌ Contraseña incorrecta');
         USER={role:'sgsst', id:'sgsst', nombre:acc.nombre||'SG-SST'};
         registrarSesion('Oficinas', USER.nombre, 'sgsst');
-        enterApp(); return;
+        _guardarSesionOfi(); enterApp(); return;
     }
     if(type==='admin'){
         if(document.getElementById('passAdmin').value!==DB.adminPass) return alert('❌ Contraseña incorrecta');
@@ -4522,6 +4576,7 @@ function doLogin(type){
         USER={role:'oficina', id:o.id, nombre:o.nombre};
         registrarSesion('Oficinas', o.nombre, 'oficina');
     }
+    _guardarSesionOfi();
     enterApp();
 }
 
@@ -4910,6 +4965,7 @@ function applyStoredTheme(){
 }
 
 function doLogout(){
+    try{ _olvidarSesionOfi(); }catch(e){}
     USER=null; selOficinaLogin=null;
     document.getElementById('app').classList.add('hidden');
     document.getElementById('login-screen').style.display='flex';
@@ -25930,9 +25986,16 @@ const firebaseConfig = {
         console.error(e);
     }
     document.getElementById("loading-screen").style.display="none";
-    document.getElementById("login-screen").style.display="flex";
     document.getElementById("syncStatus").style.display="flex";
     renderLoginOficinas();
+    // Una recarga no debería costar volver a escribir la clave. Se comprueba
+    // AQUI y no antes porque hasta ahora no se sabía si la oficina sigue
+    // existiendo. Si algo falla, se cae al login de siempre.
+    let _reanudoOfi=false;
+    try{ _reanudoOfi = _reanudarSesionOfi(); if(_reanudoOfi) enterApp(); }
+    catch(e){ console.warn("No se pudo reanudar la sesión:", e); USER=null; _reanudoOfi=false;
+              try{ _olvidarSesionOfi(); }catch(e2){} }
+    if(!_reanudoOfi) document.getElementById("login-screen").style.display="flex";
 })();
 </script>
 <!-- ASISTENTE IA FLOTANTE -->

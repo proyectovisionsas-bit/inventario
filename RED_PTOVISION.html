@@ -567,7 +567,7 @@ body.conectando .pin{transform:scale(1.25);}
    la cambia aqui.
    ════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION_RED = 23;
+const APP_VERSION_RED = 24; // v24: LA RECARGA YA NO PIDE LA CLAVE. En campo esto pesa mas que en la oficina: el celular recarga la pagina solo al volver de otra app, y eso costaba escribir documento y clave de nuevo con el mapa entero abierto. La sesion se recuerda en sessionStorage (solo esa pestana, se borra al cerrarla), sin guardar la contrasena, y al volver se valida contra los datos vivos: el tecnico tiene que seguir Activo y con oficina asignada, la bodega tiene que seguir existiendo y vinculada. Caduca a las 12 horas desde el inicio real. Salir la olvida. Si se vino escaneando el QR de una caja, la sesion reanudada abre la caja igual. Para esto se partio entrar() en dos: la validacion de la clave por un lado y el montaje de la pantalla (_montarAppRed) por otro, que es lo que reusa la reanudacion.
 
 const firebaseConfig = {
     apiKey: "AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w",
@@ -611,6 +611,13 @@ var mapa=null, capas={}, fondoSat=false, capaBase=null, rendRuta=null;
     }
     try{ avisarQR(); }catch(e){}
     ocultarCarga();
+    // Una recarga no debería costar volver a escribir la clave. Se comprueba
+    // AQUI y no antes porque hasta ahora no se sabía si el técnico sigue activo
+    // ni si la bodega sigue vinculada.
+    try{
+        if(_reanudarSesionRed()) await _montarAppRed();
+    }catch(e){ console.warn('No se pudo reanudar la sesión:', e); USER=null;
+             try{ _olvidarSesionRed(); }catch(e2){} }
 })();
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -626,6 +633,68 @@ function verTab(t){
         document.getElementById(id).classList.toggle('hidden',t!==k));
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// LA SESIÓN SOBREVIVE A UNA RECARGA
+// ────────────────────────────────────────────────────────────────────────────
+// Igual que en INVENTARIO v97 y OFICINAS: sessionStorage, que vive SOLO en esa
+// pestaña y muere al cerrarla. En campo esto importa más que en la oficina —
+// el celular recarga la página solo al volver de otra app, y hasta ahora eso
+// costaba escribir el documento y la clave de nuevo con el mapa entero abierto.
+//
+// NO se guarda la contraseña. Al volver se valida contra los datos vivos: el
+// técnico tiene que seguir Activo y con oficina asignada, y la bodega tiene que
+// seguir existiendo y vinculada a una oficina. Caduca a las 12 horas, contadas
+// desde el inicio de sesión real.
+//
+// Si se entró escaneando el QR de una caja, la sesión reanudada abre la caja
+// igual: el montaje de la app llama a abrirDesdeQR() venga de donde venga.
+// ════════════════════════════════════════════════════════════════════════════
+const _SES_RED='red_sesion';
+const _SES_RED_HORAS=12;
+function _guardarSesionRed(){
+    try{
+        if(!USER) return;
+        let desde=Date.now();
+        try{
+            const p=JSON.parse(sessionStorage.getItem(_SES_RED)||'null');
+            if(p && p.role===USER.role && String(p.id||'')===String(USER.id||'') && p.en) desde=p.en;
+        }catch(e){}
+        sessionStorage.setItem(_SES_RED, JSON.stringify({
+            role:USER.role, id:USER.id||'', doc:USER.doc||'', bodega:USER.bodega||'', en:desde
+        }));
+    }catch(e){}
+}
+function _olvidarSesionRed(){ try{ sessionStorage.removeItem(_SES_RED); }catch(e){} }
+/* Rearma USER desde lo guardado, validando contra los datos vivos.
+   Devuelve true si se puede reanudar. */
+function _reanudarSesionRed(){
+    try{
+        const s=JSON.parse(sessionStorage.getItem(_SES_RED)||'null');
+        if(!s || !s.role) return false;
+        if(Date.now()-(s.en||0) > _SES_RED_HORAS*3600000){ _olvidarSesionRed(); return false; }
+        if(!DB || !INV){ return false; }
+        if(s.role==='admin'){
+            if(!INV.adminPass){ _olvidarSesionRed(); return false; }
+            USER={role:'admin', nombre:'Administrador'};
+        } else if(s.role==='tecnico'){
+            const t=(DB.rrhh_empleados||[]).find(e=>String(e.documento||'').trim()===String(s.doc||'').trim()
+                && (e.estado||'Activo')==='Activo');
+            if(!t){ _olvidarSesionRed(); return false; }   // lo dieron de baja
+            const suyas=(Array.isArray(t.oficinas)?t.oficinas:[]).map(String)
+                .map(id=>(DB.oficinas||[]).find(o=>String(o.id)===id)).filter(Boolean);
+            if(!suyas.length){ _olvidarSesionRed(); return false; }  // le quitaron la oficina
+            USER={role:'tecnico', id:suyas[0].id, nombre:t.nombre, doc:t.documento,
+                  sedes:suyas.map(o=>o.id), sede:suyas[0].nombre};
+        } else {
+            const b=(INV.bodegas||[]).find(x=>x.id===s.bodega);
+            if(!b){ _olvidarSesionRed(); return false; }
+            const o=(DB.oficinas||[]).find(x=>String(x.bodegaId)===String(b.id));
+            if(!o){ _olvidarSesionRed(); return false; }   // le quitaron el vínculo
+            USER={role:'oficina', id:o.id, nombre:b.nombre, bodega:b.id, sede:o.nombre};
+        }
+        return true;
+    }catch(e){ return false; }
+}
 async function entrar(tipo){
     if(!DB||!INV) return alert('Todavía no cargaron los datos. Espera un momento.');
     if(tipo==='admin'){
@@ -657,6 +726,12 @@ async function entrar(tipo){
             +'El administrador la vincula en OFICINAS → Admin → Editar oficina → Bodega del Inventario.');
         USER={role:'oficina', id:o.id, nombre:b.nombre, bodega:b.id, sede:o.nombre};
     }
+    _guardarSesionRed();
+    await _montarAppRed();
+}
+/* El montaje de la pantalla, separado de la validación de la clave: lo usan
+   tanto entrar() como la reanudación de sesión tras una recarga. */
+async function _montarAppRed(){
     document.getElementById('login').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
 
@@ -688,7 +763,7 @@ async function entrar(tipo){
     // Si se entro escaneando la etiqueta de una caja, se abre esa caja.
     try{ await abrirDesdeQR(); }catch(e){ console.warn('QR',e); }
 }
-function salir(){ soltarCandado().finally(()=>location.reload()); }
+function salir(){ _olvidarSesionRed(); soltarCandado().finally(()=>location.reload()); }
 function volverAlInicio(){
     // Si quedo algo sin guardar por falta de señal, mejor avisar antes de salir.
     if(_pendientesGuardar && !confirm('Hay cambios que no se han guardado porque no hay internet.\n\n'

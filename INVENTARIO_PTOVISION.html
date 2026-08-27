@@ -538,6 +538,185 @@ function switchLogin(type) {
 }
 function renderLoginBodegas() { const list=id('loginBodegaList'); if(!list) return; list.innerHTML=DB.bodegas.length?DB.bodegas.map(b=>`<div class="bodega-opt" onclick="selLoginBodega(this,'${b.id}')">🏭 <strong>${b.nombre}</strong><br><small class="text-muted">Jefe: ${b.responsable||'-'}</small></div>`).join(''):'<p class="text-muted text-center">Sin bodegas</p>'; }
 function selLoginBodega(el,bId){ document.querySelectorAll('.bodega-opt').forEach(e=>e.classList.remove('selected')); el.classList.add('selected'); selBodegaLogin=bId; }
+// ════════════════════════════════════════════════════════════════════════════
+// LA SESIÓN SOBREVIVE A UNA RECARGA
+// ────────────────────────────────────────────────────────────────────────────
+// Reportado: al recargar la página toca volver a iniciar sesión. Molesta más de
+// lo que parece: en el celular una recarga se dispara sola al cambiar de app, y
+// en la oficina cada F5 costaba escribir la clave otra vez.
+//
+// TECNICOS ya lo resolvía guardando la sesión; aquí se hace igual y con el mismo
+// criterio: se guarda en sessionStorage, que vive SOLO en esa pestaña y se borra
+// al cerrarla. Así una recarga no molesta, pero el equipo compartido de la
+// bodega no queda con la sesión abierta al día siguiente.
+//
+// Se guarda quién entró, no su contraseña, y se comprueba contra la base al
+// volver: si a esa bodega le cambiaron la clave o la borraron, la sesión no vale
+// y se pide entrar de nuevo. Caduca a las 12 horas.
+// ════════════════════════════════════════════════════════════════════════════
+const _SES_CLAVE='inv_sesion';
+const _SES_HORAS=12;
+function _guardarSesionInv(){
+    try{
+        if(!USER) return;
+        sessionStorage.setItem(_SES_CLAVE, JSON.stringify({
+            role:USER.role, id:USER.id||'', nombre:USER.nombre||'', en:Date.now()
+        }));
+    }catch(e){}
+}
+function _olvidarSesionInv(){ try{ sessionStorage.removeItem(_SES_CLAVE); }catch(e){} }
+/* Devuelve true si consiguió reanudar. Se llama cuando la base ya está cargada:
+   antes no se puede comprobar que la bodega siga existiendo. */
+function _reanudarSesionInv(){
+    try{
+        const s=JSON.parse(sessionStorage.getItem(_SES_CLAVE)||'null');
+        if(!s || !s.role) return false;
+        if(Date.now()-(s.en||0) > _SES_HORAS*3600000){ _olvidarSesionInv(); return false; }
+        if(s.role==='admin'){ USER={role:'admin'}; }
+        else{
+            const b=(DB.bodegas||[]).find(x=>x.id===s.id);
+            if(!b){ _olvidarSesionInv(); return false; }   // la borraron: a entrar de nuevo
+            USER={role:'bodega', id:b.id, nombre:b.nombre};
+        }
+        return true;
+    }catch(e){ return false; }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// UN SERIAL, UN SITIO
+// ────────────────────────────────────────────────────────────────────────────
+// Reportado: el programa deja ingresar el mismo serial varias veces. Cierto:
+// modalAddSN solo miraba DENTRO del mismo artículo (m.snes.includes), así que
+// el mismo equipo podía quedar en dos artículos, o en dos bodegas, o en una
+// bodega y en una cuadrilla a la vez.
+//
+// Medido sobre los datos reales: 31 seriales están en DOS sitios. Ejemplos: el
+// ONT 4857544393FF07A4 figura en FLORENCIA y en DONCELLO; 485754430C43DAA6 está
+// dos veces en FLORENCIA porque hay dos artículos que se llaman distinto ("ONT
+// EG8141A5" y "ONT"). Cada uno de esos es un equipo contado dos veces.
+//
+// Un serial identifica UN aparato físico. No puede estar en dos partes, igual
+// que una cédula no puede ser de dos personas. Así que ahora se bloquea, no se
+// avisa. Lo único que se acepta repetido son los rellenos que no son seriales
+// de verdad: N/A, NA, SN, S/N, 0, -, y el vacío.
+// ════════════════════════════════════════════════════════════════════════════
+const _SN_RELLENO = ['','N/A','NA','S/N','SN','0','-','--','X','NINGUNO','SIN SERIAL','NO APLICA'];
+function _snNormal(s){ return String(s==null?'':s).trim().toUpperCase(); }
+function _snEsRelleno(s){ return _SN_RELLENO.indexOf(_snNormal(s))>=0; }
+
+/* Dónde está ya un serial. Devuelve [] si está libre.
+   `exceptoMatId` deja fuera el propio artículo al que se le está agregando. */
+function _dondeEstaSN(sn, exceptoMatId){
+    const k=_snNormal(sn);
+    if(!k || _snEsRelleno(k)) return [];
+    const out=[];
+    (DB.bodegas||[]).forEach(b=>(b.materiales||[]).forEach(m=>{
+        if(exceptoMatId && m.id===exceptoMatId) return;
+        if((m.snes||[]).some(x=>_snNormal(x)===k))
+            out.push({donde:'Bodega '+(b.nombre||''), articulo:m.nombre||'', bodegaId:b.id, matId:m.id});
+    }));
+    (DB.cuadrillas||[]).forEach(c=>(c.materiales||[]).forEach(m=>{
+        if(exceptoMatId && m.id===exceptoMatId) return;
+        if((m.snes||[]).some(x=>_snNormal(x)===k))
+            out.push({donde:'Cuadrilla '+(c.nombre||''), articulo:m.nombre||'', cuadrillaId:c.id, matId:m.id});
+    }));
+    return out;
+}
+/* Revisa una tanda de seriales antes de aceptarlos.
+   Devuelve {ok:[...], repetidosAqui:[...], ocupados:[{sn,donde}], relleno:[...]} */
+function _revisarSNs(lista, m){
+    const ok=[], repetidosAqui=[], ocupados=[], relleno=[];
+    const yaEn=new Set((m&&m.snes||[]).map(_snNormal));
+    const vistos=new Set();
+    (lista||[]).forEach(raw=>{
+        const s=String(raw).trim();
+        if(!s) return;
+        const k=_snNormal(s);
+        if(_snEsRelleno(k)){ relleno.push(s); return; }
+        if(yaEn.has(k) || vistos.has(k)){ repetidosAqui.push(s); return; }
+        const donde=_dondeEstaSN(s, m?m.id:null);
+        if(donde.length){ ocupados.push({sn:s, donde:donde[0]}); return; }
+        vistos.add(k); ok.push(s);
+    });
+    return {ok, repetidosAqui, ocupados, relleno};
+}
+/* El aviso que se le muestra a la persona. Devuelve true si puede seguir. */
+function _avisarSNs(r, m){
+    const partes=[];
+    if(r.ocupados.length)
+        partes.push('🚫 Estos seriales YA ESTÁN en otro sitio y no se agregaron:\n'
+            + r.ocupados.slice(0,10).map(x=>'   • '+x.sn+'  →  '+x.donde.donde+' › '+x.donde.articulo).join('\n')
+            + (r.ocupados.length>10?'\n   …y '+(r.ocupados.length-10)+' más':'')
+            + '\n\nUn serial identifica un solo aparato. Si de verdad se movió, sácalo primero\n'
+            + 'de donde está (o usa 🔧 Seriales repetidos en la Auditoría).');
+    if(r.repetidosAqui.length)
+        partes.push('⚠️ Ya estaban en este mismo artículo, no se repitieron:\n   '
+            + r.repetidosAqui.slice(0,10).join(', ')+(r.repetidosAqui.length>10?' …':''));
+    if(r.relleno.length)
+        partes.push('ℹ️ Se ignoraron '+r.relleno.length+' valor(es) que no son seriales (N/A, SN, guiones).');
+    if(partes.length) alert(partes.join('\n\n'));
+    return r.ok.length>0;
+}
+
+/* ── Arreglar los que ya están repetidos ──────────────────────────────────
+   No se decide solo dónde debe quedar cada equipo: eso lo sabe quien lo tiene
+   en la mano. Se muestran los casos y se elige de cuál sitio quitarlo.      */
+function modalSerialesRepetidos(){
+    const mapa={};
+    (DB.bodegas||[]).forEach(b=>(b.materiales||[]).forEach(m=>
+        (m.snes||[]).forEach(s=>{ const k=_snNormal(s); if(!k||_snEsRelleno(k)) return;
+            (mapa[k]=mapa[k]||[]).push({donde:'Bodega '+(b.nombre||''), articulo:m.nombre||'',
+                                        contenedor:b, mat:m, sn:s}); })));
+    (DB.cuadrillas||[]).forEach(c=>(c.materiales||[]).forEach(m=>
+        (m.snes||[]).forEach(s=>{ const k=_snNormal(s); if(!k||_snEsRelleno(k)) return;
+            (mapa[k]=mapa[k]||[]).push({donde:'Cuadrilla '+(c.nombre||''), articulo:m.nombre||'',
+                                        contenedor:c, mat:m, sn:s}); })));
+    const reps=Object.entries(mapa).filter(([,v])=>v.length>1);
+    window._snReps=reps;
+    if(!reps.length) return alert('✅ No hay ningún serial repetido.');
+    openModal('🔧 Seriales en dos sitios ('+reps.length+')', `
+      <p style="font-size:0.82rem;color:var(--muted);line-height:1.5;margin-bottom:12px;">
+        Un serial identifica un solo aparato, así que estar en dos sitios significa que
+        el mismo equipo se está contando dos veces. Elige <b>dónde está de verdad</b>:
+        se quita de los demás.</p>
+      <div style="max-height:56vh;overflow-y:auto;">
+      ${reps.slice(0,120).map(([sn,v],i)=>`
+        <div style="border:1px solid var(--border);border-radius:9px;padding:9px 11px;margin-bottom:8px;">
+          <b style="font-family:monospace;font-size:0.84rem;">${sn}</b>
+          <span style="font-size:0.72rem;color:#f59e0b;"> en ${v.length} sitios</span>
+          <div style="margin-top:6px;display:flex;flex-direction:column;gap:4px;">
+            ${v.map((x,j)=>`<button class="btn btn-outline btn-sm" style="text-align:left;font-size:0.76rem;"
+                onclick="_dejarSNSoloEn(${i},${j})">
+                Dejarlo solo en <b>${x.donde}</b> › ${x.articulo}</button>`).join('')}
+          </div>
+        </div>`).join('')}
+      ${reps.length>120?`<p style="font-size:0.76rem;color:var(--muted);">…y ${reps.length-120} más. Resuelve estos y vuelve a abrir.</p>`:''}
+      </div>`, null);
+}
+function _dejarSNSoloEn(i, j){
+    const reps=window._snReps||[];
+    const par=reps[i]; if(!par) return;
+    const [sn, sitios]=par;
+    const queda=sitios[j];
+    const quitar=sitios.filter((_,k)=>k!==j);
+    if(!confirm('El serial '+sn+' queda SOLO en:\n   '+queda.donde+' › '+queda.articulo
+        +'\n\nSe quita de:\n'+quitar.map(x=>'   • '+x.donde+' › '+x.articulo).join('\n')
+        +'\n\n¿Sigo?')) return;
+    const k=_snNormal(sn);
+    quitar.forEach(x=>{
+        x.mat.snes=(x.mat.snes||[]).filter(s=>_snNormal(s)!==k);
+        // La cantidad baja con el serial: si no, el stock queda inflado
+        if(typeof x.mat.cantidad==='number' && x.mat.cantidad>0) x.mat.cantidad--;
+    });
+    logMsg('Serial '+sn+' dejado solo en '+queda.donde+' › '+queda.articulo);
+    save();
+    modalSerialesRepetidos();
+}
+window.modalSerialesRepetidos=modalSerialesRepetidos;
+window._dejarSNSoloEn=_dejarSNSoloEn;
+window._dondeEstaSN=_dondeEstaSN;
+window._revisarSNs=_revisarSNs;
+
 function doLogin(type) {
     if(type==='admin') {
         if(id('passAdmin').value!==DB.adminPass) return alert('❌ Contraseña incorrecta');
@@ -550,6 +729,7 @@ function doLogin(type) {
         USER={role:'bodega',id:b.id,nombre:b.nombre};;
         if(window.registrarSesionInv) window.registrarSesionInv(b.nombre,'bodega');
     }
+    _guardarSesionInv();
     enterApp();
 }
 function enterApp() {
@@ -670,6 +850,7 @@ document.addEventListener('click', e => {
 window.toggleNavGroup = toggleNavGroup;
 
 function doLogout() {
+    try{ _olvidarSesionInv(); }catch(e){}
     USER = null;
     id('app').classList.add('hidden');
     id('login-screen').style.display = 'flex';
@@ -873,19 +1054,76 @@ const _REGLAS_ARCHIVO_INV = [
     { campo:'instalaciones', etiqueta:'instalaciones antiguas', dias:120,
       archivable:(x)=> !!x },
     { campo:'recuperados', etiqueta:'recuperados ya integrados', dias:45,
-      archivable:(x)=> x && x.estado && x.estado!=='pendiente' }
+      archivable:(x)=> x && x.estado && x.estado!=='pendiente' },
+    // Lo que faltaba, y es lo que mas pesa. Lo PENDIENTE nunca se archiva:
+    // una solicitud sin decidir tiene que seguir a la vista.
+    { campo:'editRequests', etiqueta:'solicitudes de cambio ya decididas', dias:30,
+      archivable:(x)=> x && x.estado && x.estado!=='pendiente' },
+    { campo:'deleteRequests', etiqueta:'solicitudes de borrado ya decididas', dias:30,
+      archivable:(x)=> x && x.estado && x.estado!=='pendiente' },
+    { campo:'entregas', etiqueta:'entregas antiguas', dias:120,
+      archivable:(x)=> !!x },
+    { campo:'transfers', etiqueta:'transferencias ya resueltas', dias:60,
+      archivable:(x)=> x && x.estado && x.estado!=='pendiente' },
+    { campo:'ventas', etiqueta:'ventas antiguas', dias:180,
+      archivable:(x)=> !!x },
+    { campo:'logs', etiqueta:'registro de actividad viejo', dias:60,
+      archivable:(x)=> !!x }
 ];
-function _calcularAligerado(){
-    const plan=[];
-    _REGLAS_ARCHIVO_INV.forEach(r=>{
-        const lista=Array.isArray(DB[r.campo])?DB[r.campo]:[];
-        const mover=lista.filter(x=>{ if(!r.archivable(x)) return false; const d=_diasDeInv(x); return d!==null && d>r.dias; });
-        if(mover.length){
-            const kb=Math.round(new Blob([JSON.stringify(mover)]).size/1024);
-            plan.push({...r, mover, kb, quedan:lista.length-mover.length});
-        }
+const _LIM_DOC_INV = 1048576;          // el maximo que admite Firestore
+const _ALERTA_INV  = 0.70;             // a partir de aqui se aprieta
+const _OBJETIVO_INV= 0.60;             // hasta dejarlo aqui
+const _CAMPOS_HIST_INV = ['editRequests','entregas','cuartos','logs','transfers','deleteRequests','ventas'];
+function _pesoDocsInv(){
+    const peso=o=>{ try{ return new Blob([JSON.stringify(o)]).size; }catch(e){ return 0; } };
+    const h={}, d={};
+    Object.keys(DB).forEach(k=>{
+        if(k==='clientes') return;
+        if(_CAMPOS_HIST_INV.indexOf(k)>=0) h[k]=DB[k]; else d[k]=DB[k];
     });
-    return plan;
+    return {historial:peso(h), datos:peso(d), limite:_LIM_DOC_INV};
+}
+/* El plazo mas corto al que hay que bajar para que quepa. Devuelve null si con
+   los plazos normales ya basta. */
+function _plazosApretadosInv(){
+    const p=_pesoDocsInv();
+    const apretar = (p.historial > _LIM_DOC_INV*_ALERTA_INV) || (p.datos > _LIM_DOC_INV*_ALERTA_INV);
+    if(!apretar) return null;
+    return [30, 20, 14, 7];
+}
+function _calcularAligerado(){
+    const armar=(tope)=>{
+        const plan=[];
+        _REGLAS_ARCHIVO_INV.forEach(r=>{
+            const lista=Array.isArray(DB[r.campo])?DB[r.campo]:[];
+            // Con el documento apretado se acorta el plazo, pero NUNCA se alarga:
+            // una regla de 180 dias no baja a 7 por estar lleno.
+            const dias = (tope!=null) ? Math.min(r.dias, tope) : r.dias;
+            const mover=lista.filter(x=>{ if(!r.archivable(x)) return false;
+                const d=_diasDeInv(x); return d!==null && d>dias; });
+            if(mover.length){
+                const kb=Math.round(new Blob([JSON.stringify(mover)]).size/1024);
+                plan.push({...r, dias, mover, kb, quedan:lista.length-mover.length});
+            }
+        });
+        return plan;
+    };
+    const normal=armar(null);
+    const escalones=_plazosApretadosInv();
+    if(!escalones) return normal;
+    // Documento por encima del 70%: se aprieta hasta dejarlo bajo el objetivo.
+    const peso=o=>{ try{ return new Blob([JSON.stringify(o)]).size; }catch(e){ return 0; } };
+    let mejor=normal;
+    for(const tope of escalones){
+        const plan=armar(tope);
+        mejor=plan;
+        const libera=plan.reduce((a,b)=>a+peso(b.mover),0);
+        const p=_pesoDocsInv();
+        if(Math.max(p.historial, p.datos)-libera < _LIM_DOC_INV*_OBJETIVO_INV) break;
+    }
+    if(mejor.length>normal.length || mejor.reduce((a,b)=>a+b.kb,0)>normal.reduce((a,b)=>a+b.kb,0))
+        console.log('📦 La base va llena: se archiva con plazos más cortos para que los guardados no fallen.');
+    return mejor;
 }
 // Mueve al archivo histórico lo que indique el plan. NO pregunta, NO avisa y NO
 // guarda: de eso se encarga quien lo llame. Escribe el archivo, lo vuelve a LEER
@@ -1222,7 +1460,11 @@ function renderAuditoria(c){
         </div>`;
     c.innerHTML = `<div class="card">
         <div class="card-header"><h2>🩺 Auditoría de Inventario</h2>
-            <button class="btn btn-primary btn-sm" onclick="renderTab('auditoria')">🔄 Volver a revisar</button>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                <button class="btn btn-outline btn-sm" onclick="modalSerialesRepetidos()"
+                        title="El mismo equipo contado en dos sitios">🔧 Seriales repetidos</button>
+                <button class="btn btn-primary btn-sm" onclick="renderTab('auditoria')">🔄 Volver a revisar</button>
+            </div>
         </div>
         ${panelEspacio}
         <p class="text-muted" style="font-size:0.86rem;margin:0 0 12px;">Revisión automática de TUS datos: ${totalArt} artículo(s) · ${totalUds.toLocaleString('es-CO')} unidad(es) · ${(DB.cuadrillas||[]).length} cuadrilla(s). Esta pantalla no cambia nada: solo señala lo que no cuadra.</p>
@@ -5194,7 +5436,7 @@ function saveBodegaImport() {
 function modalNewBodega() { openModal('Nueva Bodega', `<div class="form-group"><label>Nombre</label><input id="bNom" class="form-control"></div><div class="form-group"><label>Ubicación</label><input id="bUbic" class="form-control"></div><div class="form-group"><label>Jefe</label><input id="bJefe" class="form-control"></div><div class="form-group"><label>Contraseña</label><input id="bPass" type="password" class="form-control"></div>`, ()=>{const n=id('bNom').value,j=id('bJefe').value,p=id('bPass').value;if(!n||!j||!p)return alert('Complete campos');DB.bodegas.push({id:Date.now().toString(),nombre:n,ubicacion:id('bUbic').value,responsable:j,password:p,materiales:[]});logMsg(`Bodega "${n}" creada`);save();closeModal();renderTab('bodegas');}); }
 function modalEditPass(bId) { openModal('Cambiar Contraseña', `<input type="hidden" id="editBId" value="${bId}"><div class="form-group"><label>Nueva Contraseña</label><input id="newPass" type="password" class="form-control"></div>`, ()=>{const p=id('newPass').value;if(!p)return alert('Ingrese contraseña');DB.bodegas.find(x=>x.id===id('editBId').value).password=p;save();closeModal();alert('✅ Actualizada');}); }
 function delBodega(bId) { if(!confirm('¿Borrar bodega?')) return; DB.bodegas=DB.bodegas.filter(x=>x.id!==bId); DB.cuadrillas=DB.cuadrillas.filter(x=>x.bodegaId!==bId); save(); renderTab('bodegas'); }
-function modalAddSN(bId, mId) { const b=DB.bodegas.find(x=>x.id===bId), m=b.materiales.find(x=>x.id===mId); openModal(`➕ Agregar Serial: ${m.nombre}`, `<p>Stock: ${m.cantidad} ${m.unidad}</p><div class="form-group"><label>Nuevos SN</label><textarea id="newSNs" class="form-control"></textarea></div>`, ()=>{ const raw=id('newSNs').value.trim(); if(!raw) return alert('Ingrese SN'); const sns=raw.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean); if(!Array.isArray(m.snes)) m.snes=[]; const _rep=sns.filter(s=>m.snes.includes(s)); const _nuevos=sns.filter(s=>!m.snes.includes(s)); if(_rep.length) alert(`⚠️ Estos seriales YA estaban registrados y no se repitieron:\n\n${_rep.join(', ')}`); if(!_nuevos.length) return; m.snes.push(..._nuevos); if(m.snes.length>(m.cantidad||0)) alert(`⚠️ OJO: "${m.nombre}" queda con ${m.snes.length} serial(es) pero el stock dice ${m.cantidad}.\n\nRevisa la cantidad — con seriales de más, las entregas y ventas se comportan raro.`); logMsg(`SN agregado a "${m.nombre}"`); save(); closeModal(); renderTab('bodegas'); }); }
+function modalAddSN(bId, mId) { const b=DB.bodegas.find(x=>x.id===bId), m=b.materiales.find(x=>x.id===mId); openModal(`➕ Agregar Serial: ${m.nombre}`, `<p>Stock: ${m.cantidad} ${m.unidad}</p><div class="form-group"><label>Nuevos SN</label><textarea id="newSNs" class="form-control"></textarea></div>`, ()=>{ const raw=id('newSNs').value.trim(); if(!raw) return alert('Ingrese SN'); const sns=raw.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean); if(!Array.isArray(m.snes)) m.snes=[]; const _r=_revisarSNs(sns, m); const _nuevos=_r.ok; if(!_avisarSNs(_r, m)) return; m.snes.push(..._nuevos); if(m.snes.length>(m.cantidad||0)) alert(`⚠️ OJO: "${m.nombre}" queda con ${m.snes.length} serial(es) pero el stock dice ${m.cantidad}.\n\nRevisa la cantidad — con seriales de más, las entregas y ventas se comportan raro.`); logMsg(`SN agregado a "${m.nombre}"`); save(); closeModal(); renderTab('bodegas'); }); }
 function modalAddMat(bId) {
     TempLists.addMatFotos = [];
     openModal('📦 Agregar Material / Equipo',
@@ -7991,6 +8233,10 @@ window.toggleDarkMode = toggleDarkMode;
 let notifData = [];
 
 function buildNotifications() {
+    // Sin sesion no hay nada que notificar. El reloj de arriba arranca al CARGAR
+    // la pagina, no al entrar, asi que antes de iniciar sesion —y despues de
+    // salir— getUserBodegas() leia USER.role sobre null y reventaba cada minuto.
+    if(!USER) { notifData = []; return; }
     notifData = [];
     const now = new Date();
 
@@ -8627,7 +8873,7 @@ const HISTORIAL_DOC = 'inventario/historial';
 // Campos que SOLO escribe Inventario (Técnicos no los toca) y que solo crecen.
 // Se guardan en un documento aparte para que inventario/datos no llegue al tope de 1MB.
 const HISTORIAL_FIELDS = ['editRequests','entregas','cuartos','logs','transfers','deleteRequests','ventas'];
-const APP_VERSION_INV = 96; // ⬆️ Subir en cada versión publicada de Inventario (v91: LECTURA DE FECHAS UNIFICADA. Ademas del texto, ahora se guarda una marca de tiempo NUMERICA (confirmadoMs, rechazadoMs) y la logica la prefiere. El texto se conserva sin tocar porque bodega lo muestra tal cual en pantalla, asi que el usuario no ve ningun cambio. El motivo: tanto TECNICOS como esta app guardaban las fechas con toLocaleDateString(), que en Colombia da DD/MM/AAAA, y new Date() lo interpreta como MM/DD: 17/8/2026 daba fecha invalida y 5/8/2026 se leia como 8 de MAYO. Un numero no admite interpretacion. Los registros anteriores siguen resolviendose con _msDeFechaInv. v90: EL ARCHIVADO YA ES AUTOMATICO, como en OFICINAS. Alla se resolvio asi en la v170 tras chocar con el limite de 1 MB; bodega se habia quedado solo con el boton manual, y por eso el historial viejo se acumulaba. Ahora corre dentro del guardado, antes de armar el documento. Es barato: _calcularAligerado() es puro en memoria y devuelve vacio casi siempre, asi que un guardado normal no cuesta nada extra; solo hay lecturas y escrituras cuando de verdad hay historial viejo, y una vez movido no se repite. Seguridad: escribe el archivo, lo vuelve a LEER para confirmar y solo entonces saca los registros de la base; si la escritura o la verificacion fallan, no se quita nada. El boton manual sigue existiendo y ahora comparte el mismo nucleo (_archivarInv) en vez de duplicar la logica. v89: EL ARCHIVADOR NO PODIA LEER LAS FECHAS. El boton Aligerar la base existia y sus reglas eran correctas, pero _diasDeInv usaba new Date() sobre fechas en formato colombiano DD/MM/AAAA que TECNICOS escribe con toLocaleDateString(). new Date() espera MM/DD, asi que 17/8/2026 daba Invalid Date y el registro quedaba invisible para el archivador PARA SIEMPRE, y 5/8/2026 se leia como 8 de MAYO, con la antiguedad mal calculada. Por eso habia 639 consumos ya resueltos (solo 12 seguian pendientes) ocupando el 48% de un documento al 80% de su limite. Ahora _msDeFechaInv resuelve DD/MM/AAAA a mano antes de Date.parse. Medido sobre los datos reales: los registros archivables pasaron de 1 a 458, unos 216 KB. El archivado sigue siendo manual. v88: CONFLICTOS DE CUADRILLAS Y BODEGAS RESUELTOS POR QUIEN TOCO EL REGISTRO. Habia dos reglas fijas y ninguna era correcta en ambos sentidos: el listener hacia Object.assign y la nube pisaba una edicion local sin guardar; y la fusion al guardar se quedaba con la copia local, revirtiendo el descuento que un tecnico acababa de hacer (el material quedaba en recuperados Y en la cuadrilla, contado dos veces). Ahora se guarda el contenido de cada registro en la ultima sincronia y se compara: si esta sesion no lo toco entra lo de la nube, si lo toco se conserva lo local. Sin base o registro desconocido gana lo local, igual que antes, para que un camino no cubierto degrade en vez de perder datos. Solo aplica a cuadrillas y bodegas. v87: GUARDA CONTRA CANTIDADES INVALIDAS. integrarRecuperado SUMA r.cant al stock de la bodega; si ese valor era negativo, cero o texto, restaba o corrompia el stock en silencio y lo registraba como entrada. Ahora se rechaza con un aviso claro. Se pone aqui ademas de en la app de Tecnicos porque un registro guardado ANTES de acotar la entrada seguiria causando el dano al integrarlo. Tambien se acoto la cantidad de equipos del cliente, que sin || guardaba NaN al vaciar el campo. v86: DIAGRAMA DEL CUARTO. Se restauro el boton IMPRIMIR, que estaba perdido: la funcion existia pero apuntaba al id diagSvg y el modal actual crea diagramaSVG, asi que aunque alguien la llamara no hacia nada, y ademas ningun boton la llamaba. Al imprimir se fuerza el color (print-color-adjust): sin eso el navegador omite los fondos y, como el diagrama es oscuro, salia una hoja practicamente en blanco. Se elimino descargarDiagramaSVG, que quedo redundante frente a descargarDiagrama (esta ultima si funciona y ademas agrega el xmlns al archivo). Y en la descarga: la fecha del nombre venia en UTC (de noche ponia la de manana) y la URL temporal se liberaba en el mismo instante del clic, lo que puede cortar la descarga. v85: solo comentarios. Se elimino la constante CAMPOS_DE_TECNICOS, que estaba declarada y NUNCA se usaba: era residuo del enfoque de la v72, reemplazado despues por la fusion universal _fusionarConNubeInv. El comentario del nucleo de guardado describia esa proteccion vieja, asi que enganaba a quien lo leyera. Ahora describe la fusion real y documenta su limite conocido: para un registro que ya existe en ambos lados gana la copia LOCAL, y como una cuadrilla no tiene campo 'estado', un descuento de stock hecho por un tecnico puede revertirse si esta sesion guarda antes de que el listener la refresque. Sin cambios de comportamiento. v84: limpieza de modalDiagramaCompleto duplicada. v83: MENSAJE DEL DIA al iniciar sesion. Ademas del saludo aparece una frase corta para arrancar labores, elegida segun el DIA DE LA SEMANA y estable durante toda la jornada (cambia al dia siguiente, no en cada recarga). Escritas para el trabajo de bodega: material, cuadrillas, seriales, consumos. Uno de cada tres dias se suma un recordatorio practico (anotar serial al entregar, confirmar consumos, revisar la Auditoria, registrar lo que entra, recibir devoluciones el mismo dia). Se editan en FRASES_DIA_INV y TIPS_DIA_INV. Incluye v82: COHERENCIA CON LA APP DE TECNICOS. La app de Tecnicos v71 corrigio que las devoluciones de material NO descontaban del stock del tecnico (quedaba contado dos veces). Aqui: [1] al integrar un recuperado que vino de una cuadrilla con una version anterior, se AVISA si ese material todavia figura a nombre del tecnico, para no contarlo doble. [2] La 🩺 Auditoria detecta ahora tres problemas del cruce con Tecnicos: material contado DOS veces (devuelto a la bodega pero aun en poder del tecnico), equipos danados que siguen en el stock del tecnico, tecnicos SIN CEDULA (la app de Tecnicos los busca por cedula: sin ella no pueden devolver material ni reportar consumos) y un mismo tecnico registrado en DOS cuadrillas (sus reportes irian a la cuadrilla equivocada). Incluye v81: (v81: CAUSA REAL DEL PROBLEMA DE GUARDADO — la base llego a 0.98 MB del maximo de 1 MB que permite Firestore, y pasado ese tope Firebase deja de guardar: por eso las solicitudes aprobadas reaparecian. El diagnostico de la v79 mostro que lo mas pesado NO son las fotos sino las listas de historial que crecen sin parar: consumosPendientes 370KB, bodegas 348KB, instalaciones 161KB, recuperados 81KB. NUEVO en 🩺 Auditoria: panel de espacio con barra de uso y desglose por seccion, boton ARCHIVAR HISTORIAL VIEJO (mueve a documentos por año los consumos ya resueltos de mas de 45 dias, las instalaciones de mas de 120 y los recuperados ya integrados; lo PENDIENTE nunca se archiva), boton para mover las fotos, y boton VER ARCHIVO para consultar lo guardado. Nada se borra y todo se verifica en la nube ANTES de sacarlo de la base. Incluye v80: (v80: LAS FOTOS DE MATERIALES SALEN DE LA BASE PRINCIPAL — esta era la causa de fondo de que los guardados fallaran y las solicitudes reaparecieran. Las fotos se guardaban DENTRO de inventario/datos como texto base64; entre todas hacian que el documento pasara el limite de 1 MB de Firestore, y a partir de ahi NINGUN cambio se guardaba. Ahora cada foto vive en su propio documento (inventario/foto_XXX) y el material solo guarda su codigo; se ven exactamente igual, se cargan solas al abrir la pantalla y las fotos nuevas ya no engordan la base. NUEVO en 🩺 Auditoria: panel de espacio que muestra cuanto pesa la base y cuantos MB ocupan las fotos incrustadas, con boton para MOVERLAS todas: va una por una, comprueba que quedo guardada ANTES de sacarla (ninguna se pierde), guarda bodega por bodega y se puede retomar si se interrumpe. Incluye v79: (v79: LAS SOLICITUDES APROBADAS/RECHAZADAS YA NO REAPARECEN. Causa: el snapshot de Firebase REEMPLAZA la lista completa con lo que hay en la nube; si el guardado aun no habia terminado —o FALLO, como cuando Firebase responde 'write stream exhausted maximum allowed queued writes'— la solicitud volvia a salir como pendiente. Tres correcciones: [1] BLINDAJE DE DECISIONES: toda decision tomada en esta sesion (aprobar, rechazar, aceptar/rechazar transferencia) se vuelve a imponer sobre el snapshot durante 3 minutos, hasta que quede confirmada en la nube. [2] EL GUARDADO FALLIDO YA NO ES INVISIBLE: antes solo se pintaba un indicador chiquito y se escribia en la consola, asi que el usuario creia que su cambio habia quedado; ahora avisa claro que NO se guardo y REINTENTA solo hasta 3 veces. [3] DIAGNOSTICO DE TAMANO: Firestore rechaza documentos de mas de 1 MB y no habia forma de enterarse; ahora se mide en cada guardado, se avisa en consola desde 800 KB y con alerta si pasa el limite, indicando que seccion pesa mas. Incluye v78: (v78: AUDITORIA GENERAL DEL INVENTARIO + correcciones de flujo. NUEVA PANTALLA 🩺 Auditoria (admin): revisa TUS datos reales y reporta stock negativo, seriales repetidos dentro de un articulo, el MISMO equipo registrado en dos lugares a la vez, desajustes entre cantidad y seriales, articulos duplicados en una bodega, cuadrillas con material sin bodega asignada, y material EN EL LIMBO (transferencias sin aceptar, consumos de tecnicos sin confirmar, recuperados sin integrar, solicitudes sin decidir), ordenado por gravedad y exportable a Excel. CORRECCIONES: [1] enviar transferencia validaba articulo por articulo mientras descontaba — si el stock habia cambiado quedaba NEGATIVO, y si el articulo ya no existia reventaba a mitad dejando material descontado SIN transferencia creada (perdido); ahora valida todo primero y no toca nada si algo falla. [2] aceptar/rechazar transferencia agregaba los seriales con push SIN comprobar si ya estaban (el mismo equipo dos veces en la bodega), reventaba si la bodega destino u origen ya no existia (material en el limbo) y al rechazar buscaba por NOMBRE creando duplicados si lo habian renombrado. [3] misma duplicacion de seriales corregida en recuperados integrados, devoluciones de cuadrilla y entregas. [4] KARDEX: ventas, transferencias, entregas, devoluciones y recuperados no dejaban NINGUN rastro en el historial del articulo; ahora si. [5] agregar seriales avisa si estan repetidos o si superan el stock. Incluye v77: (v77: SOLICITUDES DE CAMBIO Y ELIMINACION CORREGIDAS — cuatro fallas: [1] la EDICION de una bodega se aplicaba al material ANTES de mirar el rol, asi que el cambio quedaba hecho sin aprobacion y RECHAZARLO no revertia nada (la aprobacion era decorativa); ahora la bodega solo PROPONE y el material no se toca hasta que el admin apruebe. [2] ELIMINAR UNA VENTA no devolvia el material a la bodega aunque vender SI lo descuenta: el stock desaparecia sin venta que lo justificara; ahora se devuelve cantidad y seriales, con registro en el kardex, y si el articulo ya no existe se vuelve a crear (aplica tambien al borrado directo del admin). [3] RECHAZAR una eliminacion RESUCITABA material fantasma con la cantidad vieja cuando el articulo ya no estaba (agotado, transferido o borrado aparte); ahora rechazar no toca la bodega y, si el articulo falta, se le PREGUNTA al admin. [4] Aprobar eliminacion borraba el articulo SIN dejar rastro en el kardex y sin avisar si la cantidad habia cambiado desde la solicitud; ahora registra la salida y avisa. Ademas approveEdit avisa si la cantidad cambio antes de pisarla, y ya no cierra solicitudes en silencio cuando la bodega o el articulo ya no existen. Incluye v76: CUARTOS DE EQUIPOS — puertos huerfanos y conexiones protegidas: aviso ambar en el equipo cuando hay puertos OCUPADOS sin conexion que los respalde + boton 🧹 Liberarlos (respeta enlaces inter-sede); boton ✏️ para EDITAR conexiones (mover puertos con selector real, cable, color, notas); y TODA modificacion de conexiones (crear/editar/eliminar/liberar) va por TRANSACCION con validacion fresca — dos sesiones ya no se pisan y un puerto no puede ocuparse dos veces. Incluye v75: GUARDADO MAS RAPIDO — la fusion usa la copia del listener cuando tiene <15s (cero descargas extra, misma proteccion); si esta vieja, lee de la red como siempre. Incluye v74: FUSION UNIVERSAL ENTRE SESIONES — el trabajo simultaneo de varias bodegas y tecnicos ya no se pisa: al guardar se fusiona con la nube fresca (datos + historial), lo de otras sesiones se incorpora, los borrados propios dejan LAPIDA y no reviven, las decisiones ajenas (confirmados/integrados/aceptados) se respetan, y un snapshot ya no borra de la pantalla lo recien creado (se conserva y reenvia solo). ENTREGAS ahora con TRANSACCION multi-documento: valida el stock y los seriales sobre datos FRESCOS (si otra sesion entrego mientras tanto, avisa claro), descuenta bodega + suma cuadrilla + registra la entrega de forma atomica. Incluye v73: al CONFIRMAR un consumo de cliente, el material queda anotado AUTOMATICAMENTE en la ficha del cliente — seccion "🧰 Material instalado" — emparejando primero por CEDULA (que ahora envia el tecnico v69) y si no por nombre; si no se encuentra el cliente, avisa claro y el boton "Sincronizar material con clientes" (tambien mejorado con cedula) queda como red de seguridad. Incluye v72: [1] confirmación de consumos con TRANSACCIÓN — el descuento a la cuadrilla ya no se puede revertir por una sincronización cruzada; [2] config Firebase integrada — no vuelve a pedirla; [3] login con ojito 👁️ y Enter; [4] BLINDAJE: guardas anti-borrado de clientes (carga incompleta o encogimiento drástico NO reescriben la nube), firma para no reescribir chunks sin cambios, carga de clientes en paralelo con reintentos, COLA de guardado (nunca se solapan), fusión de envíos recientes de técnicos antes de guardar, y fotos pequeñas ya no se recomprimen)
+const APP_VERSION_INV = 97; // ⬆️ Subir en cada versión publicada de Inventario (v97: LOS CUATRO REPORTES DE HOY. [1] TIEMPO REAL EN TODOS LOS DISPOSITIVOS. Los escuchas de Firebase ya estaban puestos: lo que fallaba era el GUARDADO. Medido sobre los datos reales de hoy, inventario/datos pesaba 790 KB y inventario/historial 747 KB, del maximo de 1 MB que admite Firestore. Pasado ese tope Firebase RECHAZA la escritura entera, asi que el cambio no salia del equipo y los demas no lo veian nunca. El archivador de la v90 no podia ayudar: sus plazos fijos (45, 120, 180 dias) no alcanzaban a NADA, porque lo que llena el documento son 389 consumos y 339 instalaciones RECIENTES. Ahora el archivador se regula solo: si un documento pasa del 70% del limite, acorta los plazos por escalones (30, 20, 14, 7 dias) hasta dejarlo por debajo del 60%, y nunca los alarga. Ademas archiva siete listas mas que antes (solicitudes de cambio y de borrado ya decididas, entregas, transferencias, ventas, logs). Probado hoy: 1.271 registros y 913 KB al archivo, historial 73%->15% y datos 77%->44%. Lo PENDIENTE no se archiva nunca y nada sale de la base sin haberlo leido antes en el archivo. [2] LA RECARGA YA NO PIDE LA CLAVE. La sesion se recuerda en sessionStorage, que vive solo en esa pestana y muere al cerrarla, asi que el equipo compartido de la bodega no amanece con la sesion abierta. Caduca a las 12 horas, no guarda la contrasena y se comprueba contra la base al volver: si a la bodega le cambiaron la clave o la borraron, se pide entrar de nuevo. [3] LA SOLICITUD DECIDIDA YA NO REAPARECE. El blindaje de la v79 caducaba a los 3 minutos; si el guardado fallaba por lo del punto [1], al minuto 4 el snapshot la devolvia a pendiente. Ahora la decision se sostiene SIN PLAZO y solo se suelta cuando la nube ya la trae con ese mismo estado. Se guarda tambien en el navegador, asi que sobrevive a una recarga, y se limpia a los 30 dias. [4] UN SERIAL, UN SITIO. modalAddSN solo miraba dentro del mismo articulo, asi que el mismo equipo podia quedar en dos bodegas, o en una bodega y una cuadrilla a la vez. Medido: 31 seriales estaban en dos sitios (un ONT figuraba en FLORENCIA y en DONCELLO). Ahora se BLOQUEA en vez de avisar, y en la Auditoria hay 🔧 Seriales repetidos para arreglar los que ya estaban: se elige donde esta de verdad el equipo y se quita de los demas, ajustando la cantidad. Los rellenos que no son seriales (N/A, SN, guiones) se siguen aceptando repetidos. v91: LECTURA DE FECHAS UNIFICADA. Ademas del texto, ahora se guarda una marca de tiempo NUMERICA (confirmadoMs, rechazadoMs) y la logica la prefiere. El texto se conserva sin tocar porque bodega lo muestra tal cual en pantalla, asi que el usuario no ve ningun cambio. El motivo: tanto TECNICOS como esta app guardaban las fechas con toLocaleDateString(), que en Colombia da DD/MM/AAAA, y new Date() lo interpreta como MM/DD: 17/8/2026 daba fecha invalida y 5/8/2026 se leia como 8 de MAYO. Un numero no admite interpretacion. Los registros anteriores siguen resolviendose con _msDeFechaInv. v90: EL ARCHIVADO YA ES AUTOMATICO, como en OFICINAS. Alla se resolvio asi en la v170 tras chocar con el limite de 1 MB; bodega se habia quedado solo con el boton manual, y por eso el historial viejo se acumulaba. Ahora corre dentro del guardado, antes de armar el documento. Es barato: _calcularAligerado() es puro en memoria y devuelve vacio casi siempre, asi que un guardado normal no cuesta nada extra; solo hay lecturas y escrituras cuando de verdad hay historial viejo, y una vez movido no se repite. Seguridad: escribe el archivo, lo vuelve a LEER para confirmar y solo entonces saca los registros de la base; si la escritura o la verificacion fallan, no se quita nada. El boton manual sigue existiendo y ahora comparte el mismo nucleo (_archivarInv) en vez de duplicar la logica. v89: EL ARCHIVADOR NO PODIA LEER LAS FECHAS. El boton Aligerar la base existia y sus reglas eran correctas, pero _diasDeInv usaba new Date() sobre fechas en formato colombiano DD/MM/AAAA que TECNICOS escribe con toLocaleDateString(). new Date() espera MM/DD, asi que 17/8/2026 daba Invalid Date y el registro quedaba invisible para el archivador PARA SIEMPRE, y 5/8/2026 se leia como 8 de MAYO, con la antiguedad mal calculada. Por eso habia 639 consumos ya resueltos (solo 12 seguian pendientes) ocupando el 48% de un documento al 80% de su limite. Ahora _msDeFechaInv resuelve DD/MM/AAAA a mano antes de Date.parse. Medido sobre los datos reales: los registros archivables pasaron de 1 a 458, unos 216 KB. El archivado sigue siendo manual. v88: CONFLICTOS DE CUADRILLAS Y BODEGAS RESUELTOS POR QUIEN TOCO EL REGISTRO. Habia dos reglas fijas y ninguna era correcta en ambos sentidos: el listener hacia Object.assign y la nube pisaba una edicion local sin guardar; y la fusion al guardar se quedaba con la copia local, revirtiendo el descuento que un tecnico acababa de hacer (el material quedaba en recuperados Y en la cuadrilla, contado dos veces). Ahora se guarda el contenido de cada registro en la ultima sincronia y se compara: si esta sesion no lo toco entra lo de la nube, si lo toco se conserva lo local. Sin base o registro desconocido gana lo local, igual que antes, para que un camino no cubierto degrade en vez de perder datos. Solo aplica a cuadrillas y bodegas. v87: GUARDA CONTRA CANTIDADES INVALIDAS. integrarRecuperado SUMA r.cant al stock de la bodega; si ese valor era negativo, cero o texto, restaba o corrompia el stock en silencio y lo registraba como entrada. Ahora se rechaza con un aviso claro. Se pone aqui ademas de en la app de Tecnicos porque un registro guardado ANTES de acotar la entrada seguiria causando el dano al integrarlo. Tambien se acoto la cantidad de equipos del cliente, que sin || guardaba NaN al vaciar el campo. v86: DIAGRAMA DEL CUARTO. Se restauro el boton IMPRIMIR, que estaba perdido: la funcion existia pero apuntaba al id diagSvg y el modal actual crea diagramaSVG, asi que aunque alguien la llamara no hacia nada, y ademas ningun boton la llamaba. Al imprimir se fuerza el color (print-color-adjust): sin eso el navegador omite los fondos y, como el diagrama es oscuro, salia una hoja practicamente en blanco. Se elimino descargarDiagramaSVG, que quedo redundante frente a descargarDiagrama (esta ultima si funciona y ademas agrega el xmlns al archivo). Y en la descarga: la fecha del nombre venia en UTC (de noche ponia la de manana) y la URL temporal se liberaba en el mismo instante del clic, lo que puede cortar la descarga. v85: solo comentarios. Se elimino la constante CAMPOS_DE_TECNICOS, que estaba declarada y NUNCA se usaba: era residuo del enfoque de la v72, reemplazado despues por la fusion universal _fusionarConNubeInv. El comentario del nucleo de guardado describia esa proteccion vieja, asi que enganaba a quien lo leyera. Ahora describe la fusion real y documenta su limite conocido: para un registro que ya existe en ambos lados gana la copia LOCAL, y como una cuadrilla no tiene campo 'estado', un descuento de stock hecho por un tecnico puede revertirse si esta sesion guarda antes de que el listener la refresque. Sin cambios de comportamiento. v84: limpieza de modalDiagramaCompleto duplicada. v83: MENSAJE DEL DIA al iniciar sesion. Ademas del saludo aparece una frase corta para arrancar labores, elegida segun el DIA DE LA SEMANA y estable durante toda la jornada (cambia al dia siguiente, no en cada recarga). Escritas para el trabajo de bodega: material, cuadrillas, seriales, consumos. Uno de cada tres dias se suma un recordatorio practico (anotar serial al entregar, confirmar consumos, revisar la Auditoria, registrar lo que entra, recibir devoluciones el mismo dia). Se editan en FRASES_DIA_INV y TIPS_DIA_INV. Incluye v82: COHERENCIA CON LA APP DE TECNICOS. La app de Tecnicos v71 corrigio que las devoluciones de material NO descontaban del stock del tecnico (quedaba contado dos veces). Aqui: [1] al integrar un recuperado que vino de una cuadrilla con una version anterior, se AVISA si ese material todavia figura a nombre del tecnico, para no contarlo doble. [2] La 🩺 Auditoria detecta ahora tres problemas del cruce con Tecnicos: material contado DOS veces (devuelto a la bodega pero aun en poder del tecnico), equipos danados que siguen en el stock del tecnico, tecnicos SIN CEDULA (la app de Tecnicos los busca por cedula: sin ella no pueden devolver material ni reportar consumos) y un mismo tecnico registrado en DOS cuadrillas (sus reportes irian a la cuadrilla equivocada). Incluye v81: (v81: CAUSA REAL DEL PROBLEMA DE GUARDADO — la base llego a 0.98 MB del maximo de 1 MB que permite Firestore, y pasado ese tope Firebase deja de guardar: por eso las solicitudes aprobadas reaparecian. El diagnostico de la v79 mostro que lo mas pesado NO son las fotos sino las listas de historial que crecen sin parar: consumosPendientes 370KB, bodegas 348KB, instalaciones 161KB, recuperados 81KB. NUEVO en 🩺 Auditoria: panel de espacio con barra de uso y desglose por seccion, boton ARCHIVAR HISTORIAL VIEJO (mueve a documentos por año los consumos ya resueltos de mas de 45 dias, las instalaciones de mas de 120 y los recuperados ya integrados; lo PENDIENTE nunca se archiva), boton para mover las fotos, y boton VER ARCHIVO para consultar lo guardado. Nada se borra y todo se verifica en la nube ANTES de sacarlo de la base. Incluye v80: (v80: LAS FOTOS DE MATERIALES SALEN DE LA BASE PRINCIPAL — esta era la causa de fondo de que los guardados fallaran y las solicitudes reaparecieran. Las fotos se guardaban DENTRO de inventario/datos como texto base64; entre todas hacian que el documento pasara el limite de 1 MB de Firestore, y a partir de ahi NINGUN cambio se guardaba. Ahora cada foto vive en su propio documento (inventario/foto_XXX) y el material solo guarda su codigo; se ven exactamente igual, se cargan solas al abrir la pantalla y las fotos nuevas ya no engordan la base. NUEVO en 🩺 Auditoria: panel de espacio que muestra cuanto pesa la base y cuantos MB ocupan las fotos incrustadas, con boton para MOVERLAS todas: va una por una, comprueba que quedo guardada ANTES de sacarla (ninguna se pierde), guarda bodega por bodega y se puede retomar si se interrumpe. Incluye v79: (v79: LAS SOLICITUDES APROBADAS/RECHAZADAS YA NO REAPARECEN. Causa: el snapshot de Firebase REEMPLAZA la lista completa con lo que hay en la nube; si el guardado aun no habia terminado —o FALLO, como cuando Firebase responde 'write stream exhausted maximum allowed queued writes'— la solicitud volvia a salir como pendiente. Tres correcciones: [1] BLINDAJE DE DECISIONES: toda decision tomada en esta sesion (aprobar, rechazar, aceptar/rechazar transferencia) se vuelve a imponer sobre el snapshot durante 3 minutos, hasta que quede confirmada en la nube. [2] EL GUARDADO FALLIDO YA NO ES INVISIBLE: antes solo se pintaba un indicador chiquito y se escribia en la consola, asi que el usuario creia que su cambio habia quedado; ahora avisa claro que NO se guardo y REINTENTA solo hasta 3 veces. [3] DIAGNOSTICO DE TAMANO: Firestore rechaza documentos de mas de 1 MB y no habia forma de enterarse; ahora se mide en cada guardado, se avisa en consola desde 800 KB y con alerta si pasa el limite, indicando que seccion pesa mas. Incluye v78: (v78: AUDITORIA GENERAL DEL INVENTARIO + correcciones de flujo. NUEVA PANTALLA 🩺 Auditoria (admin): revisa TUS datos reales y reporta stock negativo, seriales repetidos dentro de un articulo, el MISMO equipo registrado en dos lugares a la vez, desajustes entre cantidad y seriales, articulos duplicados en una bodega, cuadrillas con material sin bodega asignada, y material EN EL LIMBO (transferencias sin aceptar, consumos de tecnicos sin confirmar, recuperados sin integrar, solicitudes sin decidir), ordenado por gravedad y exportable a Excel. CORRECCIONES: [1] enviar transferencia validaba articulo por articulo mientras descontaba — si el stock habia cambiado quedaba NEGATIVO, y si el articulo ya no existia reventaba a mitad dejando material descontado SIN transferencia creada (perdido); ahora valida todo primero y no toca nada si algo falla. [2] aceptar/rechazar transferencia agregaba los seriales con push SIN comprobar si ya estaban (el mismo equipo dos veces en la bodega), reventaba si la bodega destino u origen ya no existia (material en el limbo) y al rechazar buscaba por NOMBRE creando duplicados si lo habian renombrado. [3] misma duplicacion de seriales corregida en recuperados integrados, devoluciones de cuadrilla y entregas. [4] KARDEX: ventas, transferencias, entregas, devoluciones y recuperados no dejaban NINGUN rastro en el historial del articulo; ahora si. [5] agregar seriales avisa si estan repetidos o si superan el stock. Incluye v77: (v77: SOLICITUDES DE CAMBIO Y ELIMINACION CORREGIDAS — cuatro fallas: [1] la EDICION de una bodega se aplicaba al material ANTES de mirar el rol, asi que el cambio quedaba hecho sin aprobacion y RECHAZARLO no revertia nada (la aprobacion era decorativa); ahora la bodega solo PROPONE y el material no se toca hasta que el admin apruebe. [2] ELIMINAR UNA VENTA no devolvia el material a la bodega aunque vender SI lo descuenta: el stock desaparecia sin venta que lo justificara; ahora se devuelve cantidad y seriales, con registro en el kardex, y si el articulo ya no existe se vuelve a crear (aplica tambien al borrado directo del admin). [3] RECHAZAR una eliminacion RESUCITABA material fantasma con la cantidad vieja cuando el articulo ya no estaba (agotado, transferido o borrado aparte); ahora rechazar no toca la bodega y, si el articulo falta, se le PREGUNTA al admin. [4] Aprobar eliminacion borraba el articulo SIN dejar rastro en el kardex y sin avisar si la cantidad habia cambiado desde la solicitud; ahora registra la salida y avisa. Ademas approveEdit avisa si la cantidad cambio antes de pisarla, y ya no cierra solicitudes en silencio cuando la bodega o el articulo ya no existen. Incluye v76: CUARTOS DE EQUIPOS — puertos huerfanos y conexiones protegidas: aviso ambar en el equipo cuando hay puertos OCUPADOS sin conexion que los respalde + boton 🧹 Liberarlos (respeta enlaces inter-sede); boton ✏️ para EDITAR conexiones (mover puertos con selector real, cable, color, notas); y TODA modificacion de conexiones (crear/editar/eliminar/liberar) va por TRANSACCION con validacion fresca — dos sesiones ya no se pisan y un puerto no puede ocuparse dos veces. Incluye v75: GUARDADO MAS RAPIDO — la fusion usa la copia del listener cuando tiene <15s (cero descargas extra, misma proteccion); si esta vieja, lee de la red como siempre. Incluye v74: FUSION UNIVERSAL ENTRE SESIONES — el trabajo simultaneo de varias bodegas y tecnicos ya no se pisa: al guardar se fusiona con la nube fresca (datos + historial), lo de otras sesiones se incorpora, los borrados propios dejan LAPIDA y no reviven, las decisiones ajenas (confirmados/integrados/aceptados) se respetan, y un snapshot ya no borra de la pantalla lo recien creado (se conserva y reenvia solo). ENTREGAS ahora con TRANSACCION multi-documento: valida el stock y los seriales sobre datos FRESCOS (si otra sesion entrego mientras tanto, avisa claro), descuenta bodega + suma cuadrilla + registra la entrega de forma atomica. Incluye v73: al CONFIRMAR un consumo de cliente, el material queda anotado AUTOMATICAMENTE en la ficha del cliente — seccion "🧰 Material instalado" — emparejando primero por CEDULA (que ahora envia el tecnico v69) y si no por nombre; si no se encuentra el cliente, avisa claro y el boton "Sincronizar material con clientes" (tambien mejorado con cedula) queda como red de seguridad. Incluye v72: [1] confirmación de consumos con TRANSACCIÓN — el descuento a la cuadrilla ya no se puede revertir por una sincronización cruzada; [2] config Firebase integrada — no vuelve a pedirla; [3] login con ojito 👁️ y Enter; [4] BLINDAJE: guardas anti-borrado de clientes (carga incompleta o encogimiento drástico NO reescriben la nube), firma para no reescribir chunks sin cambios, carga de clientes en paralelo con reintentos, COLA de guardado (nunca se solapan), fusión de envíos recientes de técnicos antes de guardar, y fotos pequeñas ya no se recomprimen)
 const CHUNK_SIZE = 800; // clients per document - allows ~10000 clients
 
 // Helper: split array into chunks
@@ -9253,28 +9499,51 @@ async function startFirebase(config) {
     // decisión tomada aquí en los últimos 3 minutos se vuelve a imponer sobre el
     // snapshot hasta que quede confirmada en la nube.
     // ════════════════════════════════════════════════════════════════
+    // Las decisiones sobreviven a una recarga: si el guardado no ha llegado y
+    // la persona recarga, sin esto la solicitud reaparecia pendiente.
     window._decisionesMiasInv = window._decisionesMiasInv || new Map();
+    try{
+        const g=JSON.parse(localStorage.getItem('inv_decisiones')||'{}');
+        Object.entries(g).forEach(([k,v])=>{ if(v&&v.estado) window._decisionesMiasInv.set(k,v); });
+    }catch(e){}
+    window._guardarDecisionesInv=function(){
+        try{ const o={}; window._decisionesMiasInv.forEach((v,k)=>o[k]=v);
+             localStorage.setItem('inv_decisiones', JSON.stringify(o)); }catch(e){}
+    };
     window._marcarDecisionInv = function(col, id, estado){
         try{
             if(!col||!id) return;
             window._decisionesMiasInv.set(col+'│'+id, {estado, ts:Date.now()});
-            window._decisionesMiasInv.forEach((v,k)=>{ if(Date.now()-v.ts>180000) window._decisionesMiasInv.delete(k); });
+            // Se sueltan a los 30 dias, no a los 3 minutos: lo que las libera de
+            // verdad es que la nube confirme la decision (ver mas abajo).
+            window._decisionesMiasInv.forEach((v,k)=>{ if(Date.now()-v.ts>2592000000) window._decisionesMiasInv.delete(k); });
+            window._guardarDecisionesInv();
         }catch(e){}
     };
+    /* UNA DECISION NO SE DESHACE SOLA. Si aqui consta que algo quedo aprobado o
+       rechazado y la nube lo manda como pendiente, gana lo de aqui — sin plazo.
+       Ese retroceso no ocurre en la realidad: nadie 'des-aprueba' una solicitud;
+       lo que ocurre es que el guardado no llego. La decision solo se suelta
+       cuando la nube ya la trae igual, que es la señal de que quedo firme. */
     window._reimponerDecisionesInv = function(entrante, cols){
-        let repuestas=0;
+        let repuestas=0, confirmadas=0;
         try{
             cols.forEach(col=>{
                 const arr=Array.isArray(entrante[col])?entrante[col]:null;
                 if(!arr) return;
                 arr.forEach(item=>{
                     if(!item||!item.id) return;
-                    const d=window._decisionesMiasInv.get(col+'│'+item.id);
+                    const k=col+'│'+item.id;
+                    const d=window._decisionesMiasInv.get(k);
                     if(!d) return;
-                    if(Date.now()-d.ts>180000){ window._decisionesMiasInv.delete(col+'│'+item.id); return; }
-                    if(item.estado!==d.estado){ item.estado=d.estado; repuestas++; }
+                    if(item.estado===d.estado){
+                        // La nube ya la tiene: la decision quedo firme y se suelta
+                        window._decisionesMiasInv.delete(k); confirmadas++; return;
+                    }
+                    item.estado=d.estado; repuestas++;
                 });
             });
+            if(confirmadas>0) window._guardarDecisionesInv();
             if(repuestas>0) console.log(`🛡️ ${repuestas} decisión(es) tuya(s) protegida(s): la nube aún no las tenía (guardado en curso o fallido).`);
         }catch(e){}
         return repuestas;
@@ -9378,7 +9647,16 @@ async function startFirebase(config) {
     showSync('ok','Sincronizado');
     renderLoginBodegas();
 
-    document.getElementById('login-screen').style.display='flex';
+    // Una recarga no deberia costar volver a escribir la clave. Se comprueba
+    // AQUI y no antes porque hasta ahora no se sabia si la bodega sigue
+    // existiendo ni con que nombre.
+    let _reanudo=false;
+    try{ _reanudo = (typeof _reanudarSesionInv==='function') && _reanudarSesionInv(); }catch(e){}
+    if(_reanudo && typeof enterApp==='function'){
+        try{ enterApp(); }
+        catch(e){ console.warn('No se pudo reanudar la sesión:', e); _reanudo=false; }
+    }
+    if(!_reanudo) document.getElementById('login-screen').style.display='flex';
 
     // ── SISTEMA DE TIEMPO REAL ──────────────────────────────────────────────
     try{ window._fotoIdsRemotosInv(window.DB, window.DB); }catch(eF){} // v74: foto inicial del estado remoto
