@@ -418,6 +418,123 @@ const PRUEBAS = [
        +'\nbodega que no existe: '+(r.bodegaMala?'entra ✗':'rechazado ✓')
        +'\nsesión de hace 13 h: '+(r.vieja?'entra ✗':'rechazada ✓')};}},
 
+{app:'red', titulo:'El cliente se pinta según cómo está hoy',
+ porque:'Antes todos los clientes eran del mismo color y el mapa no distinguía a quién le está '
+       +'funcionando el servicio de quién está suspendido. El estado sale de la ficha de la '
+       +'oficina, no se guarda aparte en la red.',
+ correr:W=>{ const r=E(W, 'const gRED=RED, gCli=_cliOficina, gDat=_datosCli;'
+   +'try{'
+   +'  _cliOficina=[{nombre:"ANA MARIA GOMEZ RUIZ", estado:"Activo",     fechaInstalacion:"2026-02-10"},'
+   +'               {nombre:"CARLOS PEREZ SUAREZ",  estado:"Suspendido", fechaInstalacion:"2025-06-01"},'
+   +'               {nombre:"LUZ DARY MORENO PINTO",estado:"Cancelado",  fechaInstalacion:"2024-01-15"},'
+   +'               {nombre:"JOSE ANTONIO RIVERA C",estado:"Gratis",     fechaInstalacion:"2023-09-09"}];'
+   +'  const cli=(n,nom)=>({id:n, tipo:"cliente", nombreReal:nom, g:[[1.6,-75.6]]});'
+   +'  RED={elementos:[cli("a","ANA MARIA GOMEZ RUIZ"), cli("b","CARLOS PEREZ SUAREZ"),'
+   +'                  cli("c","LUZ DARY MORENO PINTO"), cli("d","JOSE ANTONIO RIVERA C"),'
+   +'                  cli("e","NADIE QUE ESTE EN LA OFICINA"),'
+   +'                  cli("f","ANA MARIA GOMEZ RUIS")]};'   // errata de una letra
+   +'  _datosCli=null;'
+   +'  const col=i=>colorCliente(RED.elementos.find(x=>x.id===i));'
+   +'  const est=i=>estadoDe(RED.elementos.find(x=>x.id===i));'
+   +'  return {activo:col("a"), suspendido:col("b"), cancelado:col("c"), gratis:col("d"),'
+   +'          sinCruzar:col("e"), porErrata:est("f"),'
+   +'          fecha:instaladoEl(RED.elementos.find(x=>x.id==="a")),'
+   +'          distintos:new Set([col("a"),col("b"),col("c"),col("d"),col("e")]).size};'
+   +'} finally { RED=gRED; _cliOficina=gCli; _datosCli=gDat; }');
+   const bien = r.activo==='#10b981' && r.suspendido==='#f59e0b' && r.cancelado==='#ef4444'
+             && r.gratis==='#a855f7' && r.sinCruzar==='#22d3ee' && r.distintos===5
+             && r.porErrata==='activo' && r.fecha==='2026-02-10';
+   return {ok:bien,
+     detalle: bien
+       ? 'Activo verde · Suspendido ámbar · Cancelado rojo · Cortesía morado, y los cinco colores\n'
+        +'son distintos. Quien no está en la oficina queda en cian, no en un estado inventado.\n'
+        +'Una errata de una letra ("RUIS" por "RUIZ") sí cruza, y la fecha se lee bien.'
+       : 'activo '+r.activo+' · susp '+r.suspendido+' · canc '+r.cancelado+' · gratis '+r.gratis
+         +'\nsin cruzar '+r.sinCruzar+' · colores distintos '+r.distintos
+         +' · errata → "'+r.porErrata+'" · fecha "'+r.fecha+'"'};}},
+
+{app:'red', titulo:'No se le adivina el estado a nadie',
+ porque:'Un nombre parecido puede ser otra persona: dos hermanos se diferencian en una letra. '
+       +'Ponerle a alguien el estado de otro es peor que dejarlo sin cruzar.',
+ correr:W=>{ const r=E(W, 'const gRED=RED, gCli=_cliOficina, gDat=_datosCli;'
+   +'try{'
+   // Dos personas a una letra de distancia: no se puede elegir
+   +'  _cliOficina=[{nombre:"JUAN CARLOS PEREZ MORA", estado:"Activo"},'
+   +'               {nombre:"JUAN CARLOS PEREA MORA", estado:"Cancelado"}];'
+   +'  RED={elementos:[{id:"x", tipo:"cliente", nombreReal:"JUAN CARLOS PEREY MORA", g:[[1.6,-75.6]]},'
+   +'                  {id:"y", tipo:"cliente", nombreReal:"ANA GOMEZ", g:[[1.6,-75.6]]}]};'
+   +'  _datosCli=null;'
+   +'  const ambiguo=estadoDe(RED.elementos[0]);'
+   // Un nombre corto no debe cruzar por parecido
+   +'  _cliOficina=[{nombre:"ANA GOMES", estado:"Activo"}];'
+   +'  _datosCli=null;'
+   +'  const corto=estadoDe(RED.elementos[1]);'
+   +'  return {ambiguo, corto};'
+   +'} finally { RED=gRED; _cliOficina=gCli; _datosCli=gDat; }');
+   return {ok:r.ambiguo==='' && r.corto==='',
+     detalle:'Con dos candidatos a una letra: '+(r.ambiguo?'eligió "'+r.ambiguo+'" ✗':'no adivina ✓')
+       +'\nCon un nombre corto parecido: '+(r.corto?'eligió "'+r.corto+'" ✗':'no adivina ✓')};}},
+
+{app:'red', titulo:'El filtro por estado y por período recorta bien',
+ porque:'Pedido: "ver solo los clientes instalados en cierto período". Si el corte por fecha '
+       +'fallara, se tomarían decisiones de cartera sobre una lista equivocada.',
+ correr:W=>{ const r=E(W, 'const gRED=RED, gCli=_cliOficina, gDat=_datosCli, gFil=_filCli;'
+   +'try{'
+   +'  _cliOficina=[{nombre:"UNO DE ENERO VEINTICUATRO",  estado:"Activo",     fechaInstalacion:"2024-01-15"},'
+   +'               {nombre:"DOS DE MARZO VEINTISEIS",    estado:"Activo",     fechaInstalacion:"2026-03-20"},'
+   +'               {nombre:"TRES DE MARZO VEINTISEIS",   estado:"Suspendido", fechaInstalacion:"2026-03-25"},'
+   +'               {nombre:"CUATRO SIN FECHA CONOCIDA",  estado:"Activo",     fechaInstalacion:""}];'
+   +'  const cli=(n,nom)=>({id:n, tipo:"cliente", nombreReal:nom, g:[[1.6,-75.6]]});'
+   +'  RED={elementos:[cli("1","UNO DE ENERO VEINTICUATRO"), cli("2","DOS DE MARZO VEINTISEIS"),'
+   +'                  cli("3","TRES DE MARZO VEINTISEIS"),  cli("4","CUATRO SIN FECHA CONOCIDA")]};'
+   +'  _datosCli=null; _filCli=null;'
+   +'  const n=()=>_cuentaFiltroCli().ven;'
+   +'  const sinFiltro=n();'
+   +'  _filCli={estados:[], desde:"2026-01-01", hasta:"2026-12-31"}; const soloMarzo=n();'
+   +'  _filCli={estados:["suspendido"], desde:"", hasta:""};        const soloSusp=n();'
+   +'  _filCli={estados:["activo"], desde:"2026-01-01", hasta:"2026-12-31"}; const activo26=n();'
+   +'  _filCli={estados:[], desde:"2030-01-01", hasta:"2030-12-31"};const futuro=n();'
+   +'  return {sinFiltro, soloMarzo, soloSusp, activo26, futuro};'
+   +'} finally { RED=gRED; _cliOficina=gCli; _datosCli=gDat; _filCli=gFil; }');
+   const bien = r.sinFiltro===4 && r.soloMarzo===2 && r.soloSusp===1
+             && r.activo26===1 && r.futuro===0;
+   return {ok:bien,
+     detalle: bien
+       ? 'Sobre 4 clientes inventados: sin filtro 4 · instalados en 2026 → 2 · solo suspendidos → 1\n'
+        +'activos instalados en 2026 → 1 · un período sin nadie → 0.\n'
+        +'Quien no tiene fecha queda fuera del filtro por período, que es lo honesto.'
+       : 'sin filtro '+r.sinFiltro+' (4) · 2026 '+r.soloMarzo+' (2) · suspendidos '+r.soloSusp+' (1)'
+         +' · activos 2026 '+r.activo26+' (1) · período vacío '+r.futuro+' (0)'};}},
+
+{app:'red', titulo:'La fecha de instalación se lee en sus dos formatos',
+ porque:'El mismo campo llega de dos maneras: 2026-05-19 del cargue de mayo, y 29/05/2026 16:03:00 '
+       +'de cada sincronía con WispHub. Leer solo uno dejaba a la oficina de MONTAÑITA entera '
+       +'(212 de 212) fuera del filtro por fecha, y sin avisar: se veía como "no han instalado nada".',
+ correr:W=>{ const r=E(W, 'const gRED=RED, gCli=_cliOficina, gDat=_datosCli;'
+   +'try{'
+   +'  _cliOficina=[{nombre:"CLIENTE CON FECHA ISO",     fechaInstalacion:"2026-05-19"},'
+   +'               {nombre:"CLIENTE CON FECHA WISPHUB", fechaInstalacion:"29/05/2026 16:03:00"},'
+   +'               {nombre:"CLIENTE CON DIA AMBIGUO",   fechaInstalacion:"05/06/2026 10:22:00"},'
+   +'               {nombre:"CLIENTE CON FECHA IMPOSIB", fechaInstalacion:"no es una fecha"},'
+   +'               {nombre:"CLIENTE SIN NINGUNA FECHA", fechaInstalacion:""}];'
+   +'  const cli=(n,nom)=>({id:n, tipo:"cliente", nombreReal:nom, g:[[1.6,-75.6]]});'
+   +'  RED={elementos:[cli("1","CLIENTE CON FECHA ISO"), cli("2","CLIENTE CON FECHA WISPHUB"),'
+   +'                  cli("3","CLIENTE CON DIA AMBIGUO"), cli("4","CLIENTE CON FECHA IMPOSIB"),'
+   +'                  cli("5","CLIENTE SIN NINGUNA FECHA")]};'
+   +'  _datosCli=null;'
+   +'  const f=i=>instaladoEl(RED.elementos.find(x=>x.id===i));'
+   +'  return {iso:f("1"), wisphub:f("2"), ambiguo:f("3"), basura:f("4"), vacio:f("5")};'
+   +'} finally { RED=gRED; _cliOficina=gCli; _datosCli=gDat; }');
+   // 05/06/2026 es DÍA/MES: 5 de JUNIO. Leerlo al revés daría 6 de mayo.
+   const bien = r.iso==='2026-05-19' && r.wisphub==='2026-05-29' && r.ambiguo==='2026-06-05'
+             && r.basura==='' && r.vacio==='';
+   return {ok:bien, detalle: bien
+     ? '2026-05-19 → 2026-05-19 ✓   ·   29/05/2026 16:03:00 → 2026-05-29 ✓\n'
+      +'05/06/2026 → 2026-06-05 (5 de JUNIO, no 6 de mayo) ✓\n'
+      +'Una fecha ilegible o vacía no se inventa: queda sin fecha ✓'
+     : 'iso "'+r.iso+'" (2026-05-19) · wisphub "'+r.wisphub+'" (2026-05-29)'
+       +'\nambiguo "'+r.ambiguo+'" (2026-06-05) · basura "'+r.basura+'" · vacío "'+r.vacio+'"'};}},
+
 {app:'red', titulo:'Nada se escribió durante las pruebas',
  porque:'Las pruebas corren sobre los datos de verdad. Si alguna escribiera, dañaría justo lo que '
        +'está revisando.',
