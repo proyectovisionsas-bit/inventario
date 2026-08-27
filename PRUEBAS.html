@@ -340,6 +340,97 @@ const PRUEBAS = [
        +'\nuna sola '+r.unaSolaOficina+' · sin oficinas '+r.sinOficinas
        +' · egreso '+r.egresoResta+' · ingreso '+r.ingresoSuma+' · vacío '+r.valorSucio};}},
 
+{app:'ofi', titulo:'La cola del segundo par de ojos se arma bien',
+ porque:'El programa que revisa los soportes vive en el Apps Script del Drive y solo ve esta cola. '
+       +'Si una entrada le llega incompleta, ese comprobante no se revisa y nadie se entera. '
+       +'Y si se encola dos veces, se paga dos veces por leer lo mismo.',
+ correr:W=>{ const r=E(W, 'const gDb=db, gCache=_revCache, gU=USER;'
+   +'var mem={cola:[], resultados:[], ultimaCorrida:""};'
+   +'try{'
+   +'  USER={role:"admin"};'
+   +'  db={collection:function(){ return {doc:function(){ return {'
+   +'      get:function(){ return Promise.resolve({exists:true, data:function(){'
+   +'          return JSON.parse(JSON.stringify(mem)); }}); },'
+   +'      set:function(o){ for(var k in o) mem[k]=o[k]; return Promise.resolve(); }'
+   +'  }; }}; }};'
+   // Se prueba sobre lo que haya, con un corte que sí alcance datos
+   +'  return Promise.resolve()'
+   +'   .then(function(){ return _revEncolarNuevos("2026-08-01"); })'
+   +'   .then(function(n1){'
+   +'      return _revEncolarNuevos("2026-08-01").then(function(n2){'
+   +'        var e=mem.cola[0]||{};'
+   +'        var faltan=["llave","oficina","movId","fileId","valorRegistrado",'
+   +'                    "fechaRegistrada","tipo","creadoEn"].filter(function(k){'
+   +'                       return e[k]===undefined || e[k]===null || e[k]===""; });'
+   // El corte se respeta: nada anterior a la fecha pedida
+   +'        var viejos=mem.cola.filter(function(x){'
+   +'                       return String(x.fechaRegistrada||"").slice(0,10) < "2026-08-01"; }).length;'
+   // Lo resuelto deja de contarse como abierto
+   +'        mem.resultados=[{id:"x", estado:"revisar", reparos:[{gravedad:"alta",que:"algo"}]},'
+   +'                        {id:"y", estado:"revisar", resuelto:true, reparos:[]},'
+   +'                        {id:"z", estado:"ok", reparos:[]}];'
+   +'        var abiertos=_revAbiertos(mem).length;'
+   +'        return {primera:n1, segunda:n2, faltan:faltan, viejos:viejos, abiertos:abiertos,'
+   +'                total:mem.cola.length};'
+   +'      });'
+   +'   })'
+   +'   .then(function(res){ db=gDb; _revCache=gCache; USER=gU; return res; })'
+   +'   .catch(function(e){ db=gDb; _revCache=gCache; USER=gU; return {error:String(e.message||e)}; });'
+   +'} catch(e){ db=gDb; _revCache=gCache; USER=gU; return {error:String(e.message||e)}; }');
+   return Promise.resolve(r).then(rr=>{
+     if(rr.error) return {ok:false, detalle:'No se pudo probar: '+rr.error};
+     if(!rr.primera) return {ok:true, ojo:true,
+       detalle:'No hay soportes desde el 1 de agosto para probarlo con datos reales.'};
+     const bien = rr.segunda===0 && rr.faltan.length===0 && rr.viejos===0 && rr.abiertos===1;
+     return {ok:bien, detalle: bien
+       ? 'Encoló '+rr.primera+' soporte(s) y al repetir el barrido encoló 0: no duplica ✓\n'
+        +'Cada entrada lleva todo lo que el Apps Script necesita para revisarla ✓\n'
+        +'No se cuela nada anterior al corte, y un reparo ya resuelto deja de aparecer ✓'
+       : 'segunda pasada '+rr.segunda+' (0) · campos faltantes: '+(rr.faltan.join(', ')||'ninguno')
+         +'\nentradas anteriores al corte: '+rr.viejos+' (0) · abiertos '+rr.abiertos+' (1)'};
+   });}},
+
+{app:'ofi', titulo:'Reflejar pagos no actúa sobre datos a medio cargar',
+ porque:'Ese botón inyecta movimientos de DINERO y decide qué falta mirando lo que hay en memoria. '
+       +'Los movimientos llegan en documentos aparte, unos segundos después del resto. Presionarlo '
+       +'antes de que terminen —o si esa carga falló— metía 413 pagos duplicados en las cuentas.',
+ correr:W=>{ const r=E(W, 'const oa=window.alert, oc=window.confirm, oU=USER;'
+   +'const dicho=[]; let pregunto=false;'
+   +'window.alert=m=>dicho.push(String(m));'
+   +'window.confirm=m=>{ pregunto=true; return false; };'   // siempre se responde que NO
+   +'const respaldo=DB.oficinas.map(o=>o.movimientos);'
+   +'const flag=window._cargaMovsIncompleta;'
+   +'try{'
+   +'  USER={role:"admin"};'
+   +'  const esperados=(DB.pagosAdmin||[]).reduce((s,p)=>s+((p.oficinas||[]).length),0);'
+   +'  if(esperados<10) return {pocosDatos:true};'
+   // 1) Nada cargado todavía
+   +'  DB.oficinas.forEach(o=>o.movimientos=[]);'
+   +'  dicho.length=0; pregunto=false; reinyectarPagosAdmin();'
+   +'  const vacio={freno:/cargando|no termin/i.test(dicho[0]||""), pregunto};'
+   // 2) Carga marcada como incompleta, con los datos puestos
+   +'  DB.oficinas.forEach((o,i)=>o.movimientos=respaldo[i]);'
+   +'  window._cargaMovsIncompleta=true;'
+   +'  dicho.length=0; pregunto=false; reinyectarPagosAdmin();'
+   +'  const roto={freno:/no termin|cargando/i.test(dicho[0]||""), pregunto};'
+   // 3) Todo cargado: aquí SÍ puede trabajar
+   +'  window._cargaMovsIncompleta=false;'
+   +'  dicho.length=0; pregunto=false; reinyectarPagosAdmin();'
+   +'  const bien={dijo:(dicho[0]||"").slice(0,60), pregunto};'
+   +'  return {vacio, roto, bien, esperados};'
+   +'} finally {'
+   +'  DB.oficinas.forEach((o,i)=>o.movimientos=respaldo[i]);'
+   +'  window._cargaMovsIncompleta=flag; window.alert=oa; window.confirm=oc; USER=oU;'
+   +'}');
+   if(r.pocosDatos) return {ok:true, ojo:true, detalle:'Hay muy pocos pagos de admin para probarlo.'};
+   const bien = r.vacio.freno && !r.vacio.pregunto && r.roto.freno && !r.roto.pregunto;
+   return {ok:bien, detalle: bien
+     ? 'Sin los movimientos cargados: frena y no ofrece inyectar nada ✓\n'
+      +'Con la carga marcada como incompleta: frena igual ✓\n'
+      +'Con todo cargado sí trabaja — dijo: "'+r.bien.dijo+'"'
+     : 'sin cargar → frenó: '+r.vacio.freno+', preguntó: '+r.vacio.pregunto
+       +'\ncarga incompleta → frenó: '+r.roto.freno+', preguntó: '+r.roto.pregunto};}},
+
 {app:'ofi', titulo:'Lo que se está escribiendo no se pierde al actualizar',
  porque:'La sincronía repinta la vista y se llevaba el formulario a medio llenar. Pasaba sobre '
        +'todo registrando un pago, porque eso no es teclear sin parar: se busca el comprobante, '
