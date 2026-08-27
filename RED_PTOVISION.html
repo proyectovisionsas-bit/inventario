@@ -387,7 +387,8 @@ body.conectando .pin{transform:scale(1.25);}
   .fila{padding:11px 10px;}
   .hoja,.rama>.cab{padding:8px 5px;}
   .opc{padding:13px 8px;}
-  input,select,textarea,.buscador input{padding:12px;font-size:16px;}
+  input,select,textarea,.buscador input,
+  .mcuerpo input,.mcuerpo select,.mcuerpo textarea{padding:12px;font-size:16px;}
   .buscador input{padding-left:32px;}  /* 16px: iOS no hace zoom */
   .mcaja{max-width:none;max-height:92vh;}
   .mcaja.ancha{max-width:none;}
@@ -498,6 +499,7 @@ body.conectando .pin{transform:scale(1.25);}
       <button class="lb" id="h_nota" data-et="Novedad"    onclick="modo('nota')"       title="Reportar algo en campo">🚩</button>
       <div class="lsep"></div>
       <button class="lb" data-et="Guía" onclick="abrirGuiaCero()" title="Cómo armar la red / cómo va">🚀</button>
+      <button class="lb" data-et="Revisar" onclick="abrirAuditoria()" title="Revisar la salud de la red">🩺</button>
       <button class="lb" data-et="Reusar" onclick="abrirReutilizables()" title="Puertos de clientes suspendidos o cancelados">♻️</button>
       <button class="lb" data-et="Retirados" onclick="abrirRetirados()" title="Clientes retirados del mapa">🗑️</button>
       <button class="lb" data-et="Cajas" onclick="abrirCajasSinSplitter()" title="Cajas sin splitter definido">📦</button>
@@ -565,7 +567,7 @@ body.conectando .pin{transform:scale(1.25);}
    la cambia aqui.
    ════════════════════════════════════════════════════════════════════ */
 
-const APP_VERSION_RED = 22;
+const APP_VERSION_RED = 23;
 
 const firebaseConfig = {
     apiKey: "AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w",
@@ -767,7 +769,8 @@ function guardarLocal(oficinaId, red){
     try{
         localStorage.setItem('red_'+oficinaId, JSON.stringify({
             elementos:red.elementos.map(aplanar), regiones:red.regiones||[],
-            retirados:red.retirados||[], vistos:red.vistos||{}, cuando:Date.now()
+            retirados:red.retirados||[], vistos:red.vistos||{},
+            config:red.config||{}, cuando:Date.now()
         }));
     }catch(e){ console.warn('No cupo la copia local:',e.message); }
 }
@@ -801,7 +804,7 @@ window.addEventListener('online', async()=>{
 window.addEventListener('offline', pintarEstadoRed);
 
 async function cargarRed(oficinaId){
-    const out={elementos:[], regiones:[], notas:[], retirados:[], vistos:{}};
+    const out={elementos:[], regiones:[], notas:[], retirados:[], vistos:{}, config:{}};
     if(!navigator.onLine){
         const l=leerLocal(oficinaId);
         if(l){ console.log('📴 Sin internet: se abre la copia guardada en este equipo.'); return l; }
@@ -818,6 +821,7 @@ async function cargarRed(oficinaId){
             if(i===0&&Array.isArray(dd.notas)) out.notas=dd.notas;
             if(i===0&&Array.isArray(dd.retirados)) out.retirados=dd.retirados;
             if(i===0&&dd.vistos) out.vistos=dd.vistos;
+            if(i===0&&dd.config) out.config=dd.config;
             if(i===0&&Array.isArray(dd.regiones)) out.regiones=dd.regiones.map(r=>{
                 const c=Object.assign({},r), p=[];
                 for(let k=0;k+1<(r.g||[]).length;k+=2) p.push([r.g[k], r.g[k+1]]);
@@ -899,7 +903,8 @@ async function guardarRed(oficinaId, elementos, regiones){
     for(let i=0;i<frags.length;i++){
         const doc={elementos:frags[i], actualizado:Date.now()};
         if(i===0){ doc.regiones=regs; doc.notas=nts;
-                   doc.retirados=RED.retirados||[]; doc.vistos=RED.vistos||{}; }
+                   doc.retirados=RED.retirados||[]; doc.vistos=RED.vistos||{};
+                   doc.config=RED.config||{}; }
         await db.collection(COLECCION).doc(`red_${oficinaId}_${i}`).set(doc);
     }
     // Si antes habia mas fragmentos, se vacian para no dejar datos zombis
@@ -1675,7 +1680,7 @@ function fichaRegion(r){
     const dentro=RED.elementos.filter(e=>e.tipo==='caja'&&e.clase!=='pop'&&enPoligono(e.g[0],r.g));
     let lib=0,ocu=0;
     dentro.forEach(c=>{const s=estadoCaja(c); if(s.cap){lib+=s.libres;ocu+=s.usados;}});
-    document.getElementById('panel').innerHTML=`
+    document.getElementById('panel').innerHTML=_tir()+`
       <button class="btn btn-sm btn-out" style="margin-bottom:12px" onclick="pintarPanel()">← Volver</button>
       <div class="ficha">
         <h3><span class="punto" style="display:inline-block;background:${r.color}"></span> ${esc(r.nombre)}</h3>
@@ -1775,7 +1780,7 @@ function dibujarNotas(){
 }
 
 function dibujar(){
-    _arbolPOP=null; _rejPostes=null;   // la red pudo cambiar: el camino al POP se recalcula
+    _arbolPOP=null; _rejPostes=null; _hijosCaja=null;   // la red pudo cambiar: el camino al POP se recalcula
     if(!mapa) return;
     ORDEN.forEach(t=>capas[t]&&capas[t].clearLayers());
     dibujarRegiones();
@@ -1917,6 +1922,8 @@ function pintarPanel(el){
                 onclick="abrirCajasSinSplitter()">📦 Configurarlas</button></div>`:''}
 
       ${selectorEscala()}
+      <button class="btn btn-sm btn-out" style="width:100%;margin-top:6px"
+              onclick="configurarOLT()">⚙️ Potencia del OLT (${oltDbm()} dBm)</button>
 
       <div class="sec">Buscar</div>
       <input type="text" id="q" placeholder="Caja, cliente, cable…" oninput="buscar(this.value)">
@@ -2280,6 +2287,8 @@ function fichaHTML(el){
           <div class="dato"><b>Hilos</b><span>${el.hilos||'—'}</span></div>
           <div class="dato"><b>Buffers</b><span>${el.buffers||'—'}</span></div>
           <div class="dato"><b>Longitud</b><span>${el.metros?el.metros+' m':'—'}</span></div>
+          <button class="btn btn-sm btn-out" style="width:100%;margin-bottom:8px"
+                  onclick="verImpacto('${el.id}')">✂️ ¿Quién se cae si corto aquí?</button>
           ${el.cajaA||el.cajaB?`<div class="dato"><b>Conecta</b>
             <span style="font-size:.74rem">${esc(el.cajaA||'?')} ↔ ${esc(el.cajaB||'?')}</span></div>`:''}
           ${el.cliente?`<div class="dato"><b>Cliente</b><span>${esc(el.cliente)}</span></div>`:''}
@@ -3024,6 +3033,8 @@ function fichaCliente(el){
       ${!dp&&caja?`<button class="btn btn-sm btn-out" style="width:100%;margin-top:6px"
          onclick="dibujarDropDe('${el.id}')">🧵 Dibujarle el drop hasta ${esc((caja.nombre||'').slice(0,18))}</button>`:''}
 
+      ${bloquePotencia(el)}
+
       <div class="sec" style="margin-top:14px">Dónde queda</div>
       <div class="dato"><b>Coordenadas</b>
         <span style="font-family:monospace;font-size:.76rem">${el.g[0][0].toFixed(6)}, ${el.g[0][1].toFixed(6)}</span></div>
@@ -3321,6 +3332,7 @@ function ventanaHTML(id, el, v){
         <button class="btn btn-sm btn-out" onclick="abrirInterior('${el.id}')">📊 Interior</button>
         <button class="btn btn-sm btn-out" onclick="modo('ruta');iluminarRuta(RED.elementos.find(e=>e.id==='${el.id}'))">💡 Ruta</button>
         <button class="btn btn-sm btn-out" onclick="etiquetaCaja('${el.id}')">🏷️ Etiqueta</button>
+        <button class="btn btn-sm btn-out" onclick="verImpacto('${el.id}')" title="Quién se queda sin servicio">✂️ Impacto</button>
         ${editando?`<button class="btn btn-sm btn-out" onclick="editarElemento('${el.id}')">✏️ Editar</button>`:''}
       </div>`;
 }
@@ -3861,7 +3873,7 @@ function actualizarLargoTrazo(){
     if(e&&_trazo) e.textContent=largoTrazo()+' m · '+_trazo.g.length+' puntos';
 }
 function pintarPanelTrazo(el){
-    document.getElementById('panel').innerHTML=`
+    document.getElementById('panel').innerHTML=_tir()+`
       <button class="btn btn-sm btn-out" style="margin-bottom:12px" onclick="cerrarTrazo()">← Salir sin guardar</button>
       <div class="sec">Trazo de ${esc((el.nombre||'').slice(0,26))}</div>
       <div class="kpis" style="grid-template-columns:1fr">
@@ -5043,6 +5055,505 @@ async function guardarPoste(){
 }
 
 /* ════════════════════════════════════════════════════════════════════
+   ¿A QUIÉN DEJA SIN SERVICIO UN CORTE?
+   ────────────────────────────────────────────────────────────────────
+   Es la pregunta de la madrugada: se reventó un cable y hay que saber a
+   quién llamar, cuánta gente quedó sin internet y por dónde empezar.
+   Hasta ahora tocaba adivinarlo mirando el mapa.
+
+   Se responde con el mismo arbol que ya se calcula desde el POP: si un
+   cable alimenta una caja, se cae esa caja Y TODO LO QUE CUELGA DE ELLA,
+   en cadena. Los clientes salen de los puertos de esas cajas.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* Todas las cajas que dependen de una, ella incluida. */
+/* Los hijos de cada caja se calculan UNA vez por dibujado: recorrer los 1.142
+   cables reconstruyendolo cada vez costaba 829 ms; asi baja a milisegundos. */
+var _hijosCaja=null;
+function _hijosDeCajas(){
+    if(_hijosCaja) return _hijosCaja;
+    const A=arbolDesdePOP(); const h={};
+    Object.entries(A.padre).forEach(([id,pa])=>{ (h[pa.id]=h[pa.id]||[]).push(id); });
+    _hijosCaja=h; return h;
+}
+function aguasAbajo(cajaId){
+    const hijos=_hijosDeCajas();
+    const out=[], cola=[cajaId], visto=new Set();
+    while(cola.length){
+        const id=cola.shift();
+        if(visto.has(id)) continue;
+        visto.add(id); out.push(id);
+        (hijos[id]||[]).forEach(h=>cola.push(h));
+    }
+    return out;
+}
+/* Qué cajas alimenta un cable: aquellas cuyo camino al POP pasa por él. */
+function cajasQueAlimenta(cable){
+    const A=arbolDesdePOP();
+    return Object.entries(A.padre)
+        .filter(([,pa])=>String(pa.cableId)===String(cable.id))
+        .map(([id])=>id);
+}
+
+function impactoDeCorte(el){
+    if(!el) return null;
+    let raices=[];
+    if(el.tipo==='cable'){
+        if(el.clase==='drop') raices=[];              // un drop solo afecta a su cliente
+        else raices=cajasQueAlimenta(el);
+    } else if(el.tipo==='caja') raices=[el.id];
+    const ids=new Set();
+    raices.forEach(r=>aguasAbajo(r).forEach(x=>ids.add(x)));
+    const cajas=[...ids].map(id=>RED.elementos.find(e=>e.id===id)).filter(Boolean);
+    // Los clientes de esos puertos
+    const clientes=[];
+    cajas.forEach(c=>{
+        Object.entries(c.puertos||{}).forEach(([n,p])=>{
+            const o=ocupanteDe(c,+n);
+            clientes.push({caja:c, puerto:+n, nombre:(o&&o.cliente)||p.cliente||'',
+                           of:(o&&o.of)||null, estado:(o&&o.cfg)?o.cfg.et:'', activo:!(o&&o.reutilizable)});
+        });
+    });
+    // Y si es un drop, el cliente de ese drop
+    if(el.tipo==='cable'&&el.clase==='drop'){
+        const nom=normNom(el.cliente||el.nombre||'');
+        RED.elementos.filter(e=>e.tipo==='cliente'&&normNom(e.nombreReal||e.nombre||'')===nom)
+            .forEach(cl=>{
+                const c=RED.elementos.find(x=>x.id===cl.cajaId);
+                const o=c?ocupanteDe(c, cl.puerto):null;
+                clientes.push({caja:c||{nombre:cl.caja||''}, puerto:cl.puerto,
+                    nombre:cl.nombreReal||cl.nombre||'', of:(o&&o.of)||null,
+                    estado:(o&&o.cfg)?o.cfg.et:'', activo:!(o&&o.reutilizable)});
+            });
+    }
+    const metros=cajas.reduce((s,c)=>s+((c.cables||[]).reduce((t,x)=>t,0)),0);
+    return {el, cajas, clientes,
+            activos:clientes.filter(c=>c.activo).length,
+            inactivos:clientes.filter(c=>!c.activo).length};
+}
+
+function verImpacto(id){
+    const el=RED.elementos.find(e=>e.id===id); if(!el) return;
+    const r=impactoDeCorte(el);
+    if(!r) return;
+    limpiarTemporal();
+    modo('ver');
+    mapa.getContainer().classList.add('atenuado');
+    temp=L.layerGroup().addTo(mapa);
+    const opt={pane:'ruta', renderer:rendRuta};
+    // El sitio del corte, en rojo
+    const g=el.g&&el.g.length?(el.tipo==='cable'?el.g[Math.floor(el.g.length/2)]:el.g[0]):null;
+    if(el.tipo==='cable'&&el.g&&el.g.length>1){
+        L.polyline(el.g,{...opt,color:'#ef4444',weight:18,opacity:.25}).addTo(temp);
+        L.polyline(el.g,{...opt,color:'#ef4444',weight:6,opacity:1,className:'ruta-viva'}).addTo(temp);
+    }
+    if(g) L.marker(g,{pane:'ruta', icon:L.divIcon({className:'',iconSize:[30,30],iconAnchor:[15,15],
+        html:'<div class="mk mk-ruta" style="background:#ef4444;color:#fff;font-size:.85rem">✂️</div>'})}).addTo(temp);
+    // Las cajas que quedan sin servicio
+    const pts=[];
+    r.cajas.forEach(c=>{
+        if(!c.g||!c.g.length) return;
+        pts.push(c.g[0]);
+        const n=Object.keys(c.puertos||{}).length;
+        L.circleMarker(c.g[0],{...opt,radius:n?11:7,weight:0,fillColor:'#ef4444',fillOpacity:.35}).addTo(temp);
+        L.marker(c.g[0],{pane:'ruta', icon:L.divIcon({className:'',iconSize:[24,24],iconAnchor:[12,12],
+            html:`<div class="mk mk-ruta" style="background:#ef4444;color:#fff;font-size:.6rem">${n||''}</div>`})})
+          .addTo(temp).bindTooltip(esc(c.nombre||'')+(n?' · '+n+' cliente(s)':''),{direction:'top'});
+    });
+    if(g) pts.push(g);
+    if(pts.length) mapa.fitBounds(L.latLngBounds(pts).pad(.25));
+    pintarImpacto(r);
+}
+
+function pintarImpacto(r){
+    const el=r.el;
+    const porCaja={};
+    r.clientes.forEach(c=>{ const k=c.caja.nombre||'—'; (porCaja[k]=porCaja[k]||[]).push(c); });
+    document.getElementById('panel').innerHTML=_tir()+`
+      <button class="btn btn-sm btn-out" style="margin-bottom:12px" onclick="modo('ver')">← Salir</button>
+      <div class="sec">Si se corta aquí</div>
+      <div class="ficha" style="margin-bottom:10px">
+        <h3><span class="punto" style="display:inline-block;background:#ef4444"></span>
+          ✂️ ${esc((el.nombre||'').slice(0,26))}</h3>
+        <div class="tipo">${esc((TIPOS[claseDe(el)]||{}).et||el.tipo)}${el.hilos?' · '+el.hilos+'H':''}</div>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><div class="v" style="color:#ef4444">${r.activos}</div><div class="e">Clientes activos</div></div>
+        <div class="kpi"><div class="v">${r.cajas.length}</div><div class="e">Cajas sin servicio</div></div>
+      </div>
+      ${r.inactivos?`<p class="ayuda">Y ${r.inactivos} suspendido(s) o cancelado(s), que no reclamarían.</p>`:''}
+      ${!r.clientes.length?'<div class="vacio" style="padding:16px">Aquí no cuelga ningún cliente.<br>Cortar esto no deja a nadie sin servicio.</div>':''}
+      ${r.clientes.length?`
+        <button class="btn btn-sm btn-out" style="width:100%;margin:8px 0" onclick="exportarImpacto()">📋 Copiar la lista para avisar</button>
+        <div class="sec">A quién avisar</div>
+        ${Object.entries(porCaja).sort((a,b)=>b[1].length-a[1].length).map(([caja,cs])=>`
+          <div style="margin-bottom:9px">
+            <div class="dato"><b style="color:var(--text)">📦 ${esc(caja)}</b><span>${cs.length}</span></div>
+            ${cs.map(c=>`<div class="fila" style="padding:5px 4px">
+              <span class="punto" style="background:${c.activo?'#ef4444':'#64748b'}"></span>
+              <span class="nom" style="font-size:.76rem">${esc(c.nombre||'(sin nombre)')}
+                ${c.of&&c.of.telefono?`<i style="display:block;font-size:.68rem;color:#0ea5e9">${esc(c.of.telefono)}</i>`:''}</span>
+              <span class="meta">pto ${c.puerto}</span></div>`).join('')}
+          </div>`).join('')}`:''}
+      <p class="ayuda">Se calcula con el camino real hasta el POP: cae esta caja y todo lo que
+         cuelga de ella en cadena.</p>`;
+    window._impacto=r;
+}
+
+/* La lista lista para pegar en WhatsApp, que es como se avisa de verdad. */
+function exportarImpacto(){
+    const r=window._impacto; if(!r) return;
+    const l=['CORTE EN: '+((r.el.nombre)||''), r.activos+' cliente(s) activos sin servicio', ''];
+    const porCaja={};
+    r.clientes.filter(c=>c.activo).forEach(c=>{ const k=c.caja.nombre||'—'; (porCaja[k]=porCaja[k]||[]).push(c); });
+    Object.entries(porCaja).forEach(([caja,cs])=>{
+        l.push('— '+caja+' ('+cs.length+')');
+        cs.forEach(c=>l.push('   '+(c.nombre||'')+(c.of&&c.of.telefono?'  '+c.of.telefono:'')));
+    });
+    const t=l.join('\n');
+    const listo=()=>alert('📋 Copiado.\n\n'+r.activos+' cliente(s) con su teléfono, listos para pegar en WhatsApp.');
+    if(navigator.clipboard&&navigator.clipboard.writeText)
+        return navigator.clipboard.writeText(t).then(listo).catch(()=>_copiarViejo(t,listo));
+    _copiarViejo(t,listo);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   AUDITORÍA DE LA RED
+   ────────────────────────────────────────────────────────────────────
+   Los avisos estaban repartidos por toda la aplicación: uno en el panel,
+   otro en la caja, otro escondido en un botón. Nadie tenía nunca la foto
+   completa de qué está mal.
+   Esto la da en una pantalla, ordenada por lo que duele: primero lo que
+   deja gente sin servicio o impide vender, después lo que solo ensucia
+   los datos. Cada hallazgo se puede abrir y arreglar.
+   ════════════════════════════════════════════════════════════════════ */
+const AUD_GRAVEDAD={
+    alta:  {et:'Hay que arreglarlo',   color:'#ef4444', ord:0},
+    media: {et:'Conviene arreglarlo',  color:'#f59e0b', ord:1},
+    baja:  {et:'Para ordenar',         color:'#64748b', ord:2}
+};
+
+function auditarRed(){
+    const els=RED.elementos||[];
+    const cajas=els.filter(e=>e.tipo==='caja');
+    const cajasNoPop=cajas.filter(e=>e.clase!=='pop');
+    const cables=els.filter(e=>e.tipo==='cable');
+    const troncales=cables.filter(c=>c.clase!=='drop');
+    const clientes=els.filter(e=>e.tipo==='cliente');
+    const A=arbolDesdePOP();
+    const h=[];
+    const add=(g,t,lista,ay,accion)=>{ if(lista.length) h.push({g,t,n:lista.length,lista,ay,accion}); };
+
+    // ── Lo que deja gente sin servicio o impide vender ──
+    if(!A.hayPOP) h.push({g:'alta', t:'No hay ningún POP marcado', n:1, lista:[], accion:null,
+        ay:'Sin POP no se puede saber por dónde le llega la señal a nadie, ni calcular pérdidas. '
+          +'Abre la caja de la central y ponle tipo POP.'});
+
+    add('alta','Cajas que no llegan al POP',
+        cajasNoPop.filter(c=>A.hayPOP && A.dist[c.id]===undefined),
+        'Su cadena de cables está rota en algún punto: el programa no encuentra camino desde la central. '
+       +'Suele ser un cable cuyo extremo no cae sobre la caja.');
+
+    add('alta','Clientes en una caja que ya no existe',
+        clientes.filter(c=>c.cajaId && !els.some(e=>e.id===c.cajaId)),
+        'Quedaron apuntando a una caja borrada. Hay que reasignarlos.');
+
+    add('alta','Puertos ocupados por encima de la capacidad',
+        cajasNoPop.filter(c=>{ const cap=capacidadCaja(c);
+            return cap && Object.keys(c.puertos||{}).some(n=>+n>cap); }),
+        'Hay alguien conectado en un puerto que ese splitter no tiene. O el splitter está mal '
+       +'anotado, o el cliente está en otro lado.');
+
+    // ── Lo que impide vender o cobra de más ──
+    add('media','Cajas sin splitter definido',
+        cajasNoPop.filter(c=>!capacidadCaja(c)),
+        'Sin splitter no se sabe cuántos clientes caben, salen grises en el mapa y no cuentan '
+       +'como espacio disponible.', 'abrirCajasSinSplitter()');
+
+    const reut=(typeof puertosReutilizables==='function')?puertosReutilizables():[];
+    if(reut.length) h.push({g:'media', t:'Puertos que se pueden reutilizar', n:reut.length,
+        lista:reut.map(x=>x.caja), accion:'abrirReutilizables()',
+        ay:'Figuran ocupados pero su cliente está suspendido o cancelado. Ahí se puede instalar a otro.'});
+
+    add('media','Recorridos con demasiada pérdida',
+        cajasNoPop.filter(c=>{ const r=rutaHastaPOP(c); return r.llegaAlPOP && r.db>28; }),
+        'Pasan de 28 dB. Una ONU puede no enganchar ahí. Conviene medir en sitio antes de instalar.');
+
+    add('media','Cajas sin ningún cable enlazado',
+        cajasNoPop.filter(c=>!(c.cables||[]).length),
+        'No se les puede calcular el camino ni la pérdida. El extremo del cable debe caer sobre la caja.');
+
+    add('media','Clientes sin drop dibujado',
+        clientes.filter(c=>c.cajaId && typeof dropDe==='function' && !dropDe(c)),
+        'Aparecen sueltos en el mapa y no se les ve por dónde les llega. Se les puede dibujar '
+       +'desde su ficha.');
+
+    add('media','Clientes sin caja asignada',
+        clientes.filter(c=>!c.cajaId && !c.caja),
+        'No se sabe de dónde cuelgan. Suele pasar cuando el drop del KML no alcanzó a emparejar.');
+
+    // ── Lo que solo ensucia los datos ──
+    add('baja','Cables sin hilos definidos',
+        troncales.filter(c=>!c.hilos),
+        'No se les puede pintar el código de colores ni saber cuánta fibra queda libre.');
+
+    const nombres={};
+    els.filter(e=>e.tipo==='caja').forEach(c=>{ const k=(c.nombre||'').trim().toLowerCase();
+        if(k) (nombres[k]=nombres[k]||[]).push(c); });
+    add('baja','Cajas con el nombre repetido',
+        Object.values(nombres).filter(v=>v.length>1).map(v=>v[0]),
+        'Dos cajas con el mismo nombre confunden al técnico y rompen las etiquetas QR viejas.');
+
+    add('baja','Reservas sin decir de qué cable son',
+        els.filter(e=>e.tipo==='reserva' && !e.cable),
+        'Un poste puede tener varias reservas; sin el cable no se sabe cuál es cuál.');
+
+    add('baja','Elementos sin ubicación',
+        els.filter(e=>!e.g || !e.g.length || !isFinite(e.g[0][0]) || !isFinite(e.g[0][1])),
+        'No se pueden pintar en el mapa.');
+
+    h.sort((a,b)=>AUD_GRAVEDAD[a.g].ord-AUD_GRAVEDAD[b.g].ord || b.n-a.n);
+    return h;
+}
+
+function abrirAuditoria(){
+    if(!SEDE) return alert('Primero elige una sede.');
+    if(!(RED.elementos||[]).length) return alert('Esta sede todavía no tiene red cargada.');
+    mostrarCarga('Revisando la red…');
+    setTimeout(()=>{
+        let h;
+        try{ h=auditarRed(); }
+        catch(e){ ocultarCarga(); return alert('No se pudo revisar:\n\n'+(e.message||e)); }
+        ocultarCarga();
+        window._aud=h;
+        const totales={alta:0, media:0, baja:0};
+        h.forEach(x=>totales[x.g]+=x.n);
+        const cajas=RED.elementos.filter(e=>e.tipo==='caja'&&e.clase!=='pop').length;
+        abrirModal('🩺 Revisión de la red de '+esc(SEDE.nombre), `
+          <div class="kpis" style="grid-template-columns:repeat(3,1fr)">
+            ${Object.entries(AUD_GRAVEDAD).map(([k,v])=>`
+              <div class="kpi"><div class="v" style="color:${totales[k]?v.color:'inherit'}">${totales[k]}</div>
+                <div class="e">${v.et}</div></div>`).join('')}
+          </div>
+          ${!h.length?`<div class="vacio" style="padding:26px">✅ No encontré nada que arreglar.<br>
+             <span style="font-size:.75rem">${cajas} cajas y ${RED.elementos.length} elementos revisados.</span></div>`:''}
+          ${h.map((x,i)=>`
+            <div style="border:1px solid var(--border);border-left:3px solid ${AUD_GRAVEDAD[x.g].color};
+                        border-radius:9px;padding:9px 11px;margin-bottom:8px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <b style="flex:1;font-size:.83rem">${esc(x.t)}</b>
+                <span class="cuenta" style="color:${AUD_GRAVEDAD[x.g].color};font-weight:800">${x.n}</span>
+              </div>
+              <p class="ayuda" style="margin:4px 0 0">${x.ay}</p>
+              <div style="display:flex;gap:5px;margin-top:7px;flex-wrap:wrap">
+                ${x.lista.length?`<button class="btn btn-sm btn-out" style="flex:1"
+                   onclick="_audVer(${i})">👁️ Ver cuáles</button>`:''}
+                ${x.accion?`<button class="btn btn-sm btn-out" style="flex:1"
+                   onclick="cerrarModal();${x.accion}">🔧 Arreglar</button>`:''}
+              </div>
+            </div>`).join('')}
+          <p class="ayuda" style="margin-top:10px">Revisados ${RED.elementos.length.toLocaleString('es-CO')}
+             elementos. Esto no cambia nada: solo mira y reporta.</p>`,
+          `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cerrar</button>
+           ${h.length?`<button class="btn btn-sm btn-out" onclick="exportarAuditoria()">📊 A Excel</button>`:''}`,
+          true);
+    }, 60);
+}
+function _audVer(i){
+    const x=(window._aud||[])[i]; if(!x||!x.lista.length) return;
+    abrirModal('👁️ '+esc(x.t)+' ('+x.n+')', `
+      <p class="ayuda" style="margin-top:0">${x.ay}</p>
+      <div style="max-height:56vh;overflow-y:auto">
+      ${x.lista.slice(0,300).map(e=>`
+        <div class="fila" style="cursor:pointer" onclick="cerrarModal();irA('${e.id}')">
+          <span class="punto" style="background:${(TIPOS[claseDe(e)]||{}).color||'#888'}"></span>
+          <span class="nom">${esc(e.nombreReal||e.nombre||'(sin nombre)')}
+            <i style="display:block;font-size:.66rem;color:var(--muted)">${esc(e.subtipo||(TIPOS[claseDe(e)]||{}).et||'')}</i></span>
+          <span class="meta">🎯</span></div>`).join('')}
+      ${x.lista.length>300?`<p class="ayuda">…y ${x.lista.length-300} más. Están en el Excel.</p>`:''}
+      </div>`,
+      `<button class="btn btn-sm btn-out" onclick="abrirAuditoria()">← Volver</button>`, true);
+}
+async function exportarAuditoria(){
+    const h=window._aud||[];
+    if(!h.length) return alert('No hay nada que exportar.');
+    mostrarCarga('Armando el archivo…');
+    try{
+        await cargarScript('https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js');
+        const filas=[['Gravedad','Qué pasa','Elemento','Tipo','Latitud','Longitud','Explicación']];
+        h.forEach(x=>{
+            if(!x.lista.length){ filas.push([AUD_GRAVEDAD[x.g].et, x.t, '—','','','',x.ay]); return; }
+            x.lista.forEach(e=>filas.push([AUD_GRAVEDAD[x.g].et, x.t,
+                e.nombreReal||e.nombre||'', (TIPOS[claseDe(e)]||{}).et||e.tipo||'',
+                (e.g&&e.g.length)?e.g[0][0]:'', (e.g&&e.g.length)?e.g[0][1]:'', x.ay]));
+        });
+        const wb=XLSX.utils.book_new();
+        const ws=XLSX.utils.aoa_to_sheet(filas);
+        ws['!cols']=[{wch:20},{wch:34},{wch:30},{wch:18},{wch:12},{wch:12},{wch:72}];
+        ws['!autofilter']={ref:'A1:'+XLSX.utils.encode_cell({r:filas.length-1,c:6})};
+        XLSX.utils.book_append_sheet(wb, ws, 'Revisión');
+        XLSX.writeFile(wb, 'Revision_red_'+String(SEDE.nombre).replace(/[^a-z0-9]/gi,'_')
+            +'_'+new Date().toISOString().slice(0,10)+'.xlsx');
+    }catch(e){ alert('No se pudo exportar:\n\n'+(e.message||e)); }
+    ocultarCarga();
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   POTENCIA MEDIDA CONTRA POTENCIA CALCULADA
+   ────────────────────────────────────────────────────────────────────
+   El programa ya calcula cuánta señal DEBERÍA llegarle a cada cliente:
+   la del OLT menos la fibra, las fusiones y los splitters del camino.
+   Lo que faltaba era lo otro: anotar lo que el técnico MIDE con el
+   medidor en la casa, y comparar.
+
+   La diferencia es lo que dice dónde está el problema:
+     · Medido parecido a lo calculado  → la red está como se dibujó.
+     · Medido MUCHO PEOR              → hay algo en el camino que no está
+       en el dibujo: una fusión mala, un conector sucio, una curva
+       forzada. Y como se sabe el camino, se sabe entre qué dos puntos.
+     · Medido MEJOR de lo calculado   → el dibujo miente: sobra un
+       splitter anotado, o el recorrido no es el que se cree.
+
+   La potencia de salida del OLT es un dato de la sede, no del cliente.
+   Por defecto +3 dBm, que es lo típico de una GPON clase B+; se cambia
+   por sede porque cada OLT es distinto.
+   ════════════════════════════════════════════════════════════════════ */
+const OLT_DBM_DEF = 3;
+const MARGEN_OK   = 3;    // dB de diferencia que se consideran normales
+const ONU_MINIMA  = -27;  // por debajo de esto una ONU B+ ya no engancha
+
+function oltDbm(){
+    const v=parseFloat((RED.config||{}).oltDbm);
+    return isFinite(v)?v:OLT_DBM_DEF;
+}
+/* Lo que debería llegarle a un cliente, según el dibujo. */
+function potenciaCalculada(cli){
+    const caja=RED.elementos.find(e=>e.id===cli.cajaId)
+            || RED.elementos.find(e=>e.tipo==='caja'&&e.nombre===cli.caja);
+    if(!caja) return null;
+    const r=rutaHastaPOP(caja);
+    if(!r.llegaAlPOP) return null;
+    // Y lo que pierde su propio drop: la fibra mas los dos conectores
+    const dp=(typeof dropDe==='function')?dropDe(cli):null;
+    const mDrop=dp?(dp.metros||0):0;
+    const dbDrop=mDrop/1000*DB_KM + 0.6;      // 0,3 dB por conector, dos conectores
+    return {dbm: Math.round((oltDbm() - r.db - dbDrop)*10)/10,
+            db: Math.round((r.db+dbDrop)*10)/10, ruta:r, mDrop};
+}
+function _diagPotencia(medido, calc){
+    if(calc===null||medido===null) return null;
+    const dif=Math.round((medido-calc.dbm)*10)/10;   // negativo = peor de lo esperado
+    if(medido < ONU_MINIMA)
+        return {color:'#ef4444', et:'Por debajo del mínimo',
+            ay:'Con '+medido+' dBm una ONU B+ no engancha o se cae a cada rato. '
+              +(dif<-MARGEN_OK?'Y además hay '+Math.abs(dif)+' dB de más frente a lo calculado, '
+                +'así que el problema está en el camino, no en el diseño.'
+                :'El diseño mismo ya no da: hay demasiados splitters o demasiada distancia.')};
+    if(dif < -MARGEN_OK)
+        return {color:'#f59e0b', et:'Hay '+Math.abs(dif)+' dB de más',
+            ay:'Llega peor de lo que debería. Eso no está en el dibujo: suele ser una fusión mala, '
+              +'un conector sucio o una curva forzada. Revisa el camino desde '
+              +(calc.ruta.pasos[0]?calc.ruta.pasos[0].caja.nombre:'su caja')+' hasta la casa.'};
+    if(dif > MARGEN_OK)
+        return {color:'#0ea5e9', et:'Llega mejor de lo calculado',
+            ay:'Sobran '+dif+' dB. Probablemente el dibujo tiene un splitter de más, o el recorrido '
+              +'real es más corto que el trazado. Vale la pena revisar la caja.'};
+    return {color:'#10b981', et:'Como se esperaba',
+            ay:'La medición coincide con el cálculo: la red está como se dibujó.'};
+}
+
+/* Lo que se ve en la ficha del cliente. */
+function bloquePotencia(cli){
+    const calc=potenciaCalculada(cli);
+    const m=cli.medicion;
+    const d=(m&&calc)?_diagPotencia(m.dbm, calc):null;
+    return `
+      <div class="sec" style="margin-top:14px">Señal</div>
+      <div class="kpis" style="grid-template-columns:1fr 1fr">
+        <div class="kpi"><div class="v" style="font-size:1rem">${calc?calc.dbm+' dBm':'—'}</div>
+          <div class="e">Calculada</div></div>
+        <div class="kpi"><div class="v" style="font-size:1rem;color:${d?d.color:'inherit'}">${m?m.dbm+' dBm':'—'}</div>
+          <div class="e">Medida</div></div>
+      </div>
+      ${calc?`<p class="ayuda">−${calc.db} dB desde el OLT (${oltDbm()} dBm), incluyendo
+         ${calc.mDrop} m de drop.</p>`:'<p class="ayuda">No se puede calcular: falta el camino hasta el POP.</p>'}
+      ${d?`<div class="aviso" style="background:${d.color}1a;border-color:${d.color}66;color:${d.color}">
+         <b>${d.et}</b><br><span style="color:var(--muted);font-size:.72rem">${d.ay}</span></div>`:''}
+      ${m?`<p class="ayuda">Medido el ${new Date(m.en).toLocaleDateString('es-CO')}${m.por?' por '+esc(m.por):''}.</p>`:''}
+      ${puede('conectar')?`<button class="btn btn-sm btn-out" style="width:100%;margin-top:6px"
+         onclick="medirCliente('${cli.id}')">📉 ${m?'Cambiar la medición':'Anotar lo que mide el medidor'}</button>`:''}`;
+}
+
+function medirCliente(id){
+    const cli=RED.elementos.find(e=>e.id===id); if(!cli) return;
+    if(!puede('conectar')) return noPuede('conectar');
+    const calc=potenciaCalculada(cli);
+    window._medCli=id;
+    abrirModal('📉 Señal de '+esc(cli.nombreReal||cli.nombre||''), `
+      ${calc?`<div class="dato"><b>Debería llegarle</b><span>${calc.dbm} dBm</span></div>`:''}
+      <label style="margin-top:12px">¿Cuánto marca el medidor en la casa?</label>
+      <input type="number" id="med_dbm" step="0.1" placeholder="-19.5"
+             value="${cli.medicion?cli.medicion.dbm:''}" autocomplete="off">
+      <p class="ayuda">En dBm, con el signo menos. Ejemplo: −19,5 se escribe -19.5</p>
+      <label style="margin-top:12px">Notas</label>
+      <input id="med_nota" placeholder="Opcional: se limpió el conector, se refusionó…"
+             value="${esc((cli.medicion&&cli.medicion.nota)||'')}" autocomplete="off">`,
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cancelar</button>
+       ${cli.medicion?`<button class="btn btn-sm btn-out" onclick="borrarMedicion()">Quitar</button>`:''}
+       <button class="btn btn-sm btn-primary" style="width:auto" onclick="guardarMedicion()">Guardar</button>`);
+    setTimeout(()=>{ const i=document.getElementById('med_dbm'); if(i){ i.focus(); i.select(); } },60);
+}
+async function guardarMedicion(){
+    const cli=RED.elementos.find(e=>e.id===window._medCli); if(!cli) return cerrarModal();
+    const v=parseFloat(val('med_dbm'));
+    if(!isFinite(v)) return alert('Escribe la medición en dBm. Ejemplo: -19.5');
+    if(v>0) return alert('La potencia en la casa es negativa.\n\nSi el medidor marca 19.5, escribe -19.5');
+    if(v<-40) return alert('−'+Math.abs(v)+' dBm es demasiado bajo para ser una lectura buena.\n\n'
+        +'Revisa que el medidor esté en dBm y en 1490 nm.');
+    const antes=cli.medicion;
+    cli.medicion={dbm:v, nota:val('med_nota'), en:Date.now(), por:(USER&&USER.nombre)||''};
+    cerrarModal();
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){ cli.medicion=antes; ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e)); }
+    ocultarCarga(); pintarPanel(cli);
+}
+async function borrarMedicion(){
+    const cli=RED.elementos.find(e=>e.id===window._medCli); if(!cli) return cerrarModal();
+    const antes=cli.medicion; delete cli.medicion;
+    cerrarModal();
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){ cli.medicion=antes; ocultarCarga(); return alert('No se pudo guardar.'); }
+    ocultarCarga(); pintarPanel(cli);
+}
+
+/* La potencia del OLT es de la sede: se pregunta una vez. */
+function configurarOLT(){
+    if(esTecnico()) return noPuede('editar','caja');
+    abrirModal('⚙️ Potencia de salida del OLT', `
+      <p class="ayuda" style="margin-top:0">Es con lo que sale la señal de la central. Sirve para
+         calcular cuánta debería llegarle a cada cliente.</p>
+      <label>Potencia del OLT de ${esc(SEDE?SEDE.nombre:'')}</label>
+      <input type="number" id="olt_dbm" step="0.1" value="${oltDbm()}">
+      <p class="ayuda">En dBm. Una GPON clase B+ suele salir entre +1,5 y +5; por defecto se usa +3.
+         Si no sabes el dato exacto, déjalo así: el cálculo sirve igual para comparar unos
+         clientes con otros.</p>`,
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cancelar</button>
+       <button class="btn btn-sm btn-primary" style="width:auto" onclick="guardarOLT()">Guardar</button>`);
+}
+async function guardarOLT(){
+    const v=parseFloat(val('olt_dbm'));
+    if(!isFinite(v)||v<-10||v>15) return alert('Escribe un valor entre -10 y 15 dBm.');
+    RED.config=RED.config||{}; RED.config.oltDbm=v;
+    cerrarModal();
+    mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){ ocultarCarga(); return alert('No se pudo guardar.'); }
+    ocultarCarga(); pintarPanel();
+}
+
+/* ════════════════════════════════════════════════════════════════════
    ILUMINACIÓN DE RUTA — por dónde le llega la señal a una caja
    ────────────────────────────────────────────────────────────────────
    Sube por los cables de caja en caja hasta dar con el POP, y de paso
@@ -5192,7 +5703,7 @@ function iluminarRuta(caja){
 
 function pintarRuta(caja, r){
     const pan=document.getElementById('panel');
-    pan.innerHTML=`
+    pan.innerHTML=_tir()+`
       <button class="btn btn-sm btn-out" style="margin-bottom:12px" onclick="modo('ver')">← Salir</button>
       <div class="sec">Por dónde le llega la señal</div>
       <div class="kpis">
@@ -5377,7 +5888,7 @@ function pintarViabilidad(p, cerca, conCupo){
           ${!dentro?`<p class="ayuda" style="color:#f59e0b">⚠️ Pasa de ${DROP_MAX} m: toca tender obra, no un drop normal</p>`:''}
         </div>`;
     };
-    pan.innerHTML=`
+    pan.innerHTML=_tir()+`
       <button class="btn btn-sm btn-out" style="margin-bottom:12px" onclick="modo('ver')">← Salir de viabilidad</button>
       <div class="sec">¿Hay cupo aquí?</div>
       <p class="ayuda" style="margin-bottom:10px">📍 ${p[0].toFixed(6)}, ${p[1].toFixed(6)}</p>
