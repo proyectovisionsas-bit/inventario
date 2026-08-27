@@ -8855,6 +8855,43 @@ window._ejecutarImport=_ejecutarImport;
 import { initializeApp, getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, runTransaction } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
+// ════════════════════════════════════════════════════════════════════════════
+// MODO PRUEBA — ?prueba=1 abre la app SIN PODER ESCRIBIR NADA
+// ────────────────────────────────────────────────────────────────────────────
+// Sirve para que PRUEBAS.html revise que todo sigue funcionando ANTES de
+// publicar, usando los datos de verdad y sin riesgo de tocarlos. Los datos se
+// leen igual; cualquier intento de escribir se anota y se descarta.
+//
+// NO abre puertas: no salta el inicio de sesión ni muestra nada que no se
+// viera normalmente. Lo único que hace es QUITAR permisos, nunca darlos.
+// ════════════════════════════════════════════════════════════════════════════
+const MODO_PRUEBA = (()=>{ try{ return new URLSearchParams(location.search).get('prueba')==='1'; }catch(e){ return false; } })();
+const _escBloq = [];
+function _bloquear(que){ _escBloq.push({que, cuando:Date.now()});
+    if(_escBloq.length===1) console.warn('🧪 MODO PRUEBA: las escrituras están bloqueadas.'); }
+window._escriturasBloqueadas = _escBloq;
+// Si alguien abre la app con ?prueba=1 sin darse cuenta, trabajaría toda la
+// mañana y nada se guardaría. Por eso el modo prueba se ANUNCIA en pantalla.
+if(MODO_PRUEBA){ (function(){
+    const poner=()=>{ if(!document.body || document.getElementById('avisoPrueba')) return;
+        const d=document.createElement('div'); d.id='avisoPrueba';
+        d.style.cssText='position:fixed;top:0;left:0;right:0;z-index:2147483647;'
+            +'background:#f59e0b;color:#1a1200;font:700 13px/1.4 "Segoe UI",system-ui,sans-serif;'
+            +'text-align:center;padding:7px 12px;box-shadow:0 2px 10px rgba(0,0,0,.35);';
+        d.textContent='🧪 MODO PRUEBA — nada de lo que haga aquí se guarda. '
+            +'Para trabajar de verdad, quite "?prueba=1" de la dirección.';
+        document.body.appendChild(d); };
+    if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', poner);
+    else poner();
+    setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
+})(); }
+// Se renombran los usos (_setDoc, _deleteDoc, _runTransaction) en vez de tocar
+// el import, que no se puede reasignar.
+const _setDoc = (...a)=> MODO_PRUEBA ? (_bloquear('setDoc'), Promise.resolve()) : setDoc(...a);
+const _deleteDoc = (...a)=> MODO_PRUEBA ? (_bloquear('deleteDoc'), Promise.resolve()) : deleteDoc(...a);
+const _runTransaction = (...a)=> MODO_PRUEBA ? (_bloquear('runTransaction'),
+        Promise.reject(new Error('🧪 Modo prueba: no se escribe.'))) : runTransaction(...a);
+
 const FB_KEY = 'invPro_firebaseConfig';
 // ⚙️ CONFIG INTEGRADA (v72): la misma base de Oficinas/Técnicos. La app se conecta
 // SOLA con esta configuración; ya no pide configurar Firebase aunque se borre el
@@ -8920,7 +8957,7 @@ async function prepareDbCopy() {
 
 // Guardar los campos de historial en su propio documento (separado de inventario/datos)
 async function saveHistorial(historial) {
-    await setDoc(doc(fsDB, HISTORIAL_DOC), { ...historial, _actualizado: Date.now() });
+    await _setDoc(doc(fsDB, HISTORIAL_DOC), { ...historial, _actualizado: Date.now() });
 }
 
 // Cargar los campos de historial. Devuelve true si el documento ya existía.
@@ -8983,9 +9020,9 @@ async function saveClienteChunks(clientes) {
     const chunks = chunkArray(clientes, CHUNK_SIZE);
     const numChunks = chunks.length;
     // v72: chunks en PARALELO (antes uno por uno en fila)
-    await Promise.all(chunks.map((parte,i)=> setDoc(doc(fsDB, `inventario/clientes_${i}`), { clientes: parte, chunk: i, total: numChunks })));
+    await Promise.all(chunks.map((parte,i)=> _setDoc(doc(fsDB, `inventario/clientes_${i}`), { clientes: parte, chunk: i, total: numChunks })));
     // Save index
-    await setDoc(doc(fsDB, 'inventario/clientes_index'), { numChunks, total: clientes.length });
+    await _setDoc(doc(fsDB, 'inventario/clientes_index'), { numChunks, total: clientes.length });
     window._sigClientesInv = sig; // confirmar firma tras el éxito
 }
 
@@ -9219,7 +9256,7 @@ async function _fbSaveCore(conOverlay) {
                 }
             }
         }catch(eT){}
-        await setDoc(doc(fsDB, DB_DOC), dbCopy);
+        await _setDoc(doc(fsDB, DB_DOC), dbCopy);
         await saveClienteChunks(clientes);
         await saveHistorial(historial);
         showSync('ok','Guardado ✓');
@@ -9309,7 +9346,7 @@ async function startFirebase(config) {
     // o null para abortar sin escribir. Puede lanzar Error con mensaje claro.
     // ════════════════════════════════════════════════════════════════
     window._fbTransaccionInv = async function(modifFn){
-        return await runTransaction(fsDB, async (tx)=>{
+        return await _runTransaction(fsDB, async (tx)=>{
             const snap = await tx.get(ref);
             if(!snap.exists()) throw new Error('No se encontró inventario/datos en la nube');
             const data = snap.data();
@@ -9337,7 +9374,7 @@ async function startFirebase(config) {
     // ni cuentas de Google, ni permisos, ni servicios aparte.
     // ════════════════════════════════════════════════════════════════
     window._fbGuardarFoto = async function(fid, dataURL, etiqueta){
-        await setDoc(doc(fsDB, 'inventario/foto_'+fid), { data:dataURL, etiqueta:etiqueta||'', creado:Date.now() });
+        await _setDoc(doc(fsDB, 'inventario/foto_'+fid), { data:dataURL, etiqueta:etiqueta||'', creado:Date.now() });
         return fid;
     };
     window._fbLeerFoto = async function(fid){
@@ -9345,7 +9382,7 @@ async function startFirebase(config) {
         return (s.exists() && s.data().data) ? s.data().data : '';
     };
     window._fbBorrarFoto = async function(fid){
-        try{ await deleteDoc(doc(fsDB, 'inventario/foto_'+fid)); return true; }catch(e){ return false; }
+        try{ await _deleteDoc(doc(fsDB, 'inventario/foto_'+fid)); return true; }catch(e){ return false; }
     };
 
     // 📦 v81: archivo histórico — cada tipo en su propio documento y por año,
@@ -9355,12 +9392,12 @@ async function startFirebase(config) {
         catch(e){ throw new Error('No se pudo leer el archivo histórico: '+(e.message||e)); }
     };
     window._fbGuardarArchivoInv = async function(nombre, datos){
-        await setDoc(doc(fsDB, 'inventario/'+nombre), { ...datos, actualizado:Date.now() });
+        await _setDoc(doc(fsDB, 'inventario/'+nombre), { ...datos, actualizado:Date.now() });
         return true;
     };
 
     window._fbTransaccionInvMulti = async function(modifFn){
-        return await runTransaction(fsDB, async (tx)=>{
+        return await _runTransaction(fsDB, async (tx)=>{
             const [sD, sH] = [await tx.get(ref), await tx.get(refHist)];
             if(!sD.exists()) throw new Error('No se encontró inventario/datos en la nube');
             const datos = sD.data();
@@ -9594,7 +9631,7 @@ async function startFirebase(config) {
         const vref = doc(fsDB, 'inventario/app_version');
         const vsnap = await getDoc(vref);
         const remota = vsnap.exists() ? (vsnap.data().version||0) : 0;
-        if(APP_VERSION_INV > remota){ await setDoc(vref, {version:APP_VERSION_INV, actualizadoEn:Date.now()}); }
+        if(APP_VERSION_INV > remota){ await _setDoc(vref, {version:APP_VERSION_INV, actualizadoEn:Date.now()}); }
         onSnapshot(vref, (s)=>{
             if(!s.exists()) return;
             const rem = s.data().version||0;
@@ -9611,7 +9648,7 @@ async function startFirebase(config) {
             let lista = (snap.exists() && Array.isArray(snap.data().sesiones)) ? snap.data().sesiones : [];
             lista.push({ app:'Inventario', quien:quien||'Bodega', rol:rol||'', fecha:Date.now() });
             if(lista.length>300) lista = lista.slice(-300);
-            await setDoc(ref, { sesiones:lista, actualizado:Date.now() });
+            await _setDoc(ref, { sesiones:lista, actualizado:Date.now() });
         }catch(e){ console.warn('registrar sesión inv:', e); }
     };
 

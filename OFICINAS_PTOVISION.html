@@ -900,6 +900,36 @@ let db = null;
 const DOC_ID = 'main'; // documento único en colección "oficinas_sistema"
 // ─── CONTROL DE VERSIÓN ───
 // Incrementa este número cada vez que publiques una actualización.
+// ════════════════════════════════════════════════════════════════════════════
+// MODO PRUEBA — ?prueba=1 abre la app SIN PODER ESCRIBIR NADA
+// ────────────────────────────────────────────────────────────────────────────
+// Sirve para que PRUEBAS.html revise que todo sigue funcionando ANTES de
+// publicar, usando los datos de verdad y sin riesgo de tocarlos. Los datos se
+// leen igual; cualquier intento de escribir se anota y se descarta.
+//
+// NO abre puertas: no salta el inicio de sesión ni muestra nada que no se
+// viera normalmente. Lo único que hace es QUITAR permisos, nunca darlos.
+// ════════════════════════════════════════════════════════════════════════════
+const MODO_PRUEBA = (()=>{ try{ return new URLSearchParams(location.search).get('prueba')==='1'; }catch(e){ return false; } })();
+const _escBloq = [];
+function _bloquear(que){ _escBloq.push({que, cuando:Date.now()});
+    if(_escBloq.length===1) console.warn('🧪 MODO PRUEBA: las escrituras están bloqueadas.'); }
+window._escriturasBloqueadas = _escBloq;
+// Si alguien abre la app con ?prueba=1 sin darse cuenta, trabajaría toda la
+// mañana y nada se guardaría. Por eso el modo prueba se ANUNCIA en pantalla.
+if(MODO_PRUEBA){ (function(){
+    const poner=()=>{ if(!document.body || document.getElementById('avisoPrueba')) return;
+        const d=document.createElement('div'); d.id='avisoPrueba';
+        d.style.cssText='position:fixed;top:0;left:0;right:0;z-index:2147483647;'
+            +'background:#f59e0b;color:#1a1200;font:700 13px/1.4 "Segoe UI",system-ui,sans-serif;'
+            +'text-align:center;padding:7px 12px;box-shadow:0 2px 10px rgba(0,0,0,.35);';
+        d.textContent='🧪 MODO PRUEBA — nada de lo que haga aquí se guarda. '
+            +'Para trabajar de verdad, quite "?prueba=1" de la dirección.';
+        document.body.appendChild(d); };
+    if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', poner);
+    else poner();
+    setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
+})(); }
 const APP_VERSION = 267; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -25974,6 +26004,22 @@ const firebaseConfig = {
     try{
         firebase.initializeApp(firebaseConfig);
         db = firebase.firestore();
+        // 🧪 Modo prueba: se lee igual, pero nada se escribe.
+        if(MODO_PRUEBA){
+            const _col=db.collection.bind(db);
+            const _tapar=ref=>{ ['set','update','delete'].forEach(m=>{
+                    ref[m]=function(){ _bloquear(m); return Promise.resolve(); }; }); return ref; };
+            db.collection=function(n){ const c=_col(n); const _d=c.doc.bind(c);
+                c.doc=function(x){ return _tapar(_d(x)); };
+                ['add'].forEach(m=>{ c[m]=function(){ _bloquear(m); return Promise.resolve({id:'prueba'}); }; });
+                return c; };
+            const _rt=db.runTransaction&&db.runTransaction.bind(db);
+            if(_rt) db.runTransaction=function(){ _bloquear('runTransaction');
+                return Promise.reject(new Error('🧪 Modo prueba: no se escribe.')); };
+            const _bw=db.batch&&db.batch.bind(db);
+            if(_bw) db.batch=function(){ const b=_bw();
+                b.commit=function(){ _bloquear('batch'); return Promise.resolve(); }; return b; };
+        }
         showSync("saving","Conectando...");
         await load();
         showSync("ok","Conectado ✓");
