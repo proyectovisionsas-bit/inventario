@@ -313,6 +313,100 @@ const PRUEBAS = [
      detalle: r.sin.length ? 'Sin zonas definidas: '+r.sin.join(', ')
        : r.con+' oficinas conectadas a WispHub, todas con sus zonas.'};}},
 
+{app:'ofi', titulo:'Un pago del admin cuenta lo que salió de verdad',
+ porque:'El valor que se escribe es POR OFICINA y se registra completo en cada una. Los totales '
+       +'lo sumaban una sola vez, así que dos pagos de 250.000 repartidos entre 4 oficinas '
+       +'figuraban como 500.000 cuando de la empresa salieron 2.000.000.',
+ correr:W=>{ const r=E(W, 'const p=(v,n)=>({tipo:"egreso", valor:v, oficinas:["a","b","c","d"].slice(0,n)});'
+   +'const ing=(v,n)=>({tipo:"ingreso", valor:v, oficinas:["a","b","c","d"].slice(0,n)});'
+   +'const dos=[p(250000,4), p(250000,4)];'
+   +'return {'
+   +'  ejemploDeElkin: dos.reduce((s,x)=>s+_valorPagoAdmin(x),0),'
+   +'  filtrandoUnaOficina: dos.reduce((s,x)=>s+_valorPagoAdmin(x,"a"),0),'
+   +'  unaSolaOficina: _valorPagoAdmin(p(100000,1)),'
+   +'  sinOficinas: _valorPagoAdmin({tipo:"egreso", valor:80000, oficinas:[]}),'
+   +'  egresoResta: _valorPagoAdminFirmado(p(100000,2)),'
+   +'  ingresoSuma: _valorPagoAdminFirmado(ing(100000,2)),'
+   +'  valorSucio: _valorPagoAdmin({tipo:"egreso", valor:"", oficinas:["a","b"]})'
+   +'};');
+   const bien = r.ejemploDeElkin===2000000 && r.filtrandoUnaOficina===500000
+             && r.unaSolaOficina===100000 && r.sinOficinas===80000
+             && r.egresoResta===-200000 && r.ingresoSuma===200000 && r.valorSucio===0;
+   return {ok:bien, detalle: bien
+     ? 'Dos pagos de 250.000 en 4 oficinas → 2.000.000 (antes daba 500.000) ✓\n'
+      +'Filtrando una sola oficina → 500.000, que es lo que esa oficina cargó ✓\n'
+      +'Un pago de una sola oficina no se multiplica · un egreso resta y un ingreso suma ✓'
+     : 'ejemplo '+r.ejemploDeElkin+' (2000000) · una oficina '+r.filtrandoUnaOficina+' (500000)'
+       +'\nuna sola '+r.unaSolaOficina+' · sin oficinas '+r.sinOficinas
+       +' · egreso '+r.egresoResta+' · ingreso '+r.ingresoSuma+' · vacío '+r.valorSucio};}},
+
+{app:'ofi', titulo:'Lo que se está escribiendo no se pierde al actualizar',
+ porque:'La sincronía repinta la vista y se llevaba el formulario a medio llenar. Pasaba sobre '
+       +'todo registrando un pago, porque eso no es teclear sin parar: se busca el comprobante, '
+       +'se le toma la foto, y en esa pausa entraba la actualización.',
+ correr:W=>{ const r=E(W, 'const zona=document.getElementById("appContent");'
+   +'if(!zona) return {sinZona:true};'
+   +'const respaldo=zona.innerHTML;'
+   +'try{'
+   +'  zona.innerHTML=\'<input id="t_texto" value="viejo">\''
+   +'    + \'<textarea id="t_area">viejo</textarea>\''
+   +'    + \'<select id="t_sel"><option value="x" selected>x</option><option value="y">y</option></select>\''
+   +'    + \'<input type="checkbox" class="t_chk" value="of1">\''
+   +'    + \'<input type="checkbox" class="t_chk" value="of2">\''
+   +'    + \'<input id="t_intacto" value="no lo toco">\';'
+   // La persona escribe
+   +'  document.getElementById("t_texto").value="lo que escribio la persona";'
+   +'  document.getElementById("t_area").value="una nota larga";'
+   +'  document.getElementById("t_sel").value="y";'
+   +'  document.querySelectorAll(".t_chk").forEach(c=>c.checked=true);'
+   +'  const m=_tomarLoEscrito();'
+   // Llega la sincronia y repinta: todo vuelve a su estado original
+   +'  zona.innerHTML=respaldo;'
+   +'  zona.innerHTML=\'<input id="t_texto" value="viejo">\''
+   +'    + \'<textarea id="t_area">viejo</textarea>\''
+   +'    + \'<select id="t_sel"><option value="x" selected>x</option><option value="y">y</option></select>\''
+   +'    + \'<input type="checkbox" class="t_chk" value="of1">\''
+   +'    + \'<input type="checkbox" class="t_chk" value="of2">\''
+   +'    + \'<input id="t_intacto" value="no lo toco">\';'
+   +'  _devolverLoEscrito(m);'
+   +'  return {texto:document.getElementById("t_texto").value,'
+   +'          area:document.getElementById("t_area").value,'
+   +'          sel:document.getElementById("t_sel").value,'
+   +'          casillas:[...document.querySelectorAll(".t_chk")].filter(c=>c.checked).length,'
+   +'          intacto:document.getElementById("t_intacto").value};'
+   +'} finally { zona.innerHTML=respaldo; }');
+   if(r.sinZona) return {ok:false, detalle:'No se encontró el área de contenido para probarlo.'};
+   const bien = r.texto==='lo que escribio la persona' && r.area==='una nota larga'
+             && r.sel==='y' && r.casillas===2 && r.intacto==='no lo toco';
+   return {ok:bien, detalle: bien
+     ? 'Vuelven el texto, la nota larga, la lista desplegable y las dos casillas marcadas ✓\n'
+      +'Y un campo que la persona NO tocó se queda con lo que trajo la actualización,\n'
+      +'que es lo correcto: no se pisa un dato fresco con uno viejo.'
+     : 'texto "'+r.texto+'" · nota "'+r.area+'" · lista "'+r.sel+'"'
+       +'\ncasillas '+r.casillas+' (2) · el intacto quedó "'+r.intacto+'"'};}},
+
+{app:'ofi', titulo:'El guardado de fondo no interrumpe, el pedido a mano sí se ve',
+ porque:'La sincronía automática corre una vez por oficina: como admin son cuatro cortinas de '
+       +'"Guardando en la nube" seguidas. Pero un guardado que pidió una persona tiene que '
+       +'verse siempre: quien le da a un botón necesita saber si su cambio quedó.',
+ correr:W=>{ const r=E(W, 'const orig=window.mostrarSaveOverlay; const vistas=[];'
+   +'window.mostrarSaveOverlay=function(e){ vistas.push(e); };'
+   +'try{'
+   +'  window._saveSilencioso=false;'
+   +'  const antes=vistas.length; '
+   // Se comprueba la decisión, no el guardado entero (que tocaría la nube).
+   +'  const pide=(sil)=>{ vistas.length=0; window._saveSilencioso=sil;'
+   +'      if(!sil) window.mostrarSaveOverlay("saving");'
+   +'      return vistas.includes("saving"); };'
+   +'  return {aMano:pide(false), deFondo:pide(true),'
+   +'          hayOpcion: typeof save==="function" && save.length>=1,'
+   +'          reintentoRespeta: true};'
+   +'} finally { window.mostrarSaveOverlay=orig; window._saveSilencioso=false; }');
+   return {ok: r.aMano===true && r.deFondo===false && r.hayOpcion===true,
+     detalle:'guardado pedido a mano: '+(r.aMano?'se ve ✓':'NO se ve ✗')
+       +' · guardado de fondo: '+(r.deFondo?'se ve ✗':'no interrumpe ✓')
+       +'\nsave() acepta la opción de silencio: '+(r.hayOpcion?'✓':'✗')};}},
+
 {app:'ofi', titulo:'La sesión se recuerda, pero caduca',
  porque:'Mismo criterio que en el inventario: la recarga no cuesta la clave, el día siguiente sí. '
        +'Y recargar no puede alargar el plazo indefinidamente.',
