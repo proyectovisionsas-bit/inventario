@@ -720,6 +720,53 @@ const PRUEBAS = [
      : 'iso "'+r.iso+'" (2026-05-19) · wisphub "'+r.wisphub+'" (2026-05-29)'
        +'\nambiguo "'+r.ambiguo+'" (2026-06-05) · basura "'+r.basura+'" · vacío "'+r.vacio+'"'};}},
 
+{app:'red', titulo:'La ubicación del técnico manda sobre la de WispHub',
+ porque:'Desde TECNICOS v91 el técnico toma la ubicación parado en la casa. Esa vale más que la '
+       +'de WispHub, que está mal llenada. Si el sistema prefiriera la de WispHub, el trabajo de '
+       +'ir hasta la puerta a tomarla no serviría de nada.',
+ correr:W=>{ const r=E(W, 'const gF=window.fetch, gOT=DB.ordenesTrabajo, gS=SEDE, gO=DB.oficinas;'
+   +'return (async function(){ try{'
+   // La función lee la cuenta y las zonas de la OFICINA en DB, no del SEDE que
+   // se le ponga por fuera. Así que se agrega una oficina de prueba sin zonas.
+   +'  DB.oficinas=(DB.oficinas||[]).concat([{id:"OFI_PRUEBA", nombre:"Prueba",'
+   +'      cuentaWisphub:"prueba", zonasWisphub:[]}]);'
+   +'  SEDE={id:"OFI_PRUEBA", nombre:"Prueba"};'
+   +'  window.fetch=async function(){ return {ok:true, json:async function(){ return {count:2, results:['
+   +'    {nombre:"JUAN TOMADO EN CAMPO", servicio:"S1", cedula:"111",'
+   +'     coordenadas:"1.6500,-75.6500", estado:"Activo"},'
+   +'    {nombre:"ANA SOLO EN WISPHUB", servicio:"S2", cedula:"222",'
+   +'     coordenadas:"1.6100,-75.6100", estado:"Activo"}]}; }}; };'
+   +'  DB.ordenesTrabajo=['
+   +'    {id:"O1", tipo:"instalacion", cliente:"JUAN TOMADO EN CAMPO", cedula:"111",'
+   +'     ubicacion:{lat:1.6001, lon:-75.6001, precision:12}},'
+   // Señal débil: parece un dato bueno y no lo es
+   +'    {id:"O2", tipo:"instalacion", cliente:"SENAL MALA", cedula:"333",'
+   +'     ubicacion:{lat:1.60, lon:-75.60, precision:450}},'
+   +'    {id:"O3", tipo:"soporte", cliente:"SIN UBICACION", cedula:"444"}];'
+   +'  const lista=await _traerCoordsWisphub(function(){});'
+   +'  const juan=lista.filter(function(c){ return /JUAN/.test(c.nombre); });'
+   +'  return {total:lista.length, juanVeces:juan.length,'
+   +'          juanEnCampo: !!(juan[0]&&juan[0].enCampo),'
+   +'          juanLat: juan[0]? +juan[0].g[0].toFixed(4) : null,'
+   +'          anaSigue: lista.some(function(c){ return /ANA/.test(c.nombre); }),'
+   +'          malaFuera: !lista.some(function(c){ return /SENAL MALA/.test(c.nombre); }),'
+   +'          soporteFuera: !lista.some(function(c){ return /SIN UBICACION/.test(c.nombre); })};'
+   +'} finally { window.fetch=gF; DB.ordenesTrabajo=gOT; SEDE=gS; DB.oficinas=gO; } })();');
+   return Promise.resolve(r).then(rr=>{
+     if(rr && rr.error) return {ok:false, detalle:'No se pudo probar: '+rr.error};
+     const bien = rr.total===2 && rr.juanVeces===1 && rr.juanEnCampo && rr.juanLat===1.6001
+               && rr.anaSigue && rr.malaFuera && rr.soporteFuera;
+     return {ok:bien, detalle: bien
+       ? 'De JUAN hay dos versiones (la del técnico y la de WispHub) y queda UNA: la del técnico ✓\n'
+        +'A quien solo está en WispHub se le sigue usando su coordenada ✓\n'
+        +'Una lectura con 450 m de margen se descarta: parece buena y no lo es ✓\n'
+        +'Un soporte no aporta ubicación de instalación y se ignora ✓'
+       : 'total '+rr.total+' (2) · JUAN aparece '+rr.juanVeces+' vez/veces (1)'
+         +'\nJUAN del técnico: '+rr.juanEnCampo+' · su latitud '+rr.juanLat+' (1.6001)'
+         +'\nANA sigue: '+rr.anaSigue+' · señal mala fuera: '+rr.malaFuera
+         +' · soporte fuera: '+rr.soporteFuera};
+   });}},
+
 {app:'red', titulo:'Ubicar con WispHub no pone a nadie lejos de su caja',
  porque:'Las coordenadas de WispHub no son de fiar: en FLORENCIA 53 clientes comparten el mismo '
        +'punto y el error mediano contra lo levantado en campo es de 1.762 m. Por eso solo se '
