@@ -720,6 +720,46 @@ const PRUEBAS = [
      : 'iso "'+r.iso+'" (2026-05-19) · wisphub "'+r.wisphub+'" (2026-05-29)'
        +'\nambiguo "'+r.ambiguo+'" (2026-06-05) · basura "'+r.basura+'" · vacío "'+r.vacio+'"'};}},
 
+{app:'red', titulo:'Cada app se puede instalar por separado',
+ porque:'Para el navegador, dos páginas son la MISMA app si comparten nombre o dirección de '
+       +'arranque: instalar una reemplazaría a la otra. RED no tenía ninguno de los dos y por eso '
+       +'no se podía instalar. Si alguien los iguala sin querer, se pierde poder tenerlas aparte.',
+ correr:async W=>{
+   const apps=['index.html','OFICINAS_PTOVISION.html','INVENTARIO_PTOVISION.html',
+               'RED_PTOVISION.html','TECNICOS_PTOVISION.html'];
+   const D=W.document, out=[];
+   for(const a of apps){
+     const f=D.createElement('iframe');
+     f.style.cssText='position:absolute;left:-9999px;width:1px;height:1px';
+     f.src='/'+a; D.body.appendChild(f);
+     await new Promise(res=>{ f.onload=()=>setTimeout(res,1500); setTimeout(res,9000); });
+     let m=null;
+     try{
+       const l=f.contentDocument.querySelector('link[rel=manifest]');
+       if(l) m=JSON.parse(decodeURIComponent(l.href.replace(/^data:application\/manifest\+json,/,'')));
+     }catch(e){}
+     out.push({a, nombre:m&&m.name, arranca:m&&String(m.start_url).split('/').pop(),
+               display:m&&m.display, iconos:(m&&m.icons||[]).length});
+     f.remove();
+   }
+   const sinManifiesto=out.filter(x=>!x.nombre).map(x=>x.a);
+   const nombres=out.map(x=>x.nombre), arranques=out.map(x=>x.arranca);
+   const sinIconos=out.filter(x=>x.iconos<2).map(x=>x.a);
+   const noStandalone=out.filter(x=>x.display!=='standalone').map(x=>x.a);
+   const bien = !sinManifiesto.length
+             && new Set(nombres).size===nombres.length
+             && new Set(arranques).size===arranques.length
+             && !sinIconos.length && !noStandalone.length;
+   return {ok:bien, detalle: bien
+     ? 'Las '+out.length+' tienen nombre propio, dirección propia, ventana propia y sus dos íconos:\n'
+      +out.map(x=>'  · '+x.nombre).join('\n')
+     : (sinManifiesto.length?'Sin manifiesto: '+sinManifiesto.join(', ')+'\n':'')
+       +(new Set(nombres).size!==nombres.length?'Hay nombres repetidos.\n':'')
+       +(new Set(arranques).size!==arranques.length?'Hay direcciones de arranque repetidas.\n':'')
+       +(sinIconos.length?'Sin los dos íconos: '+sinIconos.join(', ')+'\n':'')
+       +(noStandalone.length?'No abren en ventana propia: '+noStandalone.join(', '):'')};
+ }},
+
 {app:'red', titulo:'Nada se escribió durante las pruebas',
  porque:'Las pruebas corren sobre los datos de verdad. Si alguna escribiera, dañaría justo lo que '
        +'está revisando.',
