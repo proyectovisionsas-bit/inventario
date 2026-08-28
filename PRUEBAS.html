@@ -720,6 +720,73 @@ const PRUEBAS = [
      : 'iso "'+r.iso+'" (2026-05-19) · wisphub "'+r.wisphub+'" (2026-05-29)'
        +'\nambiguo "'+r.ambiguo+'" (2026-06-05) · basura "'+r.basura+'" · vacío "'+r.vacio+'"'};}},
 
+{app:'red', titulo:'Reimportar un mapa mejor hecho no lo duplica',
+ porque:'La llave de fusión incluye el TIPO, así que un punto que antes entró como poste y ahora '
+       +'entra como caja no se reconoce como el mismo. Reimportar el mismo mapa mejor ordenado lo '
+       +'duplicaba todo. Pasó con DONCELLO: 427 elementos que habrían quedado en 857.',
+ correr:W=>{ const r=E(W, 'const gRED=RED, gSEDE=SEDE, gG=window.guardarRed;'
+   +'const gP=window.prompt, gC=window.confirm, gA=window.alert;'
+   +'return (async function(){'
+   +'  try{'
+   // Un mapa mínimo: dos puntos y un cable entre ellos
+   +'    const kml=\'<?xml version="1.0"?><kml><Document>\''
+   +'      + \'<Folder><name>Cajas</name><Folder><name>NAP</name>\''
+   +'      + \'<Placemark><name>CAJA 1</name><description>Tipo: NAP 1X8</description>\''
+   +'      + \'<Point><coordinates>-75.60,1.61,0</coordinates></Point></Placemark>\''
+   +'      + \'<Placemark><name>CAJA 2</name><description>Tipo: NAP 1X8</description>\''
+   +'      + \'<Point><coordinates>-75.601,1.611,0</coordinates></Point></Placemark>\''
+   +'      + \'</Folder></Folder><Folder><name>Cables</name><Folder><name>Secundario</name>\''
+   +'      + \'<Placemark><name>TRAMO 1</name><description>Tipo: FIBRA 12H</description>\''
+   +'      + \'<LineString><coordinates>-75.60,1.61,0 -75.601,1.611,0</coordinates></LineString>\''
+   +'      + \'</Placemark></Folder></Folder></Document></kml>\';'
+   // La sede "como estaba": los mismos puntos pero entrados como postes
+   +'    const viejo=[{id:"v1",tipo:"poste",nombre:"Marcador",g:[[1.61,-75.60]],subtipo:""},'
+   +'                 {id:"v2",tipo:"poste",nombre:"Marcador",g:[[1.611,-75.601]],subtipo:""},'
+   +'                 {id:"v3",tipo:"cable",clase:"secundario",nombre:"Ruta sin título",'
+   +'                  g:[[1.61,-75.60],[1.611,-75.601]],subtipo:""}];'
+   +'    SEDE={id:"PRUEBA_IMPORT", nombre:"Sede de prueba"};'
+   +'    window.guardarRed=async function(){ return 1; };'   // nada se escribe
+   +'    window.confirm=function(){ return true; };'
+   +'    window.alert=function(){};'
+   +'    const archivo=new File([kml],"prueba.kml",{type:"text/plain"});'
+   +'    RED={elementos:JSON.parse(JSON.stringify(viejo)), regiones:[], notas:[]};'
+   +'    window.prompt=function(){ return "AGREGAR"; };'
+   +'    await importarKML(archivo);'
+   +'    const agregando=RED.elementos.length;'
+   +'    RED={elementos:JSON.parse(JSON.stringify(viejo)), regiones:[], notas:[]};'
+   +'    window.prompt=function(){ return "REEMPLAZAR"; };'
+   +'    await importarKML(archivo);'
+   +'    const reemplazando=RED.elementos.length;'
+   +'    const cajas=RED.elementos.filter(function(e){ return e.tipo==="caja"; }).length;'
+   // Escribir cualquier otra cosa no debe tocar nada
+   +'    RED={elementos:JSON.parse(JSON.stringify(viejo)), regiones:[], notas:[]};'
+   +'    window.prompt=function(){ return "sí dale"; };'
+   +'    await importarKML(archivo);'
+   +'    const conRespuestaRara=RED.elementos.length;'
+   // Y cancelar tampoco
+   +'    RED={elementos:JSON.parse(JSON.stringify(viejo)), regiones:[], notas:[]};'
+   +'    window.prompt=function(){ return null; };'
+   +'    await importarKML(archivo);'
+   +'    const cancelando=RED.elementos.length;'
+   +'    return {agregando, reemplazando, cajas, conRespuestaRara, cancelando};'
+   +'  } finally {'
+   +'    RED=gRED; SEDE=gSEDE; window.guardarRed=gG;'
+   +'    window.prompt=gP; window.confirm=gC; window.alert=gA;'
+   +'  }'
+   +'})();');
+   return Promise.resolve(r).then(rr=>{
+     if(rr && rr.error) return {ok:false, detalle:'No se pudo probar: '+rr.error};
+     const bien = rr.agregando===6 && rr.reemplazando===3 && rr.cajas===2
+               && rr.conRespuestaRara===3 && rr.cancelando===3;
+     return {ok:bien, detalle: bien
+       ? 'Sobre una sede con 3 elementos viejos, reimportando el mismo mapa bien ordenado:\n'
+        +'  AGREGAR → 6 (los duplica, que es lo que hacía antes y por eso hay que avisar)\n'
+        +'  REEMPLAZAR → 3, y ahora sí son 2 cajas y un cable ✓\n'
+        +'Una respuesta que no sea ninguna de las dos no toca nada, y cancelar tampoco ✓'
+       : 'agregando '+rr.agregando+' (6) · reemplazando '+rr.reemplazando+' (3) · cajas '+rr.cajas+' (2)'
+         +'\nrespuesta rara '+rr.conRespuestaRara+' (3) · cancelando '+rr.cancelando+' (3)'};
+   });}},
+
 {app:'red', titulo:'Cada app se puede instalar por separado',
  porque:'Para el navegador, dos páginas son la MISMA app si comparten nombre o dirección de '
        +'arranque: instalar una reemplazaría a la otra. RED no tenía ninguno de los dos y por eso '
