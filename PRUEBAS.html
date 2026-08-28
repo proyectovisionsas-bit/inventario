@@ -720,6 +720,128 @@ const PRUEBAS = [
      : 'iso "'+r.iso+'" (2026-05-19) · wisphub "'+r.wisphub+'" (2026-05-29)'
        +'\nambiguo "'+r.ambiguo+'" (2026-06-05) · basura "'+r.basura+'" · vacío "'+r.vacio+'"'};}},
 
+{app:'red', titulo:'Ubicar con WispHub no pone a nadie lejos de su caja',
+ porque:'Las coordenadas de WispHub no son de fiar: en FLORENCIA 53 clientes comparten el mismo '
+       +'punto y el error mediano contra lo levantado en campo es de 1.762 m. Por eso solo se '
+       +'ubica al que quede a menos de 300 m de su caja. Si ese tope se rompe, se llenaría el '
+       +'mapa de gente puesta a kilómetros de donde vive, con su acometida dibujada.',
+ correr:W=>{ const r=E(W, 'const gRED=RED, gSEDE=SEDE, gU=USER, gG=window.guardarRed;'
+   +'const gT=_traerCoordsWisphub, gC=window.confirm, gA=window.alert, gD=window.dibujar;'
+   +'return (async function(){ try{'
+   +'  USER={role:"admin", nombre:"prueba"}; SEDE={id:"PB", nombre:"Prueba"};'
+   +'  window.guardarRed=async function(){ return 1; };'
+   +'  window.confirm=function(){ return true; }; window.alert=function(){};'
+   +'  window.dibujar=function(){};'
+   // Una caja con cuatro clientes anotados en sus puertos
+   +'  const caja={id:"CJ", tipo:"caja", clase:"nap", nombre:"CAJA X", g:[[1.6,-75.6]],'
+   +'    splitters:[{tipo:"1x8"}], cables:[], puertos:{'
+   +'      1:{cliente:"CERCA DE LA CAJA UNO"}, 2:{cliente:"LEJOS DE LA CAJA DOS"},'
+   +'      3:{cliente:"SIN COORDENADA TRES"},  4:{cliente:"CON ERRATA CUATRO"}}};'
+   +'  RED={elementos:[caja], regiones:[], notas:[], vistos:{}};'
+   // Lo que "traería" WispHub. 0.001 grados ≈ 111 m
+   +'  _traerCoordsWisphub=async function(){ return ['
+   +'     {g:[1.6006,-75.6], nombre:"CERCA DE LA CAJA UNO", servicio:"", cedula:"", estado:"Activo"},'
+   +'     {g:[1.6100,-75.6], nombre:"LEJOS DE LA CAJA DOS", servicio:"", cedula:"", estado:"Activo"},'
+   +'     {g:[1.6007,-75.6], nombre:"CON ERRATA CUATR0",   servicio:"", cedula:"", estado:"Activo"}'
+   +'  ]; };'
+   +'  const plan=await _planUbicacion(function(){});'
+   +'  const antes=RED.elementos.length;'
+   +'  window._planUbic=plan;'
+   +'  await aplicarUbicacionWisphub();'
+   +'  const puestos=RED.elementos.filter(function(e){ return e.ubicacionAuto; });'
+   +'  const cli=puestos.filter(function(e){ return e.tipo==="cliente"; });'
+   +'  const drops=puestos.filter(function(e){ return e.tipo==="cable"; });'
+   // Y que se pueda deshacer sin dejar rastro
+   +'  await deshacerUbicacionAuto();'
+   +'  return {ubicaria:plan.haran.length, lejos:plan.lejos.length, sinCoord:plan.sinCoord.length,'
+   +'          nombresUbicados:plan.haran.map(function(x){return x.nombre;}),'
+   +'          distancias:plan.haran.map(function(x){return x.d;}),'
+   +'          clientesPuestos:cli.length, dropsPuestos:drops.length,'
+   +'          traeNota:!!(cli[0]&&/WispHub/.test(cli[0].notas||"")),'
+   +'          trasDeshacer:RED.elementos.length, volvioIgual:RED.elementos.length===1,'
+   +'          puertoLimpio:!((RED.elementos[0].puertos||{})[1]||{}).clienteId,'
+   +'          coordSuelta:!!_coordWisphub("1.63,-75.60"),'
+   +'          coordGoogle:!!_coordWisphub("https://maps.google.com/?q=1.63,-75.60"),'
+   +'          coordFuera:_coordWisphub("40.4,-3.7"), coordBasura:_coordWisphub("sin datos")};'
+   +'} finally { RED=gRED; SEDE=gSEDE; USER=gU; window.guardarRed=gG;'
+   +'  _traerCoordsWisphub=gT; window.confirm=gC; window.alert=gA; window.dibujar=gD; } })();');
+   return Promise.resolve(r).then(rr=>{
+     if(rr && rr.error) return {ok:false, detalle:'No se pudo probar: '+rr.error};
+     // El cliente se crea con el nombre de WISPHUB, no con el escrito a mano en
+     // el puerto: si difieren, manda el del sistema que factura. Por eso aquí
+     // se espera "CUATR0" y no "CUATRO".
+     const cerca = rr.nombresUbicados && rr.nombresUbicados.length===2
+                && rr.nombresUbicados.every(n=>/UNO|CUATR/.test(n));
+     const bien = rr.ubicaria===2 && rr.lejos===1 && rr.sinCoord===1 && cerca
+               && rr.distancias.every(d=>d<=300)
+               && rr.clientesPuestos===2 && rr.dropsPuestos===2 && rr.traeNota
+               && rr.volvioIgual && rr.puertoLimpio
+               && rr.coordSuelta && rr.coordGoogle && !rr.coordFuera && !rr.coordBasura;
+     return {ok:bien, detalle: bien
+       ? 'De 4 clientes anotados: ubica los 2 que están a menos de 300 m ✓\n'
+        +'Al que está a 1,1 km lo deja quieto, y al que no tiene coordenada también ✓\n'
+        +'Cruza aunque el nombre traiga una errata ("CUATR0" por "CUATRO") ✓\n'
+        +'Cada uno queda con su acometida y una nota que dice de dónde salió ✓\n'
+        +'Deshacer los quita todos y deja el puerto como estaba ✓\n'
+        +'Lee la coordenada suelta y la de Google Maps, y rechaza las de fuera del Caquetá ✓'
+       : 'ubicaría '+rr.ubicaria+' (2) · lejos '+rr.lejos+' (1) · sin coord '+rr.sinCoord+' (1)'
+         +'\nnombres '+JSON.stringify(rr.nombresUbicados)+' · distancias '+JSON.stringify(rr.distancias)
+         +'\nclientes '+rr.clientesPuestos+' drops '+rr.dropsPuestos+' nota '+rr.traeNota
+         +'\ndeshacer volvió igual: '+rr.volvioIgual+' · puerto limpio: '+rr.puertoLimpio
+         +'\ncoords: suelta '+rr.coordSuelta+' google '+rr.coordGoogle
+         +' fuera '+JSON.stringify(rr.coordFuera)+' basura '+JSON.stringify(rr.coordBasura)};
+   });}},
+
+{app:'red', titulo:'El interior de la caja se lee como un empalme real',
+ porque:'Antes todos los cables iban en una sola columna y no se podía ver cuántos hilos entran '
+       +'y siguen de largo, que es lo primero que se mira en un empalme. Tampoco se veía el estado '
+       +'del cliente en cada puerto, ni quién está colgado de la caja sin puerto asignado.',
+ correr:W=>{ const r=E(W, 'const gEls=RED.elementos, gInt=window._intCaja, gU=USER;'
+   +'try{'
+   // Sin usuario el tablero se dibuja en modo lectura y no saca los selectores
+   // de tipo. Se prueba como lo ve quien de verdad va a usarlo.
+   +'  USER={role:"admin", nombre:"prueba"};'
+   +'  const caja={id:"CJ", tipo:"caja", clase:"nap", nombre:"CAJA PRUEBA", g:[[1.6,-75.6]],'
+   +'    splitters:[{tipo:"1x8", ratio:""}], puertos:{1:{cliente:"ALGUIEN"}}, conex:[],'
+   +'    cables:[{id:"CE", nombre:"C-ENTRA", hilos:12, buffers:1, clase:"secundario"},'
+   +'            {id:"CS", nombre:"C-SALE",  hilos:12, buffers:1, clase:"secundario"}]};'
+   +'  const cli=function(id,nom,pto){ return {id:id, tipo:"cliente", nombreReal:nom,'
+   +'      cajaId:"CJ", puerto:pto, g:[[1.6,-75.6]]}; };'
+   +'  RED.elementos=[caja, cli("K1","JUAN CON PUERTO",1), cli("K2","PEDRO SIN PUERTO",null),'
+   +'                 cli("K3","MARIA SIN PUERTO",null)];'
+   +'  window._intCaja="CJ";'
+   // Dos hilos que entran y siguen de largo, y uno que se queda en el splitter
+   +'  caja.conex=[{de:"cCE.h1", a:"cCS.h1"}, {de:"cCE.h2", a:"cCS.h2"},'
+   +'              {de:"cCE.h3", a:"s0.in"}, {de:"s0.o1", a:"p1"}];'
+   +'  const d=document.createElement("div"); d.innerHTML=tableroHTML(caja);'
+   +'  const cols=[].slice.call(d.querySelectorAll(".colt")).map(function(x){return x.textContent.trim();});'
+   +'  const tipos=[].slice.call(d.querySelectorAll(".fila select")).map(function(s){return s.value;});'
+   +'  const sueltos=[].slice.call(d.querySelectorAll("[onclick*=\\"irA\\"]")).length;'
+   +'  const cont=[].slice.call(d.querySelectorAll(".pasoct")).map(function(x){return x.textContent.trim();});'
+   // Cambiar el tipo a mano debe mandar sobre lo deducido
+   +'  caja.conex[0].tipo="conector";'
+   +'  const traManoTipo=_tipoCon(caja.conex[0]);'
+   +'  return {columnas:cols.length, hayLlega:/Llega/.test(cols[0]||""),'
+   +'          hayContinua:/Contin/.test(cols[3]||""),'
+   +'          contadores:cont, dePaso:d.querySelectorAll(".hil.paso").length,'
+   +'          tipos:tipos, sueltos:sueltos, traManoTipo:traManoTipo};'
+   +'} finally { RED.elementos=gEls; window._intCaja=gInt; USER=gU; }');
+   const bien = r.columnas===4 && r.hayLlega && r.hayContinua
+             && r.dePaso===4 && r.sueltos===2
+             && r.tipos.length===4 && r.tipos[0]==='paso' && r.tipos[1]==='paso'
+             && r.tipos[2]==='fusion' && r.traManoTipo==='conector'
+             && (r.contadores[0]||'').indexOf('2 de 12')===0;
+   return {ok:bien, detalle: bien
+     ? 'Cuatro columnas: Llega · Splitters · Puertos · Continúa ✓\n'
+      +'De 12 hilos, dice "2 de 12 siguen de largo" y los marca como de paso ✓\n'
+      +'Deduce solo que unir dos cables es un PASO y lo del splitter una FUSIÓN,\n'
+      +'y lo puesto a mano manda sobre lo deducido ✓\n'
+      +'Muestra los 2 clientes colgados de la caja sin puerto asignado ✓'
+     : 'columnas '+r.columnas+' (4) · llega:'+r.hayLlega+' continúa:'+r.hayContinua
+       +'\nde paso '+r.dePaso+' (4) · sueltos '+r.sueltos+' (2)'
+       +'\ntipos '+JSON.stringify(r.tipos)+' · a mano "'+r.traManoTipo+'" (conector)'
+       +'\ncontadores '+JSON.stringify(r.contadores)};}},
+
 {app:'red', titulo:'Reimportar un mapa mejor hecho no lo duplica',
  porque:'La llave de fusión incluye el TIPO, así que un punto que antes entró como poste y ahora '
        +'entra como caja no se reconoce como el mismo. Reimportar el mismo mapa mejor ordenado lo '

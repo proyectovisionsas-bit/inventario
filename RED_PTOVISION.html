@@ -338,9 +338,22 @@ body.arrastrando .vpto.libre{box-shadow:0 0 0 1px rgba(16,185,129,.55);}
 
 /* ── Interior de la caja: tablero de conexiones ── */
 #tablero{position:relative;}
-.tab3{position:relative;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;
+/* Cuatro columnas, en el mismo orden en que se lee un empalme de verdad:
+   lo que LLEGA · lo que se queda (splitters) · a quién se le entrega · lo que
+   CONTINÚA. Antes todos los cables iban juntos en una sola columna y no se
+   podía leer de un vistazo cuántos hilos siguen de largo. */
+.tab3{position:relative;display:grid;grid-template-columns:1.1fr 1fr 1fr 1.1fr;gap:10px;
       background:#0b1220;border:1px solid var(--border);border-radius:10px;padding:8px;
       max-height:52vh;overflow:auto;}
+/* En pantalla angosta cuatro columnas no caben: se apilan de a dos y se puede
+   desplazar. Apilarlas de a una haría el diagrama ilegible. */
+@media(max-width:820px){ .tab3{grid-template-columns:1fr 1fr;} }
+.tab3 .col-ent .colt{color:#38bdf8;}
+.tab3 .col-sal .colt{color:#fb923c;}
+/* Un hilo que entra y sigue de largo sin tocarse en esta caja */
+.hil.paso{opacity:.55;}
+.hil.paso .hc::after{content:' · de paso';color:#64748b;}
+.pasoct{font-size:.6rem;color:#64748b;margin:2px 0 6px;}
 .tab3 .col{min-width:0;}
 .tab3 .colt{position:sticky;top:-8px;background:#0b1220;z-index:3;padding:4px 0 6px;
             font-size:.68rem;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;}
@@ -658,7 +671,7 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION_RED = 28; // v25: EL CLIENTE SE PINTA SEGUN COMO ESTA HOY, Y SE PUEDE VER SOLO UNA PARTE. [1] Antes todos los clientes eran del mismo color, asi que el mapa no distinguia a quien le esta funcionando el servicio de quien esta suspendido o ya se cancelo, que es justo lo que se necesita ver de un vistazo: donde se pierde cartera, que puerto va a quedar libre, en que zona hay que salir a recuperar. Ahora: verde activo, ambar suspendido, rojo cancelado, morado cortesia, gris retirado, cian el que todavia no cruza con la oficina. El estado NO se guarda en la red: se consulta en la ficha de la oficina, que es la que se sincroniza con WispHub, para que no haya dos verdades que se puedan desfasar. [2] Filtro por estado y por fecha de instalacion, con atajos (este mes, 3 meses, este anio) y rango a mano. Se pueden combinar: "los que instale este anio, cuantos siguen activos". Los que no cumplen no se dibujan; las cajas y los cables se dejan, porque si no no se veria de donde cuelga lo que quedo. [3] Para que esto no fuera lentisimo, el cruce de los 692 clientes del mapa contra los 804 de la oficina se hace UNA vez y se guarda (dibujar() corre en cada zoom): 27 ms. [4] CRUCE TOLERANTE A ERRATAS: medido en FLORENCIA, 230 clientes del mapa no cruzaban por nombre exacto, y buena parte eran erratas de una letra entre los dos sistemas (el mapa dice "EDGAR CASTRO BERMEO" y WispHub dice "EDGAR CASTO BERMEO"). Ahora se acepta una diferencia de hasta dos letras, PERO solo si el nombre exacto ya fallo, el nombre es largo (14 letras o mas) y hay UN UNICO candidato parecido: con dos o mas se deja sin cruzar antes que ponerle a alguien el estado de otro. Subio de 462 a 479 cruzados. Los 213 que quedan se ven en cian y tienen su propia casilla en el filtro: 66 llevan el codigo de OZmap en vez del nombre de la persona, y el resto ya no esta en WispHub. [5] LA FECHA DE INSTALACION VIENE EN DOS FORMATOS Y HAY QUE LEER LOS DOS. El mismo campo trae 2026-05-19 (el cargue masivo de mayo, ya normalizado) y 29/05/2026 16:03:00 (lo que manda WispHub tal cual en cada sincronia). Medido: 3.737 clientes con el primero y 530 con el segundo, y la oficina de MONTANITA esta ENTERA en el segundo, 212 de 212. Leer solo el primero dejaba esa oficina completa fuera del filtro por fecha y sin avisar, que es la peor forma de fallar: se veia como "no han instalado nada". En FLORENCIA hacia parecer que la ultima instalacion era del 20 de mayo cuando en realidad es del 18 de agosto, y que este mes no habia ninguna cuando hay 7. Se resuelve con el TEXTO y nunca con new Date(), misma trampa de la v91 del inventario: 05/06/2026 se entiende como 5 de junio o como 6 de mayo segun quien lo lea. OFICINAS ya lo hacia bien en _diaDeFecha y aqui se repite el mismo criterio; los informes de oficina nunca estuvieron afectados. v26: RED YA SE PUEDE INSTALAR COMO APP PROPIA. Era la unica de las cuatro sin manifiesto, asi que no aparecia como aplicacion instalable: se podia abrir en el navegador y ya. Las otras tres si lo tenian, cada una con su nombre y su direccion de arranque, que es lo que hace que el navegador las trate como apps DISTINTAS y se puedan tener las cuatro al tiempo en el escritorio. Ahora RED tambien: "PROYECTOVISION Red" / "PV Red", verde #059669, ventana propia. Los iconos NO van incrustados en base64 como en las otras -serian 33 KB de texto- sino que se DIBUJAN al abrir con canvas: un POP en el centro y cuatro cajas colgando, que es lo que la app es. Son veinte lineas en vez de 33 KB, y quedan nitidos en cualquier pantalla. Si el navegador no soporta canvas no pasa nada, la app funciona igual sin icono propio. OJO: falta un service worker para que el navegador OFREZCA instalarla solo; sin el, hay que instalarla a mano desde el menu del navegador. Eso quedo pendiente a proposito: un service worker mal hecho puede dejar la app sirviendo una version vieja para siempre, y no se toca a la ligera. v27: CADA APP RECLAMA SOLO SU ARCHIVO. Reportado por Elkin: instalo INVENTARIO y al abrir OFICINAS el navegador ya no ofrecia instalarla sino "Abrir en la app". La causa: el scope -el territorio de una app instalada- estaba puesto en la CARPETA, no en el archivo, asi que las cinco reclamaban lo mismo y la primera instalada se quedaba con todas las demas paginas. Ahora cada una declara scope y id propios, apuntando solo a su archivo. Consecuencia buscada: el boton de volver al inicio sale de la app instalada y abre index.html aparte, que es lo correcto porque el inicio es otra app. v28: IMPORTAR AHORA PREGUNTA SI AGREGAR O REEMPLAZAR. Importar siempre agregaba, y eso sirve para completar una sede; pero cuando el MISMO mapa se vuelve a importar mejor ordenado, agregar lo duplica todo: la llave de fusion incluye el tipo, asi que un punto que antes entro como poste y ahora entra como caja no se reconoce como el mismo. Caso real: DONCELLO (sede NATALIA) tenia 427 elementos cargados de un KMZ de Google Earth sin carpetas -192 postes y 235 cables, CERO cajas- y al reimportarlo bien habrian quedado 857. El reemplazo va DENTRO de la importacion y no como un boton suelto de borrar todo: asi no se puede vaciar una sede por accidente, solo cambiarla por algo que ya se tiene listo. Pide escribir AGREGAR o REEMPLAZAR, y el reemplazo confirma aparte diciendo cuantos elementos se pierden. Cualquier otra respuesta no toca nada.
+const APP_VERSION_RED = 30; // v25: EL CLIENTE SE PINTA SEGUN COMO ESTA HOY, Y SE PUEDE VER SOLO UNA PARTE. [1] Antes todos los clientes eran del mismo color, asi que el mapa no distinguia a quien le esta funcionando el servicio de quien esta suspendido o ya se cancelo, que es justo lo que se necesita ver de un vistazo: donde se pierde cartera, que puerto va a quedar libre, en que zona hay que salir a recuperar. Ahora: verde activo, ambar suspendido, rojo cancelado, morado cortesia, gris retirado, cian el que todavia no cruza con la oficina. El estado NO se guarda en la red: se consulta en la ficha de la oficina, que es la que se sincroniza con WispHub, para que no haya dos verdades que se puedan desfasar. [2] Filtro por estado y por fecha de instalacion, con atajos (este mes, 3 meses, este anio) y rango a mano. Se pueden combinar: "los que instale este anio, cuantos siguen activos". Los que no cumplen no se dibujan; las cajas y los cables se dejan, porque si no no se veria de donde cuelga lo que quedo. [3] Para que esto no fuera lentisimo, el cruce de los 692 clientes del mapa contra los 804 de la oficina se hace UNA vez y se guarda (dibujar() corre en cada zoom): 27 ms. [4] CRUCE TOLERANTE A ERRATAS: medido en FLORENCIA, 230 clientes del mapa no cruzaban por nombre exacto, y buena parte eran erratas de una letra entre los dos sistemas (el mapa dice "EDGAR CASTRO BERMEO" y WispHub dice "EDGAR CASTO BERMEO"). Ahora se acepta una diferencia de hasta dos letras, PERO solo si el nombre exacto ya fallo, el nombre es largo (14 letras o mas) y hay UN UNICO candidato parecido: con dos o mas se deja sin cruzar antes que ponerle a alguien el estado de otro. Subio de 462 a 479 cruzados. Los 213 que quedan se ven en cian y tienen su propia casilla en el filtro: 66 llevan el codigo de OZmap en vez del nombre de la persona, y el resto ya no esta en WispHub. [5] LA FECHA DE INSTALACION VIENE EN DOS FORMATOS Y HAY QUE LEER LOS DOS. El mismo campo trae 2026-05-19 (el cargue masivo de mayo, ya normalizado) y 29/05/2026 16:03:00 (lo que manda WispHub tal cual en cada sincronia). Medido: 3.737 clientes con el primero y 530 con el segundo, y la oficina de MONTANITA esta ENTERA en el segundo, 212 de 212. Leer solo el primero dejaba esa oficina completa fuera del filtro por fecha y sin avisar, que es la peor forma de fallar: se veia como "no han instalado nada". En FLORENCIA hacia parecer que la ultima instalacion era del 20 de mayo cuando en realidad es del 18 de agosto, y que este mes no habia ninguna cuando hay 7. Se resuelve con el TEXTO y nunca con new Date(), misma trampa de la v91 del inventario: 05/06/2026 se entiende como 5 de junio o como 6 de mayo segun quien lo lea. OFICINAS ya lo hacia bien en _diaDeFecha y aqui se repite el mismo criterio; los informes de oficina nunca estuvieron afectados. v26: RED YA SE PUEDE INSTALAR COMO APP PROPIA. Era la unica de las cuatro sin manifiesto, asi que no aparecia como aplicacion instalable: se podia abrir en el navegador y ya. Las otras tres si lo tenian, cada una con su nombre y su direccion de arranque, que es lo que hace que el navegador las trate como apps DISTINTAS y se puedan tener las cuatro al tiempo en el escritorio. Ahora RED tambien: "PROYECTOVISION Red" / "PV Red", verde #059669, ventana propia. Los iconos NO van incrustados en base64 como en las otras -serian 33 KB de texto- sino que se DIBUJAN al abrir con canvas: un POP en el centro y cuatro cajas colgando, que es lo que la app es. Son veinte lineas en vez de 33 KB, y quedan nitidos en cualquier pantalla. Si el navegador no soporta canvas no pasa nada, la app funciona igual sin icono propio. OJO: falta un service worker para que el navegador OFREZCA instalarla solo; sin el, hay que instalarla a mano desde el menu del navegador. Eso quedo pendiente a proposito: un service worker mal hecho puede dejar la app sirviendo una version vieja para siempre, y no se toca a la ligera. v27: CADA APP RECLAMA SOLO SU ARCHIVO. Reportado por Elkin: instalo INVENTARIO y al abrir OFICINAS el navegador ya no ofrecia instalarla sino "Abrir en la app". La causa: el scope -el territorio de una app instalada- estaba puesto en la CARPETA, no en el archivo, asi que las cinco reclamaban lo mismo y la primera instalada se quedaba con todas las demas paginas. Ahora cada una declara scope y id propios, apuntando solo a su archivo. Consecuencia buscada: el boton de volver al inicio sale de la app instalada y abre index.html aparte, que es lo correcto porque el inicio es otra app. v28: IMPORTAR AHORA PREGUNTA SI AGREGAR O REEMPLAZAR. Importar siempre agregaba, y eso sirve para completar una sede; pero cuando el MISMO mapa se vuelve a importar mejor ordenado, agregar lo duplica todo: la llave de fusion incluye el tipo, asi que un punto que antes entro como poste y ahora entra como caja no se reconoce como el mismo. Caso real: DONCELLO (sede NATALIA) tenia 427 elementos cargados de un KMZ de Google Earth sin carpetas -192 postes y 235 cables, CERO cajas- y al reimportarlo bien habrian quedado 857. El reemplazo va DENTRO de la importacion y no como un boton suelto de borrar todo: asi no se puede vaciar una sede por accidente, solo cambiarla por algo que ya se tiene listo. Pide escribir AGREGAR o REEMPLAZAR, y el reemplazo confirma aparte diciendo cuantos elementos se pierden. Cualquier otra respuesta no toca nada. v29: EL INTERIOR DE LA CAJA SE LEE COMO UN EMPALME DE VERDAD. Salio de comparar nuestra ventana contra la de OZmap, que Elkin paso en una captura. [1] CUATRO COLUMNAS en el orden fisico: lo que LLEGA, los splitters, los puertos, y lo que CONTINUA. Antes todos los cables iban revueltos en una sola columna y no se podia leer de un vistazo cuantos hilos entran y siguen de largo, que es lo primero que se mira en un empalme. Cual cable es el que llega lo dice el arbol de rutas (el que va hacia el POP); si la caja todavia no alcanza el POP se toma el cable mas grueso y se AVISA que se uso ese criterio. Los hilos de paso se marcan y cada cable dice cuantos de sus hilos siguen de largo. [2] EL ESTADO DEL CLIENTE EN CADA PUERTO. En el mapa ya se pintaba desde la v25, pero al abrir la caja solo salia el nombre, y es justo ahi donde se decide si un puerto se puede reusar: un suspendido de hace meses no es lo mismo que un activo. De paso el cruce con la oficina pasa a tolerar erratas igual que el del mapa: los puertos con estado visible subieron de 0 a 447 de 591. Los 144 que quedan no cruzan porque esa gente ya no esta en WispHub, no por un fallo. [3] LOS CLIENTES COLGADOS DE LA CAJA SIN PUERTO ASIGNADO ahora se ven. Antes un puerto estaba ocupado o libre, sin punto medio, y ese trabajo pendiente no aparecia por ningun lado. [4] COMO ESTA HECHA CADA UNION: fusion, conector, de paso o dejado en reserva. Antes todo se guardaba como fusion. Lo ya guardado se sigue leyendo como fusion salvo cuando une dos hilos de cables distintos, que es un paso: se muestra bien sin tener que tocar los datos viejos. v30: UBICAR CLIENTES CON LA COORDENADA DE WISPHUB, con tope de 300 m. Idea de Elkin: muchas cajas ya saben QUIEN esta en cada puerto pero no DONDE vive, y WispHub guarda una coordenada por cliente. Antes de construirlo se midio, y el dato NO es de fiar: solo 1.532 de 4.128 clientes la tienen llena, y en FLORENCIA esta mal -53 clientes comparten el mismo punto exacto y, comparada contra la ubicacion levantada en campo por OZmap, solo 1 de 176 cae a menos de 100 m, con error mediano de 1.762 metros. En DONCELLO y CARTAGENA si parece real (941 clientes en 888 puntos distintos). Por eso esto NO ubica a todo el que tenga coordenada: solo al que quede a MENOS DE 300 METROS de su caja, que es lo maximo creible para una acometida. Antes de tocar nada muestra el plan completo -cuantos se ubicarian, cuantos se dejan por lejos y a que distancia estaba cada uno- y lo que pone queda marcado como ubicacionAuto, con una nota que dice de donde salio y que no esta verificado en campo, para poder deshacerlo todo de un boton sin tocar lo puesto a mano. Probado sobre DONCELLO: de 719 nombres anotados en los puertos ubica 37, con mediana de 70 metros (6, 7, 8, 10 m los primeros) y maximo 281; deja 20 por estar a mas de 300 m. Ademas la importacion de KML ahora LEE los puertos anotados a mano en la descripcion de la caja (P1. JUAN PEREZ), que es como venia el mapa de Doncello: 719 nombres que estaban ahi guardados sin que nadie los pudiera usar, y que ahora llegan directo al campo de puertos.
 
 const firebaseConfig = {
     apiKey: "AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w",
@@ -1635,6 +1648,21 @@ function armar(x){
         const cap=capacidadDe(tipoTxt);
         el.splitters = cap ? [{tipo:'1x'+cap, ratio:''}] : [];
         el.puertos={};
+        /* Hay mapas donde el instalador anotó a mano quién está en cada puerto
+           dentro de la descripción de la caja: "P1. JUAN PÉREZ · P2. (libre)".
+           Es el caso de DONCELLO, dibujado en Google Earth: 719 nombres que
+           estaban ahí guardados sin que nadie los pudiera usar. Se leen y se
+           meten donde van, así la caja llega con su ocupación puesta en vez de
+           con todos los puertos vacíos.
+           Los "(libre)" se saltan a propósito: son puertos anotados, no gente. */
+        const mp=(el.notas||'').match(/P\s*\d+\s*\.\s*[^·]+/g);
+        if(mp) mp.forEach(t=>{
+            const m=t.match(/P\s*(\d+)\s*\.\s*(.+)/); if(!m) return;
+            const n=+m[1], quien=m[2].trim();
+            if(!(n>0&&n<=MAX_PUERTOS)) return;
+            if(!quien || /^\(libre\)$/i.test(quien)) return;
+            el.puertos[n]={cliente:quien, servicio:'', deImportacion:true};
+        });
     } else if(/reserva/.test(ruta)){
         el.tipo='reserva';
         el.metros=parseFloat((x.nombre||'').replace(',','.'))||null;
@@ -2424,6 +2452,18 @@ function pintarPanel(el){
       ${selectorEscala()}
       <button class="btn btn-sm btn-out" style="width:100%;margin-top:6px"
               onclick="configurarOLT()">⚙️ Potencia del OLT (${oltDbm()} dBm)</button>
+
+      ${(()=>{
+        // Solo aparece si de verdad hay algo que ubicar o algo que deshacer.
+        const conNombre=RED.elementos.filter(e=>e.tipo==='caja')
+          .reduce((s,c)=>s+Object.values(c.puertos||{}).filter(p=>p&&p.cliente).length,0);
+        const autos=RED.elementos.filter(e=>e.ubicacionAuto&&e.tipo==='cliente').length;
+        if(!conNombre && !autos) return '';
+        return (conNombre?`<button class="btn btn-sm btn-out" style="width:100%;margin-top:6px"
+                  onclick="ubicarConWisphub()">📍 Ubicar clientes con WispHub</button>`:'')
+             + (autos?`<button class="btn btn-sm btn-out" style="width:100%;margin-top:5px;font-size:.7rem"
+                  onclick="deshacerUbicacionAuto()">↩️ Deshacer las ${autos} ubicadas solas</button>`:'');
+      })()}
 
       <div class="sec">Buscar</div>
       <input type="text" id="q" placeholder="Caja, cliente, cable…" oninput="buscar(this.value)">
@@ -3216,6 +3256,234 @@ function datosOficinaDe(el){
 
 /* ── Ubicar un cliente nuevo ────────────────────────────────────────
    Se entra por el modo 👤 y un clic donde vive la persona. */
+/* ════════════════════════════════════════════════════════════════════════════
+   UBICAR CLIENTES CON LA COORDENADA DE WISPHUB
+   ────────────────────────────────────────────────────────────────────────────
+   Muchas cajas ya saben QUIÉN está en cada puerto, pero no DÓNDE vive esa
+   persona. WispHub guarda una coordenada por cliente. Cruzando las dos cosas
+   se puede ubicar al cliente y dibujarle su acometida sin salir a la calle.
+
+   PERO EL DATO NO ES DE FIAR, Y ESO MANDA EL DISEÑO
+   Medido antes de escribir esto:
+     · Solo 1.532 de 4.128 clientes tienen la coordenada llena (37%).
+     · En FLORENCIA está mal: 53 clientes comparten el mismo punto exacto, y
+       comparada contra la ubicación levantada en campo por OZmap, solo 1 de
+       176 cae a menos de 100 m. El error mediano es de 1.762 metros.
+     · En DONCELLO y CARTAGENA sí parece real: 941 clientes en 888 puntos
+       distintos. Pero aun ahí, de los que cruzan, 14 de 57 quedaban a más de
+       500 m de su caja — imposible para una acometida.
+
+   Por eso esto NO ubica a todo el que tenga coordenada. Solo al que quede a
+   MENOS DE 300 METROS de la caja de la que cuelga, que es la distancia máxima
+   creíble para un drop. Lo demás se reporta y se deja quieto.
+
+   Y todo lo que ponga queda marcado (ubicacionAuto), para poder revisarlo
+   después o deshacerlo entero de un botón.
+   ════════════════════════════════════════════════════════════════════════════ */
+const UBIC_MAX_M = 300;          // más lejos que esto no es una acometida
+const UBIC_CAQUETA = {laMin:0, laMax:3, loMin:-76.5, loMax:-73};
+
+/* La coordenada llega de dos formas: suelta ("1.63,-75.60") o dentro de un
+   enlace de Google Maps. Y a veces trae basura, así que se acota al Caquetá. */
+function _coordWisphub(t){
+    const m=String(t||'').match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
+    if(!m) return null;
+    const la=parseFloat(m[1]), lo=parseFloat(m[2]);
+    if(isNaN(la)||isNaN(lo)) return null;
+    if(la<UBIC_CAQUETA.laMin||la>UBIC_CAQUETA.laMax) return null;
+    if(lo<UBIC_CAQUETA.loMin||lo>UBIC_CAQUETA.loMax) return null;
+    return [la,lo];
+}
+
+/* Trae de WispHub los clientes de la cuenta de esta sede, con su coordenada.
+   Se filtra por las zonas de la oficina, igual que la sincronización. */
+async function _traerCoordsWisphub(onProgreso){
+    const o=(DB.oficinas||[]).find(x=>x.id===SEDE.id);
+    const cuenta=o&&o.cuentaWisphub;
+    if(!cuenta) throw new Error('Esta sede no tiene cuenta de WispHub configurada.');
+    const zonas=(o.zonasWisphub||[]).map(z=>String(z).toUpperCase().trim()).filter(Boolean);
+    const BASE='https://intermediario-wisphub.proyectovisions-a-s.workers.dev';
+    const out=[]; let off=0, n=null;
+    while(true){
+        const r=await fetch(BASE+'/api/clientes/?limit=300&offset='+off, {headers:{'X-Cuenta':cuenta}});
+        if(!r.ok) throw new Error('WispHub respondió '+r.status);
+        const j=await r.json();
+        const arr=j.results||[];
+        if(n===null) n=j.count||0;
+        arr.forEach(c=>{
+            const z=String((c.zona&&c.zona.nombre)||c.zona||'').toUpperCase().trim();
+            if(zonas.length && !zonas.some(x=>z.indexOf(x)>=0)) return;
+            const g=_coordWisphub(c.coordenadas);
+            if(!g) return;
+            out.push({g, nombre:c.nombre||'', servicio:String(c.servicio||''),
+                      cedula:String(c.cedula||''), estado:c.estado||''});
+        });
+        off+=300;
+        if(onProgreso) onProgreso('Leyendo WispHub… '+Math.min(off,n)+' de '+n);
+        if(!arr.length || off>=n) break;
+    }
+    return out;
+}
+
+/* Busca a quién corresponde el nombre anotado en un puerto. Mismo criterio
+   que el resto del sistema: primero las llaves seguras, y solo después el
+   nombre con tolerancia a erratas, exigiendo UN único candidato. */
+function _emparejarWisphub(nombre, servicio, cedula, idx){
+    if(servicio && idx.porServ[String(servicio)]) return idx.porServ[String(servicio)];
+    if(cedula && idx.porCed[String(cedula)]) return idx.porCed[String(cedula)];
+    const n=normNom(nombre||''); if(!n) return null;
+    const ex=idx.porNom[n];
+    if(ex && ex.length===1) return ex[0];
+    if(ex && ex.length>1) return null;                 // dos personas se llaman igual
+    if(n.length<14) return null;                       // nombre corto: no se arriesga
+    const k=n.split(' ')[0]+'|'+n.split(' ').length;
+    const cs=(idx.porCubeta[k]||[]).filter(x=>_distancia(n, normNom(x.nombre), 2)<=2);
+    return cs.length===1 ? cs[0] : null;
+}
+
+/* El plan: qué se ubicaría y qué no, y por qué. No toca nada. */
+async function _planUbicacion(onProgreso){
+    const lista=await _traerCoordsWisphub(onProgreso);
+    const idx={porServ:{}, porCed:{}, porNom:{}, porCubeta:{}};
+    lista.forEach(c=>{
+        if(c.servicio) idx.porServ[c.servicio]=c;
+        if(c.cedula)   idx.porCed[c.cedula]=c;
+        const n=normNom(c.nombre); if(!n) return;
+        (idx.porNom[n]=idx.porNom[n]||[]).push(c);
+        const k=n.split(' ')[0]+'|'+n.split(' ').length;
+        (idx.porCubeta[k]=idx.porCubeta[k]||[]).push(c);
+    });
+    const yaNom=new Set(RED.elementos.filter(e=>e.tipo==='cliente')
+        .map(e=>normNom(e.nombreReal||e.nombre||'')));
+    const haran=[], lejos=[], sinCoord=[], yaEstaban=[];
+    RED.elementos.filter(e=>e.tipo==='caja').forEach(caja=>{
+        Object.keys(caja.puertos||{}).forEach(p=>{
+            const o=caja.puertos[p]; const nom=(o.cliente||'').trim();
+            if(!nom) return;
+            if(yaNom.has(normNom(nom))){ yaEstaban.push(nom); return; }
+            const of=(typeof ocupanteDe==='function' ? ocupanteDe(caja,p) : null);
+            const w=_emparejarWisphub(nom, o.servicio||(of&&of.of&&of.of.servicioWisphub),
+                                      (of&&of.of&&of.of.cedula), idx);
+            if(!w){ sinCoord.push(nom); return; }
+            const d=Math.round(metros(w.g, caja.g[0]));
+            const fila={nombre:w.nombre, caja:caja.nombre, cajaId:caja.id, puerto:+p,
+                        g:w.g, d, servicio:w.servicio, estado:w.estado};
+            if(d>UBIC_MAX_M) lejos.push(fila); else haran.push(fila);
+        });
+    });
+    haran.sort((a,b)=>a.d-b.d);
+    lejos.sort((a,b)=>a.d-b.d);
+    return {haran, lejos, sinCoord, yaEstaban, enWisphub:lista.length};
+}
+
+async function ubicarConWisphub(){
+    if(!SEDE) return alert('Primero elige una sede.');
+    if(!puede('crear','cliente')) return noPuede('crear','cliente');
+    mostrarCarga('Leyendo WispHub…');
+    let plan;
+    try{ plan=await _planUbicacion(t=>mostrarCarga(t)); }
+    catch(e){ ocultarCarga(); return alert('No se pudo leer WispHub:\n\n'+(e.message||e)); }
+    ocultarCarga();
+    window._planUbic=plan;
+
+    const f=x=>`<div style="display:flex;gap:8px;align-items:center;padding:3px 0;
+        border-bottom:1px solid var(--border);font-size:.76rem">
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.nombre)}</span>
+        <span style="color:var(--muted);font-size:.7rem">${esc(x.caja)} pto ${x.puerto}</span>
+        <b style="color:${x.d<=100?'#10b981':x.d<=300?'#f59e0b':'#f87171'}">${x.d} m</b></div>`;
+
+    abrirModal('📍 Ubicar clientes con WispHub', `
+      <p class="ayuda" style="margin-top:0">
+        Se cruzan los clientes que ya están anotados en los puertos con la coordenada
+        que WispHub tiene de cada uno. <b>Solo se ubica al que quede a menos de
+        ${UBIC_MAX_M} m de su caja</b>, que es lo máximo creíble para una acometida.</p>
+      <div class="kpis" style="grid-template-columns:1fr 1fr">
+        <div class="kpi"><div class="v" style="color:#10b981">${plan.haran.length}</div>
+             <div class="e">se ubicarían</div></div>
+        <div class="kpi"><div class="v" style="color:#f87171">${plan.lejos.length}</div>
+             <div class="e">quedan lejos, se dejan</div></div>
+      </div>
+      <p class="ayuda">${plan.sinCoord.length} sin coordenada en WispHub ·
+         ${plan.yaEstaban.length} ya estaban en el mapa ·
+         ${plan.enWisphub} clientes leídos.</p>
+      ${plan.haran.length?`<div class="sec">Se ubicarían</div>
+        <div style="max-height:32vh;overflow-y:auto">${plan.haran.map(f).join('')}</div>`:''}
+      ${plan.lejos.length?`<div class="sec">Se dejan quietos por estar lejos</div>
+        <p class="ayuda">Puede ser que la coordenada esté mal puesta, o que el nombre
+           del puerto corresponda a otra persona. Se listan para revisarlos a mano.</p>
+        <div style="max-height:18vh;overflow-y:auto">${plan.lejos.slice(0,40).map(f).join('')}</div>`:''}`,
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cancelar</button>
+       ${plan.haran.length?`<button class="btn btn-sm btn-primary" style="width:auto"
+          onclick="aplicarUbicacionWisphub()">Ubicar ${plan.haran.length} cliente(s)</button>`:''}`);
+}
+window.ubicarConWisphub=ubicarConWisphub;
+
+async function aplicarUbicacionWisphub(){
+    const plan=window._planUbic; if(!plan||!plan.haran.length) return;
+    if(!confirm(`Se van a ubicar ${plan.haran.length} cliente(s) y a dibujarles su acometida `
+        +`en línea recta hasta su caja.\n\n`
+        +`Quedan marcados como "ubicación automática", así que se pueden revisar o `
+        +`deshacer todos de una vez.\n\n¿Sigo?`)) return;
+    cerrarModal();
+    mostrarCarga('Ubicando…');
+    const nuevos=[];
+    plan.haran.forEach(x=>{
+        const caja=RED.elementos.find(e=>e.id===x.cajaId); if(!caja) return;
+        const idCli=_nuevoId();
+        const cli={ id:idCli, tipo:'cliente', g:[x.g],
+            nombre:x.nombre, nombreReal:x.nombre, servicio:x.servicio||'',
+            caja:caja.nombre, cajaId:caja.id, puerto:x.puerto,
+            estado:'Implementado', etiquetas:['USUARIO'],
+            ubicacionAuto:true, notas:'Ubicado con la coordenada de WispHub, a '+x.d+' m de su caja. Sin verificar en campo.',
+            creadoEn:Date.now(), creadoPor:(USER&&USER.nombre)||'' };
+        const drop={ id:_nuevoId(), tipo:'cable', clase:'drop',
+            nombre:x.nombre, cliente:x.nombre, caja:caja.nombre,
+            g:[caja.g[0], x.g], hilos:1, buffers:1, subtipo:'DROP 1H',
+            metros:x.d, estado:'Implementado', etiquetas:['DROP 1 HILO'],
+            ubicacionAuto:true, notas:'Trazo automático en línea recta, sin levantar en campo.',
+            creadoEn:Date.now(), creadoPor:(USER&&USER.nombre)||'' };
+        caja.puertos=caja.puertos||{};
+        caja.puertos[x.puerto]=Object.assign({}, caja.puertos[x.puerto], {
+            cliente:x.nombre, clienteId:idCli, servicio:x.servicio||''});
+        nuevos.push(cli, drop);
+    });
+    RED.elementos.push(...nuevos);
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){
+        nuevos.forEach(x=>{ const i=RED.elementos.indexOf(x); if(i>=0) RED.elementos.splice(i,1); });
+        ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e));
+    }
+    ocultarCarga(); _olvidarDatosCli(); dibujar();
+    alert(`✅ Se ubicaron ${plan.haran.length} cliente(s) con su acometida.\n\n`
+        + `Quedaron marcados como ubicación automática: en su ficha dice a cuántos metros\n`
+        + `de la caja quedaron y que no están verificados en campo.\n\n`
+        + `Si algo quedó mal, se pueden deshacer todos desde el mismo botón.`);
+}
+window.aplicarUbicacionWisphub=aplicarUbicacionWisphub;
+
+/* Deshacer: se quitan solo los que puso la máquina, nunca los puestos a mano. */
+async function deshacerUbicacionAuto(){
+    const autos=RED.elementos.filter(e=>e.ubicacionAuto);
+    if(!autos.length) return alert('No hay ninguna ubicación automática que deshacer.');
+    const cli=autos.filter(e=>e.tipo==='cliente').length;
+    if(!confirm(`Se van a quitar ${cli} cliente(s) ubicados automáticamente y sus acometidas.\n\n`
+        +`Lo que se ubicó a mano NO se toca.\n\n¿Sigo?`)) return;
+    mostrarCarga('Deshaciendo…');
+    const antes=RED.elementos.slice();
+    const ids=new Set(autos.filter(e=>e.tipo==='cliente').map(e=>e.id));
+    RED.elementos.filter(e=>e.tipo==='caja').forEach(c=>{
+        Object.keys(c.puertos||{}).forEach(k=>{
+            if(ids.has((c.puertos[k]||{}).clienteId)) delete c.puertos[k];
+        });
+    });
+    RED.elementos=RED.elementos.filter(e=>!e.ubicacionAuto);
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){ RED.elementos=antes; ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e)); }
+    ocultarCarga(); _olvidarDatosCli(); dibujar();
+    alert('✅ Se deshicieron '+cli+' ubicación(es) automática(s).');
+}
+window.deshacerUbicacionAuto=deshacerUbicacionAuto;
+
 async function nuevoCliente(punto){
     if(!puede('crear','cliente')) return noPuede('crear','cliente');
     window._nvCliPunto=punto;
@@ -4701,28 +4969,67 @@ function tableroHTML(el){
                   ondragover="conOver(event,this)" ondragleave="conSale(this)" ondrop="conSuelta(event,this)"
                   onclick="conClic(this)"`:''}>${extra||''}</span>`;
     };
-    // ── Columna 1: los hilos que llegan ──
-    let hilos='';
-    if(!cables.length) hilos='<div class="vacio" style="padding:14px">Ningún cable enlazado.</div>';
-    cables.forEach(cb=>{
-        const m=mapaFibra(cb);
-        hilos+=`<div class="grp"><b>${esc((cb.nombre||'').slice(0,22))}</b>
-                <i>${cb.hilos||'?'}H · ${esc((cb.sub||'').slice(0,16))}</i>`;
-        if(m) m.forEach(b=>{
-            hilos+=`<div class="buf"><span class="bufc" style="background:${b.c.hex}"
-                      title="Buffer ${b.buffer} · ${b.c.n}"></span>
-                    <span class="bufn">${b.c.n}</span></div>`;
-            b.hilos.forEach(h=>{
-                const k='c'+cb.id+'.h'+h.n;
-                hilos+=`<div class="hil">
-                    <span class="sw" style="background:${h.c.hex}" title="Hilo ${h.n} · ${h.c.n}"></span>
-                    <span class="hn">${h.n}</span>
-                    <span class="hc">${h.c.n}</span>
-                    ${punto(k,'der')}</div>`;
-            });
+    /* ── ¿Cuál cable LLEGA y cuáles CONTINÚAN? ──────────────────────────
+       El que llega es el que va hacia el POP: eso ya lo sabe el árbol de
+       rutas, que calcula el camino más corto desde la cabecera. Si esta caja
+       todavía no alcanza el POP (pasa cuando falta trazar un tramo), se toma
+       como entrada el cable más grueso, que casi siempre es el que alimenta.
+       Se dice cuál criterio se usó para que nadie lo lea como un dato duro. */
+    let idEntrada=null, porArbol=false;
+    try{
+        const A=arbolDesdePOP();
+        const pa=A.hayPOP ? A.padre[el.id] : null;
+        if(pa && pa.cableId){ idEntrada=pa.cableId; porArbol=true; }
+    }catch(e){}
+    if(!idEntrada && cables.length){
+        idEntrada=cables.slice().sort((a,b)=>(b.hilos||0)-(a.hilos||0))[0].id;
+    }
+    const entradas=cables.filter(c=>c.id===idEntrada);
+    const salidas =cables.filter(c=>c.id!==idEntrada);
+
+    // Un hilo está "de paso" si está fusionado contra un hilo de otro cable.
+    const lista0=_conex(el);
+    const deOtroCable=(k)=>{
+        if(!k || k[0]!=='c') return false;
+        const cid=k.split('.')[0].slice(1);
+        return lista0.some(x=>{
+            const otro = x.de===k ? x.a : x.a===k ? x.de : null;
+            return otro && otro[0]==='c' && otro.split('.')[0].slice(1)!==cid;
         });
-        hilos+='</div>';
-    });
+    };
+
+    const columnaCables=(arr, lado)=>{
+        if(!arr.length) return '<div class="vacio" style="padding:14px">'
+            + (lado==='der' ? 'No se sabe cuál cable llega.' : 'Ningún cable continúa desde aquí.')
+            + '</div>';
+        let h='';
+        arr.forEach(cb=>{
+            const m=mapaFibra(cb);
+            let pasan=0, total=0;
+            h+=`<div class="grp"><b>${esc((cb.nombre||'').slice(0,22))}</b>
+                <i>${cb.hilos||'?'}H · ${esc((cb.sub||'').slice(0,16))}</i>`;
+            let cuerpo='';
+            if(m) m.forEach(b=>{
+                cuerpo+=`<div class="buf"><span class="bufc" style="background:${b.c.hex}"
+                          title="Buffer ${b.buffer} · ${b.c.n}"></span>
+                        <span class="bufn">${b.c.n}</span></div>`;
+                b.hilos.forEach(hh=>{
+                    const k='c'+cb.id+'.h'+hh.n;
+                    const paso=deOtroCable(k); total++; if(paso) pasan++;
+                    const sw=`<span class="sw" style="background:${hh.c.hex}" title="Hilo ${hh.n} · ${hh.c.n}"></span>`;
+                    const nm=`<span class="hn">${hh.n}</span><span class="hc">${hh.c.n}</span>`;
+                    cuerpo+=`<div class="hil ${paso?'paso':''}">`
+                        + (lado==='izq' ? punto(k,'izq')+sw+nm : sw+nm+punto(k,'der'))
+                        + '</div>';
+                });
+            });
+            if(total) h+=`<div class="pasoct">${pasan} de ${total} siguen de largo</div>`;
+            h+=cuerpo+'</div>';
+        });
+        return h;
+    };
+    const hilos  = columnaCables(entradas,'der');
+    const hilosS = columnaCables(salidas,'izq');
     // ── Columna 2: los splitters ──
     let cols='';
     if(!sps.length) cols=`<div class="vacio" style="padding:14px">Esta caja no tiene splitters.
@@ -4745,28 +5052,73 @@ function tableroHTML(el){
     if(!cap) ptos='<div class="vacio" style="padding:14px">Sin capacidad definida.</div>';
     for(let n=1;n<=cap;n++){
         const o=(el.puertos||{})[n], b=(el.bloqueados||{})[n];
+        /* El estado del cliente también AQUÍ. En el mapa ya se pinta, pero al
+           abrir la caja solo salía el nombre, y es justo aquí donde se decide
+           si un puerto se puede reusar: un suspendido de hace meses no es lo
+           mismo que un activo, y con solo el nombre no se distinguen. */
+        let et='', col='';
+        if(o){
+            const oc=ocupanteDe(el,n);
+            if(oc && oc.cfg){ et=oc.cfg.ico+' '; col=oc.reutilizable?'#f59e0b':''; }
+            else if(oc && oc.sinPareja) et='❔ ';
+        }
         ptos+=`<div class="pto-f ${o?'ocup':b?'bloq':''}">
             ${punto('p'+n,'izq')}
             <span class="pn">${n}</span>
-            <span class="pc">${o?esc((o.cliente||'').slice(0,26)):b?'reservado':'libre'}</span></div>`;
+            <span class="pc"${col?` style="color:${col}"`:''}>${o?et+esc((o.cliente||'').slice(0,24)):b?'reservado':'libre'}</span></div>`;
+    }
+
+    /* ── Asignados a esta caja pero sin conectar ────────────────────────
+       Un cliente puede estar ubicado en el mapa colgando de esta caja y no
+       tener todavía un puerto asignado. Antes no aparecía por ningún lado: el
+       puerto estaba ocupado o libre, sin punto medio. Es el trabajo que falta
+       hacer, y conviene verlo al abrir la caja y no descubrirlo en la calle. */
+    const sueltos=RED.elementos.filter(e=>e.tipo==='cliente'
+        && (e.cajaId===el.id || (!e.cajaId && e.caja===el.nombre))
+        && !((el.puertos||{})[e.puerto] ));
+    let htmlSueltos='';
+    if(sueltos.length){
+        htmlSueltos=`<div class="sec">Colgados de esta caja, sin puerto asignado
+            <span class="cuenta">${sueltos.length}</span></div>
+          <div style="display:flex;flex-wrap:wrap;gap:5px">
+          ${sueltos.slice(0,24).map(c=>{
+              const e2=estadoDe(c), cfg=EST_CLI[e2];
+              return `<span onclick="cerrarModal();irA('${c.id}')" title="Ver en el mapa"
+                style="cursor:pointer;border:1px dashed var(--border);border-radius:16px;
+                       padding:2px 9px;font-size:.7rem;color:var(--muted)">
+                ${cfg?cfg.ico:'⚪'} ${esc((c.nombreReal||c.nombre||'?').slice(0,24))}</span>`;
+          }).join('')}
+          ${sueltos.length>24?`<span style="font-size:.7rem;color:var(--muted)">…y ${sueltos.length-24} más</span>`:''}
+          </div>`;
     }
     const lista=_conex(el);
+    const nomEnt=entradas.length?esc((entradas[0].nombre||'').slice(0,20)):'';
     return `<div id="tablero">
       <div class="tab3">
-        <div class="col"><div class="colt">🧵 Fibras que llegan</div>${hilos}</div>
+        <div class="col col-ent"><div class="colt">🡆 Llega${nomEnt?' · '+nomEnt:''}</div>${hilos}</div>
         <div class="col"><div class="colt">🔀 Splitters</div>${cols}</div>
         <div class="col"><div class="colt">🔌 Puertos</div>${ptos}</div>
+        <div class="col col-sal"><div class="colt">🡆 Continúa (${salidas.length})</div>${hilosS}</div>
         <svg id="conSVG"></svg>
       </div>
+      <p class="ayuda" style="margin-top:5px">
+        ${porArbol?'El cable de la izquierda es el que viene desde el POP.'
+                  :'⚠️ Esta caja todavía no llega al POP, así que se tomó como entrada el cable más grueso.'}
+      </p>
       ${edita?`<p class="ayuda">Arrastra de un punto a otro para conectarlos — o toca uno y luego el otro.
          Doble clic sobre una conexión de la lista la quita. El color lo hereda de la fibra que la alimenta.</p>`
        :'<p class="ayuda">Estás en modo lectura: puedes ver las conexiones pero no cambiarlas.</p>'}
+      ${htmlSueltos}
       <div class="sec">Conexiones anotadas <span class="cuenta">${lista.length}</span></div>
       ${lista.length?lista.map((c,i)=>`
         <div class="fila">
           <span class="punto" style="background:${colorDe(el,c.de)}"></span>
-          <span class="nom" style="font-size:.74rem">${esc(_puntaEt(el,c.de))} → ${esc(_puntaEt(el,c.a))}
-            <i style="color:var(--muted)"> · ${esc(c.tipo||'fusión')}</i></span>
+          <span class="nom" style="font-size:.74rem">${esc(_puntaEt(el,c.de))} → ${esc(_puntaEt(el,c.a))}</span>
+          ${edita?`<select onchange="cambiarTipoConexion(${i},this.value)" title="Cómo está hecha la unión"
+             style="width:auto;margin:0;padding:2px 5px;font-size:.66rem">
+             ${TIPOS_CONEXION.map(t=>`<option value="${t[0]}" ${(_tipoCon(c)===t[0])?'selected':''}>${t[1]}</option>`).join('')}
+           </select>`
+          :`<i style="color:var(--muted);font-size:.68rem">${esc(_etTipoCon(c))}</i>`}
           ${edita?`<button class="btn btn-sm btn-out" onclick="quitarConexion(${i})">✕</button>`:''}
         </div>`).join('')
        :'<div class="vacio" style="padding:12px">Todavía no hay ninguna anotada.</div>'}`;
@@ -4829,6 +5181,38 @@ function conValida(a,b){
     if(A==='hilo'&&B==='pto') return true;
     return true;
 }
+/* ════════════════════════════════════════════════════════════════════
+   CÓMO ESTÁ HECHA CADA UNIÓN
+   ────────────────────────────────────────────────────────────────────
+   Antes todo se guardaba como "fusion", sin distinguir. Para un empalme
+   eso importa: una fusión y un conector no pierden lo mismo ni se
+   trabajan igual, y un hilo de PASO ni siquiera se toca — entra y sigue.
+   Lo que ya estaba guardado se sigue leyendo como fusión, salvo cuando
+   une dos hilos de cables distintos: eso es un paso, y se muestra así
+   sin tener que tocar los datos viejos.
+   ════════════════════════════════════════════════════════════════════ */
+const TIPOS_CONEXION=[['fusion','Fusión'],['conector','Conector'],
+                      ['paso','De paso'],['reserva','Dejado en reserva']];
+function _tipoCon(c){
+    if(c && c.tipo && TIPOS_CONEXION.some(t=>t[0]===c.tipo)) return c.tipo;
+    // Sin tipo anotado: si une dos hilos de cables distintos, es de paso.
+    if(c && c.de && c.a && c.de[0]==='c' && c.a[0]==='c'
+       && c.de.split('.')[0]!==c.a.split('.')[0]) return 'paso';
+    return 'fusion';
+}
+function _etTipoCon(c){
+    const t=_tipoCon(c), f=TIPOS_CONEXION.find(x=>x[0]===t);
+    return f?f[1]:t;
+}
+async function cambiarTipoConexion(i, tipo){
+    const el=RED.elementos.find(e=>e.id===window._intCaja); if(!el) return;
+    if(!puede('editar','caja')) return noPuede('editar','caja');
+    const lista=_conex(el), c=lista[i]; if(!c) return;
+    const antes=c.tipo; c.tipo=tipo;
+    await guardarInterior(el, ()=>{ c.tipo=antes; });
+}
+window.cambiarTipoConexion=cambiarTipoConexion;
+
 async function unir(a,b){
     const el=RED.elementos.find(e=>e.id===window._intCaja); if(!el) return;
     if(!puede('editar','caja')) return noPuede('editar','caja');
@@ -4847,7 +5231,11 @@ async function unir(a,b){
         }
     }
     if(lista.some(x=>x.de===de&&x.a===hacia)) return;
-    lista.push({de, a:hacia, tipo:'fusion', en:Date.now(), por:(USER&&USER.nombre)||''});
+    // Dos hilos de cables distintos que se unen es un PASO, no una fusión de
+    // servicio: se anota como tal desde el principio.
+    const tipo = (de[0]==='c' && hacia[0]==='c' && de.split('.')[0]!==hacia.split('.')[0])
+                 ? 'paso' : 'fusion';
+    lista.push({de, a:hacia, tipo, en:Date.now(), por:(USER&&USER.nombre)||''});
     await guardarInterior(el, ()=>lista.pop());
 }
 async function quitarConexion(i){
@@ -5088,6 +5476,23 @@ function ocupanteDe(caja, n){
     let of=null;
     if(p.servicio) of=_cliOficina.find(x=>String(x.servicioWisphub||'')===String(p.servicio));
     if(!of && _idxOficina){ const h=_idxOficina[normNom(p.cliente||'')]; of=(h&&h.length===1)?h[0]:null; }
+    /* Y si el nombre exacto falló, se admite una errata, con las mismas
+       precauciones que en el mapa (v25): nombre largo y UN solo candidato
+       parecido. Sin esto, el puerto salía con "❔" aunque la persona esté
+       perfectamente registrada — solo porque en un sistema quedó "CASTRO" y
+       en el otro "CASTO". */
+    if(!of && typeof _distancia==='function'){
+        const nn=normNom(p.cliente||'');
+        if(nn.length>=14){
+            const cands=_cliOficina.filter(x=>{
+                const m=normNom(x.nombre||'');
+                return m.split(' ')[0]===nn.split(' ')[0]
+                    && m.split(' ').length===nn.split(' ').length
+                    && _distancia(nn, m, 2)<=2;
+            });
+            if(cands.length===1) of=cands[0];
+        }
+    }
     if(!of) return {cliente:p.cliente||'', sinPareja:true};
     const k=_claveEstado(of.estado);
     return {cliente:of.nombre, of, clave:k, cfg:EST_CLI[k]||null,
