@@ -739,23 +739,34 @@ const PRUEBAS = [
        if(l) m=JSON.parse(decodeURIComponent(l.href.replace(/^data:application\/manifest\+json,/,'')));
      }catch(e){}
      out.push({a, nombre:m&&m.name, arranca:m&&String(m.start_url).split('/').pop(),
-               display:m&&m.display, iconos:(m&&m.icons||[]).length});
+               scope:m&&String(m.scope), display:m&&m.display, iconos:(m&&m.icons||[]).length});
      f.remove();
    }
    const sinManifiesto=out.filter(x=>!x.nombre).map(x=>x.a);
    const nombres=out.map(x=>x.nombre), arranques=out.map(x=>x.arranca);
+   const scopes=out.map(x=>x.scope);
    const sinIconos=out.filter(x=>x.iconos<2).map(x=>x.a);
    const noStandalone=out.filter(x=>x.display!=='standalone').map(x=>x.a);
+   // El scope es el territorio de la app instalada. Si dos lo comparten, al
+   // instalar una el navegador da por suyas las páginas de la otra y en vez de
+   // "Instalar" ofrece "Abrir en la app": se pierde poder tenerlas por separado.
+   // Pasó de verdad: las cinco reclamaban la carpeta entera.
+   const scopeRepetido = new Set(scopes).size!==scopes.length;
+   const scopeAmplio = out.filter(x=>x.scope && !/\.html$/.test(x.scope)).map(x=>x.a);
    const bien = !sinManifiesto.length
              && new Set(nombres).size===nombres.length
              && new Set(arranques).size===arranques.length
+             && !scopeRepetido && !scopeAmplio.length
              && !sinIconos.length && !noStandalone.length;
    return {ok:bien, detalle: bien
-     ? 'Las '+out.length+' tienen nombre propio, dirección propia, ventana propia y sus dos íconos:\n'
+     ? 'Las '+out.length+' tienen nombre, dirección, territorio y ventana propios, y sus dos íconos:\n'
       +out.map(x=>'  · '+x.nombre).join('\n')
+      +'\nCada una reclama solo su archivo, así que instalar una no tapa a las demás.'
      : (sinManifiesto.length?'Sin manifiesto: '+sinManifiesto.join(', ')+'\n':'')
        +(new Set(nombres).size!==nombres.length?'Hay nombres repetidos.\n':'')
        +(new Set(arranques).size!==arranques.length?'Hay direcciones de arranque repetidas.\n':'')
+       +(scopeRepetido?'Hay territorios (scope) repetidos: instalar una taparía a otra.\n':'')
+       +(scopeAmplio.length?'Reclaman la carpeta entera en vez de su archivo: '+scopeAmplio.join(', ')+'\n':'')
        +(sinIconos.length?'Sin los dos íconos: '+sinIconos.join(', ')+'\n':'')
        +(noStandalone.length?'No abren en ventana propia: '+noStandalone.join(', '):'')};
  }},
