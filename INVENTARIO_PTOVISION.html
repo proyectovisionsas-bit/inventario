@@ -662,9 +662,73 @@ function _avisarSNs(r, m){
     return r.ok.length>0;
 }
 
+/* ── El rastro de un serial ───────────────────────────────────────────────
+   v99. Antes, para arreglar un repetido había que ADIVINAR dónde está de
+   verdad el equipo. Pero el historial suele saberlo: si el aparato entró por
+   un recuperado que YA se integró a una bodega, es que volvió a esa bodega,
+   y la otra copia es el residuo de cuando lo tenía el técnico.
+   Devuelve [] cuando no hay nada que lo respalde: ahí sí decide la persona. */
+function _rastroSN(sn){
+    const k=_snNormal(sn); if(!k||_snEsRelleno(k)) return [];
+    const out=[];
+    const tiene=(arr)=>(arr||[]).some(x=>_snNormal(x)===k);
+    (DB.recuperados||[]).forEach(r=>{ if(!tiene(r.snes)) return;
+        out.push({tipo:'recuperado', estado:r.estado||'pendiente',
+                  bodegaId:r.bodegaId, bodegaNombre:r.bodegaNombre||'',
+                  articulo:r.nom||'', fecha:r.fecha||'', origen:r.origen||''}); });
+    (DB.transfers||[]).forEach(t=>(t.mats||[]).forEach(m=>{
+        if(!tiene(m.snes)) return;
+        out.push({tipo:'traslado', estado:t.estado||'', bodegaId:t.desId,
+                  bodegaNombre:t.desName||'', articulo:m.nom||'', fecha:t.fecha||''}); }));
+    (DB.entregas||[]).forEach(e=>(e.mats||[]).forEach(m=>{
+        if(!tiene(m.snes)) return;
+        out.push({tipo:'entrega', estado:'', cuadrillaId:e.cuadrillaId,
+                  cuadrillaNombre:e.cuadrilla||'', articulo:m.nom||'', fecha:e.fecha||''}); }));
+    return out;
+}
+/* Con el rastro, ¿se puede decir DÓNDE está el equipo sin preguntar?
+   Solo se responde cuando la prueba señala a UNO de los sitios en conflicto;
+   si señala a dos, o a ninguno, se devuelve null y decide la persona.       */
+function _veredictoSN(sn, sitios){
+    // Caso sin discusión: el mismo serial dos veces DENTRO del mismo artículo.
+    // No hay nada que elegir — una lista no puede traer dos veces el mismo.
+    const mats=new Set(sitios.map(x=>x.mat));
+    if(mats.size===1) return {idx:0, razon:'el mismo serial estaba dos veces en la misma lista'};
+    const rastro=_rastroSN(sn);
+    // Una entrega a la cuadrilla o un recuperado integrado dicen a dónde fue.
+    const apunta=(x)=>{
+        const r=rastro.filter(t=>
+            (t.tipo==='recuperado' && t.estado==='integrado' && x.contenedor && String(t.bodegaId)===String(x.contenedor.id))
+         || (t.tipo==='traslado'   && t.estado==='aceptada'  && x.contenedor && String(t.bodegaId)===String(x.contenedor.id))
+         || (t.tipo==='entrega'    && x.contenedor && String(t.cuadrillaId)===String(x.contenedor.id)));
+        // Entre dos artículos de la MISMA bodega, el nombre desempata: el
+        // recuperado se integró al artículo que se llama igual que él.
+        const fino=r.filter(t=>_normNom(t.articulo)===_normNom(x.articulo));
+        return fino.length?fino:r;
+    };
+    let conPrueba=sitios.map((x,i)=>({i, x, pruebas:apunta(x)})).filter(o=>o.pruebas.length);
+    /* Dos artículos de la MISMA bodega quedan los dos señalados, porque la prueba
+       apunta a la bodega, no al artículo. Desempata el NOMBRE, que es la misma
+       regla con la que se creó el duplicado: integrarRecuperado mete el equipo en
+       el artículo que se llama igual que el recuperado. Si aun así empatan —dos
+       artículos llamados igual— se devuelve null y decide la persona.          */
+    if(conPrueba.length>1){
+        const exactos=conPrueba.filter(o=>o.pruebas.some(t=>_normNom(t.articulo)===_normNom(o.x.articulo)));
+        if(exactos.length===1) conPrueba=exactos;
+    }
+    if(conPrueba.length!==1) return null;
+    const g=conPrueba[0], t=g.pruebas[0];
+    const comoLlego = t.tipo==='recuperado' ? 'lo devolvió un cliente y ya se integró aquí'
+                    : t.tipo==='traslado'   ? 'llegó en un traslado aceptado'
+                    :                         'se le entregó a esta cuadrilla';
+    return {idx:g.i, razon:comoLlego+(t.fecha?' el '+t.fecha:'')};
+}
+function _normNom(x){ return String(x==null?'':x).toLowerCase().replace(/s+/g,' ').trim(); }
+window._rastroSN=_rastroSN; window._veredictoSN=_veredictoSN;
+
 /* ── Arreglar los que ya están repetidos ──────────────────────────────────
-   No se decide solo dónde debe quedar cada equipo: eso lo sabe quien lo tiene
-   en la mano. Se muestran los casos y se elige de cuál sitio quitarlo.      */
+   Donde el historial lo demuestra, se propone la respuesta ya marcada; donde
+   no, decide quien tiene el equipo en la mano.                             */
 function modalSerialesRepetidos(){
     const mapa={};
     (DB.bodegas||[]).forEach(b=>(b.materiales||[]).forEach(m=>
@@ -678,24 +742,90 @@ function modalSerialesRepetidos(){
     const reps=Object.entries(mapa).filter(([,v])=>v.length>1);
     window._snReps=reps;
     if(!reps.length) return alert('✅ No hay ningún serial repetido.');
+    // Se le pregunta al historial ANTES de pintar, para traer la respuesta marcada.
+    const vers=reps.map(([sn,v])=>{ try{ return _veredictoSN(sn,v); }catch(e){ return null; } });
+    const conPrueba=vers.filter(Boolean).length;
+    window._snVeredictos=vers;
     openModal('🔧 Seriales en dos sitios ('+reps.length+')', `
-      <p style="font-size:0.82rem;color:var(--muted);line-height:1.5;margin-bottom:12px;">
+      <p style="font-size:0.82rem;color:var(--muted);line-height:1.5;margin-bottom:10px;">
         Un serial identifica un solo aparato, así que estar en dos sitios significa que
         el mismo equipo se está contando dos veces. Elige <b>dónde está de verdad</b>:
         se quita de los demás.</p>
-      <div style="max-height:56vh;overflow-y:auto;">
-      ${reps.slice(0,120).map(([sn,v],i)=>`
-        <div style="border:1px solid var(--border);border-radius:9px;padding:9px 11px;margin-bottom:8px;">
+      ${conPrueba?`<div style="border:1px solid #10b981;background:rgba(16,185,129,0.08);border-radius:9px;padding:10px 12px;margin-bottom:12px;">
+        <div style="font-size:0.82rem;margin-bottom:8px;">De los ${reps.length}, en
+          <b>${conPrueba}</b> el historial ya dice dónde está el equipo. Esos no hay que adivinarlos.</div>
+        <button class="btn btn-primary btn-sm" onclick="_resolverSNConPrueba()">
+          ✅ Resolver los ${conPrueba} que tienen prueba</button></div>`:''}
+      <div style="max-height:52vh;overflow-y:auto;">
+      ${reps.slice(0,120).map(([sn,v],i)=>{ const ver=vers[i]; return `
+        <div style="border:1px solid ${ver?'#10b981':'var(--border)'};border-radius:9px;padding:9px 11px;margin-bottom:8px;">
           <b style="font-family:monospace;font-size:0.84rem;">${sn}</b>
           <span style="font-size:0.72rem;color:#f59e0b;"> en ${v.length} sitios</span>
+          ${ver?`<div style="font-size:0.74rem;color:#10b981;margin-top:4px;">Según el historial: ${ver.razon}</div>`
+               :`<div style="font-size:0.74rem;color:var(--muted);margin-top:4px;">El historial no dice nada de este. Decide tú.</div>`}
           <div style="margin-top:6px;display:flex;flex-direction:column;gap:4px;">
-            ${v.map((x,j)=>`<button class="btn btn-outline btn-sm" style="text-align:left;font-size:0.76rem;"
-                onclick="_dejarSNSoloEn(${i},${j})">
-                Dejarlo solo en <b>${x.donde}</b> › ${x.articulo}</button>`).join('')}
+            ${v.map((x,j)=>`<button class="btn ${ver&&ver.idx===j?'btn-primary':'btn-outline'} btn-sm"
+                style="text-align:left;font-size:0.76rem;" onclick="_dejarSNSoloEn(${i},${j})">
+                ${ver&&ver.idx===j?'✔ ':''}Dejarlo solo en <b>${x.donde}</b> › ${x.articulo}</button>`).join('')}
           </div>
-        </div>`).join('')}
+        </div>`; }).join('')}
       ${reps.length>120?`<p style="font-size:0.76rem;color:var(--muted);">…y ${reps.length-120} más. Resuelve estos y vuelve a abrir.</p>`:''}
       </div>`, null);
+}
+/* Aplica de una sola vez los que el historial respalda. Enseña la lista antes. */
+function _resolverSNConPrueba(){
+    const reps=window._snReps||[], vers=window._snVeredictos||[];
+    const hacer=[];
+    reps.forEach(([sn,v],i)=>{ if(vers[i]) hacer.push({sn, sitios:v, idx:vers[i].idx, razon:vers[i].razon}); });
+    if(!hacer.length) return alert('No hay ninguno con prueba en el historial.');
+    const lista=hacer.slice(0,25).map(h=>'   • '+h.sn+'  →  queda en '+h.sitios[h.idx].donde
+        +' › '+h.sitios[h.idx].articulo+'\n      ('+h.razon+')').join('\n');
+    if(!confirm('Se va a dejar cada uno de estos '+hacer.length+' seriales en UN solo sitio:\n\n'
+        +lista+(hacer.length>25?'\n   …y '+(hacer.length-25)+' más':'')
+        +'\n\nDe los demás sitios se quita, y la cantidad baja con él.\n¿Sigo?')) return;
+    let n=0;
+    hacer.forEach(h=>{ if(_aplicarSNSoloEn(h.sn, h.sitios, h.idx)) n++; });
+    logMsg('Resueltos '+n+' seriales repetidos con la prueba del historial');
+    save();
+    alert('✅ Resueltos '+n+' de '+hacer.length+'.');
+    modalSerialesRepetidos();
+}
+window._resolverSNConPrueba=_resolverSNConPrueba;
+/* Deja el serial en UN solo sitio. Devuelve true si tocó algo.
+   v99 — Antes se quitaba por VALOR en cada sitio distinto del elegido:
+     x.mat.snes = x.mat.snes.filter(s => s !== sn)
+   y ese filtro se lleva TODAS las copias de ese material. Cuando el serial
+   estaba dos veces DENTRO del mismo artículo —tres casos en los datos de hoy—
+   el sitio elegido y el descartado eran el MISMO objeto, así que también se
+   borraba la copia que se quería conservar: el equipo desaparecía del
+   inventario y la cantidad bajaba igual. Ahora se cuenta por material cuántas
+   copias deben quedar (1 en el elegido, 0 en los demás) y se recorta a esa
+   cifra, de modo que el elegido SIEMPRE conserva la suya.                  */
+function _aplicarSNSoloEn(sn, sitios, j){
+    const queda=sitios[j]; if(!queda) return false;
+    const k=_snNormal(sn);
+    // Un material puede salir varias veces en la lista cuando el serial estaba
+    // repetido dentro de su propia lista. Se agrupa para no descontarlo dos veces.
+    const porMat=[];
+    sitios.forEach(x=>{ if(!porMat.some(o=>o.mat===x.mat)) porMat.push({mat:x.mat}); });
+    let tocado=false;
+    porMat.forEach(o=>{
+        const dejar = (o.mat===queda.mat) ? 1 : 0;
+        let vistas=0; const nueva=[];
+        (o.mat.snes||[]).forEach(sx=>{
+            if(_snNormal(sx)!==k){ nueva.push(sx); return; }
+            vistas++;
+            if(vistas<=dejar) nueva.push(sx);
+        });
+        const quitadas = vistas - Math.min(vistas, dejar);
+        if(!quitadas) return;
+        o.mat.snes=nueva;
+        // La cantidad baja con cada copia retirada: si no, el stock queda inflado.
+        if(typeof o.mat.cantidad==='number')
+            o.mat.cantidad=Math.max(0, o.mat.cantidad-quitadas);
+        tocado=true;
+    });
+    return tocado;
 }
 function _dejarSNSoloEn(i, j){
     const reps=window._snReps||[];
@@ -703,19 +833,44 @@ function _dejarSNSoloEn(i, j){
     const [sn, sitios]=par;
     const queda=sitios[j];
     const quitar=sitios.filter((_,k)=>k!==j);
+    const mismoArt=new Set(sitios.map(x=>x.mat)).size===1;
     if(!confirm('El serial '+sn+' queda SOLO en:\n   '+queda.donde+' › '+queda.articulo
-        +'\n\nSe quita de:\n'+quitar.map(x=>'   • '+x.donde+' › '+x.articulo).join('\n')
+        +'\n\nSe quita de:\n'+(mismoArt
+            ? '   • la copia repetida en esa misma lista'
+            : quitar.map(x=>'   • '+x.donde+' › '+x.articulo).join('\n'))
         +'\n\n¿Sigo?')) return;
-    const k=_snNormal(sn);
-    quitar.forEach(x=>{
-        x.mat.snes=(x.mat.snes||[]).filter(s=>_snNormal(s)!==k);
-        // La cantidad baja con el serial: si no, el stock queda inflado
-        if(typeof x.mat.cantidad==='number' && x.mat.cantidad>0) x.mat.cantidad--;
-    });
+    if(!_aplicarSNSoloEn(sn, sitios, j)) return;
     logMsg('Serial '+sn+' dejado solo en '+queda.donde+' › '+queda.articulo);
     save();
     modalSerialesRepetidos();
 }
+/* Saca estos seriales de cualquier bodega o cuadrilla donde estén, bajando la
+   cantidad con cada uno. Se usa cuando un equipo LLEGA a un sitio nuevo y hay
+   constancia de que estaba anotado en otro: mover, no duplicar.
+   Devuelve la lista de sitios de donde salió.                              */
+function _sacarSNDeDondeEste(snes){
+    const salio=[];
+    (snes||[]).forEach(sn=>{
+        const k=_snNormal(sn);
+        if(!k || _snEsRelleno(k)) return;
+        (_dondeEstaSN(sn)||[]).forEach(d=>{
+            const cont = d.bodegaId
+                ? (DB.bodegas||[]).find(z=>String(z.id)===String(d.bodegaId))
+                : (DB.cuadrillas||[]).find(z=>String(z.id)===String(d.cuadrillaId));
+            const mm = cont && (cont.materiales||[]).find(z=>z.id===d.matId);
+            if(!mm) return;
+            const antes=(mm.snes||[]).length;
+            mm.snes=(mm.snes||[]).filter(z=>_snNormal(z)!==k);
+            const quitadas=antes-mm.snes.length;
+            if(!quitadas) return;
+            if(typeof mm.cantidad==='number') mm.cantidad=Math.max(0, mm.cantidad-quitadas);
+            salio.push({sn, donde:d.donde, articulo:d.articulo, quitadas});
+        });
+    });
+    return salio;
+}
+window._aplicarSNSoloEn=_aplicarSNSoloEn;
+window._sacarSNDeDondeEste=_sacarSNDeDondeEste;
 window.modalSerialesRepetidos=modalSerialesRepetidos;
 window._dejarSNSoloEn=_dejarSNSoloEn;
 window._dondeEstaSN=_dondeEstaSN;
@@ -5525,7 +5680,7 @@ function openLightbox(src) {
 }
 function closeLightbox() { const lb=id('appLightbox'); if(lb) lb.classList.remove('show'); }
 window.openLightbox=openLightbox; window.closeLightbox=closeLightbox;
-function modalRestock(bId, mId) { const b=DB.bodegas.find(x=>x.id===bId), m=b.materiales.find(x=>x.id===mId); openModal('📥 Reabastecer', `<input type="hidden" id="rBId" value="${bId}"><input type="hidden" id="rMId" value="${mId}"><p>Stock: <strong>${m.cantidad} ${m.unidad}</strong></p><div class="form-group"><label>Cantidad</label><input id="rCant" type="number" value="1" min="1" class="form-control"></div><div class="form-group"><label>Nuevos SN</label><textarea id="rSNs" class="form-control"></textarea></div>`, ()=>{ const mat=DB.bodegas.find(x=>x.id===id('rBId').value).materiales.find(x=>x.id===id('rMId').value); const q=parseInt(id('rCant').value); if(!q) return alert('Cantidad inválida'); mat.cantidad+=q; const rawSN=id('rSNs').value.trim(); if(rawSN) mat.snes.push(...rawSN.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean)); registrarMovimiento(id('rBId').value, id('rMId').value, 'entrada', q, 'Reabastecimiento manual'); logMsg(`Reabastecido "${mat.nombre}" (+${q})`); save(); closeModal(); renderTab('bodegas'); }); }
+function modalRestock(bId, mId) { const b=DB.bodegas.find(x=>x.id===bId), m=b.materiales.find(x=>x.id===mId); openModal('📥 Reabastecer', `<input type="hidden" id="rBId" value="${bId}"><input type="hidden" id="rMId" value="${mId}"><p>Stock: <strong>${m.cantidad} ${m.unidad}</strong></p><div class="form-group"><label>Cantidad</label><input id="rCant" type="number" value="1" min="1" class="form-control"></div><div class="form-group"><label>Nuevos SN</label><textarea id="rSNs" class="form-control"></textarea></div>`, ()=>{ const mat=DB.bodegas.find(x=>x.id===id('rBId').value).materiales.find(x=>x.id===id('rMId').value); const q=parseInt(id('rCant').value); if(!q) return alert('Cantidad inválida'); mat.cantidad+=q; const rawSN=id('rSNs').value.trim(); /* v99: se teclean a mano igual que en Agregar Serial, así que se revisan igual.    Antes entraban sin mirar y un serial podía quedar en dos bodegas. */ if(rawSN){ if(!Array.isArray(mat.snes)) mat.snes=[]; const _r=_revisarSNs(rawSN.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean), mat); if(_r.ocupados.length||_r.repetidosAqui.length||_r.relleno.length) _avisarSNs(_r, mat); mat.snes.push(..._r.ok); } registrarMovimiento(id('rBId').value, id('rMId').value, 'entrada', q, 'Reabastecimiento manual'); logMsg(`Reabastecido "${mat.nombre}" (+${q})`); save(); closeModal(); renderTab('bodegas'); }); }
 
 function modalEditMat(bId, mId) {
     const b = DB.bodegas.find(x=>x.id===bId);
@@ -6145,7 +6300,29 @@ function integrarRecuperado(idx) { const r=DB.recuperados[idx]; if(!r||r.estado!
         const _cu=(DB.cuadrillas||[]).find(c=>String(c.id)===String(r.cuadrillaId));
         const _sigue=_cu && (_cu.materiales||[]).some(m=>String(m.nombre).toLowerCase().trim()===String(r.nom).toLowerCase().trim() && (parseInt(m.cantidad)||0)>0);
         if(_sigue && !confirm(`⚠️ OJO: "${r.nom}" lo devolvió la cuadrilla "${r.cuadrillaNombre||''}" con una versión anterior de la app de Técnicos, y TODAVÍA figura a nombre del técnico.\n\nSi lo integras ahora quedaría contado DOS veces (en la bodega y con el técnico).\n\nRevisa el stock de esa cuadrilla y descuéntalo a mano.\n\n¿Integrar de todas formas?`)) return;
-    } const snes=Array.isArray(r.snes)?r.snes:[]; if(!Array.isArray(b.materiales)) b.materiales=[]; const ex=b.materiales.find(m=>m.nombre===r.nom&&m.tipo===r.tipo); if(ex){ex.cantidad=(ex.cantidad||0)+(r.cant||0);if(snes.length){if(!Array.isArray(ex.snes))ex.snes=[];snes.forEach(sn=>{ if(!ex.snes.includes(sn)) ex.snes.push(sn); });} registrarMovimiento(b.id, ex.id, 'entrada', r.cant||0, `Equipo recuperado integrado${r.cliente?' — '+r.cliente:''}`);}else{ const _nv={id:Date.now().toString(),nombre:r.nom,cantidad:r.cant||0,tipo:r.tipo,unidad:r.unidad,snes:snes,stockMin:0,categoria:'material',observaciones:'Recuperado en campo',fotos:[],fecha:r.fecha,historial:[]}; b.materiales.push(_nv); registrarMovimiento(b.id, _nv.id, 'entrada', r.cant||0, 'Equipo recuperado integrado'); } r.estado='integrado'; logMsg(`Integrado "${r.nom}"`); save(); renderTab('recuperados'); }
+    }
+    /* 🔒 v99 — UN SERIAL, UN SITIO, también aquí.
+       El aviso de arriba (v82) compara NOMBRE y cantidad, y solo actúa cuando el
+       recuperado trae cuadrillaId. Los que manda la app de Técnicos por retiro de
+       un cliente NO lo traen, así que ese aviso nunca se disparaba y el serial se
+       sumaba a la bodega mientras seguía contado a nombre del técnico. Medido en
+       los datos: 9 de los 27 seriales repetidos entraron justo por aquí.
+       Integrar un recuperado significa que el aparato VOLVIÓ a la bodega, así que
+       lo correcto no es duplicarlo ni bloquear el trabajo: es MOVERLO. Se enseña
+       de dónde sale y se pide confirmación; si dice que no, no se integra nada. */
+    const _snesR=Array.isArray(r.snes)?r.snes:[];
+    const _ocupados=[];
+    _snesR.forEach(sn=>{ (_dondeEstaSN(sn)||[]).forEach(d=>_ocupados.push({sn, d})); });
+    if(_ocupados.length){
+        if(!confirm('⚠️ Este equipo YA figura en otro sitio:\n'
+            +_ocupados.slice(0,8).map(x=>'   • '+x.sn+'  →  '+x.d.donde+' › '+x.d.articulo).join('\n')
+            +(_ocupados.length>8?'\n   …y '+(_ocupados.length-8)+' más':'')
+            +'\n\nUn serial es un solo aparato. Si lo integro sin más, quedaría contado DOS veces.'
+            +'\n\nLo saco de allá y lo dejo en "'+(b.nombre||'esta bodega')+'".\n¿Sigo?')) return;
+        _sacarSNDeDondeEste(_snesR);
+        logMsg('Recuperado "'+r.nom+'": '+_ocupados.length+' serial(es) movidos desde donde estaban');
+    }
+    const snes=_snesR; if(!Array.isArray(b.materiales)) b.materiales=[]; const ex=b.materiales.find(m=>m.nombre===r.nom&&m.tipo===r.tipo); if(ex){ex.cantidad=(ex.cantidad||0)+(r.cant||0);if(snes.length){if(!Array.isArray(ex.snes))ex.snes=[];snes.forEach(sn=>{ if(!ex.snes.includes(sn)) ex.snes.push(sn); });} registrarMovimiento(b.id, ex.id, 'entrada', r.cant||0, `Equipo recuperado integrado${r.cliente?' — '+r.cliente:''}`);}else{ const _nv={id:Date.now().toString(),nombre:r.nom,cantidad:r.cant||0,tipo:r.tipo,unidad:r.unidad,snes:snes,stockMin:0,categoria:'material',observaciones:'Recuperado en campo',fotos:[],fecha:r.fecha,historial:[]}; b.materiales.push(_nv); registrarMovimiento(b.id, _nv.id, 'entrada', r.cant||0, 'Equipo recuperado integrado'); } r.estado='integrado'; logMsg(`Integrado "${r.nom}"`); save(); renderTab('recuperados'); }
 window.integrarRecuperado=integrarRecuperado;
 window.modalAddRecuperado=modalAddRecuperado;
 window.renderRecuperados=renderRecuperados;
@@ -8914,7 +9091,7 @@ const HISTORIAL_DOC = 'inventario/historial';
 // Campos que SOLO escribe Inventario (Técnicos no los toca) y que solo crecen.
 // Se guardan en un documento aparte para que inventario/datos no llegue al tope de 1MB.
 const HISTORIAL_FIELDS = ['editRequests','entregas','cuartos','logs','transfers','deleteRequests','ventas'];
-const APP_VERSION_INV = 97; // ⬆️ Subir en cada versión publicada de Inventario (v97: LOS CUATRO REPORTES DE HOY. [1] TIEMPO REAL EN TODOS LOS DISPOSITIVOS. Los escuchas de Firebase ya estaban puestos: lo que fallaba era el GUARDADO. Medido sobre los datos reales de hoy, inventario/datos pesaba 790 KB y inventario/historial 747 KB, del maximo de 1 MB que admite Firestore. Pasado ese tope Firebase RECHAZA la escritura entera, asi que el cambio no salia del equipo y los demas no lo veian nunca. El archivador de la v90 no podia ayudar: sus plazos fijos (45, 120, 180 dias) no alcanzaban a NADA, porque lo que llena el documento son 389 consumos y 339 instalaciones RECIENTES. Ahora el archivador se regula solo: si un documento pasa del 70% del limite, acorta los plazos por escalones (30, 20, 14, 7 dias) hasta dejarlo por debajo del 60%, y nunca los alarga. Ademas archiva siete listas mas que antes (solicitudes de cambio y de borrado ya decididas, entregas, transferencias, ventas, logs). Probado hoy: 1.271 registros y 913 KB al archivo, historial 73%->15% y datos 77%->44%. Lo PENDIENTE no se archiva nunca y nada sale de la base sin haberlo leido antes en el archivo. [2] LA RECARGA YA NO PIDE LA CLAVE. La sesion se recuerda en sessionStorage, que vive solo en esa pestana y muere al cerrarla, asi que el equipo compartido de la bodega no amanece con la sesion abierta. Caduca a las 12 horas, no guarda la contrasena y se comprueba contra la base al volver: si a la bodega le cambiaron la clave o la borraron, se pide entrar de nuevo. [3] LA SOLICITUD DECIDIDA YA NO REAPARECE. El blindaje de la v79 caducaba a los 3 minutos; si el guardado fallaba por lo del punto [1], al minuto 4 el snapshot la devolvia a pendiente. Ahora la decision se sostiene SIN PLAZO y solo se suelta cuando la nube ya la trae con ese mismo estado. Se guarda tambien en el navegador, asi que sobrevive a una recarga, y se limpia a los 30 dias. [4] UN SERIAL, UN SITIO. modalAddSN solo miraba dentro del mismo articulo, asi que el mismo equipo podia quedar en dos bodegas, o en una bodega y una cuadrilla a la vez. Medido: 31 seriales estaban en dos sitios (un ONT figuraba en FLORENCIA y en DONCELLO). Ahora se BLOQUEA en vez de avisar, y en la Auditoria hay 🔧 Seriales repetidos para arreglar los que ya estaban: se elige donde esta de verdad el equipo y se quita de los demas, ajustando la cantidad. Los rellenos que no son seriales (N/A, SN, guiones) se siguen aceptando repetidos. v91: LECTURA DE FECHAS UNIFICADA. Ademas del texto, ahora se guarda una marca de tiempo NUMERICA (confirmadoMs, rechazadoMs) y la logica la prefiere. El texto se conserva sin tocar porque bodega lo muestra tal cual en pantalla, asi que el usuario no ve ningun cambio. El motivo: tanto TECNICOS como esta app guardaban las fechas con toLocaleDateString(), que en Colombia da DD/MM/AAAA, y new Date() lo interpreta como MM/DD: 17/8/2026 daba fecha invalida y 5/8/2026 se leia como 8 de MAYO. Un numero no admite interpretacion. Los registros anteriores siguen resolviendose con _msDeFechaInv. v90: EL ARCHIVADO YA ES AUTOMATICO, como en OFICINAS. Alla se resolvio asi en la v170 tras chocar con el limite de 1 MB; bodega se habia quedado solo con el boton manual, y por eso el historial viejo se acumulaba. Ahora corre dentro del guardado, antes de armar el documento. Es barato: _calcularAligerado() es puro en memoria y devuelve vacio casi siempre, asi que un guardado normal no cuesta nada extra; solo hay lecturas y escrituras cuando de verdad hay historial viejo, y una vez movido no se repite. Seguridad: escribe el archivo, lo vuelve a LEER para confirmar y solo entonces saca los registros de la base; si la escritura o la verificacion fallan, no se quita nada. El boton manual sigue existiendo y ahora comparte el mismo nucleo (_archivarInv) en vez de duplicar la logica. v89: EL ARCHIVADOR NO PODIA LEER LAS FECHAS. El boton Aligerar la base existia y sus reglas eran correctas, pero _diasDeInv usaba new Date() sobre fechas en formato colombiano DD/MM/AAAA que TECNICOS escribe con toLocaleDateString(). new Date() espera MM/DD, asi que 17/8/2026 daba Invalid Date y el registro quedaba invisible para el archivador PARA SIEMPRE, y 5/8/2026 se leia como 8 de MAYO, con la antiguedad mal calculada. Por eso habia 639 consumos ya resueltos (solo 12 seguian pendientes) ocupando el 48% de un documento al 80% de su limite. Ahora _msDeFechaInv resuelve DD/MM/AAAA a mano antes de Date.parse. Medido sobre los datos reales: los registros archivables pasaron de 1 a 458, unos 216 KB. El archivado sigue siendo manual. v88: CONFLICTOS DE CUADRILLAS Y BODEGAS RESUELTOS POR QUIEN TOCO EL REGISTRO. Habia dos reglas fijas y ninguna era correcta en ambos sentidos: el listener hacia Object.assign y la nube pisaba una edicion local sin guardar; y la fusion al guardar se quedaba con la copia local, revirtiendo el descuento que un tecnico acababa de hacer (el material quedaba en recuperados Y en la cuadrilla, contado dos veces). Ahora se guarda el contenido de cada registro en la ultima sincronia y se compara: si esta sesion no lo toco entra lo de la nube, si lo toco se conserva lo local. Sin base o registro desconocido gana lo local, igual que antes, para que un camino no cubierto degrade en vez de perder datos. Solo aplica a cuadrillas y bodegas. v87: GUARDA CONTRA CANTIDADES INVALIDAS. integrarRecuperado SUMA r.cant al stock de la bodega; si ese valor era negativo, cero o texto, restaba o corrompia el stock en silencio y lo registraba como entrada. Ahora se rechaza con un aviso claro. Se pone aqui ademas de en la app de Tecnicos porque un registro guardado ANTES de acotar la entrada seguiria causando el dano al integrarlo. Tambien se acoto la cantidad de equipos del cliente, que sin || guardaba NaN al vaciar el campo. v86: DIAGRAMA DEL CUARTO. Se restauro el boton IMPRIMIR, que estaba perdido: la funcion existia pero apuntaba al id diagSvg y el modal actual crea diagramaSVG, asi que aunque alguien la llamara no hacia nada, y ademas ningun boton la llamaba. Al imprimir se fuerza el color (print-color-adjust): sin eso el navegador omite los fondos y, como el diagrama es oscuro, salia una hoja practicamente en blanco. Se elimino descargarDiagramaSVG, que quedo redundante frente a descargarDiagrama (esta ultima si funciona y ademas agrega el xmlns al archivo). Y en la descarga: la fecha del nombre venia en UTC (de noche ponia la de manana) y la URL temporal se liberaba en el mismo instante del clic, lo que puede cortar la descarga. v85: solo comentarios. Se elimino la constante CAMPOS_DE_TECNICOS, que estaba declarada y NUNCA se usaba: era residuo del enfoque de la v72, reemplazado despues por la fusion universal _fusionarConNubeInv. El comentario del nucleo de guardado describia esa proteccion vieja, asi que enganaba a quien lo leyera. Ahora describe la fusion real y documenta su limite conocido: para un registro que ya existe en ambos lados gana la copia LOCAL, y como una cuadrilla no tiene campo 'estado', un descuento de stock hecho por un tecnico puede revertirse si esta sesion guarda antes de que el listener la refresque. Sin cambios de comportamiento. v84: limpieza de modalDiagramaCompleto duplicada. v83: MENSAJE DEL DIA al iniciar sesion. Ademas del saludo aparece una frase corta para arrancar labores, elegida segun el DIA DE LA SEMANA y estable durante toda la jornada (cambia al dia siguiente, no en cada recarga). Escritas para el trabajo de bodega: material, cuadrillas, seriales, consumos. Uno de cada tres dias se suma un recordatorio practico (anotar serial al entregar, confirmar consumos, revisar la Auditoria, registrar lo que entra, recibir devoluciones el mismo dia). Se editan en FRASES_DIA_INV y TIPS_DIA_INV. Incluye v82: COHERENCIA CON LA APP DE TECNICOS. La app de Tecnicos v71 corrigio que las devoluciones de material NO descontaban del stock del tecnico (quedaba contado dos veces). Aqui: [1] al integrar un recuperado que vino de una cuadrilla con una version anterior, se AVISA si ese material todavia figura a nombre del tecnico, para no contarlo doble. [2] La 🩺 Auditoria detecta ahora tres problemas del cruce con Tecnicos: material contado DOS veces (devuelto a la bodega pero aun en poder del tecnico), equipos danados que siguen en el stock del tecnico, tecnicos SIN CEDULA (la app de Tecnicos los busca por cedula: sin ella no pueden devolver material ni reportar consumos) y un mismo tecnico registrado en DOS cuadrillas (sus reportes irian a la cuadrilla equivocada). Incluye v81: (v81: CAUSA REAL DEL PROBLEMA DE GUARDADO — la base llego a 0.98 MB del maximo de 1 MB que permite Firestore, y pasado ese tope Firebase deja de guardar: por eso las solicitudes aprobadas reaparecian. El diagnostico de la v79 mostro que lo mas pesado NO son las fotos sino las listas de historial que crecen sin parar: consumosPendientes 370KB, bodegas 348KB, instalaciones 161KB, recuperados 81KB. NUEVO en 🩺 Auditoria: panel de espacio con barra de uso y desglose por seccion, boton ARCHIVAR HISTORIAL VIEJO (mueve a documentos por año los consumos ya resueltos de mas de 45 dias, las instalaciones de mas de 120 y los recuperados ya integrados; lo PENDIENTE nunca se archiva), boton para mover las fotos, y boton VER ARCHIVO para consultar lo guardado. Nada se borra y todo se verifica en la nube ANTES de sacarlo de la base. Incluye v80: (v80: LAS FOTOS DE MATERIALES SALEN DE LA BASE PRINCIPAL — esta era la causa de fondo de que los guardados fallaran y las solicitudes reaparecieran. Las fotos se guardaban DENTRO de inventario/datos como texto base64; entre todas hacian que el documento pasara el limite de 1 MB de Firestore, y a partir de ahi NINGUN cambio se guardaba. Ahora cada foto vive en su propio documento (inventario/foto_XXX) y el material solo guarda su codigo; se ven exactamente igual, se cargan solas al abrir la pantalla y las fotos nuevas ya no engordan la base. NUEVO en 🩺 Auditoria: panel de espacio que muestra cuanto pesa la base y cuantos MB ocupan las fotos incrustadas, con boton para MOVERLAS todas: va una por una, comprueba que quedo guardada ANTES de sacarla (ninguna se pierde), guarda bodega por bodega y se puede retomar si se interrumpe. Incluye v79: (v79: LAS SOLICITUDES APROBADAS/RECHAZADAS YA NO REAPARECEN. Causa: el snapshot de Firebase REEMPLAZA la lista completa con lo que hay en la nube; si el guardado aun no habia terminado —o FALLO, como cuando Firebase responde 'write stream exhausted maximum allowed queued writes'— la solicitud volvia a salir como pendiente. Tres correcciones: [1] BLINDAJE DE DECISIONES: toda decision tomada en esta sesion (aprobar, rechazar, aceptar/rechazar transferencia) se vuelve a imponer sobre el snapshot durante 3 minutos, hasta que quede confirmada en la nube. [2] EL GUARDADO FALLIDO YA NO ES INVISIBLE: antes solo se pintaba un indicador chiquito y se escribia en la consola, asi que el usuario creia que su cambio habia quedado; ahora avisa claro que NO se guardo y REINTENTA solo hasta 3 veces. [3] DIAGNOSTICO DE TAMANO: Firestore rechaza documentos de mas de 1 MB y no habia forma de enterarse; ahora se mide en cada guardado, se avisa en consola desde 800 KB y con alerta si pasa el limite, indicando que seccion pesa mas. Incluye v78: (v78: AUDITORIA GENERAL DEL INVENTARIO + correcciones de flujo. NUEVA PANTALLA 🩺 Auditoria (admin): revisa TUS datos reales y reporta stock negativo, seriales repetidos dentro de un articulo, el MISMO equipo registrado en dos lugares a la vez, desajustes entre cantidad y seriales, articulos duplicados en una bodega, cuadrillas con material sin bodega asignada, y material EN EL LIMBO (transferencias sin aceptar, consumos de tecnicos sin confirmar, recuperados sin integrar, solicitudes sin decidir), ordenado por gravedad y exportable a Excel. CORRECCIONES: [1] enviar transferencia validaba articulo por articulo mientras descontaba — si el stock habia cambiado quedaba NEGATIVO, y si el articulo ya no existia reventaba a mitad dejando material descontado SIN transferencia creada (perdido); ahora valida todo primero y no toca nada si algo falla. [2] aceptar/rechazar transferencia agregaba los seriales con push SIN comprobar si ya estaban (el mismo equipo dos veces en la bodega), reventaba si la bodega destino u origen ya no existia (material en el limbo) y al rechazar buscaba por NOMBRE creando duplicados si lo habian renombrado. [3] misma duplicacion de seriales corregida en recuperados integrados, devoluciones de cuadrilla y entregas. [4] KARDEX: ventas, transferencias, entregas, devoluciones y recuperados no dejaban NINGUN rastro en el historial del articulo; ahora si. [5] agregar seriales avisa si estan repetidos o si superan el stock. Incluye v77: (v77: SOLICITUDES DE CAMBIO Y ELIMINACION CORREGIDAS — cuatro fallas: [1] la EDICION de una bodega se aplicaba al material ANTES de mirar el rol, asi que el cambio quedaba hecho sin aprobacion y RECHAZARLO no revertia nada (la aprobacion era decorativa); ahora la bodega solo PROPONE y el material no se toca hasta que el admin apruebe. [2] ELIMINAR UNA VENTA no devolvia el material a la bodega aunque vender SI lo descuenta: el stock desaparecia sin venta que lo justificara; ahora se devuelve cantidad y seriales, con registro en el kardex, y si el articulo ya no existe se vuelve a crear (aplica tambien al borrado directo del admin). [3] RECHAZAR una eliminacion RESUCITABA material fantasma con la cantidad vieja cuando el articulo ya no estaba (agotado, transferido o borrado aparte); ahora rechazar no toca la bodega y, si el articulo falta, se le PREGUNTA al admin. [4] Aprobar eliminacion borraba el articulo SIN dejar rastro en el kardex y sin avisar si la cantidad habia cambiado desde la solicitud; ahora registra la salida y avisa. Ademas approveEdit avisa si la cantidad cambio antes de pisarla, y ya no cierra solicitudes en silencio cuando la bodega o el articulo ya no existen. Incluye v76: CUARTOS DE EQUIPOS — puertos huerfanos y conexiones protegidas: aviso ambar en el equipo cuando hay puertos OCUPADOS sin conexion que los respalde + boton 🧹 Liberarlos (respeta enlaces inter-sede); boton ✏️ para EDITAR conexiones (mover puertos con selector real, cable, color, notas); y TODA modificacion de conexiones (crear/editar/eliminar/liberar) va por TRANSACCION con validacion fresca — dos sesiones ya no se pisan y un puerto no puede ocuparse dos veces. Incluye v75: GUARDADO MAS RAPIDO — la fusion usa la copia del listener cuando tiene <15s (cero descargas extra, misma proteccion); si esta vieja, lee de la red como siempre. Incluye v74: FUSION UNIVERSAL ENTRE SESIONES — el trabajo simultaneo de varias bodegas y tecnicos ya no se pisa: al guardar se fusiona con la nube fresca (datos + historial), lo de otras sesiones se incorpora, los borrados propios dejan LAPIDA y no reviven, las decisiones ajenas (confirmados/integrados/aceptados) se respetan, y un snapshot ya no borra de la pantalla lo recien creado (se conserva y reenvia solo). ENTREGAS ahora con TRANSACCION multi-documento: valida el stock y los seriales sobre datos FRESCOS (si otra sesion entrego mientras tanto, avisa claro), descuenta bodega + suma cuadrilla + registra la entrega de forma atomica. Incluye v73: al CONFIRMAR un consumo de cliente, el material queda anotado AUTOMATICAMENTE en la ficha del cliente — seccion "🧰 Material instalado" — emparejando primero por CEDULA (que ahora envia el tecnico v69) y si no por nombre; si no se encuentra el cliente, avisa claro y el boton "Sincronizar material con clientes" (tambien mejorado con cedula) queda como red de seguridad. Incluye v72: [1] confirmación de consumos con TRANSACCIÓN — el descuento a la cuadrilla ya no se puede revertir por una sincronización cruzada; [2] config Firebase integrada — no vuelve a pedirla; [3] login con ojito 👁️ y Enter; [4] BLINDAJE: guardas anti-borrado de clientes (carga incompleta o encogimiento drástico NO reescriben la nube), firma para no reescribir chunks sin cambios, carga de clientes en paralelo con reintentos, COLA de guardado (nunca se solapan), fusión de envíos recientes de técnicos antes de guardar, y fotos pequeñas ya no se recomprimen)
+const APP_VERSION_INV = 99; // ⬆️ Subir en cada versión publicada de Inventario (v99: LOS SERIALES REPETIDOS — POR QUE VUELVEN. Elkin pregunto por que no se resolvia de una vez la unica prueba que quedaba en ambar. No era una falla del programa sino del inventario: 27 seriales anotados en dos sitios son 27 equipos contados dos veces, y eso no se arregla desde el codigo porque depende de donde esta el aparato de verdad. Pero al mirarlos uno por uno aparecieron tres cosas que si son del programa. [1] LA HERRAMIENTA QUE LOS ARREGLA BORRABA EL EQUIPO. _dejarSNSoloEn quitaba el serial por VALOR en cada sitio descartado, y ese filtro se lleva TODAS las copias de ese articulo. Cuando el serial estaba dos veces dentro de la MISMA lista -tres casos en los datos de hoy- el sitio elegido y el descartado eran el mismo objeto, asi que tambien se borraba la copia que se queria conservar: el equipo desaparecia del inventario y la cantidad bajaba igual. Ahora se cuenta por material cuantas copias deben quedar (una en el elegido, cero en los demas) y se recorta a esa cifra. [2] LA CAUSA SEGUIA ABIERTA. integrarRecuperado sumaba el serial a la bodega sin mirar si ya estaba en otro lado. El aviso de la v82 no lo atrapaba: compara NOMBRE y cantidad, y solo actua cuando el recuperado trae cuadrillaId, y los que manda la app de Tecnicos por retiro de un cliente no la traen. Medido: 9 de los 27 entraron justo por ahi. Integrar significa que el aparato VOLVIO a la bodega, asi que ahora se MUEVE en vez de duplicarse: se enseña de donde sale, se pide confirmacion y se descuenta de alla. Reabastecer tambien revisa los seriales, igual que Agregar Serial, porque se teclean a mano igual. [3] YA NO HAY QUE ADIVINAR. Antes la herramienta pedia elegir a ciegas entre dos sitios. Ahora le pregunta al historial: si el equipo entro por un recuperado YA INTEGRADO a una bodega, por un traslado aceptado o por una entrega a esa cuadrilla, esa es la respuesta, y viene marcada con el motivo y la fecha. Entre dos articulos de la misma bodega desempata el nombre, que es la misma regla con la que se creo el duplicado. Hay un boton que resuelve de una vez todos los que tienen prueba, enseñando antes la lista completa. Medido hoy sobre los datos reales: de los 27, en 13 el historial lo demuestra y 14 siguen decidiendose a mano -los que no dejaron rastro, como dos ONT que figuran a la vez en FLORENCIA y en DONCELLO-. Nada se aplica sin enseñar antes que va a pasar. v98: LA APROBACION SE DESHACIA SOLA. Reportado por Elkin: acepta una solicitud, desaparece y despues vuelve a salir, y bodega termina creando la misma orden varias veces. Encontrado y REPRODUCIDO paso a paso. Al recibir un snapshot, _protegerSnapshotInv mete en el array entrante los registros que esta sesion edito y aun no ha guardado -eso esta bien, si no el snapshot los borraria de la pantalla-. Pero acto seguido se guardaba ESE MISMO array como la foto de referencia de lo que hay en la nube, con el cambio local adentro. A partir de ahi _sesionTocoInv, que es quien decide los conflictos, comparaba lo local contra una foto que ya traia lo local: respondia que la sesion NO habia tocado nada, y en el siguiente guardado la fusion dejaba entrar el valor VIEJO de la nube. Medido: aprobar dejaba el material en 1, llegaba un snapshot cualquiera y al fusionar volvia a 0. Nada avisaba, porque en pantalla el cambio se veia aplicado; por eso bodega pedia lo mismo otra vez. En los datos hay tres casos repetidos, separados 6, 39 y 49 minutos, todos de DONCELLO. Ahora la foto se toma ANTES de proteger, asi que retrata la NUBE y no la pantalla. Comprobado en los dos sentidos: la aprobacion propia sobrevive, y el cambio hecho por otra oficina sigue entrando cuando esta sesion no toco nada. Nota aparte: el sintoma tambien lo producia el limite de 1 MB, resuelto en la v97; el archivador esta funcionando (historial 15%, datos 48%). v97: LOS CUATRO REPORTES DE HOY. [1] TIEMPO REAL EN TODOS LOS DISPOSITIVOS. Los escuchas de Firebase ya estaban puestos: lo que fallaba era el GUARDADO. Medido sobre los datos reales de hoy, inventario/datos pesaba 790 KB y inventario/historial 747 KB, del maximo de 1 MB que admite Firestore. Pasado ese tope Firebase RECHAZA la escritura entera, asi que el cambio no salia del equipo y los demas no lo veian nunca. El archivador de la v90 no podia ayudar: sus plazos fijos (45, 120, 180 dias) no alcanzaban a NADA, porque lo que llena el documento son 389 consumos y 339 instalaciones RECIENTES. Ahora el archivador se regula solo: si un documento pasa del 70% del limite, acorta los plazos por escalones (30, 20, 14, 7 dias) hasta dejarlo por debajo del 60%, y nunca los alarga. Ademas archiva siete listas mas que antes (solicitudes de cambio y de borrado ya decididas, entregas, transferencias, ventas, logs). Probado hoy: 1.271 registros y 913 KB al archivo, historial 73%->15% y datos 77%->44%. Lo PENDIENTE no se archiva nunca y nada sale de la base sin haberlo leido antes en el archivo. [2] LA RECARGA YA NO PIDE LA CLAVE. La sesion se recuerda en sessionStorage, que vive solo en esa pestana y muere al cerrarla, asi que el equipo compartido de la bodega no amanece con la sesion abierta. Caduca a las 12 horas, no guarda la contrasena y se comprueba contra la base al volver: si a la bodega le cambiaron la clave o la borraron, se pide entrar de nuevo. [3] LA SOLICITUD DECIDIDA YA NO REAPARECE. El blindaje de la v79 caducaba a los 3 minutos; si el guardado fallaba por lo del punto [1], al minuto 4 el snapshot la devolvia a pendiente. Ahora la decision se sostiene SIN PLAZO y solo se suelta cuando la nube ya la trae con ese mismo estado. Se guarda tambien en el navegador, asi que sobrevive a una recarga, y se limpia a los 30 dias. [4] UN SERIAL, UN SITIO. modalAddSN solo miraba dentro del mismo articulo, asi que el mismo equipo podia quedar en dos bodegas, o en una bodega y una cuadrilla a la vez. Medido: 31 seriales estaban en dos sitios (un ONT figuraba en FLORENCIA y en DONCELLO). Ahora se BLOQUEA en vez de avisar, y en la Auditoria hay 🔧 Seriales repetidos para arreglar los que ya estaban: se elige donde esta de verdad el equipo y se quita de los demas, ajustando la cantidad. Los rellenos que no son seriales (N/A, SN, guiones) se siguen aceptando repetidos. v91: LECTURA DE FECHAS UNIFICADA. Ademas del texto, ahora se guarda una marca de tiempo NUMERICA (confirmadoMs, rechazadoMs) y la logica la prefiere. El texto se conserva sin tocar porque bodega lo muestra tal cual en pantalla, asi que el usuario no ve ningun cambio. El motivo: tanto TECNICOS como esta app guardaban las fechas con toLocaleDateString(), que en Colombia da DD/MM/AAAA, y new Date() lo interpreta como MM/DD: 17/8/2026 daba fecha invalida y 5/8/2026 se leia como 8 de MAYO. Un numero no admite interpretacion. Los registros anteriores siguen resolviendose con _msDeFechaInv. v90: EL ARCHIVADO YA ES AUTOMATICO, como en OFICINAS. Alla se resolvio asi en la v170 tras chocar con el limite de 1 MB; bodega se habia quedado solo con el boton manual, y por eso el historial viejo se acumulaba. Ahora corre dentro del guardado, antes de armar el documento. Es barato: _calcularAligerado() es puro en memoria y devuelve vacio casi siempre, asi que un guardado normal no cuesta nada extra; solo hay lecturas y escrituras cuando de verdad hay historial viejo, y una vez movido no se repite. Seguridad: escribe el archivo, lo vuelve a LEER para confirmar y solo entonces saca los registros de la base; si la escritura o la verificacion fallan, no se quita nada. El boton manual sigue existiendo y ahora comparte el mismo nucleo (_archivarInv) en vez de duplicar la logica. v89: EL ARCHIVADOR NO PODIA LEER LAS FECHAS. El boton Aligerar la base existia y sus reglas eran correctas, pero _diasDeInv usaba new Date() sobre fechas en formato colombiano DD/MM/AAAA que TECNICOS escribe con toLocaleDateString(). new Date() espera MM/DD, asi que 17/8/2026 daba Invalid Date y el registro quedaba invisible para el archivador PARA SIEMPRE, y 5/8/2026 se leia como 8 de MAYO, con la antiguedad mal calculada. Por eso habia 639 consumos ya resueltos (solo 12 seguian pendientes) ocupando el 48% de un documento al 80% de su limite. Ahora _msDeFechaInv resuelve DD/MM/AAAA a mano antes de Date.parse. Medido sobre los datos reales: los registros archivables pasaron de 1 a 458, unos 216 KB. El archivado sigue siendo manual. v88: CONFLICTOS DE CUADRILLAS Y BODEGAS RESUELTOS POR QUIEN TOCO EL REGISTRO. Habia dos reglas fijas y ninguna era correcta en ambos sentidos: el listener hacia Object.assign y la nube pisaba una edicion local sin guardar; y la fusion al guardar se quedaba con la copia local, revirtiendo el descuento que un tecnico acababa de hacer (el material quedaba en recuperados Y en la cuadrilla, contado dos veces). Ahora se guarda el contenido de cada registro en la ultima sincronia y se compara: si esta sesion no lo toco entra lo de la nube, si lo toco se conserva lo local. Sin base o registro desconocido gana lo local, igual que antes, para que un camino no cubierto degrade en vez de perder datos. Solo aplica a cuadrillas y bodegas. v87: GUARDA CONTRA CANTIDADES INVALIDAS. integrarRecuperado SUMA r.cant al stock de la bodega; si ese valor era negativo, cero o texto, restaba o corrompia el stock en silencio y lo registraba como entrada. Ahora se rechaza con un aviso claro. Se pone aqui ademas de en la app de Tecnicos porque un registro guardado ANTES de acotar la entrada seguiria causando el dano al integrarlo. Tambien se acoto la cantidad de equipos del cliente, que sin || guardaba NaN al vaciar el campo. v86: DIAGRAMA DEL CUARTO. Se restauro el boton IMPRIMIR, que estaba perdido: la funcion existia pero apuntaba al id diagSvg y el modal actual crea diagramaSVG, asi que aunque alguien la llamara no hacia nada, y ademas ningun boton la llamaba. Al imprimir se fuerza el color (print-color-adjust): sin eso el navegador omite los fondos y, como el diagrama es oscuro, salia una hoja practicamente en blanco. Se elimino descargarDiagramaSVG, que quedo redundante frente a descargarDiagrama (esta ultima si funciona y ademas agrega el xmlns al archivo). Y en la descarga: la fecha del nombre venia en UTC (de noche ponia la de manana) y la URL temporal se liberaba en el mismo instante del clic, lo que puede cortar la descarga. v85: solo comentarios. Se elimino la constante CAMPOS_DE_TECNICOS, que estaba declarada y NUNCA se usaba: era residuo del enfoque de la v72, reemplazado despues por la fusion universal _fusionarConNubeInv. El comentario del nucleo de guardado describia esa proteccion vieja, asi que enganaba a quien lo leyera. Ahora describe la fusion real y documenta su limite conocido: para un registro que ya existe en ambos lados gana la copia LOCAL, y como una cuadrilla no tiene campo 'estado', un descuento de stock hecho por un tecnico puede revertirse si esta sesion guarda antes de que el listener la refresque. Sin cambios de comportamiento. v84: limpieza de modalDiagramaCompleto duplicada. v83: MENSAJE DEL DIA al iniciar sesion. Ademas del saludo aparece una frase corta para arrancar labores, elegida segun el DIA DE LA SEMANA y estable durante toda la jornada (cambia al dia siguiente, no en cada recarga). Escritas para el trabajo de bodega: material, cuadrillas, seriales, consumos. Uno de cada tres dias se suma un recordatorio practico (anotar serial al entregar, confirmar consumos, revisar la Auditoria, registrar lo que entra, recibir devoluciones el mismo dia). Se editan en FRASES_DIA_INV y TIPS_DIA_INV. Incluye v82: COHERENCIA CON LA APP DE TECNICOS. La app de Tecnicos v71 corrigio que las devoluciones de material NO descontaban del stock del tecnico (quedaba contado dos veces). Aqui: [1] al integrar un recuperado que vino de una cuadrilla con una version anterior, se AVISA si ese material todavia figura a nombre del tecnico, para no contarlo doble. [2] La 🩺 Auditoria detecta ahora tres problemas del cruce con Tecnicos: material contado DOS veces (devuelto a la bodega pero aun en poder del tecnico), equipos danados que siguen en el stock del tecnico, tecnicos SIN CEDULA (la app de Tecnicos los busca por cedula: sin ella no pueden devolver material ni reportar consumos) y un mismo tecnico registrado en DOS cuadrillas (sus reportes irian a la cuadrilla equivocada). Incluye v81: (v81: CAUSA REAL DEL PROBLEMA DE GUARDADO — la base llego a 0.98 MB del maximo de 1 MB que permite Firestore, y pasado ese tope Firebase deja de guardar: por eso las solicitudes aprobadas reaparecian. El diagnostico de la v79 mostro que lo mas pesado NO son las fotos sino las listas de historial que crecen sin parar: consumosPendientes 370KB, bodegas 348KB, instalaciones 161KB, recuperados 81KB. NUEVO en 🩺 Auditoria: panel de espacio con barra de uso y desglose por seccion, boton ARCHIVAR HISTORIAL VIEJO (mueve a documentos por año los consumos ya resueltos de mas de 45 dias, las instalaciones de mas de 120 y los recuperados ya integrados; lo PENDIENTE nunca se archiva), boton para mover las fotos, y boton VER ARCHIVO para consultar lo guardado. Nada se borra y todo se verifica en la nube ANTES de sacarlo de la base. Incluye v80: (v80: LAS FOTOS DE MATERIALES SALEN DE LA BASE PRINCIPAL — esta era la causa de fondo de que los guardados fallaran y las solicitudes reaparecieran. Las fotos se guardaban DENTRO de inventario/datos como texto base64; entre todas hacian que el documento pasara el limite de 1 MB de Firestore, y a partir de ahi NINGUN cambio se guardaba. Ahora cada foto vive en su propio documento (inventario/foto_XXX) y el material solo guarda su codigo; se ven exactamente igual, se cargan solas al abrir la pantalla y las fotos nuevas ya no engordan la base. NUEVO en 🩺 Auditoria: panel de espacio que muestra cuanto pesa la base y cuantos MB ocupan las fotos incrustadas, con boton para MOVERLAS todas: va una por una, comprueba que quedo guardada ANTES de sacarla (ninguna se pierde), guarda bodega por bodega y se puede retomar si se interrumpe. Incluye v79: (v79: LAS SOLICITUDES APROBADAS/RECHAZADAS YA NO REAPARECEN. Causa: el snapshot de Firebase REEMPLAZA la lista completa con lo que hay en la nube; si el guardado aun no habia terminado —o FALLO, como cuando Firebase responde 'write stream exhausted maximum allowed queued writes'— la solicitud volvia a salir como pendiente. Tres correcciones: [1] BLINDAJE DE DECISIONES: toda decision tomada en esta sesion (aprobar, rechazar, aceptar/rechazar transferencia) se vuelve a imponer sobre el snapshot durante 3 minutos, hasta que quede confirmada en la nube. [2] EL GUARDADO FALLIDO YA NO ES INVISIBLE: antes solo se pintaba un indicador chiquito y se escribia en la consola, asi que el usuario creia que su cambio habia quedado; ahora avisa claro que NO se guardo y REINTENTA solo hasta 3 veces. [3] DIAGNOSTICO DE TAMANO: Firestore rechaza documentos de mas de 1 MB y no habia forma de enterarse; ahora se mide en cada guardado, se avisa en consola desde 800 KB y con alerta si pasa el limite, indicando que seccion pesa mas. Incluye v78: (v78: AUDITORIA GENERAL DEL INVENTARIO + correcciones de flujo. NUEVA PANTALLA 🩺 Auditoria (admin): revisa TUS datos reales y reporta stock negativo, seriales repetidos dentro de un articulo, el MISMO equipo registrado en dos lugares a la vez, desajustes entre cantidad y seriales, articulos duplicados en una bodega, cuadrillas con material sin bodega asignada, y material EN EL LIMBO (transferencias sin aceptar, consumos de tecnicos sin confirmar, recuperados sin integrar, solicitudes sin decidir), ordenado por gravedad y exportable a Excel. CORRECCIONES: [1] enviar transferencia validaba articulo por articulo mientras descontaba — si el stock habia cambiado quedaba NEGATIVO, y si el articulo ya no existia reventaba a mitad dejando material descontado SIN transferencia creada (perdido); ahora valida todo primero y no toca nada si algo falla. [2] aceptar/rechazar transferencia agregaba los seriales con push SIN comprobar si ya estaban (el mismo equipo dos veces en la bodega), reventaba si la bodega destino u origen ya no existia (material en el limbo) y al rechazar buscaba por NOMBRE creando duplicados si lo habian renombrado. [3] misma duplicacion de seriales corregida en recuperados integrados, devoluciones de cuadrilla y entregas. [4] KARDEX: ventas, transferencias, entregas, devoluciones y recuperados no dejaban NINGUN rastro en el historial del articulo; ahora si. [5] agregar seriales avisa si estan repetidos o si superan el stock. Incluye v77: (v77: SOLICITUDES DE CAMBIO Y ELIMINACION CORREGIDAS — cuatro fallas: [1] la EDICION de una bodega se aplicaba al material ANTES de mirar el rol, asi que el cambio quedaba hecho sin aprobacion y RECHAZARLO no revertia nada (la aprobacion era decorativa); ahora la bodega solo PROPONE y el material no se toca hasta que el admin apruebe. [2] ELIMINAR UNA VENTA no devolvia el material a la bodega aunque vender SI lo descuenta: el stock desaparecia sin venta que lo justificara; ahora se devuelve cantidad y seriales, con registro en el kardex, y si el articulo ya no existe se vuelve a crear (aplica tambien al borrado directo del admin). [3] RECHAZAR una eliminacion RESUCITABA material fantasma con la cantidad vieja cuando el articulo ya no estaba (agotado, transferido o borrado aparte); ahora rechazar no toca la bodega y, si el articulo falta, se le PREGUNTA al admin. [4] Aprobar eliminacion borraba el articulo SIN dejar rastro en el kardex y sin avisar si la cantidad habia cambiado desde la solicitud; ahora registra la salida y avisa. Ademas approveEdit avisa si la cantidad cambio antes de pisarla, y ya no cierra solicitudes en silencio cuando la bodega o el articulo ya no existen. Incluye v76: CUARTOS DE EQUIPOS — puertos huerfanos y conexiones protegidas: aviso ambar en el equipo cuando hay puertos OCUPADOS sin conexion que los respalde + boton 🧹 Liberarlos (respeta enlaces inter-sede); boton ✏️ para EDITAR conexiones (mover puertos con selector real, cable, color, notas); y TODA modificacion de conexiones (crear/editar/eliminar/liberar) va por TRANSACCION con validacion fresca — dos sesiones ya no se pisan y un puerto no puede ocuparse dos veces. Incluye v75: GUARDADO MAS RAPIDO — la fusion usa la copia del listener cuando tiene <15s (cero descargas extra, misma proteccion); si esta vieja, lee de la red como siempre. Incluye v74: FUSION UNIVERSAL ENTRE SESIONES — el trabajo simultaneo de varias bodegas y tecnicos ya no se pisa: al guardar se fusiona con la nube fresca (datos + historial), lo de otras sesiones se incorpora, los borrados propios dejan LAPIDA y no reviven, las decisiones ajenas (confirmados/integrados/aceptados) se respetan, y un snapshot ya no borra de la pantalla lo recien creado (se conserva y reenvia solo). ENTREGAS ahora con TRANSACCION multi-documento: valida el stock y los seriales sobre datos FRESCOS (si otra sesion entrego mientras tanto, avisa claro), descuenta bodega + suma cuadrilla + registra la entrega de forma atomica. Incluye v73: al CONFIRMAR un consumo de cliente, el material queda anotado AUTOMATICAMENTE en la ficha del cliente — seccion "🧰 Material instalado" — emparejando primero por CEDULA (que ahora envia el tecnico v69) y si no por nombre; si no se encuentra el cliente, avisa claro y el boton "Sincronizar material con clientes" (tambien mejorado con cedula) queda como red de seguridad. Incluye v72: [1] confirmación de consumos con TRANSACCIÓN — el descuento a la cuadrilla ya no se puede revertir por una sincronización cruzada; [2] config Firebase integrada — no vuelve a pedirla; [3] login con ojito 👁️ y Enter; [4] BLINDAJE: guardas anti-borrado de clientes (carga incompleta o encogimiento drástico NO reescriben la nube), firma para no reescribir chunks sin cambios, carga de clientes en paralelo con reintentos, COLA de guardado (nunca se solapan), fusión de envíos recientes de técnicos antes de guardar, y fotos pequeñas ya no se recomprimen)
 const CHUNK_SIZE = 800; // clients per document - allows ~10000 clients
 
 // Helper: split array into chunks
@@ -9481,13 +9658,19 @@ async function startFirebase(config) {
         catch(e){ return true; }
     };
 
-    window._fotoIdsRemotosInv = function(datos, hist){
+    /* `crudo` (v98) es lo que traia la NUBE antes de que _protegerSnapshotInv le
+       metiera los cambios locales sin guardar. Cuando viene, es el quien fija la
+       referencia de "lo sincronizado": si se usara el array ya protegido, la
+       referencia incluiria el cambio local y la sesion perderia la constancia de
+       haberlo tocado — que fue justo lo que deshacia las aprobaciones.
+       Tras un guardado propio NO se pasa `crudo`, y ahi si manda `datos`: lo que
+       se acaba de escribir ES el estado sincronizado. */
+    window._fotoIdsRemotosInv = function(datos, hist, crudo){
         const foto = window._idsRemotosInv || {d:{}, h:{}};
         if(datos) COLS_DATOS_INV.forEach(c=>{ foto.d[c]=new Set(((datos[c])||[]).map(x=>x&&x.id).filter(Boolean)); });
         if(hist) COLS_HIST_INV.forEach(c=>{ foto.h[c]=new Set(((hist[c])||[]).map(x=>x&&x.id).filter(Boolean)); });
         window._idsRemotosInv = foto;
-        // Mismo momento que la foto de ids: esto ES el estado sincronizado.
-        try { window._guardarBaseStockInv(datos); } catch(e) {}
+        try { window._guardarBaseStockInv(crudo || datos); } catch(e) {}
     };
     const _tumbaInv=(ts,col,id)=> (ts||[]).some(t=>t&&t.col===col&&t.id===id);
     const _podarTumbasInv=(l)=>{ const corte=Date.now()-15*24*3600*1000; let x=(l||[]).filter(t=>t&&t.en>corte); if(x.length>800)x=x.slice(-800); return x; };
@@ -9717,9 +9900,27 @@ async function startFirebase(config) {
         // borra de la pantalla; se conserva y se reenvía solo. Los borrados ajenos
         // (con lápida) sí se aplican.
         const entrante = s.data();
+        /* 🩺 v98 — LA FOTO DE REFERENCIA SE TOMA ANTES DE PROTEGER.
+           _protegerSnapshotInv mete en el array entrante los registros que esta
+           sesion edito y aun no ha guardado (bien: si no, el snapshot los borraria
+           de la pantalla). Pero despues se guardaba ESE array como "lo que hay en
+           la nube", asi que la foto quedaba con el cambio local adentro. A partir
+           de ahi, la pregunta "¿esta sesion toco esto?" respondia que NO —local y
+           foto eran identicos— y en el siguiente guardado la fusion dejaba entrar
+           el valor VIEJO de la nube: la aprobacion se deshacia sola.
+           Reproducido: aprobar dejaba el material en 1, llegaba un snapshot
+           cualquiera y al guardar volvia a 0. Por eso bodega volvia a pedir lo
+           mismo media hora despues.
+           La foto tiene que retratar la NUBE, no la pantalla. */
+        let _crudoStock=null;
+        try{
+            _crudoStock={};
+            COLS_DATOS_INV.forEach(c=>{ if(Array.isArray(entrante[c]))
+                _crudoStock[c]=JSON.parse(JSON.stringify(entrante[c])); });
+        }catch(eC){ _crudoStock=null; }
         try{ window._protegerSnapshotInv(entrante, COLS_DATOS_INV, (window._idsRemotosInv||{}).d, entrante._tumbas||window.DB._tumbas); }catch(eP){}
         Object.assign(window.DB, entrante);
-        try{ window._fotoIdsRemotosInv(entrante, null); }catch(eF){}
+        try{ window._fotoIdsRemotosInv(entrante, null, _crudoStock); }catch(eF){}
         try{ window._cacheRemDatosInv={data:JSON.parse(JSON.stringify(entrante)), ts:Date.now()}; }catch(eC){} // v75
         window.DB.clientes = prevClientes;
         HISTORIAL_FIELDS.forEach(f => { if(prevHist[f] !== undefined) window.DB[f] = prevHist[f]; });

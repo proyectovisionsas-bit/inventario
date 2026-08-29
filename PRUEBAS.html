@@ -262,18 +262,132 @@ const PRUEBAS = [
        +' · de hace 13 h: '+(r.vieja?'entra ✗':'pide clave ✓')
        +'\nde bodega borrada: '+(r.borrada?'entra ✗':'pide clave ✓')};}},
 
+{app:'inv', titulo:'Una aprobación no se deshace sola al llegar un snapshot',
+ porque:'Al proteger un snapshot se metían los cambios locales sin guardar en el array entrante '
+       +'(bien), pero después ESE array se guardaba como "lo que hay en la nube". La foto quedaba '
+       +'con el cambio adentro, así que la pregunta "¿esta sesión tocó esto?" respondía que NO y '
+       +'el siguiente guardado dejaba entrar el valor viejo. La aprobación se revertía sola, y por '
+       +'eso bodega volvía a pedir lo mismo media hora después.',
+ correr:W=>{ const r=E(W, 'const gB=DB.bodegas, gBase=window._baseStockInv,'
+   +' gFoto=window._idsRemotosInv, gRe=window._reenvioInvProgramado;'
+   +'try{'
+   +'  const bod={id:"BOD", nombre:"Prueba", materiales:[{id:"M1", nombre:"ONU", cantidad:0, snes:[]}]};'
+   +'  const nube={bodegas:[JSON.parse(JSON.stringify(bod))]};'
+   +'  DB.bodegas=[JSON.parse(JSON.stringify(bod))];'
+   +'  window._baseStockInv={}; window._idsRemotosInv={d:{},h:{}};'
+   +'  window._reenvioInvProgramado=true;'   // que no dispare un guardado real
+   +'  window._guardarBaseStockInv({bodegas:DB.bodegas});'
+   // El admin aprueba: 0 → 1
+   +'  DB.bodegas[0].materiales[0].cantidad=1;'
+   +'  const tocoAlPrincipio=window._sesionTocoInv("bodegas", DB.bodegas[0]);'
+   // Llega un snapshot cualquiera con el valor viejo
+   +'  const ent=JSON.parse(JSON.stringify(nube));'
+   +'  const crudo={bodegas:JSON.parse(JSON.stringify(ent.bodegas))};'
+   +'  window._protegerSnapshotInv(ent, ["bodegas"], {}, []);'
+   +'  DB.bodegas=ent.bodegas;'
+   +'  const conservo=DB.bodegas[0].materiales[0].cantidad;'
+   +'  window._fotoIdsRemotosInv({bodegas:ent.bodegas}, null, crudo);'
+   +'  const tocoDespues=window._sesionTocoInv("bodegas", DB.bodegas[0]);'
+   // Y ahora el guardado fusiona con la nube
+   +'  window._fusionarConNubeInv(JSON.parse(JSON.stringify(nube)), null);'
+   +'  const trasFusionar=DB.bodegas[0].materiales[0].cantidad;'
+   // Lo contrario: si esta sesión NO tocó nada, lo de otra oficina SÍ debe entrar
+   +'  DB.bodegas=[JSON.parse(JSON.stringify(bod))];'
+   +'  window._baseStockInv={}; window._guardarBaseStockInv({bodegas:DB.bodegas});'
+   +'  const ajeno={bodegas:[JSON.parse(JSON.stringify(bod))]};'
+   +'  ajeno.bodegas[0].materiales[0].cantidad=7;'
+   +'  window._fusionarConNubeInv(JSON.parse(JSON.stringify(ajeno)), null);'
+   +'  const cambioAjeno=DB.bodegas[0].materiales[0].cantidad;'
+   +'  return {tocoAlPrincipio, conservo, tocoDespues, trasFusionar, cambioAjeno};'
+   +'} finally { DB.bodegas=gB; window._baseStockInv=gBase;'
+   +'  window._idsRemotosInv=gFoto; window._reenvioInvProgramado=gRe; }');
+   const bien = r.tocoAlPrincipio===true && r.conservo===1 && r.tocoDespues===true
+             && r.trasFusionar===1 && r.cambioAjeno===7;
+   return {ok:bien, detalle: bien
+     ? 'Apruebas y queda en 1 · llega un snapshot con el 0 viejo y se conserva el 1 ✓\n'
+      +'La sesión SIGUE constando como que lo tocó, aun después de la foto ✓\n'
+      +'Al guardar, la fusión respeta el 1: la aprobación no se deshace ✓\n'
+      +'Y si esta sesión NO tocó nada, el cambio de otra oficina sí entra (7) ✓'
+     : 'tocó al principio: '+r.tocoAlPrincipio+' (true) · el snapshot conservó: '+r.conservo+' (1)'
+       +'\ntocó después de la foto: '+r.tocoDespues+' (true) ← si es false, la foto se envenenó'
+       +'\ntras fusionar: '+r.trasFusionar+' (1) ← si es 0, la aprobación se deshizo'
+       +'\ncambio ajeno: '+r.cambioAjeno+' (7)'};}},
+
 {app:'inv', titulo:'Estado real: seriales repetidos en los datos',
  porque:'No es una falla del programa sino del inventario: cada repetido es un equipo contado dos '
-       +'veces. Se arreglan en 🩺 Auditoría → 🔧 Seriales repetidos.',
- correr:W=>{ const n=E(W, 'const mapa={};'
-   +'const meter=(lista)=>(lista||[]).forEach(c=>(c.materiales||[]).forEach(m=>'
+       +'veces. Se arreglan en 🩺 Auditoría → 🔧 Seriales repetidos, que desde la v99 llega con la '
+       +'respuesta puesta en los que el historial puede demostrar.',
+ correr:W=>{ const r=E(W, 'const mapa={};'
+   +'const meter=(lista,tipo)=>(lista||[]).forEach(c=>(c.materiales||[]).forEach(m=>'
    +'  (m.snes||[]).forEach(s=>{ const k=_snNormal(s); if(!k||_snEsRelleno(k)) return;'
-   +'    (mapa[k]=mapa[k]||[]).push(1); })));'
-   +'meter(DB.bodegas); meter(DB.cuadrillas);'
-   +'return Object.values(mapa).filter(v=>v.length>1).length;');
-   return {ok:n===0, ojo:true,
-     detalle: n===0 ? 'Ningún serial está en dos sitios.'
-       : n+' seriales están en dos sitios: son '+n+' equipos contados dos veces.'};}},
+   +'    (mapa[k]=mapa[k]||[]).push({donde:tipo+" "+(c.nombre||""), articulo:m.nombre||"",'
+   +'                               contenedor:c, mat:m, sn:s}); })));'
+   +'meter(DB.bodegas,"Bodega"); meter(DB.cuadrillas,"Cuadrilla");'
+   +'const reps=Object.entries(mapa).filter(function(e){ return e[1].length>1; });'
+   +'let conPrueba=0; reps.forEach(function(e){ try{ if(_veredictoSN(e[0],e[1])) conPrueba++; }catch(x){} });'
+   +'return {n:reps.length, conPrueba:conPrueba};');
+   return {ok:r.n===0, ojo:true,
+     detalle: r.n===0 ? 'Ningún serial está en dos sitios.'
+       : r.n+' seriales están en dos sitios: son '+r.n+' equipos contados dos veces.'
+         +'\nDe esos, en '+r.conPrueba+' el historial ya dice dónde está el equipo:'
+         +' se resuelven con un botón, sin adivinar.'
+         +'\nLos otros '+(r.n-r.conPrueba)+' hay que decidirlos a mano.'};}},
+
+{app:'inv', titulo:'Arreglar un repetido no borra el equipo',
+ porque:'El arreglo quitaba el serial POR VALOR de cada sitio descartado, y ese filtro se lleva '
+       +'todas las copias del artículo. Cuando el serial estaba dos veces en la MISMA lista —tres '
+       +'casos hoy— el sitio elegido y el descartado eran el mismo, así que se borraba también la '
+       +'copia que se quería conservar y el equipo desaparecía del inventario.',
+ correr:W=>{ const r=E(W,
+     'const mat={id:"m1", nombre:"ONT", cantidad:5, snes:["AAA","BBB","AAA"]};'
+   +'const dosVeces=[{donde:"Bodega X", articulo:"ONT", contenedor:{id:"b1"}, mat:mat, sn:"AAA"},'
+   +'                {donde:"Bodega X", articulo:"ONT", contenedor:{id:"b1"}, mat:mat, sn:"AAA"}];'
+   +'_aplicarSNSoloEn("AAA", dosVeces, 0);'
+   +'const enBod={id:"m2", nombre:"ONT", cantidad:3, snes:["CCC"]};'
+   +'const enCua={id:"m3", nombre:"ONU", cantidad:2, snes:["CCC"]};'
+   +'const dosSitios=[{donde:"Bodega X", articulo:"ONT", contenedor:{id:"b1"}, mat:enBod, sn:"CCC"},'
+   +'                 {donde:"Cuadrilla A", articulo:"ONU", contenedor:{id:"c1"}, mat:enCua, sn:"CCC"}];'
+   +'_aplicarSNSoloEn("CCC", dosSitios, 0);'
+   +'return {sobrevive:mat.snes.filter(function(x){return x==="AAA";}).length, otros:mat.snes.length,'
+   +'        cant:mat.cantidad, bodQueda:enBod.snes.length, bodCant:enBod.cantidad,'
+   +'        cuaVacia:enCua.snes.length, cuaCant:enCua.cantidad};');
+   const bien = r.sobrevive===1 && r.otros===2 && r.cant===4
+             && r.bodQueda===1 && r.bodCant===3 && r.cuaVacia===0 && r.cuaCant===1;
+   return {ok:bien, detalle: bien
+     ? 'Repetido dentro del mismo artículo: queda UNA copia, no cero ✓ (y la cantidad baja de 5 a 4)'
+      +'\nRepetido entre bodega y cuadrilla: se queda en la bodega intacto ✓'
+      +'\nY sale de la cuadrilla, con su cantidad de 2 a 1 ✓'
+     : 'copias de AAA que quedan: '+r.sobrevive+' (1) ← si es 0, se borró el equipo'
+       +'\nseriales del artículo: '+r.otros+' (2) · cantidad: '+r.cant+' (4)'
+       +'\nen la bodega: '+r.bodQueda+' (1) cant '+r.bodCant+' (3)'
+       +'\nen la cuadrilla: '+r.cuaVacia+' (0) cant '+r.cuaCant+' (1)'};}},
+
+{app:'inv', titulo:'Integrar un recuperado no cuenta el equipo dos veces',
+ porque:'Integrar significa que el aparato VOLVIÓ a la bodega. Si el serial seguía anotado a '
+       +'nombre del técnico, sumarlo sin más lo contaba dos veces. El aviso de la v82 no lo '
+       +'atrapaba: mira el nombre y solo actúa si el recuperado trae cuadrilla, y los que manda '
+       +'Técnicos por retiro de un cliente no la traen. Ahora se saca de donde esté.',
+ correr:W=>{ const r=E(W,
+     'const bodOrig=DB.bodegas, cuaOrig=DB.cuadrillas;'
+   +'try{'
+   +'  DB.bodegas=[{id:"b1", nombre:"PRUEBA BOD", materiales:[]}];'
+   +'  DB.cuadrillas=[{id:"c1", nombre:"PRUEBA CUAD", materiales:'
+   +'      [{id:"m9", nombre:"ONU", cantidad:3, snes:["ZZZ1","ZZZ2","ZZZ3"]}]}];'
+   +'  const antes=_dondeEstaSN("ZZZ2").length;'
+   +'  const salio=_sacarSNDeDondeEste(["ZZZ2"]);'
+   +'  const m=DB.cuadrillas[0].materiales[0];'
+   +'  return {antes:antes, saco:salio.length, quedan:m.snes.length, cant:m.cantidad,'
+   +'          sigue:m.snes.indexOf("ZZZ2")>=0, despues:_dondeEstaSN("ZZZ2").length};'
+   +'} finally { DB.bodegas=bodOrig; DB.cuadrillas=cuaOrig; }');
+   const bien = r.antes===1 && r.saco===1 && r.quedan===2 && r.cant===2
+             && r.sigue===false && r.despues===0;
+   return {ok:bien, detalle: bien
+     ? 'El serial estaba con la cuadrilla y se encontró ✓'
+      +'\nAl llegar a la bodega se SACA de la cuadrilla en vez de duplicarse ✓'
+      +'\nY la cantidad de la cuadrilla baja con él, de 3 a 2 ✓'
+     : 'lo encontró antes: '+r.antes+' (1) · sitios de los que salió: '+r.saco+' (1)'
+       +'\nseriales que le quedan a la cuadrilla: '+r.quedan+' (2) · cantidad: '+r.cant+' (2)'
+       +'\n¿sigue ahí?: '+r.sigue+' (false) · lo vuelve a encontrar: '+r.despues+' (0)'};}},
 
 // ──────────────────────────────── OFICINAS ────────────────────────────────
 {app:'ofi', titulo:'Los nombres de zona se comparan sin caracteres invisibles',
@@ -312,6 +426,54 @@ const PRUEBAS = [
    return {ok:r.sin.length===0,
      detalle: r.sin.length ? 'Sin zonas definidas: '+r.sin.join(', ')
        : r.con+' oficinas conectadas a WispHub, todas con sus zonas.'};}},
+
+{app:'ofi', titulo:'Un cliente puede tener servicios en varios municipios',
+ porque:'Se emparejaba por el campo "servicio" de WispHub, que se arma con la cédula. Una persona '
+       +'con dos servicios recibía la MISMA llave en los dos, y el sistema los veía como un solo '
+       +'cliente en dos oficinas a la vez: lo marcaba como conflicto y no lo tocaba. Por eso '
+       +'MAYERLY ESPINOSA DIAZ no aparecía por más veces que se sincronizara. La llave real es '
+       +'cuenta + id_servicio: el id solo es único dentro de su cuenta (720 se repiten entre cuentas).',
+ correr:W=>{ const r=E(W, 'const gO=DB.oficinas;'
+   +'try{'
+   // Dos oficinas, cuentas distintas. La misma persona con un servicio en cada una.
+   +'  const A={id:"A", nombre:"OFI A", cuentaWisphub:"ctaA", zonasWisphub:["ZA"], clientes:[]};'
+   +'  const B={id:"B", nombre:"OFI B", cuentaWisphub:"ctaB", zonasWisphub:["ZB"], clientes:[]};'
+   +'  DB.oficinas=[A,B];'
+   +'  const cw=function(id,zona){ return {id_servicio:id, servicio:"999@pv", cedula:"999",'
+   +'      nombre:"JUAN DOS SERVICIOS", estado:"Activo", zona:{nombre:zona},'
+   +'      plan_internet:{nombre:"P"}, precio_plan:0}; };'
+   +'  const rawA=[cw(10,"ZA")], rawB=[cw(20,"ZB")];'
+   // Primera sincronización de las dos
+   +'  aplicarConciliacion(conciliarOficina(A, rawA, {}));'
+   +'  aplicarConciliacion(conciliarOficina(B, rawB, {}));'
+   +'  const enA=A.clientes.filter(function(c){return !c.retiradoWisphub;}).length;'
+   +'  const enB=B.clientes.filter(function(c){return !c.retiradoWisphub;}).length;'
+   +'  const llaves=[].concat(A.clientes,B.clientes).map(function(c){return c.llaveWisphub;});'
+   // Segunda pasada: nada debe moverse ni repetirse
+   +'  const p2a=conciliarOficina(A, rawA, {}), p2b=conciliarOficina(B, rawB, {});'
+   +'  const quietoA={ag:p2a.agregar.length, mv:p2a.mover.length, rt:p2a.retirar.length, cf:p2a.conflicto.length};'
+   +'  const quietoB={ag:p2b.agregar.length, mv:p2b.mover.length, rt:p2b.retirar.length, cf:p2b.conflicto.length};'
+   // Un traslado de verdad: el MISMO servicio cambia de zona y pasa a la otra oficina
+   +'  const C={id:"C", nombre:"OFI C", cuentaWisphub:"ctaA", zonasWisphub:["ZC"], clientes:[]};'
+   +'  DB.oficinas=[A,B,C];'
+   +'  const p3=conciliarOficina(C, [cw(10,"ZC")], {});'
+   +'  const traslado={mueve:p3.mover.length, desde:p3.mover[0]?p3.mover[0].desde.nombre:null,'
+   +'                  agrega:p3.agregar.length};'
+   +'  return {enA, enB, llaves, quietoA, quietoB, traslado};'
+   +'} finally { DB.oficinas=gO; }');
+   const bien = r.enA===1 && r.enB===1
+             && r.llaves.length===2 && r.llaves[0]==='ctaA:10' && r.llaves[1]==='ctaB:20'
+             && r.quietoA.ag===0 && r.quietoA.mv===0 && r.quietoA.rt===0 && r.quietoA.cf===0
+             && r.quietoB.ag===0 && r.quietoB.mv===0 && r.quietoB.rt===0 && r.quietoB.cf===0
+             && r.traslado.mueve===1 && r.traslado.desde==='OFI A' && r.traslado.agrega===0;
+   return {ok:bien, detalle: bien
+     ? 'La misma persona con dos servicios queda en LAS DOS oficinas, una en cada una ✓\n'
+      +'Cada servicio con su llave propia (ctaA:10 y ctaB:20), sin conflictos ✓\n'
+      +'Al volver a sincronizar no se mueve ni se repite nada: es estable ✓\n'
+      +'Y un traslado de verdad —el mismo servicio cambia de zona— sí se mueve ✓'
+     : 'en A '+r.enA+' (1) · en B '+r.enB+' (1) · llaves '+JSON.stringify(r.llaves)
+       +'\nsegunda pasada A '+JSON.stringify(r.quietoA)+' B '+JSON.stringify(r.quietoB)
+       +'\ntraslado '+JSON.stringify(r.traslado)};}},
 
 {app:'ofi', titulo:'Un pago del admin cuenta lo que salió de verdad',
  porque:'El valor que se escribe es POR OFICINA y se registra completo en cada una. Los totales '
