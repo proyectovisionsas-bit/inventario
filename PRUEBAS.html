@@ -313,6 +313,70 @@ const PRUEBAS = [
        +'\ntras fusionar: '+r.trasFusionar+' (1) ← si es 0, la aprobación se deshizo'
        +'\ncambio ajeno: '+r.cambioAjeno+' (7)'};}},
 
+{app:'inv', titulo:'El escáner rechaza lo que no debe entrar',
+ porque:'Idea de Elkin: leer el serial con la cámara en vez de teclearlo. Un serial de 16 '
+       +'caracteres tecleado a mano es una errata esperando. Pero un lector que traga todo sería '
+       +'peor que teclear: cada código pasa por la MISMA revisión que un serial escrito, así que '
+       +'un equipo que ya está en otra bodega se rechaza ahí mismo, delante de la cámara.',
+ correr:W=>E(W,
+   // Cámara y lector de mentiras: un lienzo en movimiento y un detector que
+   // "ve" los códigos que le pongamos. Así se prueba el flujo entero sin cámara.
+     'const realGUM=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);'
+   +'const realBD=window.BarcodeDetector;'
+   +'const antesBod=DB.bodegas, antesCua=DB.cuadrillas, antesU=USER;'
+   +'const lienzo=document.createElement("canvas"); lienzo.width=64; lienzo.height=48;'
+   +'lienzo.getContext("2d").fillRect(0,0,64,48);'
+   +'const falso=lienzo.captureStream(5);'
+   +'let cola=[];'
+   +'navigator.mediaDevices.getUserMedia=function(){ return Promise.resolve(falso); };'
+   +'window.BarcodeDetector=function(){};'
+   +'window.BarcodeDetector.getSupportedFormats=function(){ return Promise.resolve(["code_128"]); };'
+   +'window.BarcodeDetector.prototype.detect=function(){'
+   +'   const c=cola.shift(); return Promise.resolve(c?[{rawValue:c}]:[]); };'
+   +'USER={role:"admin"};'
+   +'DB.bodegas=[{id:"b1", nombre:"PRUEBA", materiales:[{id:"m1", nombre:"ONT", cantidad:5,'
+   +'             snes:["YAESTA-1"]}]}];'
+   +'DB.cuadrillas=[];'
+   +'const campo=document.createElement("textarea"); campo.id="campoPruebaEsc";'
+   +'document.body.appendChild(campo);'
+   +'const limpiar=function(){ navigator.mediaDevices.getUserMedia=realGUM;'
+   +'   window.BarcodeDetector=realBD; DB.bodegas=antesBod; DB.cuadrillas=antesCua;'
+   +'   USER=antesU; try{ campo.remove(); }catch(e){} };'
+   +'return abrirEscaner({destino:"campoPruebaEsc", multiple:true, titulo:"prueba"})'
+   +'  .then(function(){'
+   +'     cola=["NUEVO-1","NUEVO-1","YAESTA-1","N/A","NUEVO-2"];'
+   +'     const paso=function(n){ return n<=0 ? Promise.resolve()'
+   +'        : new Promise(function(r){ setTimeout(r, 300); }).then(function(){ return paso(n-1); }); };'
+   +'     return paso(14);'
+   +'  })'
+   +'  .then(function(){'
+   +'     const est=window._escEstado||{agregados:[]};'
+   +'     const res={enCampo:campo.value.split("\\n").filter(Boolean),'
+   +'                agregados:est.agregados.slice(),'
+   +'                lista:(document.getElementById("escLista")||{}).innerText||""};'
+   +'     cerrarEscaner(true);'
+   +'     res.trasCancelar=campo.value;'
+   +'     limpiar();'
+   +'     return res;'
+   +'  })'
+   +'  .catch(function(e){ try{ cerrarEscaner(true); }catch(x){} limpiar();'
+   +'     return {error:String(e && e.message || e)}; });')
+   .then(r=>{
+     if(r.error) return {ok:false, detalle:'reventó: '+r.error};
+     const bien = r.enCampo.length===2 && r.enCampo[0]==='NUEVO-1' && r.enCampo[1]==='NUEVO-2'
+               && r.agregados.length===2 && r.trasCancelar==='' 
+               && /YAESTA-1/.test(r.lista) && /ya está en/.test(r.lista) && /N\/A/.test(r.lista);
+     return {ok:bien, detalle: bien
+       ? 'Entran los dos seriales nuevos, uno por línea ✓'
+        +'\nEl código leído dos veces seguidas no se repite ✓'
+        +'\nEl que ya está en otra bodega se RECHAZA y dice dónde está ✓'
+        +'\nUn "N/A" no se toma por serial ✓'
+        +'\nY cancelar deja el campo como estaba, sin lo escaneado ✓'
+       : 'en el campo: '+JSON.stringify(r.enCampo)+'  (esperaba NUEVO-1 y NUEVO-2)'
+         +'\nagregados: '+r.agregados.length+' (2) · tras cancelar: "'+r.trasCancelar+'" (vacío)'
+         +'\nlo que mostró:\n'+r.lista};
+   })},
+
 {app:'inv', titulo:'Estado real: seriales repetidos en los datos',
  porque:'No es una falla del programa sino del inventario: cada repetido es un equipo contado dos '
        +'veces. Se arreglan en 🩺 Auditoría → 🔧 Seriales repetidos, que desde la v99 llega con la '
