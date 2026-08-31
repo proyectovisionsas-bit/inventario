@@ -313,6 +313,85 @@ const PRUEBAS = [
        +'\ntras fusionar: '+r.trasFusionar+' (1) ← si es 0, la aprobación se deshizo'
        +'\ncambio ajeno: '+r.cambioAjeno+' (7)'};}},
 
+{app:'inv', titulo:'Con cuatro códigos en la etiqueta lee el del serial',
+ porque:'Elkin lo probó en la calle y lo dijo: con un solo código funciona, con varios no. La '
+       +'caja de un ONT trae CUATRO pegados —P/N, PROD ID, MAC y SN— y el lector agarraba el que '
+       +'fuera. El marco de puntería estaba dibujado pero no filtraba nada: era un adorno. Ahora '
+       +'solo entra lo que cae dentro, y si aun así quedan varios, gana el que tiene forma de '
+       +'serial (16 hexadecimales, como 222 de los 351 que ya hay guardados).',
+ correr:W=>E(W,
+     'const realGUM=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);'
+   +'const realBD=window.BarcodeDetector;'
+   +'const antesBod=DB.bodegas, antesCua=DB.cuadrillas, antesU=USER;'
+   +'const c=document.createElement("canvas"); c.width=640; c.height=480;'
+   +'c.getContext("2d").fillRect(0,0,640,480);'
+   +'const falso=c.captureStream(8);'
+   +'let cola=[];'
+   +'navigator.mediaDevices.getUserMedia=function(){ return Promise.resolve(falso); };'
+   +'window.BarcodeDetector=function(){};'
+   +'window.BarcodeDetector.getSupportedFormats=function(){ return Promise.resolve(["code_128"]); };'
+   +'window.BarcodeDetector.prototype.detect=function(){'
+   +'   const f=cola.shift(); return Promise.resolve(f||[]); };'
+   +'USER={role:"admin"}; DB.bodegas=[]; DB.cuadrillas=[];'
+   +'const campo=document.createElement("textarea"); campo.id="cpMira";'
+   +'document.body.appendChild(campo);'
+   +'const limpiar=function(){ navigator.mediaDevices.getUserMedia=realGUM;'
+   +'   window.BarcodeDetector=realBD; DB.bodegas=antesBod; DB.cuadrillas=antesCua;'
+   +'   USER=antesU; try{ campo.remove(); }catch(e){} };'
+   +'const esperar=function(n){ return n<=0 ? Promise.resolve()'
+   +'   : new Promise(function(r){ setTimeout(r,350); }).then(function(){ return esperar(n-1); }); };'
+   +'return abrirEscaner({destino:"cpMira", multiple:true, titulo:"prueba"})'
+   +' .then(function(){'
+   +'   const v=document.getElementById("escVideo"), mi=document.getElementById("escMira");'
+   +'   const rv=v.getBoundingClientRect(), rm=mi.getBoundingClientRect();'
+   +'   const k=Math.max(rv.width/v.videoWidth, rv.height/v.videoHeight);'
+   +'   const ox=(rv.width-v.videoWidth*k)/2, oy=(rv.height-v.videoHeight*k)/2;'
+   +'   const aV=function(x,y){ return [(x-rv.left-ox)/k, (y-rv.top-oy)/k]; };'
+   +'   const a=aV(rm.left,rm.top), b=aV(rm.right,rm.bottom);'
+   +'   const medio=(a[1]+b[1])/2, ancho=(b[0]-a[0])-10;'
+   +'   const en=function(val,dy){ return {rawValue:val,'
+   +'      boundingBox:{x:a[0]+5, y:medio+dy, width:ancho, height:6}}; };'
+   +'   window.__enMarco=en;'
+   +'   cola=[[ en("2150058763QCD5803006",-140), en("E864A6480133",-70),'
+   +'           en("48575443625190ED",0), en("8141A5GPONEPON",90) ]];'
+   +'   return esperar(5);'
+   +' })'
+   +' .then(function(){'
+   +'   const soloSN=campo.value.trim();'
+   +'   cola=[[ window.__enMarco("E864A6480133",-9), window.__enMarco("4857544399AA11BB",9) ]];'
+   +'   return esperar(5).then(function(){ return {soloSN:soloSN}; });'
+   +' })'
+   +' .then(function(acum){'
+   +'   acum.trasEmpate=campo.value.trim().split("\\n");'
+   +'   cola=[[ window.__enMarco("RARO-UNO",-9), window.__enMarco("RARO-DOS",9) ]];'
+   +'   return esperar(5).then(function(){ return acum; });'
+   +' })'
+   +' .then(function(acum){'
+   +'   const el=document.getElementById("escElegir");'
+   +'   acum.pregunto=!!(el && el.style.display!=="none");'
+   +'   if(acum.pregunto) _escElegido(1);'
+   +'   return esperar(2).then(function(){'
+   +'     acum.final=campo.value.trim().split("\\n");'
+   +'     cerrarEscaner(false); limpiar(); return acum; });'
+   +' })'
+   +' .catch(function(e){ try{ cerrarEscaner(true); }catch(x){} limpiar();'
+   +'    return {error:String(e && e.message || e)}; });')
+   .then(r=>{
+     if(r.error) return {ok:false, detalle:'reventó: '+r.error};
+     const bien = r.soloSN==='48575443625190ED'
+               && r.trasEmpate.length===2 && r.trasEmpate[1]==='4857544399AA11BB'
+               && r.pregunto===true
+               && r.final.length===3 && r.final[2]==='RARO-DOS';
+     return {ok:bien, detalle: bien
+       ? 'De los cuatro códigos de la etiqueta entra SOLO el que quedó en el marco ✓'
+        +'\n(el de la foto de Elkin: 48575443625190ED, ignorando PROD ID, MAC y modelo)'
+        +'\nCon la MAC y el serial juntos dentro del marco, gana el serial ✓'
+        +'\nY con dos que no parecen serial, PREGUNTA en vez de adivinar ✓'
+       : 'con la etiqueta entera leyó: "'+r.soloSN+'"  (esperaba 48575443625190ED)'
+         +'\ntras el empate MAC/serial: '+JSON.stringify(r.trasEmpate)
+         +'\npreguntó con dos dudosos: '+r.pregunto+' · al final: '+JSON.stringify(r.final)};
+   })},
+
 {app:'inv', titulo:'El escáner rechaza lo que no debe entrar',
  porque:'Idea de Elkin: leer el serial con la cámara en vez de teclearlo. Un serial de 16 '
        +'caracteres tecleado a mano es una errata esperando. Pero un lector que traga todo sería '
