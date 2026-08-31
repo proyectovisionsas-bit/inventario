@@ -300,6 +300,13 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
 .vpto.reut {background:rgba(245,158,11,.10);color:#fcd34d;border-color:rgba(245,158,11,.5);
             border-style:dashed;cursor:grab;}
 .vpto .badge{position:absolute;top:1px;right:2px;font-size:.55rem;line-height:1;}
+/* La franja del color de la norma EIA/TIA-598 que le toca a esa salida del
+   splitter. Va arriba y ocupa todo el ancho para que se lea de un vistazo
+   en la rejilla, sin competir con el estado del cliente, que es el fondo. */
+.vpto .pcol{position:absolute;top:0;left:0;right:0;height:4px;border-radius:7px 7px 0 0;}
+.vpto{padding-top:8px;}
+.swcol{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;
+       margin-right:5px;border:1px solid rgba(255,255,255,.25);}
 .vpto.ocup:active{cursor:grabbing;}
 .vpto.dest{background:rgba(14,165,233,.3);border-color:#0ea5e9;color:#e6edf6;
            transform:scale(1.08);box-shadow:0 0 0 2px rgba(14,165,233,.5);}
@@ -671,7 +678,7 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION_RED = 31; // v25: EL CLIENTE SE PINTA SEGUN COMO ESTA HOY, Y SE PUEDE VER SOLO UNA PARTE. [1] Antes todos los clientes eran del mismo color, asi que el mapa no distinguia a quien le esta funcionando el servicio de quien esta suspendido o ya se cancelo, que es justo lo que se necesita ver de un vistazo: donde se pierde cartera, que puerto va a quedar libre, en que zona hay que salir a recuperar. Ahora: verde activo, ambar suspendido, rojo cancelado, morado cortesia, gris retirado, cian el que todavia no cruza con la oficina. El estado NO se guarda en la red: se consulta en la ficha de la oficina, que es la que se sincroniza con WispHub, para que no haya dos verdades que se puedan desfasar. [2] Filtro por estado y por fecha de instalacion, con atajos (este mes, 3 meses, este anio) y rango a mano. Se pueden combinar: "los que instale este anio, cuantos siguen activos". Los que no cumplen no se dibujan; las cajas y los cables se dejan, porque si no no se veria de donde cuelga lo que quedo. [3] Para que esto no fuera lentisimo, el cruce de los 692 clientes del mapa contra los 804 de la oficina se hace UNA vez y se guarda (dibujar() corre en cada zoom): 27 ms. [4] CRUCE TOLERANTE A ERRATAS: medido en FLORENCIA, 230 clientes del mapa no cruzaban por nombre exacto, y buena parte eran erratas de una letra entre los dos sistemas (el mapa dice "EDGAR CASTRO BERMEO" y WispHub dice "EDGAR CASTO BERMEO"). Ahora se acepta una diferencia de hasta dos letras, PERO solo si el nombre exacto ya fallo, el nombre es largo (14 letras o mas) y hay UN UNICO candidato parecido: con dos o mas se deja sin cruzar antes que ponerle a alguien el estado de otro. Subio de 462 a 479 cruzados. Los 213 que quedan se ven en cian y tienen su propia casilla en el filtro: 66 llevan el codigo de OZmap en vez del nombre de la persona, y el resto ya no esta en WispHub. [5] LA FECHA DE INSTALACION VIENE EN DOS FORMATOS Y HAY QUE LEER LOS DOS. El mismo campo trae 2026-05-19 (el cargue masivo de mayo, ya normalizado) y 29/05/2026 16:03:00 (lo que manda WispHub tal cual en cada sincronia). Medido: 3.737 clientes con el primero y 530 con el segundo, y la oficina de MONTANITA esta ENTERA en el segundo, 212 de 212. Leer solo el primero dejaba esa oficina completa fuera del filtro por fecha y sin avisar, que es la peor forma de fallar: se veia como "no han instalado nada". En FLORENCIA hacia parecer que la ultima instalacion era del 20 de mayo cuando en realidad es del 18 de agosto, y que este mes no habia ninguna cuando hay 7. Se resuelve con el TEXTO y nunca con new Date(), misma trampa de la v91 del inventario: 05/06/2026 se entiende como 5 de junio o como 6 de mayo segun quien lo lea. OFICINAS ya lo hacia bien en _diaDeFecha y aqui se repite el mismo criterio; los informes de oficina nunca estuvieron afectados. v26: RED YA SE PUEDE INSTALAR COMO APP PROPIA. Era la unica de las cuatro sin manifiesto, asi que no aparecia como aplicacion instalable: se podia abrir en el navegador y ya. Las otras tres si lo tenian, cada una con su nombre y su direccion de arranque, que es lo que hace que el navegador las trate como apps DISTINTAS y se puedan tener las cuatro al tiempo en el escritorio. Ahora RED tambien: "PROYECTOVISION Red" / "PV Red", verde #059669, ventana propia. Los iconos NO van incrustados en base64 como en las otras -serian 33 KB de texto- sino que se DIBUJAN al abrir con canvas: un POP en el centro y cuatro cajas colgando, que es lo que la app es. Son veinte lineas en vez de 33 KB, y quedan nitidos en cualquier pantalla. Si el navegador no soporta canvas no pasa nada, la app funciona igual sin icono propio. OJO: falta un service worker para que el navegador OFREZCA instalarla solo; sin el, hay que instalarla a mano desde el menu del navegador. Eso quedo pendiente a proposito: un service worker mal hecho puede dejar la app sirviendo una version vieja para siempre, y no se toca a la ligera. v27: CADA APP RECLAMA SOLO SU ARCHIVO. Reportado por Elkin: instalo INVENTARIO y al abrir OFICINAS el navegador ya no ofrecia instalarla sino "Abrir en la app". La causa: el scope -el territorio de una app instalada- estaba puesto en la CARPETA, no en el archivo, asi que las cinco reclamaban lo mismo y la primera instalada se quedaba con todas las demas paginas. Ahora cada una declara scope y id propios, apuntando solo a su archivo. Consecuencia buscada: el boton de volver al inicio sale de la app instalada y abre index.html aparte, que es lo correcto porque el inicio es otra app. v28: IMPORTAR AHORA PREGUNTA SI AGREGAR O REEMPLAZAR. Importar siempre agregaba, y eso sirve para completar una sede; pero cuando el MISMO mapa se vuelve a importar mejor ordenado, agregar lo duplica todo: la llave de fusion incluye el tipo, asi que un punto que antes entro como poste y ahora entra como caja no se reconoce como el mismo. Caso real: DONCELLO (sede NATALIA) tenia 427 elementos cargados de un KMZ de Google Earth sin carpetas -192 postes y 235 cables, CERO cajas- y al reimportarlo bien habrian quedado 857. El reemplazo va DENTRO de la importacion y no como un boton suelto de borrar todo: asi no se puede vaciar una sede por accidente, solo cambiarla por algo que ya se tiene listo. Pide escribir AGREGAR o REEMPLAZAR, y el reemplazo confirma aparte diciendo cuantos elementos se pierden. Cualquier otra respuesta no toca nada. v29: EL INTERIOR DE LA CAJA SE LEE COMO UN EMPALME DE VERDAD. Salio de comparar nuestra ventana contra la de OZmap, que Elkin paso en una captura. [1] CUATRO COLUMNAS en el orden fisico: lo que LLEGA, los splitters, los puertos, y lo que CONTINUA. Antes todos los cables iban revueltos en una sola columna y no se podia leer de un vistazo cuantos hilos entran y siguen de largo, que es lo primero que se mira en un empalme. Cual cable es el que llega lo dice el arbol de rutas (el que va hacia el POP); si la caja todavia no alcanza el POP se toma el cable mas grueso y se AVISA que se uso ese criterio. Los hilos de paso se marcan y cada cable dice cuantos de sus hilos siguen de largo. [2] EL ESTADO DEL CLIENTE EN CADA PUERTO. En el mapa ya se pintaba desde la v25, pero al abrir la caja solo salia el nombre, y es justo ahi donde se decide si un puerto se puede reusar: un suspendido de hace meses no es lo mismo que un activo. De paso el cruce con la oficina pasa a tolerar erratas igual que el del mapa: los puertos con estado visible subieron de 0 a 447 de 591. Los 144 que quedan no cruzan porque esa gente ya no esta en WispHub, no por un fallo. [3] LOS CLIENTES COLGADOS DE LA CAJA SIN PUERTO ASIGNADO ahora se ven. Antes un puerto estaba ocupado o libre, sin punto medio, y ese trabajo pendiente no aparecia por ningun lado. [4] COMO ESTA HECHA CADA UNION: fusion, conector, de paso o dejado en reserva. Antes todo se guardaba como fusion. Lo ya guardado se sigue leyendo como fusion salvo cuando une dos hilos de cables distintos, que es un paso: se muestra bien sin tener que tocar los datos viejos. v30: UBICAR CLIENTES CON LA COORDENADA DE WISPHUB, con tope de 300 m. Idea de Elkin: muchas cajas ya saben QUIEN esta en cada puerto pero no DONDE vive, y WispHub guarda una coordenada por cliente. Antes de construirlo se midio, y el dato NO es de fiar: solo 1.532 de 4.128 clientes la tienen llena, y en FLORENCIA esta mal -53 clientes comparten el mismo punto exacto y, comparada contra la ubicacion levantada en campo por OZmap, solo 1 de 176 cae a menos de 100 m, con error mediano de 1.762 metros. En DONCELLO y CARTAGENA si parece real (941 clientes en 888 puntos distintos). Por eso esto NO ubica a todo el que tenga coordenada: solo al que quede a MENOS DE 300 METROS de su caja, que es lo maximo creible para una acometida. Antes de tocar nada muestra el plan completo -cuantos se ubicarian, cuantos se dejan por lejos y a que distancia estaba cada uno- y lo que pone queda marcado como ubicacionAuto, con una nota que dice de donde salio y que no esta verificado en campo, para poder deshacerlo todo de un boton sin tocar lo puesto a mano. Probado sobre DONCELLO: de 719 nombres anotados en los puertos ubica 37, con mediana de 70 metros (6, 7, 8, 10 m los primeros) y maximo 281; deja 20 por estar a mas de 300 m. Ademas la importacion de KML ahora LEE los puertos anotados a mano en la descripcion de la caja (P1. JUAN PEREZ), que es como venia el mapa de Doncello: 719 nombres que estaban ahi guardados sin que nadie los pudiera usar, y que ahora llegan directo al campo de puertos. v31: LA UBICACION QUE TOMA EL TECNICO MANDA SOBRE LA DE WISPHUB. Al ubicar clientes ya no se mira solo WispHub: se juntan tambien las coordenadas que los tecnicos toman en la puerta al finalizar una instalacion (TECNICOS v91). Esas van PRIMERO y pisan a las de WispHub cuando existen las dos, porque las tomo una persona parada en el sitio y con su margen de error anotado, no un formulario llenado a la carrera. Las de mas de 100 metros de margen se descartan. Al juntar las dos listas hay que reconocer a la misma persona aunque los registros no traigan los mismos campos -el tecnico no captura el numero de servicio-, asi que basta que coincida UNO de los tres datos que identifican (servicio, cedula o nombre); una llave que los exigiera todos dejaba pasar a la misma persona dos veces.
+const APP_VERSION_RED = 32; // v32: DOS PEDIDOS DE ELKIN. [1] EL DROP SE PINTA DEL COLOR DE SU PUERTO. Las salidas de un splitter van coloreadas en el orden de la norma EIA/TIA-598 -la 1 azul, la 2 naranja, la 3 verde- que la app ya usaba para los hilos de los cables. Ahora ese color aparece en dos sitios: en una franja arriba de cada puerto dentro de la caja, y en el drop que sale de el en el mapa. Asi el cable de la calle se casa con el pigtail de adentro sin abrir la caja. Los drops que se creen de aqui en adelante guardan su puerto; los que ya estaban no lo traen y se deduce por el nombre del cliente, y si dos personas se llaman igual desempata la punta del drop. Cuando no se puede saber, se queda gris en vez de inventar un color. El indice cliente-puerto se arma UNA vez por dibujado y no en cada drop, porque dibujar() corre en cada zoom y buscar el cliente de cada uno de los ~690 drops recorriendo la red entera serian mas de un millon de comparaciones por cuadro. [2] AL RETIRAR A UN CLIENTE SE PUEDE DEJAR EL DROP. Idea de Elkin: cuando alguien se retira, el cable casi siempre SE QUEDA tendido hasta la casa, y borrarlo del mapa pierde el dato justo el dia que sirve, cuando llega un vecino a instalar y hay que decidir si se tira acometida nueva. Ahora se pregunta: quitar tambien el drop, o dejarlo disponible. El que se conserva deja de ser de nadie pero recuerda de quien era y de que puerto salia; se pinta PUNTEADO y del color de ese puerto, con un circulo en la punta para poder encontrarlo, y su tooltip dice quien lo dejo. El puerto SI queda libre, porque el cliente ya no esta y la caja tiene que contarlo como capacidad. Dentro de la caja sale un aviso con cuantos drops tendidos hay y un boton para ir a cada uno, y al abrir un puerto libre que tiene drop tendido lo dice ahi mismo. v25: EL CLIENTE SE PINTA SEGUN COMO ESTA HOY, Y SE PUEDE VER SOLO UNA PARTE. [1] Antes todos los clientes eran del mismo color, asi que el mapa no distinguia a quien le esta funcionando el servicio de quien esta suspendido o ya se cancelo, que es justo lo que se necesita ver de un vistazo: donde se pierde cartera, que puerto va a quedar libre, en que zona hay que salir a recuperar. Ahora: verde activo, ambar suspendido, rojo cancelado, morado cortesia, gris retirado, cian el que todavia no cruza con la oficina. El estado NO se guarda en la red: se consulta en la ficha de la oficina, que es la que se sincroniza con WispHub, para que no haya dos verdades que se puedan desfasar. [2] Filtro por estado y por fecha de instalacion, con atajos (este mes, 3 meses, este anio) y rango a mano. Se pueden combinar: "los que instale este anio, cuantos siguen activos". Los que no cumplen no se dibujan; las cajas y los cables se dejan, porque si no no se veria de donde cuelga lo que quedo. [3] Para que esto no fuera lentisimo, el cruce de los 692 clientes del mapa contra los 804 de la oficina se hace UNA vez y se guarda (dibujar() corre en cada zoom): 27 ms. [4] CRUCE TOLERANTE A ERRATAS: medido en FLORENCIA, 230 clientes del mapa no cruzaban por nombre exacto, y buena parte eran erratas de una letra entre los dos sistemas (el mapa dice "EDGAR CASTRO BERMEO" y WispHub dice "EDGAR CASTO BERMEO"). Ahora se acepta una diferencia de hasta dos letras, PERO solo si el nombre exacto ya fallo, el nombre es largo (14 letras o mas) y hay UN UNICO candidato parecido: con dos o mas se deja sin cruzar antes que ponerle a alguien el estado de otro. Subio de 462 a 479 cruzados. Los 213 que quedan se ven en cian y tienen su propia casilla en el filtro: 66 llevan el codigo de OZmap en vez del nombre de la persona, y el resto ya no esta en WispHub. [5] LA FECHA DE INSTALACION VIENE EN DOS FORMATOS Y HAY QUE LEER LOS DOS. El mismo campo trae 2026-05-19 (el cargue masivo de mayo, ya normalizado) y 29/05/2026 16:03:00 (lo que manda WispHub tal cual en cada sincronia). Medido: 3.737 clientes con el primero y 530 con el segundo, y la oficina de MONTANITA esta ENTERA en el segundo, 212 de 212. Leer solo el primero dejaba esa oficina completa fuera del filtro por fecha y sin avisar, que es la peor forma de fallar: se veia como "no han instalado nada". En FLORENCIA hacia parecer que la ultima instalacion era del 20 de mayo cuando en realidad es del 18 de agosto, y que este mes no habia ninguna cuando hay 7. Se resuelve con el TEXTO y nunca con new Date(), misma trampa de la v91 del inventario: 05/06/2026 se entiende como 5 de junio o como 6 de mayo segun quien lo lea. OFICINAS ya lo hacia bien en _diaDeFecha y aqui se repite el mismo criterio; los informes de oficina nunca estuvieron afectados. v26: RED YA SE PUEDE INSTALAR COMO APP PROPIA. Era la unica de las cuatro sin manifiesto, asi que no aparecia como aplicacion instalable: se podia abrir en el navegador y ya. Las otras tres si lo tenian, cada una con su nombre y su direccion de arranque, que es lo que hace que el navegador las trate como apps DISTINTAS y se puedan tener las cuatro al tiempo en el escritorio. Ahora RED tambien: "PROYECTOVISION Red" / "PV Red", verde #059669, ventana propia. Los iconos NO van incrustados en base64 como en las otras -serian 33 KB de texto- sino que se DIBUJAN al abrir con canvas: un POP en el centro y cuatro cajas colgando, que es lo que la app es. Son veinte lineas en vez de 33 KB, y quedan nitidos en cualquier pantalla. Si el navegador no soporta canvas no pasa nada, la app funciona igual sin icono propio. OJO: falta un service worker para que el navegador OFREZCA instalarla solo; sin el, hay que instalarla a mano desde el menu del navegador. Eso quedo pendiente a proposito: un service worker mal hecho puede dejar la app sirviendo una version vieja para siempre, y no se toca a la ligera. v27: CADA APP RECLAMA SOLO SU ARCHIVO. Reportado por Elkin: instalo INVENTARIO y al abrir OFICINAS el navegador ya no ofrecia instalarla sino "Abrir en la app". La causa: el scope -el territorio de una app instalada- estaba puesto en la CARPETA, no en el archivo, asi que las cinco reclamaban lo mismo y la primera instalada se quedaba con todas las demas paginas. Ahora cada una declara scope y id propios, apuntando solo a su archivo. Consecuencia buscada: el boton de volver al inicio sale de la app instalada y abre index.html aparte, que es lo correcto porque el inicio es otra app. v28: IMPORTAR AHORA PREGUNTA SI AGREGAR O REEMPLAZAR. Importar siempre agregaba, y eso sirve para completar una sede; pero cuando el MISMO mapa se vuelve a importar mejor ordenado, agregar lo duplica todo: la llave de fusion incluye el tipo, asi que un punto que antes entro como poste y ahora entra como caja no se reconoce como el mismo. Caso real: DONCELLO (sede NATALIA) tenia 427 elementos cargados de un KMZ de Google Earth sin carpetas -192 postes y 235 cables, CERO cajas- y al reimportarlo bien habrian quedado 857. El reemplazo va DENTRO de la importacion y no como un boton suelto de borrar todo: asi no se puede vaciar una sede por accidente, solo cambiarla por algo que ya se tiene listo. Pide escribir AGREGAR o REEMPLAZAR, y el reemplazo confirma aparte diciendo cuantos elementos se pierden. Cualquier otra respuesta no toca nada. v29: EL INTERIOR DE LA CAJA SE LEE COMO UN EMPALME DE VERDAD. Salio de comparar nuestra ventana contra la de OZmap, que Elkin paso en una captura. [1] CUATRO COLUMNAS en el orden fisico: lo que LLEGA, los splitters, los puertos, y lo que CONTINUA. Antes todos los cables iban revueltos en una sola columna y no se podia leer de un vistazo cuantos hilos entran y siguen de largo, que es lo primero que se mira en un empalme. Cual cable es el que llega lo dice el arbol de rutas (el que va hacia el POP); si la caja todavia no alcanza el POP se toma el cable mas grueso y se AVISA que se uso ese criterio. Los hilos de paso se marcan y cada cable dice cuantos de sus hilos siguen de largo. [2] EL ESTADO DEL CLIENTE EN CADA PUERTO. En el mapa ya se pintaba desde la v25, pero al abrir la caja solo salia el nombre, y es justo ahi donde se decide si un puerto se puede reusar: un suspendido de hace meses no es lo mismo que un activo. De paso el cruce con la oficina pasa a tolerar erratas igual que el del mapa: los puertos con estado visible subieron de 0 a 447 de 591. Los 144 que quedan no cruzan porque esa gente ya no esta en WispHub, no por un fallo. [3] LOS CLIENTES COLGADOS DE LA CAJA SIN PUERTO ASIGNADO ahora se ven. Antes un puerto estaba ocupado o libre, sin punto medio, y ese trabajo pendiente no aparecia por ningun lado. [4] COMO ESTA HECHA CADA UNION: fusion, conector, de paso o dejado en reserva. Antes todo se guardaba como fusion. Lo ya guardado se sigue leyendo como fusion salvo cuando une dos hilos de cables distintos, que es un paso: se muestra bien sin tener que tocar los datos viejos. v30: UBICAR CLIENTES CON LA COORDENADA DE WISPHUB, con tope de 300 m. Idea de Elkin: muchas cajas ya saben QUIEN esta en cada puerto pero no DONDE vive, y WispHub guarda una coordenada por cliente. Antes de construirlo se midio, y el dato NO es de fiar: solo 1.532 de 4.128 clientes la tienen llena, y en FLORENCIA esta mal -53 clientes comparten el mismo punto exacto y, comparada contra la ubicacion levantada en campo por OZmap, solo 1 de 176 cae a menos de 100 m, con error mediano de 1.762 metros. En DONCELLO y CARTAGENA si parece real (941 clientes en 888 puntos distintos). Por eso esto NO ubica a todo el que tenga coordenada: solo al que quede a MENOS DE 300 METROS de su caja, que es lo maximo creible para una acometida. Antes de tocar nada muestra el plan completo -cuantos se ubicarian, cuantos se dejan por lejos y a que distancia estaba cada uno- y lo que pone queda marcado como ubicacionAuto, con una nota que dice de donde salio y que no esta verificado en campo, para poder deshacerlo todo de un boton sin tocar lo puesto a mano. Probado sobre DONCELLO: de 719 nombres anotados en los puertos ubica 37, con mediana de 70 metros (6, 7, 8, 10 m los primeros) y maximo 281; deja 20 por estar a mas de 300 m. Ademas la importacion de KML ahora LEE los puertos anotados a mano en la descripcion de la caja (P1. JUAN PEREZ), que es como venia el mapa de Doncello: 719 nombres que estaban ahi guardados sin que nadie los pudiera usar, y que ahora llegan directo al campo de puertos. v31: LA UBICACION QUE TOMA EL TECNICO MANDA SOBRE LA DE WISPHUB. Al ubicar clientes ya no se mira solo WispHub: se juntan tambien las coordenadas que los tecnicos toman en la puerta al finalizar una instalacion (TECNICOS v91). Esas van PRIMERO y pisan a las de WispHub cuando existen las dos, porque las tomo una persona parada en el sitio y con su margen de error anotado, no un formulario llenado a la carrera. Las de mas de 100 metros de margen se descartan. Al juntar las dos listas hay que reconocer a la misma persona aunque los registros no traigan los mismos campos -el tecnico no captura el numero de servicio-, asi que basta que coincida UNO de los tres datos que identifican (servicio, cedula o nombre); una llave que los exigiera todos dejaba pasar a la misma persona dos veces.
 
 const firebaseConfig = {
     apiKey: "AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w",
@@ -2299,8 +2306,21 @@ window._periodoCli=_periodoCli;
 window.quitarFiltroCli=quitarFiltroCli;
 window._plegarFiltroCli=_plegarFiltroCli;
 
+/* La punta del drop que quedó libre. Sin esto la línea termina en el aire
+   y nadie la ve: justamente lo que hay que poder encontrar. */
+function marcarPuntaLibre(dp, col, lienzo){
+    if(!dp.g || dp.g.length<2) return;
+    const fin=dp.g[dp.g.length-1];
+    const m=L.circleMarker(fin,{radius:6, color:col, weight:2.5,
+        fillColor:'#0b1220', fillOpacity:.9, renderer:lienzo});
+    m.bindTooltip('🧵 Drop disponible'+(dp.clienteAnterior?' — lo dejó '+esc(dp.clienteAnterior):'')
+        +(dp.metros?' · '+dp.metros+' m':''), {direction:'top'});
+    m.addTo(capas['drop']);
+}
+
 function dibujar(){
     _arbolPOP=null; _rejPostes=null; _hijosCaja=null;   // la red pudo cambiar: el camino al POP se recalcula
+    _idxCliNom=null;                                    // …y con ella, qué puerto alimenta a cada drop
     _olvidarDatosCli();                                 // …y el cruce con los datos de la oficina
     if(!mapa) return;
     ORDEN.forEach(t=>capas[t]&&capas[t].clearLayers());
@@ -2322,7 +2342,16 @@ function dibujar(){
         if(cfg.forma==='linea'&&el.g.length>1){
             // El grosor sube con los hilos: la troncal se distingue del ramal
             const w = el.hilos ? Math.min(6, 1.2+Math.log2(el.hilos)*0.8) : cfg.w;
-            capa=L.polyline(el.g,{color:cfg.color, weight:w, opacity:.9, renderer:lienzo});
+            /* v32: el drop se pinta del color de SU PUERTO, el mismo del pigtail
+               en el splitter, para poder casar el cable de la calle con la salida
+               de adentro sin abrir la caja. El que quedó disponible va del mismo
+               color pero PUNTEADO: es el mismo cable, sin nadie conectado. */
+            const esDrop = t==='drop';
+            const col = esDrop ? colorDeDrop(el) : cfg.color;
+            capa=L.polyline(el.g,{color:col, opacity:.9, renderer:lienzo,
+                weight: (esDrop && el.disponible) ? w+0.8 : w,
+                dashArray: (esDrop && el.disponible) ? '5,4' : null});
+            if(esDrop && el.disponible) marcarPuntaLibre(el, col, lienzo);
         }else if(el.tipo==='caja'){
             capa=L.marker(el.g[0],{icon:iconoCaja(el)});
             puntos.push(el.g[0]);
@@ -2599,6 +2628,27 @@ async function clientesParaConectar(){
     return _cliOficina;
 }
 
+/* El color que le toca a esa salida del splitter, escrito y pintado. */
+function _chipColor(n){
+    const c=colorPuerto(n); if(!c) return '';
+    return '<span class="swcol" style="background:'+c.hex+'"></span>'+esc(c.n);
+}
+/* Llevar el mapa hasta la punta de un drop que quedó libre. */
+function verDropLibre(id){
+    const d=RED.elementos.find(e=>e.id===id); if(!d||!d.g||d.g.length<2) return;
+    modo('ver'); limpiarTemporal();
+    temp=L.layerGroup().addTo(mapa);
+    const opt={pane:'ruta', renderer:rendRuta};
+    const col=colorDeDrop(d), fin=d.g[d.g.length-1];
+    L.polyline(d.g,{...opt,color:col,weight:14,opacity:.20}).addTo(temp);
+    L.polyline(d.g,{...opt,color:col,weight:4,opacity:1,dashArray:'6,5'}).addTo(temp);
+    L.marker(fin,{pane:'ruta', icon:L.divIcon({className:'',iconSize:[28,28],iconAnchor:[14,14],
+        html:'<div class="mk mk-ruta" style="background:'+col+';color:#fff">🧵</div>'})})
+      .addTo(temp).bindTooltip('Drop disponible · '+(d.metros||'?')+' m'
+        +(d.clienteAnterior?' — lo dejó '+esc(d.clienteAnterior):''),{permanent:true,direction:'top'});
+    mapa.fitBounds(L.latLngBounds(d.g).pad(.6));
+}
+
 function verPuerto(idCaja, n){
     const c=RED.elementos.find(e=>e.id===idCaja); if(!c) return;
     const o=(c.puertos||{})[n];
@@ -2614,18 +2664,29 @@ function verPuerto(idCaja, n){
         `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cerrar</button>
          <button class="btn btn-sm btn-primary" style="width:auto"
                  onclick="liberarPuerto('${idCaja}',${n})">🔓 Liberar</button>`);
+    // ¿Quedó cable tendido desde este puerto? Es lo primero que necesita saber
+    // quien va a instalar: si ya hay drop hasta una casa, se ahorra la acometida.
+    const libre=dropsDisponibles(idCaja).filter(d=>+d.puertoAnterior===+n);
     if(!o) return abrirModal(`Puerto ${n} · ${esc(c.nombre||'')}`,
         `<div style="text-align:center;padding:14px 10px">
            <div style="font-size:2.2rem">🟢</div>
            <b style="color:#10b981;font-size:1.05rem">Libre</b>
+           <div style="margin-top:8px">${_chipColor(n)}</div>
            <p class="ayuda" style="margin-top:6px">Se puede conectar un cliente aquí.</p>
-         </div>`,
+         </div>
+         ${libre.map(d=>`<div class="aviso" style="background:rgba(34,211,238,.10);
+             border-color:rgba(34,211,238,.4);color:#67e8f9;font-size:.75rem;text-align:left">
+             🧵 <b>Ya hay drop tendido</b> desde este puerto: ${d.metros||'?'} m
+             ${d.clienteAnterior?', lo dejó '+esc(d.clienteAnterior):''}${d.libreDesde?' ('+_hace(d.libreDesde)+')':''}.
+             <button class="btn btn-sm btn-out" style="margin-top:6px;width:100%"
+                onclick="cerrarModal();verDropLibre('${d.id}')">📍 Ver dónde llega</button></div>`).join('')}`,
         `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cerrar</button>
          <button class="btn btn-sm btn-out" onclick="bloquearPuerto('${idCaja}',${n})">🔒 Reservar</button>
          <button class="btn btn-sm btn-primary" style="width:auto"
                  onclick="conectarCliente('${idCaja}',${n})">🔌 Conectar cliente</button>`);
     const cli=RED.elementos.find(e=>e.id===o.clienteId);
     abrirModal(`Puerto ${n} · ${esc(c.nombre||'')}`, `
+      <div class="dato"><b>Color</b><span>${_chipColor(n)}</span></div>
       <div class="dato"><b>Cliente</b><span>${esc(o.cliente||'—')}</span></div>
       ${o.servicio?`<div class="dato"><b>Servicio</b><span style="font-family:monospace;font-size:.76rem">${esc(o.servicio)}</span></div>`:''}
       ${o.conectadoEn?`<div class="dato"><b>Conectado</b><span>${new Date(o.conectadoEn).toLocaleDateString('es-CO')} · ${esc(o.conectadoPor||'')}</span></div>`:''}
@@ -3472,6 +3533,7 @@ async function aplicarUbicacionWisphub(){
             creadoEn:Date.now(), creadoPor:(USER&&USER.nombre)||'' };
         const drop={ id:_nuevoId(), tipo:'cable', clase:'drop',
             nombre:x.nombre, cliente:x.nombre, caja:caja.nombre,
+            cajaId:caja.id, puerto:x.puerto,   // v32: para pintarlo del color de su puerto
             g:[caja.g[0], x.g], hilos:1, buffers:1, subtipo:'DROP 1H',
             metros:x.d, estado:'Implementado', etiquetas:['DROP 1 HILO'],
             ubicacionAuto:true, notas:'Trazo automático en línea recta, sin levantar en campo.',
@@ -3678,6 +3740,7 @@ async function guardarClienteMapa(){
     // El DROP: sin el, el cliente queda suelto y no se le ve el recorrido
     const drop={ id:_nuevoId(), tipo:'cable', clase:'drop',
         nombre:cli.nombre, cliente:cli.nombre, caja:caja.nombre,
+        cajaId:caja.id, puerto:n,          // v32: para pintarlo del color de su puerto
         g:[caja.g[0], p], hilos:1, buffers:1, subtipo:'DROP 1H',
         metros:Math.round(metros(caja.g[0], p)), estado:'Implementado',
         etiquetas:['DROP 1 HILO'], notas:'',
@@ -3699,10 +3762,64 @@ async function guardarClienteMapa(){
     if(movidoDe) setTimeout(()=>alert(cli.nombre+' se movió desde '+movidoDe+'.'),200);
 }
 
+/* ════════════════════════════════════════════════════════════════════
+   EL COLOR DEL PUERTO
+   ────────────────────────────────────────────────────────────────────
+   Las salidas de un splitter van coloreadas en el mismo orden de la
+   norma EIA/TIA-598 que ya usa el resto de la app para los hilos: la 1
+   azul, la 2 naranja, la 3 verde… y vuelve a empezar en la 13.
+   Se pinta en el puerto DENTRO de la caja y en el drop que sale de él,
+   que es lo que pidió Elkin: que el cable de la calle se pueda casar de
+   un vistazo con el pigtail del splitter.
+   ════════════════════════════════════════════════════════════════════ */
+function colorPuerto(n){ n=+n; return (n>0) ? colorN(n) : null; }
+
+/* Qué puerto alimenta a un drop. Los drops nuevos lo traen anotado; los
+   que ya estaban se resuelven por el nombre del cliente. Se indexa una
+   sola vez por dibujado porque dibujar() corre en cada zoom: buscar el
+   cliente de cada uno de los ~690 drops recorriendo la red entera serían
+   más de un millón de comparaciones por cuadro. */
+var _idxCliNom=null;
+function _indiceClientesPorNombre(){
+    if(_idxCliNom) return _idxCliNom;
+    const m=new Map();
+    RED.elementos.forEach(e=>{
+        if(e.tipo!=='cliente' || !e.puerto) return;
+        const k=normNom(e.nombreReal||e.nombre||''); if(!k) return;
+        if(!m.has(k)) m.set(k,[]);
+        m.get(k).push(e);
+    });
+    _idxCliNom=m; return m;
+}
+function puertoDeDrop(dp){
+    if(dp.puerto) return +dp.puerto;
+    const k=normNom(dp.cliente||dp.nombre||''); if(!k) return null;
+    const cand=_indiceClientesPorNombre().get(k);
+    if(!cand || !cand.length) return null;
+    if(cand.length===1) return +cand[0].puerto;
+    // Dos personas con el mismo nombre: desempata la punta del drop.
+    if(!dp.g || dp.g.length<2) return null;
+    const fin=dp.g[dp.g.length-1];
+    const cerca=cand.filter(c=>c.g && c.g.length && metros(c.g[0], fin)<30);
+    return cerca.length===1 ? +cerca[0].puerto : null;
+}
+/* El color con el que se pinta un drop en el mapa. */
+function colorDeDrop(dp){
+    const n = dp.disponible ? (dp.puertoAnterior||dp.puerto) : puertoDeDrop(dp);
+    const c = colorPuerto(n);
+    return c ? c.hex : TIPOS.drop.color;
+}
+/* Los drops que quedaron tendidos sin nadie conectado. */
+function dropsDisponibles(cajaId){
+    return RED.elementos.filter(e=>e.tipo==='cable' && e.clase==='drop' && e.disponible
+        && (!cajaId || String(e.cajaId||'')===String(cajaId)));
+}
+
 /* ── El drop de un cliente ─────────────────────────────────────────── */
 function dropDe(el){
     const n=normNom(el.nombreReal||el.nombre||'');
     return RED.elementos.find(e=>e.tipo==='cable'&&e.clase==='drop'
+        && !e.disponible                      // el que quedó libre ya no es de nadie
         && (normNom(e.cliente||e.nombre||'')===n)
         && e.g && e.g.length>1
         && metros(e.g[e.g.length-1], el.g[0])<30);
@@ -3761,21 +3878,72 @@ function reubicarDrop(el){
     const caja=RED.elementos.find(e=>e.id===el.cajaId)
             || RED.elementos.find(e=>e.tipo==='caja'&&e.nombre===el.caja);
     if(!caja) return;
-    if(dp){ dp.g=[caja.g[0], el.g[0]]; dp.metros=Math.round(metros(caja.g[0], el.g[0])); }
+    if(dp){ dp.g=[caja.g[0], el.g[0]]; dp.metros=Math.round(metros(caja.g[0], el.g[0]));
+            // v32: si lo pasaron de puerto o de caja, el drop tiene que seguirlo,
+            // porque de ahi sale el color con el que se pinta.
+            dp.cajaId=caja.id; dp.caja=caja.nombre; dp.puerto=el.puerto||null; }
     else RED.elementos.push({ id:_nuevoId(), tipo:'cable', clase:'drop',
         nombre:el.nombreReal||el.nombre, cliente:el.nombreReal||el.nombre, caja:caja.nombre,
+        cajaId:caja.id, puerto:el.puerto||null,
         g:[caja.g[0], el.g[0]], hilos:1, buffers:1, subtipo:'DROP 1H',
         metros:Math.round(metros(caja.g[0], el.g[0])), estado:'Implementado',
         etiquetas:['DROP 1 HILO'], notas:'', creadoEn:Date.now() });
 }
 
-async function quitarClienteDelMapa(id){
+/* ════════════════════════════════════════════════════════════════════
+   RETIRAR A UN CLIENTE — Y QUÉ HACER CON SU DROP
+   ────────────────────────────────────────────────────────────────────
+   Idea de Elkin: cuando alguien se retira, el drop casi siempre SE QUEDA
+   tendido hasta la casa. Borrarlo del mapa es perder el dato justo el día
+   que sirve: cuando llega un vecino a instalar, saber que ya hay cable
+   puesto hasta esa puerta ahorra la acometida entera.
+   Por eso ahora se pregunta. El drop que se conserva queda marcado como
+   disponible, se pinta PUNTEADO y del color de su puerto, y guarda de
+   quién era y de qué puerto salía. El puerto SÍ queda libre: el cliente
+   ya no está, y la caja tiene que contarlo como capacidad disponible.
+   ════════════════════════════════════════════════════════════════════ */
+/* El drop deja de ser de alguien y pasa a ser cable disponible. Se guarda de
+   quién era y de qué puerto salía: si vuelve, o si alguien pregunta de dónde
+   salió ese cable tendido, la respuesta está aquí y no en la memoria de nadie.
+   El puerto se libera aparte, porque la caja tiene que contarlo como capacidad. */
+function _dejarDropDisponible(dp, cli, caja, nom){
+    dp.disponible=true;
+    dp.clienteAnterior=nom || cli.nombreReal || cli.nombre || '';
+    dp.puertoAnterior=cli.puerto||dp.puerto||null;
+    dp.cajaId=dp.cajaId||cli.cajaId||(caja?caja.id:'');
+    dp.caja=dp.caja||(caja?caja.nombre:'');
+    dp.cliente=''; dp.puerto=null;
+    dp.nombre='DROP DISPONIBLE';
+    dp.libreDesde=Date.now();
+    dp.notas=(dp.notas?dp.notas+' · ':'')+'Quedó tendido cuando se retiró '+dp.clienteAnterior
+             +(dp.puertoAnterior?' del puerto '+dp.puertoAnterior:'')+'.';
+    return dp;
+}
+
+function quitarClienteDelMapa(id){
     if(!puede('borrar','cliente')) return noPuede('borrar','cliente');
     const el=RED.elementos.find(e=>e.id===id); if(!el) return;
     const nom=el.nombreReal||el.nombre||'este cliente';
-    if(!confirm('¿Quitar a '+nom+' del mapa?\n\n'
-        +'Se borra su punto y su drop, y el puerto queda libre.\n'
-        +'El cliente NO se borra de la oficina ni de WispHub.')) return;
+    const dp=dropDe(el);
+    if(!dp) return _quitarCliente(id, false);   // sin drop no hay nada que preguntar
+    abrirModal('Quitar a '+esc(nom)+' del mapa', `
+      <p class="ayuda" style="margin-top:0">Su punto se borra y el puerto
+         ${el.puerto?'<b>'+el.puerto+'</b> ':''}queda libre. El cliente NO se borra de la
+         oficina ni de WispHub.</p>
+      <div class="sec">¿Y el drop?</div>
+      <p class="ayuda" style="margin-top:0">Son <b>${dp.metros||'?'} m</b> de cable tendidos
+         hasta esa casa. Si el cable sigue puesto, dejarlo anotado le sirve al que vaya
+         a instalar por ahí.</p>`,
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cancelar</button>
+       <button class="btn btn-sm btn-out" onclick="_quitarCliente('${id}',false)">
+         🗑️ Quitar también el drop</button>
+       <button class="btn btn-sm btn-primary" style="width:auto"
+         onclick="_quitarCliente('${id}',true)">🧵 Dejar el drop disponible</button>`);
+}
+async function _quitarCliente(id, conservarDrop){
+    cerrarModal();
+    const el=RED.elementos.find(e=>e.id===id); if(!el) return;
+    const nom=el.nombreReal||el.nombre||'este cliente';
     const dp=dropDe(el);
     const caja=RED.elementos.find(e=>e.id===el.cajaId);
     // Queda anotado donde vivia y de que caja salia: si vuelve, o si esto
@@ -3783,10 +3951,12 @@ async function quitarClienteDelMapa(id){
     _retirados().push({nombre:nom, servicio:el.servicio||'', g:el.g[0].slice(),
         caja:el.caja||'', cajaId:el.cajaId||'', puerto:el.puerto||null,
         metros:dp?dp.metros:null, trazo:dp?dp.g.map(x=>x.slice()):null,
+        dropQueda:!!(dp&&conservarDrop), dropId:(dp&&conservarDrop)?dp.id:null,
         notas:el.notas||'', en:Date.now(), por:(USER&&USER.nombre)||''});
     if(caja && el.puerto && (caja.puertos||{})[el.puerto]) delete caja.puertos[el.puerto];
     RED.elementos.splice(RED.elementos.indexOf(el),1);
-    if(dp) RED.elementos.splice(RED.elementos.indexOf(dp),1);
+    if(dp && conservarDrop) _dejarDropDisponible(dp, el, caja, nom);
+    else if(dp) RED.elementos.splice(RED.elementos.indexOf(dp),1);
     mostrarCarga('Guardando…');
     try{ await guardarRed(SEDE.id, RED.elementos); }
     catch(e){ ocultarCarga(); return alert('No se pudo guardar. Recarga la página.'); }
@@ -4160,10 +4330,12 @@ function vcPuertos(id, el, s){
                +(reut?' · este puerto se puede reutilizar':'');
         } else tit=o?esc(o.cliente||'Ocupado')+' — arrástralo a otro puerto para moverlo'
                   :b?esc(b.motivo||'Reservado'):'Libre — suéltale un cliente encima';
+        const pc=colorPuerto(n);
         return `<div class="vpto ${cls}" data-caja="${el.id}" data-n="${n}"
                   ${o?'draggable="true" ondragstart="ptoDrag(event,this)" ondragend="ptoFin()"':''}
                   ondragover="ptoOver(event,this)" ondragleave="ptoSale(this)" ondrop="ptoSuelta(event,this)"
-                  onclick="verPuerto('${el.id}',${n})" title="${tit}">
+                  onclick="verPuerto('${el.id}',${n})" title="${pc?pc.n+' · ':''}${tit}">
+                  <span class="pcol" style="background:${pc.hex}"></span>
                   ${b&&!o?'🔒':n}<span class="q">${rot}</span>
                   ${reut?`<span class="badge" title="${oc.cfg.et}">${oc.cfg.ico}</span>`:''}</div>`;
     }).join('');
@@ -4172,9 +4344,21 @@ function vcPuertos(id, el, s){
           return r.length?`<div class="aviso" style="margin-bottom:8px;background:rgba(245,158,11,.1);
             border-color:rgba(245,158,11,.4);color:#fcd34d;font-size:.75rem">
             ♻️ <b>${r.length}</b> puerto(s) los ocupa gente que ya no está activa. Se pueden reutilizar.</div>`:''; })()}
+      ${(()=>{ const dl=dropsDisponibles(el.id);
+          return dl.length?`<div class="aviso" style="margin-bottom:8px;background:rgba(34,211,238,.10);
+            border-color:rgba(34,211,238,.4);color:#67e8f9;font-size:.75rem">
+            🧵 <b>${dl.length}</b> drop(s) tendidos y sin nadie conectado. El cable ya está puesto
+            hasta esa casa: si hay que instalar por ahí, se aprovecha.
+            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">
+            ${dl.map(d=>`<button class="btn btn-sm btn-out" style="font-size:.68rem"
+                onclick="verDropLibre('${d.id}')">
+                ${d.puertoAnterior?"P"+d.puertoAnterior+" · ":""}${d.metros||"?"} m
+                ${d.clienteAnterior?"· "+esc(d.clienteAnterior.split(" ").slice(0,2).join(" ")):""}
+                </button>`).join("")}</div></div>`:""; })()}
       <div class="vc-ptos">${ptos}</div>
       <p class="ayuda" style="margin-top:8px">Arrastra un cliente de un puerto a otro para moverlo,
-         incluso a otra caja si la tienes abierta al lado.</p>
+         incluso a otra caja si la tienes abierta al lado. La franja de arriba de cada puerto es
+         su color de norma, el mismo con el que se pinta su drop en el mapa.</p>
       <div class="sec">Conectar arrastrando</div>
       <input type="text" placeholder="Busca al cliente…" autocomplete="off" value="${esc(VENT[id].q||'')}"
              oninput="vcBuscar('${el.id}',this.value)" style="margin-bottom:6px">

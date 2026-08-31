@@ -639,6 +639,8 @@
         <button class="nav-btn" data-tab="energia">⚡ Energía Solar</button>
         <!-- ANTENAS STARLINK: cada oficina ve las suyas; el admin ve todas -->
         <button class="nav-btn" data-tab="antenas">U0001f4e1 Antenas Starlink</button>
+        <!-- PROVEEDORES: contratos y costos, solo el admin -->
+        <button class="nav-btn admin-only" data-tab="proveedores">🔌 Proveedores</button>
         <!-- SG-SST: lo ven el admin y la persona encargada (rol propio) -->
         <button class="nav-btn" data-tab="sgsst">🦺 SG-SST</button>
 
@@ -682,6 +684,8 @@ let DB = {
     logsAuditoria: [],
     clientesEspeciales: [],
     antenas: [],
+    proveedores: [],      // v275: a quién le compramos
+    serviciosProv: [],    // v275: qué servicio, con su costo y sus fechas
     facturasEspeciales: [],
     abonosEspeciales: [],
     recogidas: [],
@@ -934,7 +938,7 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION = 273; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 275; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -955,7 +959,7 @@ const APP_VERSION = 273; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '29 Ago 2026 (v273 - UN CLIENTE PUEDE TENER SERVICIOS EN VARIOS MUNICIPIOS, Y EL SISTEMA NO LO PERMITIA. Reportado por Elkin: MAYERLY ESPINOSA DIAZ no aparecia por mas veces que se sincronizara. La causa estaba en la LLAVE: se emparejaba por el campo servicio de WispHub, que WispHub arma con la CEDULA (1116914307@proyectovision). Ese campo NO identifica un servicio: una persona con dos servicios recibe el mismo texto en los dos, asi que el sistema los veia como UN SOLO cliente que estaba en dos oficinas a la vez, lo marcaba como conflicto y no lo tocaba. Quien sincronizaba veia que el cliente seguia sin aparecer, volvia a sincronizar, y otra vez lo mismo. Y no era un error de nadie: un cliente PUEDE tener servicios en varios municipios -lo corrigio Elkin cuando yo ya habia construido la solucion equivocada, que era hacerle elegir una sola oficina; esa se retiro-. Medido sobre las cuatro cuentas: 4.128 servicios comparten solo 4.107 valores de servicio, y hay 4 personas con dos o mas servicios activos en municipios distintos, una de ellas con TRES. La llave correcta es CUENTA + id_servicio: el id es unico dentro de su cuenta pero NO entre cuentas, se comprobo que 720 identificadores se repiten. Cada cliente guarda ahora llaveWisphub, y los que ya existian la reciben en la primera sincronizacion sin perder su historia (4.113 sellados). El emparejamiento entre oficinas pasa a hacerse SOLO por esa llave: antes se buscaba tambien por el texto del servicio o por la cedula, que es justo lo que confundia dos servicios distintos de la misma persona. El retiro tambien la usa; para los registros viejos sin llave se sigue mirando el texto, una sola vez, mientras se les sella. Desaparece el concepto de conflicto por cliente repetido, porque ya no puede ocurrir. Probado sobre los datos reales de las cinco oficinas: 0 conflictos, los cuatro casos quedan cada uno en sus oficinas con llave propia, y una SEGUNDA sincronizacion no mueve nada -es estable, no oscila-. Un traslado de verdad, el mismo servicio cambiando de zona, se sigue moviendo bien. Incluye v271 - CADA APP RECLAMA SOLO SU ARCHIVO. Reportado por Elkin: instalo INVENTARIO y al abrir OFICINAS el navegador ya no ofrecia instalarla sino "Abrir en la app". La causa: el scope -el territorio de una app instalada- estaba en la CARPETA y no en el archivo, asi que las cinco reclamaban lo mismo y la primera instalada se quedaba con las demas paginas. Ahora cada una declara scope e id propios. Incluye v270 - SEGUNDO PAR DE OJOS SOBRE LOS SOPORTES. La revision de hoy ocurre AL SUBIR y la resuelve la misma persona que sube: si el valor leido no coincide sale un "seguro?" y quien contesta es quien esta cargando. Sirve contra errores honestos, no contra nadie que quiera pasarse de listo. Y hay un hueco medido: de 2.416 comprobantes, 696 son PDF y NINGUNO paso por la IA -solo se les calculo la huella-; desde el 1 de agosto son 424 sin ninguna lectura. Ahora un programa aparte, que vive en el Apps Script del Drive, vuelve a leer cada noche los soportes del dia SIN saber que valor se registro ni que justifico nadie, y compara: valor, fecha, destinatario (solo en ingresos, porque en egresos el destinatario es el proveedor) y si el archivo es siquiera un comprobante. Se usa Gemini y no la IA que ya esta porque Gemini lee PDF directamente y los modelos de vision de Groq solo aceptan imagenes: justo lo que falta no lo podrian revisar. La clave de Gemini vive en el Apps Script y nunca en la app, porque la base tiene lectura publica. AQUI van dos cosas: [1] ENCOLAR. Un barrido cada 20 minutos mira que comprobantes hay y cuales no estan en la cola. Se hace por barrido y no enganchando el encolado donde se adjunta un comprobante, porque son SEIS caminos distintos y el septimo que alguien agregue manana se olvidaria sin que nadie lo note. [2] MOSTRAR. Tarjeta en el panel y modal con lo que no cuadro, que solo el admin puede cerrar -y esa es la clave: el que subio el soporte no puede cerrar su propio reparo. Todo vive en un documento aparte, revision_soportes, porque el principal ya va al 77% del limite de 1 MB. Se revisa desde el 1 de septiembre (configurable): lo de agosto fue prueba y solo llenaria el panel de ruido viejo. Incluye v269 - FRENO EN EL BOTON DE REFLEJAR PAGOS EN EL REGISTRO DIARIO. Ese boton inyecta movimientos de DINERO y decide que falta mirando lo que hay EN MEMORIA. Los movimientos no vienen en el documento principal sino en documentos aparte, que tardan unos segundos mas en llegar. Si alguien lo presionaba antes de que terminaran -o si esa carga habia fallado- la app creia que NO habia ninguno y los metia TODOS otra vez: medido sobre los datos reales, 413 pagos duplicados en las cuentas de las oficinas. No habia ninguna guarda. Ahora se niega a trabajar si la carga quedo incompleta (_cargaMovsIncompleta) o si a la vista hay menos de la mitad de los movimientos de pago que deberia haber, y explica que hay que esperar. Faltar 3 de 413 es un problema; faltar 413 de 413 no es un problema, es que todavia no han cargado. Ademas, antes de inyectar nada ahora LISTA los pagos concretos -fecha, concepto, valor y oficina- y su suma, en vez de decir solo cuantos: es plata, y quien aprueba tiene que poder reconocerlos. De paso quedo comprobado que hoy no falta ningun movimiento: 413 de 413. Incluye v268 - TRES COSAS DE LOS PAGOS. [1] EL TOTAL DE LOS PAGOS DEL ADMIN ESTABA CUATRO VECES POR DEBAJO. El valor que se escribe es POR OFICINA -lo dice la propia pantalla, "si seleccionas varias, el valor se registra en cada una"- y asi se inyecta: cada oficina recibe el valor completo. Pero los totales sumaban ese valor UNA sola vez. Dos pagos de 250.000 repartidos entre 4 oficinas figuraban como 500.000 cuando de la empresa salieron 2.000.000. Ahora el total multiplica por el numero de oficinas del pago, y con una oficina filtrada muestra solo la parte de esa oficina. Cada fila dice ademas "4 oficinas x 250.000" para que no quede ambiguo, y el Excel separa las tres cifras en columnas propias: valor por oficina, numero de oficinas, valor total. OJO: los totales que se ven suben; no es que se haya pagado mas, es que antes se mostraban de menos. [2] LO QUE SE ESTA ESCRIBIENDO YA NO SE PIERDE. La sincronia repinta la vista y se llevaba el formulario a medio llenar. El guardian _estaEscribiendo caducaba a los 45 segundos sin teclear, y registrar un pago no es teclear sin parar: se busca el comprobante, se le toma la foto, se piensa el concepto. Los topes no se podian alargar sin mas, porque en la v239 un cursor olvidado en el buscador congelaba la pantalla para siempre. Ahora, en vez de adivinar cuando es seguro repintar, se repinta y se DEVUELVE lo escrito: texto, notas, listas desplegables, casillas marcadas y la posicion del cursor. Solo se conserva lo que la persona cambio respecto a lo que el render habia puesto, asi que un dato fresco de la nube no se pisa con uno viejo. Lo unico que no se puede devolver son los archivos ya elegidos, porque el navegador no lo permite; para eso sigue el aplazamiento. [3] EL GUARDADO AUTOMATICO YA NO INTERRUMPE. La sincronia rapida con WispHub corria una vez por oficina, guardando y avisando en cada una: como admin son cuatro cortinas de "Guardando en la nube" seguidas, encima de quien este registrando un pago. Ahora hace una sola pasada, un solo guardado y un solo aviso. Ademas, los guardados que corren SOLOS (esa sincronia y la revision de facturas ocultas cada 20 minutos, que guardaba siempre encontrara o no) ya no ponen la cortina: save({silencioso:true}). Un guardado pedido por una persona SIEMPRE se ve, y si uno de fondo se fusiona con uno a mano, manda el de a mano. De paso se corrigio la condicion !opts.silenciosa!==false, que siempre daba true y hacia que esa opcion no sirviera para nada. Incluye v267 - LA RECARGA YA NO PIDE LA CLAVE. Reportado hoy junto con tres cosas mas del inventario. Hasta ahora, cada F5 —y en el celular la recarga que se dispara sola al volver de otra app— mandaba a la pantalla de inicio de sesion. Ahora la sesion se recuerda en sessionStorage, que vive SOLO en esa pestana y se borra al cerrarla: asi una recarga no molesta, pero el PC compartido de la oficina no amanece con la sesion abierta. NO se guarda la contrasena, solo quien entro, y al volver se comprueba contra la base: si a la oficina le cambiaron la clave, la borraron, o al acceso SG-SST lo quitaron, la sesion no vale y se pide entrar de nuevo. Caduca a las 12 horas contadas desde el inicio de sesion REAL, no desde la ultima recarga, asi que recargar no alarga el plazo. Al dar Salir se olvida de inmediato. Mismo criterio en INVENTARIO v97 y RED v24. Incluye v266 - LA SINCRONIZACION COMPRUEBA SU PROPIO TRABAJO. Reportado: se sincronizo NATALIA, mostro el plan, se acepto, y los clientes no aparecieron. Revisado contra produccion: no quedo NADA, ni los 3 clientes nuevos, ni los 25 retirados, ni la marca de fecha; los fragmentos seguian en 1.408 y en el registro de auditoria no habia ninguna entrada de hoy. En local el MISMO codigo hace lo correcto: 1.408 a 1.411, 25 retirados, marca sellada y dos guardados. O sea que la logica esta bien y lo que fallo fue la ESCRITURA, que no se logro reproducir. Como no se arregla a ciegas lo que no se reproduce, se hizo lo unico honesto: que no pueda volver a fallar EN SILENCIO. Despues de guardar se vuelve a leer Firestore y se cuentan los clientes de esa oficina; si no coincide con lo esperado se avisa, con el numero de cada lado, en vez de mostrar el visto bueno. Probado con un guardado falso a proposito: en vez de decir que todo quedo bien, avisa que en la nube quedaron 1408 y debian quedar 1411, y pide no cerrar la pagina y volver a darle. Lo mismo en la sincronizacion de todas las oficinas, que lista cuales fallaron. Corregido ademas un error de orden que explica por que no habia rastro: registrarLog corria DESPUES de save(), asi que el registro de la sincronizacion no se persistia hasta el siguiente guardado. Ahora va antes.)';
+const APP_VERSION_FECHA = '31 Ago 2026 (v275: PROVEEDORES — LO QUE NOSOTROS LE COMPRAMOS A OTROS. Pedido de Elkin: llevar la relacion de los servicios contratados. Menu nuevo, solo del administrador porque son contratos y plata. Arranca con Azteca -39 servicios, 27.400 Mbps en 13 municipios, tomados del Excel del 31/8/2026- pero la estructura no es de Azteca: un proveedor tiene servicios y sirve igual para energia, arriendo de torres o transporte. EL COSTO Y LAS FECHAS LLEGAN VACIOS a proposito, porque Elkin no los tiene a la mano; por eso TODO lo que se calcula con plata dice siempre sobre cuantos servicios esta calculado, y hay un aviso fijo mientras falten: un total sacado con la mitad de los costos sin llenar no se puede leer como el gasto real. EL ARCHIVO DEL PROVEEDOR VENIA CON LAS COLUMNAS CORRIDAS: en las 18 filas de IP publica la direccion cayo en la casilla del ancho de banda y la ultima quedo vacia, porque quien lo armo dejo la celda sin poner en vez de vacia. La lista que se carga ya viene corregida y cuadra con el resumen del propio archivo. LO QUE HACE QUE ESTO SIRVA es el cruce contra los clientes: cada municipio del proveedor se empareja con las zonas de WispHub -El Doncello con DONCELLO y con DONCELLO_RADIO, Cartagena del Chaira con CARTAGENA, San Jose del Fragua con SAN_JOSE- reduciendo los dos textos a sus palabras con contenido, sin tildes ni articulos; ENTRETENIMIENTO_PA no cuenta como El Paujil. El canal nacional ethernet va en columna APARTE porque es transporte y no atiende clientes ahi: sumarlo al acceso haria creer que Doncello tiene 4.200 Mbps para sus clientes cuando el acceso real son los 2.200 del ID corporativo. Medido hoy sobre los datos reales: 7 municipios con servicio contratado y CERO clientes en el sistema -6.200 Mbps-, y San Jose del Fragua con 4.200 Mbps para 17 clientes. Ademas: importador pegando desde cualquier Excel -se pega, no se sube el archivo, y se dice cuantas filas y con que columnas entran ANTES de tocar nada-, salida a Excel con dos hojas, avisos de renovacion a 60 dias, y las fechas leidas por texto y nunca con new Date(). v274: LAS CINCO OFICINAS APARECIERON SIN UN SOLO CLIENTE. Ocurrio hoy 31/8/2026 a las 9:44 y se encontro al correr las pruebas. Los clientes NO se perdieron: siguen en sus documentos (4.269 en 10 bloques, ninguno repetido). Lo que se rompio fue el INDICE que dice cuantos bloques tiene cada oficina. Ese indice se armaba con lo que hubiera EN MEMORIA al guardar, y la carga de clientes tarda unos segundos: un guardado hecho en esa ventana lo escribia VACIO. A partir de ahi los bloques quedaban intactos pero invisibles, la sesion que abria se quedaba tambien sin clientes, y su siguiente guardado repetia el indice vacio. Los MOVIMIENTOS ya estaban protegidos asi desde la v168 -guarda 1 por carga incompleta, guarda 2 anti-encogimiento, conservando la entrada remota-; a los clientes nunca se les puso esa proteccion. Ahora: [1] la carga deja constancia de si termino y de que decia el indice remoto; [2] al guardar, una oficina con bloques en la nube y CERO clientes en memoria conserva su entrada y NO se reescribe -cero no es un dato, es que no llegaron-, mientras que bajar de 900 a 500 si se respeta porque eso es trabajo real; [3] cerrojo final: un indice vacio frente a una nube que si tenia oficinas no se escribe nunca, y queda el aviso en consola. Se reparo el indice con el valor totalPartes que dejo escrito el ultimo guardado bueno (8:56), NO contando los documentos que existen: NATALIA conserva dos bloques huerfanos del 28 de mayo que ya no forman parte de su lista, y contarlos habria resucitado 701 clientes viejos. v273 - UN CLIENTE PUEDE TENER SERVICIOS EN VARIOS MUNICIPIOS, Y EL SISTEMA NO LO PERMITIA. Reportado por Elkin: MAYERLY ESPINOSA DIAZ no aparecia por mas veces que se sincronizara. La causa estaba en la LLAVE: se emparejaba por el campo servicio de WispHub, que WispHub arma con la CEDULA (1116914307@proyectovision). Ese campo NO identifica un servicio: una persona con dos servicios recibe el mismo texto en los dos, asi que el sistema los veia como UN SOLO cliente que estaba en dos oficinas a la vez, lo marcaba como conflicto y no lo tocaba. Quien sincronizaba veia que el cliente seguia sin aparecer, volvia a sincronizar, y otra vez lo mismo. Y no era un error de nadie: un cliente PUEDE tener servicios en varios municipios -lo corrigio Elkin cuando yo ya habia construido la solucion equivocada, que era hacerle elegir una sola oficina; esa se retiro-. Medido sobre las cuatro cuentas: 4.128 servicios comparten solo 4.107 valores de servicio, y hay 4 personas con dos o mas servicios activos en municipios distintos, una de ellas con TRES. La llave correcta es CUENTA + id_servicio: el id es unico dentro de su cuenta pero NO entre cuentas, se comprobo que 720 identificadores se repiten. Cada cliente guarda ahora llaveWisphub, y los que ya existian la reciben en la primera sincronizacion sin perder su historia (4.113 sellados). El emparejamiento entre oficinas pasa a hacerse SOLO por esa llave: antes se buscaba tambien por el texto del servicio o por la cedula, que es justo lo que confundia dos servicios distintos de la misma persona. El retiro tambien la usa; para los registros viejos sin llave se sigue mirando el texto, una sola vez, mientras se les sella. Desaparece el concepto de conflicto por cliente repetido, porque ya no puede ocurrir. Probado sobre los datos reales de las cinco oficinas: 0 conflictos, los cuatro casos quedan cada uno en sus oficinas con llave propia, y una SEGUNDA sincronizacion no mueve nada -es estable, no oscila-. Un traslado de verdad, el mismo servicio cambiando de zona, se sigue moviendo bien. Incluye v271 - CADA APP RECLAMA SOLO SU ARCHIVO. Reportado por Elkin: instalo INVENTARIO y al abrir OFICINAS el navegador ya no ofrecia instalarla sino "Abrir en la app". La causa: el scope -el territorio de una app instalada- estaba en la CARPETA y no en el archivo, asi que las cinco reclamaban lo mismo y la primera instalada se quedaba con las demas paginas. Ahora cada una declara scope e id propios. Incluye v270 - SEGUNDO PAR DE OJOS SOBRE LOS SOPORTES. La revision de hoy ocurre AL SUBIR y la resuelve la misma persona que sube: si el valor leido no coincide sale un "seguro?" y quien contesta es quien esta cargando. Sirve contra errores honestos, no contra nadie que quiera pasarse de listo. Y hay un hueco medido: de 2.416 comprobantes, 696 son PDF y NINGUNO paso por la IA -solo se les calculo la huella-; desde el 1 de agosto son 424 sin ninguna lectura. Ahora un programa aparte, que vive en el Apps Script del Drive, vuelve a leer cada noche los soportes del dia SIN saber que valor se registro ni que justifico nadie, y compara: valor, fecha, destinatario (solo en ingresos, porque en egresos el destinatario es el proveedor) y si el archivo es siquiera un comprobante. Se usa Gemini y no la IA que ya esta porque Gemini lee PDF directamente y los modelos de vision de Groq solo aceptan imagenes: justo lo que falta no lo podrian revisar. La clave de Gemini vive en el Apps Script y nunca en la app, porque la base tiene lectura publica. AQUI van dos cosas: [1] ENCOLAR. Un barrido cada 20 minutos mira que comprobantes hay y cuales no estan en la cola. Se hace por barrido y no enganchando el encolado donde se adjunta un comprobante, porque son SEIS caminos distintos y el septimo que alguien agregue manana se olvidaria sin que nadie lo note. [2] MOSTRAR. Tarjeta en el panel y modal con lo que no cuadro, que solo el admin puede cerrar -y esa es la clave: el que subio el soporte no puede cerrar su propio reparo. Todo vive en un documento aparte, revision_soportes, porque el principal ya va al 77% del limite de 1 MB. Se revisa desde el 1 de septiembre (configurable): lo de agosto fue prueba y solo llenaria el panel de ruido viejo. Incluye v269 - FRENO EN EL BOTON DE REFLEJAR PAGOS EN EL REGISTRO DIARIO. Ese boton inyecta movimientos de DINERO y decide que falta mirando lo que hay EN MEMORIA. Los movimientos no vienen en el documento principal sino en documentos aparte, que tardan unos segundos mas en llegar. Si alguien lo presionaba antes de que terminaran -o si esa carga habia fallado- la app creia que NO habia ninguno y los metia TODOS otra vez: medido sobre los datos reales, 413 pagos duplicados en las cuentas de las oficinas. No habia ninguna guarda. Ahora se niega a trabajar si la carga quedo incompleta (_cargaMovsIncompleta) o si a la vista hay menos de la mitad de los movimientos de pago que deberia haber, y explica que hay que esperar. Faltar 3 de 413 es un problema; faltar 413 de 413 no es un problema, es que todavia no han cargado. Ademas, antes de inyectar nada ahora LISTA los pagos concretos -fecha, concepto, valor y oficina- y su suma, en vez de decir solo cuantos: es plata, y quien aprueba tiene que poder reconocerlos. De paso quedo comprobado que hoy no falta ningun movimiento: 413 de 413. Incluye v268 - TRES COSAS DE LOS PAGOS. [1] EL TOTAL DE LOS PAGOS DEL ADMIN ESTABA CUATRO VECES POR DEBAJO. El valor que se escribe es POR OFICINA -lo dice la propia pantalla, "si seleccionas varias, el valor se registra en cada una"- y asi se inyecta: cada oficina recibe el valor completo. Pero los totales sumaban ese valor UNA sola vez. Dos pagos de 250.000 repartidos entre 4 oficinas figuraban como 500.000 cuando de la empresa salieron 2.000.000. Ahora el total multiplica por el numero de oficinas del pago, y con una oficina filtrada muestra solo la parte de esa oficina. Cada fila dice ademas "4 oficinas x 250.000" para que no quede ambiguo, y el Excel separa las tres cifras en columnas propias: valor por oficina, numero de oficinas, valor total. OJO: los totales que se ven suben; no es que se haya pagado mas, es que antes se mostraban de menos. [2] LO QUE SE ESTA ESCRIBIENDO YA NO SE PIERDE. La sincronia repinta la vista y se llevaba el formulario a medio llenar. El guardian _estaEscribiendo caducaba a los 45 segundos sin teclear, y registrar un pago no es teclear sin parar: se busca el comprobante, se le toma la foto, se piensa el concepto. Los topes no se podian alargar sin mas, porque en la v239 un cursor olvidado en el buscador congelaba la pantalla para siempre. Ahora, en vez de adivinar cuando es seguro repintar, se repinta y se DEVUELVE lo escrito: texto, notas, listas desplegables, casillas marcadas y la posicion del cursor. Solo se conserva lo que la persona cambio respecto a lo que el render habia puesto, asi que un dato fresco de la nube no se pisa con uno viejo. Lo unico que no se puede devolver son los archivos ya elegidos, porque el navegador no lo permite; para eso sigue el aplazamiento. [3] EL GUARDADO AUTOMATICO YA NO INTERRUMPE. La sincronia rapida con WispHub corria una vez por oficina, guardando y avisando en cada una: como admin son cuatro cortinas de "Guardando en la nube" seguidas, encima de quien este registrando un pago. Ahora hace una sola pasada, un solo guardado y un solo aviso. Ademas, los guardados que corren SOLOS (esa sincronia y la revision de facturas ocultas cada 20 minutos, que guardaba siempre encontrara o no) ya no ponen la cortina: save({silencioso:true}). Un guardado pedido por una persona SIEMPRE se ve, y si uno de fondo se fusiona con uno a mano, manda el de a mano. De paso se corrigio la condicion !opts.silenciosa!==false, que siempre daba true y hacia que esa opcion no sirviera para nada. Incluye v267 - LA RECARGA YA NO PIDE LA CLAVE. Reportado hoy junto con tres cosas mas del inventario. Hasta ahora, cada F5 —y en el celular la recarga que se dispara sola al volver de otra app— mandaba a la pantalla de inicio de sesion. Ahora la sesion se recuerda en sessionStorage, que vive SOLO en esa pestana y se borra al cerrarla: asi una recarga no molesta, pero el PC compartido de la oficina no amanece con la sesion abierta. NO se guarda la contrasena, solo quien entro, y al volver se comprueba contra la base: si a la oficina le cambiaron la clave, la borraron, o al acceso SG-SST lo quitaron, la sesion no vale y se pide entrar de nuevo. Caduca a las 12 horas contadas desde el inicio de sesion REAL, no desde la ultima recarga, asi que recargar no alarga el plazo. Al dar Salir se olvida de inmediato. Mismo criterio en INVENTARIO v97 y RED v24. Incluye v266 - LA SINCRONIZACION COMPRUEBA SU PROPIO TRABAJO. Reportado: se sincronizo NATALIA, mostro el plan, se acepto, y los clientes no aparecieron. Revisado contra produccion: no quedo NADA, ni los 3 clientes nuevos, ni los 25 retirados, ni la marca de fecha; los fragmentos seguian en 1.408 y en el registro de auditoria no habia ninguna entrada de hoy. En local el MISMO codigo hace lo correcto: 1.408 a 1.411, 25 retirados, marca sellada y dos guardados. O sea que la logica esta bien y lo que fallo fue la ESCRITURA, que no se logro reproducir. Como no se arregla a ciegas lo que no se reproduce, se hizo lo unico honesto: que no pueda volver a fallar EN SILENCIO. Despues de guardar se vuelve a leer Firestore y se cuentan los clientes de esa oficina; si no coincide con lo esperado se avisa, con el numero de cada lado, en vez de mostrar el visto bueno. Probado con un guardado falso a proposito: en vez de decir que todo quedo bien, avisa que en la nube quedaron 1408 y debian quedar 1411, y pide no cerrar la pagina y volver a darle. Lo mismo en la sincronizacion de todas las oficinas, que lista cuales fallaron. Corregido ademas un error de orden que explica por que no habia rastro: registrarLog corria DESPUES de save(), asi que el registro de la sincronizacion no se persistia hasta el siguiente guardado. Ahora va antes.)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -1782,7 +1786,33 @@ async function _saveReal(_opts){
         const sigClientesNuevas = {};    // firmas nuevas (se confirman tras éxito)
         let _nClientesEscritos = 0;
 
-        for(const ofiId of idsConClientes){
+        /* 🛡️ v274 — EL ÍNDICE DE CLIENTES NO PUEDE BORRAR LO QUE ESTA SESIÓN NO CARGÓ.
+           Los clientes viven en documentos aparte (clientes_<oficina>_<n>) y el índice
+           dice cuántos bloques tiene cada oficina. Al guardar, el índice se armaba con
+           lo que hubiera EN MEMORIA: si la sesión guardaba antes de que llegaran los
+           clientes -la carga tarda unos segundos-, el índice quedaba VACÍO. Los bloques
+           seguían en su sitio, intactos, pero nadie los volvía a encontrar: al abrir la
+           app las cinco oficinas aparecían sin un solo cliente. Y como esa sesión también
+           quedaba sin clientes, el siguiente guardado repetía el índice vacío.
+           Los movimientos ya se protegían así desde la v168; los clientes no.
+           La regla: una oficina que tiene bloques en la nube y CERO clientes en memoria
+           no se reescribe y conserva su entrada del índice. Cero no es un dato: es que
+           no llegaron. Bajar de 900 a 500 clientes sí se respeta -eso es trabajo real-,
+           lo que no se acepta es pasar a nada. */
+        let _idxCliRemoto = window._idxClientesRemoto;
+        if(!_idxCliRemoto){
+            try{ const _s = await db.collection('oficinas_sistema').doc('clientes_index').get();
+                 _idxCliRemoto = _s.exists ? (_s.data()||null) : null; }catch(e){ _idxCliRemoto=null; }
+        }
+        const _chunkRemoto = (_idxCliRemoto && _idxCliRemoto.chunkInfo) || {};
+        const _plan = _planIndiceClientes(DB.oficinas||[], _chunkRemoto);
+        _plan.preservadas.forEach(x=>{ chunkInfo[x.id]=x.bloques;
+            if(idsConClientes.indexOf(x.id)<0) idsConClientes.push(x.id); });
+        if(_plan.preservadas.length)
+            console.warn('🛡️ Sin clientes en memoria para '+_plan.preservadas.map(x=>x.nombre).join(', ')
+                +' — se conservan sus bloques y su entrada en el índice.');
+
+        for(const ofiId of Object.keys(clientesPorOficina)){
             const lista = clientesPorOficina[ofiId];
             const numChunks = Math.ceil(lista.length / CHUNK_SIZE);
             chunkInfo[ofiId] = numChunks;
@@ -1899,7 +1929,13 @@ async function _saveReal(_opts){
 
         // Índice de clientes (documento pequeño): solo si cambió algún cliente o el conjunto de oficinas
         const idxClientesSig = JSON.stringify({o:idsConClientes, c:chunkInfo});
-        if(_nClientesEscritos>0 || _sigIdxClientes !== idxClientesSig){
+        // 🛡️ v274 — último cerrojo: un índice vacío frente a una nube que sí tenía
+        // oficinas no se escribe NUNCA. Es la firma exacta del fallo: deja los datos
+        // en su sitio pero invisibles para todos.
+        if(!_indiceClientesEsSeguro(idsConClientes, _chunkRemoto)){
+            console.error('🛑 No se escribe el índice de clientes: quedaría vacío y la nube tiene '
+                +Object.keys(_chunkRemoto).length+' oficina(s) con bloques.');
+        } else if(_nClientesEscritos>0 || _sigIdxClientes !== idxClientesSig){
             opsEscritura.push({
                 ref: db.collection('oficinas_sistema').doc('clientes_index'),
                 data: { oficinasConClientes: idsConClientes, chunkInfo: chunkInfo, actualizado: Date.now() }
@@ -2422,6 +2458,7 @@ function _recargarVistaSilenciosa(){
         documentos: renderDocumentos,
         energia: renderEnergia,
         antenas: renderAntenas,
+        proveedores: renderProveedores,
         sgsst: renderSGSST
     };
     // Mostrar indicador discreto
@@ -2955,14 +2992,99 @@ async function _cargarMovimientosChunks(){
 }
 
 // Cargar los clientes de cada oficina desde sus documentos separados (sub-chunks de 500)
+/* ════════════════════════════════════════════════════════════════════
+   RESCATE DEL ÍNDICE DE CLIENTES
+   ────────────────────────────────────────────────────────────────────
+   Si el índice quedó vacío pero los bloques siguen ahí, nadie puede
+   arreglarlo desde la app: la sesión que abre se queda sin clientes, y
+   una sesión sin clientes no puede reescribir el índice. Queda trabado.
+   Por eso la app se rescata sola: mira si existe el bloque 0 de cada
+   oficina y, si existe, se cree el totalPartes QUE ESE BLOQUE TRAE.
+   Ojo con esto último: NO se cuentan los documentos que existen. En los
+   datos reales, NATALIA conserva dos bloques huérfanos del 28 de mayo,
+   de cuando tenía 5; hoy tiene 3. Contar documentos habría resucitado
+   701 clientes viejos. El totalPartes del último guardado bueno es el
+   único dato que dice cuántos bloques forman la lista de verdad.
+   Cuesta una lectura por oficina y solo corre con el índice vacío.
+   ════════════════════════════════════════════════════════════════════ */
+async function _rescatarIndiceClientes(){
+    const ofis=(DB.oficinas||[]);
+    if(!ofis.length) return null;
+    const chunkInfo={}, oficinasConClientes=[];
+    await Promise.all(ofis.map(async o=>{
+        try{
+            const s0 = await db.collection('oficinas_sistema').doc(`clientes_${o.id}_0`).get();
+            if(!s0.exists) return;
+            const d = s0.data()||{};
+            if(!Array.isArray(d.clientes) || !d.clientes.length) return;
+            const partes = Number(d.totalPartes) > 0 ? Number(d.totalPartes) : 1;
+            chunkInfo[o.id]=partes; oficinasConClientes.push(o.id);
+        }catch(e){ console.warn('rescate: no se pudo leer el bloque 0 de '+(o.nombre||o.id), e); }
+    }));
+    if(!oficinasConClientes.length) return null;
+    console.warn('🚑 El índice de clientes estaba vacío y los bloques SÍ están. Se rehace: '
+        + oficinasConClientes.map(id=>{ const o=ofis.find(x=>x.id===id);
+            return (o?o.nombre:id)+'='+chunkInfo[id]+' bloque(s)'; }).join(', '));
+    if(!MODO_PRUEBA){
+        try{
+            await db.collection('oficinas_sistema').doc('clientes_index')
+                .set({ oficinasConClientes, chunkInfo, actualizado: Date.now(), rehecho: true });
+            console.warn('🚑 Índice de clientes reparado en la nube.');
+        }catch(e){ console.error('No se pudo reparar el índice de clientes:', e); }
+    } else console.warn('🧪 Copia de prueba: el índice NO se reescribe.');
+    return {oficinasConClientes, chunkInfo};
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   QUÉ OFICINAS CONSERVAN SU ENTRADA EN EL ÍNDICE DE CLIENTES
+   ────────────────────────────────────────────────────────────────────
+   Devuelve las oficinas que NO deben tocarse: las que tienen bloques en
+   la nube y ni un cliente en memoria. Cero no es un dato, es que no
+   llegaron. Bajar de 900 a 500 clientes sí se respeta -eso es trabajo
+   real-; lo que no se acepta es pasar a nada.
+   ════════════════════════════════════════════════════════════════════ */
+function _planIndiceClientes(oficinas, chunkRemoto){
+    const preservadas=[];
+    (oficinas||[]).forEach(o=>{
+        const enMemoria = (o.clientes||[]).length;
+        const bloques = (chunkRemoto||{})[o.id] || 0;
+        if(enMemoria===0 && bloques>0)
+            preservadas.push({id:o.id, nombre:o.nombre||o.id, bloques:bloques});
+    });
+    return {preservadas};
+}
+/* ¿Se puede escribir este índice? Un índice vacío frente a una nube que sí
+   tenía oficinas es la firma exacta del fallo: deja los datos en su sitio
+   pero invisibles para todos. Ese no se escribe nunca. */
+function _indiceClientesEsSeguro(idsConClientes, chunkRemoto){
+    const remotoTenia = Object.keys(chunkRemoto||{}).length > 0;
+    return !( !(idsConClientes||[]).length && remotoTenia );
+}
+window._planIndiceClientes=_planIndiceClientes;
+window._indiceClientesEsSeguro=_indiceClientesEsSeguro;
+
 async function _cargarClientesChunks(){
+    // v274: la carga deja constancia de si terminó y de qué decía el índice.
+    // Sin eso, un guardado hecho antes de que llegaran los clientes reescribía
+    // el índice como si no hubiera ninguno. Ver la nota de la versión.
+    window._clientesCargadosOk = false;
+    window._idxClientesRemoto = null;
     try{
         const idxSnap = await db.collection('oficinas_sistema').doc('clientes_index').get();
-        if(!idxSnap.exists) return; // no hay chunks (datos viejos), los clientes ya vienen en el doc principal
+        if(!idxSnap.exists){ window._clientesCargadosOk = true; return; } // datos viejos: vienen en el doc principal
         const idxData = idxSnap.data();
-        const oficinasConClientes = idxData.oficinasConClientes||[];
-        const chunkInfo = idxData.chunkInfo||{};
-        if(!oficinasConClientes.length) return;
+        let oficinasConClientes = idxData.oficinasConClientes||[];
+        let chunkInfo = idxData.chunkInfo||{};
+        if(!oficinasConClientes.length){
+            // El índice dice que no hay clientes en ninguna parte. Puede ser cierto
+            // (base recién creada) o puede ser el fallo de la v274. Se comprueba.
+            const rescate = await _rescatarIndiceClientes();
+            if(!rescate){ window._clientesCargadosOk = true;
+                window._idxClientesRemoto = {oficinasConClientes:[], chunkInfo:{}}; return; }
+            oficinasConClientes = rescate.oficinasConClientes;
+            chunkInfo = rescate.chunkInfo;
+        }
+        window._idxClientesRemoto = {oficinasConClientes:oficinasConClientes.slice(), chunkInfo:Object.assign({},chunkInfo)};
         // v168: TODAS las oficinas y TODOS sus bloques se leen EN PARALELO (antes era
         // bloque por bloque en fila). Promise.all conserva el orden de los resultados,
         // así que los clientes quedan concatenados en el mismo orden de siempre.
@@ -2981,6 +3103,7 @@ async function _cargarClientesChunks(){
             if(o) o.clientes = clientes;
         }));
         const totalCli = (DB.oficinas||[]).reduce((s,o)=>s+(o.clientes||[]).length,0);
+        window._clientesCargadosOk = true;
         console.log(`👥 Clientes cargados desde chunks: ${totalCli} en ${oficinasConClientes.length} oficina(s)`);
     }catch(e){ console.error('Error cargando chunks de clientes:', e); }
 }
@@ -3954,6 +4077,646 @@ const ANT_CONEXION={
 };
 const ANT_MODELOS=['ESTANDAR','V4','MINI','ALTO_RENDIMIENTO'];
 
+/* ════════════════════════════════════════════════════════════════════════════
+   🔌 PROVEEDORES — LO QUE NOSOTROS LE COMPRAMOS A OTROS (v275)
+   ────────────────────────────────────────────────────────────────────────────
+   Pedido de Elkin: llevar la relación de los servicios contratados con los
+   proveedores. Arranca con Azteca —39 servicios, 27.400 Mbps en 13 municipios—
+   pero la estructura no es de Azteca: un proveedor tiene servicios, y un
+   servicio tiene su código, su municipio, su capacidad y sus fechas. Sirve
+   igual para energía, arriendo de torres o transporte.
+
+   EL COSTO Y LAS FECHAS LLEGAN VACÍOS A PROPÓSITO. Elkin no los tiene a la
+   mano y se llenan uno por uno. Por eso todo lo que se calcula con plata dice
+   SIEMPRE sobre cuántos servicios está calculado: un total sacado con la mitad
+   de los costos sin llenar no se puede leer como el gasto real, y callarlo
+   sería peor que no mostrarlo.
+
+   Vive en el documento principal, como las antenas: 39 servicios pesan unos
+   12 KB y el documento va por 589 KB de los 1.024 KB que admite Firestore.
+   ════════════════════════════════════════════════════════════════════════════ */
+function _provEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function _provTodos(){ if(!DB.proveedores) DB.proveedores=[]; return DB.proveedores; }
+function _provServs(){ if(!DB.serviciosProv) DB.serviciosProv=[]; return DB.serviciosProv; }
+function _provEsAdmin(){ return !!(USER && USER.role==='admin'); }
+function _provId(p){ return p+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+
+const PROV_ESTADOS = {
+    activo:    {et:'Activo',     ico:'🟢', color:'#10b981', cuenta:true},
+    tramite:   {et:'En trámite', ico:'🟡', color:'#f59e0b', cuenta:false},
+    suspendido:{et:'Suspendido', ico:'🟠', color:'#fb923c', cuenta:false},
+    cancelado: {et:'Cancelado',  ico:'⚫', color:'#94a3b8', cuenta:false}
+};
+/* "Canal nacional ethernet" es TRANSPORTE: lleva tráfico, no atiende clientes
+   en ese municipio. Sumarlo a la capacidad de acceso da una cifra falsa —en
+   Doncello, que es la plaza más grande, haría creer que hay 4.200 Mbps para
+   los clientes cuando el acceso real son los 2.200 del ID corporativo—. Por
+   eso cada categoría dice si es acceso o no, y en el cruce van en columnas
+   separadas. Las IP públicas no traen ancho de banda: cuentan como servicio
+   pero no suman capacidad. */
+const PROV_CATEGORIAS = {
+    'Internet dedicado':       {ico:'🌐', color:'#0ea5e9', acceso:true},
+    'ID corporativo':          {ico:'🏢', color:'#8b5cf6', acceso:true},
+    'Canal nacional ethernet': {ico:'🔗', color:'#f59e0b', acceso:false},
+    'IP pública':              {ico:'📍', color:'#64748b', acceso:false}
+};
+function _provCat(c){ return PROV_CATEGORIAS[c] || {ico:'📦', color:'#94a3b8', acceso:true}; }
+
+/* Un municipio del proveedor y una zona de WispHub casi nunca se escriben
+   igual: "El Doncello" contra "DONCELLO", "Cartagena del Chairá" contra
+   "CARTAGENA", "San José del Fragua" contra "SAN_JOSE". Se reducen los dos a
+   sus palabras con contenido —sin tildes, sin artículos, sin guiones bajos— y
+   se aceptan si uno empieza por el otro. Medido sobre los datos reales: así
+   "DONCELLO_RADIO" cuenta para El Doncello, y "ENTRETENIMIENTO_PA" NO cuenta
+   para El Paujil, que es justo lo correcto. */
+function _munClave(txt){
+    /* Los caracteres invisibles primero, con el mismo criterio de _normZ.
+       Sin esto se pierden clientes en silencio, que es la peor forma de
+       fallar: medido hoy, 83 clientes de El Paujil traen la zona escrita
+       "PAUJIL" con un carácter 127 pegado al final. No se ve, no es un
+       espacio, y dejaba la clave distinta: el cruce mostraba 893 clientes
+       en vez de 976 y nada avisaba. Es el mismo problema que ya se había
+       resuelto para las zonas de WispHub. */
+    const invisible = c => c<32 || c===127 || c===0xA0 || (c>=0x200B && c<=0x200D) || c===0xFEFF;
+    let limpio='';
+    String(txt==null?'':txt).split('').forEach(ch=>{
+        limpio += invisible(ch.charCodeAt(0)) ? ' ' : ch;
+    });
+    return limpio
+        .normalize('NFD').replace(/[̀-ͯ]/g,'')
+        .toUpperCase().replace(/[_\-]+/g,' ')
+        .split(/\s+/).filter(p=>p && ['EL','LA','LOS','LAS','DE','DEL'].indexOf(p)<0)
+        .join(' ').trim();
+}
+function _munCoincide(municipio, zona){
+    const a=_munClave(municipio), b=_munClave(zona);
+    if(!a || !b) return false;
+    return a===b || a.indexOf(b+' ')===0 || b.indexOf(a+' ')===0;
+}
+/* Cuántos clientes hay en cada municipio. Se arma UNA vez por pintado y se
+   devuelve una función, para no recorrer los 4.269 clientes por cada fila. */
+function _provClientesPorMun(){
+    const filas=[];
+    (DB.oficinas||[]).forEach(o=>{
+        clientesVivos(o).forEach(c=>{
+            filas.push({zona:String(c.zona||'').trim(), activo:c.estado==='Activo'});
+        });
+    });
+    const cache={};
+    return function(municipio){
+        if(cache[municipio]) return cache[municipio];
+        let n=0, act=0;
+        filas.forEach(f=>{ if(_munCoincide(municipio, f.zona)){ n++; if(f.activo) act++; } });
+        return (cache[municipio]={n:n, activos:act});
+    };
+}
+/* Días que faltan para una fecha AAAA-MM-DD. Se parte por texto y NUNCA con
+   new Date() sobre el texto entero: esa es la trampa que ya costó la v91 del
+   inventario y la v25 de la red. */
+function _provDiasPara(iso){
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(String(iso||''))) return null;
+    const p=iso.split('-').map(Number);
+    const h=new Date(); const hoy=new Date(h.getFullYear(),h.getMonth(),h.getDate());
+    return Math.round((new Date(p[0],p[1]-1,p[2]) - hoy)/86400000);
+}
+
+
+function renderProveedores(){
+    const cont=document.getElementById('appContent');
+    if(!_provEsAdmin()){
+        cont.innerHTML=`<div class="card" style="padding:24px;text-align:center;color:var(--muted);">
+            Esta sección es del administrador: lleva los contratos y los costos con los proveedores.</div>`;
+        return;
+    }
+    const E=_provEsc, servs=_provServs();
+    const fProv=window._provFProv||'todos', fMun=window._provFMun||'todos', fCat=window._provFCat||'todos';
+    let lista=servs.slice();
+    if(fProv!=='todos') lista=lista.filter(s=>s.proveedorId===fProv);
+    if(fMun !=='todos') lista=lista.filter(s=>s.municipio===fMun);
+    if(fCat !=='todos') lista=lista.filter(s=>s.categoria===fCat);
+    lista.sort((a,b)=>(a.municipio||'').localeCompare(b.municipio||'')
+                    ||(a.categoria||'').localeCompare(b.categoria||''));
+
+    const vivos=lista.filter(s=>(PROV_ESTADOS[s.estado||'activo']||{}).cuenta);
+    const mbps=vivos.reduce((t,s)=>t+(Number(s.mbps)||0),0);
+    const conCosto=vivos.filter(s=>Number(s.costoMensual)>0);
+    const costo=conCosto.reduce((t,s)=>t+Number(s.costoMensual),0);
+    const sinCosto=vivos.length-conCosto.length;
+
+    const avisos=servs.map(s=>({s:s, dias:_provDiasPara(s.fechaRenovacion)}))
+        .filter(x=>x.dias!==null && x.dias<=60 && (PROV_ESTADOS[x.s.estado||'activo']||{}).cuenta)
+        .sort((a,b)=>a.dias-b.dias);
+
+    const tarjeta=(ico,tit,val,sub,color)=>`
+      <div class="card" style="padding:14px;">
+        <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;">${ico} ${tit}</div>
+        <div style="font-size:1.5rem;font-weight:800;color:${color||'var(--text)'};margin-top:2px;">${val}</div>
+        <div style="font-size:0.7rem;color:var(--muted);">${sub||''}</div>
+      </div>`;
+
+    const cuentaMun=_provClientesPorMun();
+    const munis=[...new Set(servs.map(s=>s.municipio).filter(Boolean))].sort();
+    const cruce=munis.map(m=>{
+        const suyos=servs.filter(s=>s.municipio===m && (PROV_ESTADOS[s.estado||'activo']||{}).cuenta);
+        const acceso=suyos.filter(s=>_provCat(s.categoria).acceso).reduce((t,s)=>t+(Number(s.mbps)||0),0);
+        const transp=suyos.filter(s=>!_provCat(s.categoria).acceso).reduce((t,s)=>t+(Number(s.mbps)||0),0);
+        const cst=suyos.filter(s=>Number(s.costoMensual)>0).reduce((t,s)=>t+Number(s.costoMensual),0);
+        return {m:m, n:suyos.length, acceso:acceso, transp:transp, cli:cuentaMun(m), cst:cst,
+                faltan:suyos.filter(s=>!(Number(s.costoMensual)>0)).length};
+    }).sort((a,b)=>b.cli.activos-a.cli.activos || b.acceso-a.acceso);
+    const sinCli=cruce.filter(f=>f.cli.n===0);
+    const mbpsSinCli=sinCli.reduce((t,f)=>t+f.acceso+f.transp,0);
+
+    const fila=(s)=>{
+        const es=PROV_ESTADOS[s.estado||'activo']||PROV_ESTADOS.activo, ct=_provCat(s.categoria);
+        const d=_provDiasPara(s.fechaRenovacion);
+        return `<tr>
+          <td style="font-family:monospace;font-size:0.76rem;white-space:nowrap;">${E(s.codigo||'')}</td>
+          <td style="font-size:0.78rem;">${E(s.municipio||'')}${s.depto&&s.depto!=='Caquetá'
+              ?`<span style="font-size:0.64rem;color:#f59e0b;"> ${E(s.depto)}</span>`:''}</td>
+          <td><span style="font-size:0.7rem;padding:2px 7px;border-radius:6px;white-space:nowrap;
+              background:${ct.color}22;color:${ct.color};">${ct.ico} ${E(s.categoria||'')}</span></td>
+          <td style="text-align:right;">${s.mbps?Number(s.mbps).toLocaleString('es-CO')
+              +' <span style="font-size:0.64rem;color:var(--muted)">Mbps</span>'
+              :'<span style="color:var(--muted);font-size:0.72rem">—</span>'}</td>
+          <td style="text-align:right;white-space:nowrap;">${Number(s.costoMensual)>0 ? fmt(s.costoMensual)
+              :`<button class="btn btn-outline btn-sm" style="font-size:0.66rem;padding:2px 7px;"
+                  onclick="modalServicioProv('${s.id}')" title="Falta el costo mensual">+ costo</button>`}</td>
+          <td style="text-align:center;font-size:0.72rem;white-space:nowrap;">${s.fechaRenovacion
+              ? E(s.fechaRenovacion)+(d!==null&&d<=60?`<div style="color:${d<0?'#ef4444':'#f59e0b'};
+                  font-size:0.64rem;font-weight:700;">${d<0?'venció hace '+(-d)+' d':'faltan '+d+' d'}</div>`:'')
+              : '<span style="color:var(--muted)">—</span>'}</td>
+          <td style="text-align:center;"><span style="font-size:0.7rem;padding:2px 7px;border-radius:6px;
+              white-space:nowrap;background:${es.color}22;color:${es.color};">${es.ico} ${es.et}</span></td>
+          <td style="white-space:nowrap;">
+            <button class="btn btn-outline btn-sm" onclick="modalServicioProv('${s.id}')">✏️</button>
+            <button class="btn btn-danger btn-sm" onclick="eliminarServicioProv('${s.id}')">🗑️</button></td>
+        </tr>`;
+    };
+
+    cont.innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
+        <h1 style="margin:0;font-size:1.4rem;">🔌 Proveedores
+            <span style="font-size:0.72rem;color:var(--muted);font-weight:400;">lo que nosotros contratamos</span></h1>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-outline btn-sm" onclick="modalProveedorProv()">🏢 Proveedores</button>
+            <button class="btn btn-outline btn-sm" onclick="modalImportarServiciosProv()">📥 Importar</button>
+            <button class="btn btn-outline btn-sm" onclick="exportarProveedoresExcel()">📤 Excel</button>
+            <button class="btn btn-primary btn-sm" onclick="modalServicioProv()">➕ Servicio</button>
+        </div>
+    </div>
+
+    ${!servs.length?`
+      <div class="card" style="padding:26px;text-align:center;">
+        <div style="font-size:2.4rem">🔌</div>
+        <h3 style="margin:8px 0 4px;">Todavía no hay servicios registrados</h3>
+        <p style="color:var(--muted);font-size:0.84rem;max-width:540px;margin:0 auto 14px;line-height:1.6;">
+          Aquí va lo que le compramos a los proveedores: canales, internet dedicado, IP públicas.
+          Puedo dejar cargada la relación de <b>Azteca</b> con corte al 31 de agosto de 2026
+          —39 servicios, 27.400 Mbps en 13 municipios— y tú vas llenando los costos y las fechas
+          con calma.</p>
+        <button class="btn btn-primary" onclick="sembrarAzteca()">📋 Cargar la relación de Azteca</button>
+      </div>` : `
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:14px;">
+        ${tarjeta('🔌','Servicios activos',vivos.length,
+            lista.length!==servs.length?('de '+lista.length+' en el filtro'):(servs.length+' registrados'),'#10b981')}
+        ${tarjeta('📶','Capacidad',(mbps/1000).toFixed(1)+' <span style="font-size:0.8rem">Gbps</span>',
+            mbps.toLocaleString('es-CO')+' Mbps','#0ea5e9')}
+        ${tarjeta('💵','Costo mensual', conCosto.length?fmt(costo):'—',
+            sinCosto?`<span style="color:#f59e0b">falta el costo de ${sinCosto}</span>`
+                    :'sobre los '+conCosto.length+' servicios','#8b5cf6')}
+        ${tarjeta('📅','Renovaciones', avisos.length||'—',
+            avisos.length?'en los próximos 60 días':'nada en 60 días',
+            avisos.length&&avisos[0].dias<0?'#ef4444':'#f59e0b')}
+    </div>
+
+    ${sinCosto?`<div class="card" style="border:1px solid rgba(245,158,11,0.5);background:rgba(245,158,11,0.08);
+        padding:10px 14px;margin-bottom:12px;font-size:0.82rem;">
+        💵 <b>Faltan ${sinCosto} costos por llenar.</b> Mientras falten, el costo mensual de arriba
+        es solo el de los ${conCosto.length} que ya tienen precio, no el gasto real. Toca
+        <b>+ costo</b> en la tabla para ir llenándolos.</div>`:''}
+
+    ${avisos.length?`<div class="card" style="padding:12px 14px;margin-bottom:12px;
+        border-left:3px solid ${avisos[0].dias<0?'#ef4444':'#f59e0b'};">
+        <b style="font-size:0.88rem;">📅 Se renuevan pronto</b>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">
+          ${avisos.slice(0,12).map(a=>`<button class="btn btn-outline btn-sm" style="font-size:0.7rem;"
+            onclick="modalServicioProv('${a.s.id}')">${E(a.s.codigo||'')} · ${E(a.s.municipio||'')} ·
+            <b style="color:${a.dias<0?'#ef4444':'#f59e0b'}">${a.dias<0?'venció':'en '+a.dias+' d'}</b></button>`).join('')}
+        </div></div>`:''}
+
+    <div class="card" style="padding:14px;margin-bottom:12px;">
+        <b style="font-size:0.88rem;">📊 Lo contratado contra los clientes que hay</b>
+        <p style="font-size:0.74rem;color:var(--muted);margin:5px 0 10px;line-height:1.6;">
+           <b>Acceso</b> es la capacidad que atiende clientes en ese municipio. El
+           <b>transporte</b> —canal nacional— lleva tráfico pero no atiende a nadie ahí, así que
+           va aparte: sumarlos daría una cifra falsa. Los clientes salen de las zonas de WispHub.</p>
+        <div style="overflow-x:auto;">
+        <table class="table" style="min-width:720px;">
+          <thead><tr><th>Municipio</th><th style="text-align:right;">Acceso</th>
+            <th style="text-align:right;">Transporte</th><th style="text-align:right;">Clientes</th>
+            <th style="text-align:right;">Activos</th><th style="text-align:right;">Mbps/activo</th>
+            <th style="text-align:right;">Costo mes</th></tr></thead>
+          <tbody>${cruce.map(f=>`<tr${f.cli.n===0?' style="background:rgba(239,68,68,.06)"':''}>
+            <td>${E(f.m)} <span style="font-size:0.66rem;color:var(--muted)">${f.n} serv.</span></td>
+            <td style="text-align:right;">${f.acceso?f.acceso.toLocaleString('es-CO'):'<span style="color:var(--muted)">—</span>'}</td>
+            <td style="text-align:right;color:#f59e0b;">${f.transp?f.transp.toLocaleString('es-CO'):'<span style="color:var(--muted)">—</span>'}</td>
+            <td style="text-align:right;">${f.cli.n?f.cli.n.toLocaleString('es-CO'):'<b style="color:#ef4444">0</b>'}</td>
+            <td style="text-align:right;">${f.cli.activos?f.cli.activos.toLocaleString('es-CO'):'—'}</td>
+            <td style="text-align:right;">${f.cli.activos&&f.acceso?(f.acceso/f.cli.activos).toFixed(1):'<span style="color:var(--muted)">—</span>'}</td>
+            <td style="text-align:right;white-space:nowrap;">${f.cst?fmt(f.cst):'<span style="color:var(--muted)">—</span>'}
+              ${f.faltan?`<div style="font-size:0.62rem;color:#f59e0b">faltan ${f.faltan}</div>`:''}</td>
+          </tr>`).join('')}</tbody>
+        </table></div>
+        ${sinCli.length?`<div class="card" style="margin-top:10px;border:1px solid rgba(239,68,68,0.45);
+          background:rgba(239,68,68,0.07);padding:10px 14px;font-size:0.8rem;line-height:1.6;">
+          ⚠️ <b>${sinCli.length} municipio(s)</b> con servicio contratado y <b>ningún cliente</b> en el
+          sistema: ${sinCli.map(f=>E(f.m)).join(', ')}. Suman <b>${mbpsSinCli.toLocaleString('es-CO')} Mbps</b>.
+          Si son plazas que se están abriendo está bien; si no, es plata parada.</div>`:''}
+    </div>
+
+    <div class="card" style="padding:14px;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
+        <select class="form-control" style="width:auto;" onchange="window._provFProv=this.value;renderProveedores()">
+          <option value="todos">Todos los proveedores</option>
+          ${_provTodos().map(p=>`<option value="${p.id}"${fProv===p.id?' selected':''}>${E(p.nombre)}</option>`).join('')}
+        </select>
+        <select class="form-control" style="width:auto;" onchange="window._provFMun=this.value;renderProveedores()">
+          <option value="todos">Todos los municipios</option>
+          ${munis.map(m=>`<option value="${E(m)}"${fMun===m?' selected':''}>${E(m)}</option>`).join('')}
+        </select>
+        <select class="form-control" style="width:auto;" onchange="window._provFCat=this.value;renderProveedores()">
+          <option value="todos">Todas las categorías</option>
+          ${Object.keys(PROV_CATEGORIAS).map(c=>`<option value="${E(c)}"${fCat===c?' selected':''}>${E(c)}</option>`).join('')}
+        </select>
+        <span style="font-size:0.74rem;color:var(--muted);">${lista.length} servicio(s)</span>
+      </div>
+      <div style="overflow-x:auto;">
+      <table class="table" style="min-width:900px;">
+        <thead><tr><th>Código</th><th>Municipio</th><th>Categoría</th>
+          <th style="text-align:right;">Capacidad</th><th style="text-align:right;">Costo mes</th>
+          <th style="text-align:center;">Renueva</th><th style="text-align:center;">Estado</th><th></th></tr></thead>
+        <tbody>${lista.map(fila).join('')||'<tr><td colspan="8" style="text-align:center;padding:22px;color:var(--muted);">Nada con ese filtro.</td></tr>'}</tbody>
+      </table></div>
+    </div>`}`;
+}
+
+
+/* ── Alta y edición de un servicio ─────────────────────────────────────── */
+function modalServicioProv(id){
+    if(!_provEsAdmin()) return alert('Solo el administrador.');
+    const E=_provEsc;
+    const s=id?_provServs().find(x=>x.id===id):null;
+    if(id&&!s) return;
+    const provs=_provTodos();
+    const v=(k,d)=>E(s&&s[k]!=null&&s[k]!==''?String(s[k]):(d==null?'':String(d)));
+    openModal(s?('🔌 '+(s.codigo||'Servicio')):'🔌 Nuevo servicio', `
+      <input type="hidden" id="sp_id" value="${id||''}">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group"><label>Proveedor</label>
+          <select id="sp_prov" class="form-control">
+            ${provs.length?provs.map(p=>`<option value="${p.id}"${s&&s.proveedorId===p.id?' selected':''}>${E(p.nombre)}</option>`).join('')
+                          :'<option value="">— agrega un proveedor primero —</option>'}
+          </select></div>
+        <div class="form-group"><label>Código del servicio</label>
+          <input id="sp_codigo" class="form-control" value="${v('codigo')}" placeholder="SER-274729"></div>
+        <div class="form-group"><label>Municipio</label>
+          <input id="sp_municipio" class="form-control" value="${v('municipio')}"></div>
+        <div class="form-group"><label>Departamento</label>
+          <input id="sp_depto" class="form-control" value="${v('depto','Caquetá')}"></div>
+        <div class="form-group"><label>Categoría</label>
+          <select id="sp_categoria" class="form-control">
+            ${Object.keys(PROV_CATEGORIAS).map(c=>`<option value="${E(c)}"${s&&s.categoria===c?' selected':''}>${E(c)}</option>`).join('')}
+          </select></div>
+        <div class="form-group"><label>Capacidad (Mbps)</label>
+          <input id="sp_mbps" type="number" min="0" class="form-control" value="${v('mbps',0)}"></div>
+      </div>
+      <div class="form-group"><label>Producto <span style="color:var(--muted);font-weight:400;">— como lo llama el proveedor</span></label>
+        <input id="sp_producto" class="form-control" value="${v('producto')}"></div>
+      <div class="form-group"><label>Sucursal / SED</label>
+        <input id="sp_sucursal" class="form-control" value="${v('sucursal')}"></div>
+
+      <div style="margin:14px 0 6px;padding-top:10px;border-top:1px solid var(--border);">
+        <b style="font-size:0.9rem;">💵 Contrato y costo</b>
+        <p style="font-size:0.74rem;color:var(--muted);margin:4px 0 0;line-height:1.55;">
+          Esto es lo que el archivo del proveedor no trae, y es justo lo que hace que las cuentas
+          sirvan. Se puede dejar vacío y llenarlo después.</p>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group"><label>Costo mensual (COP)</label>
+          <input id="sp_costo" type="number" min="0" step="1000" class="form-control"
+                 value="${v('costoMensual')}" placeholder="sin llenar"></div>
+        <div class="form-group"><label>N.° de contrato</label>
+          <input id="sp_contrato" class="form-control" value="${v('contrato')}" placeholder="sin llenar"></div>
+        <div class="form-group"><label>Inicio</label>
+          <input id="sp_inicio" type="date" class="form-control" value="${v('fechaInicio')}"></div>
+        <div class="form-group"><label>Renovación o vencimiento</label>
+          <input id="sp_renov" type="date" class="form-control" value="${v('fechaRenovacion')}"></div>
+        <div class="form-group"><label>Estado</label>
+          <select id="sp_estado" class="form-control">
+            ${Object.keys(PROV_ESTADOS).map(k=>`<option value="${k}"${((s&&s.estado)||'activo')===k?' selected':''}>${PROV_ESTADOS[k].ico} ${PROV_ESTADOS[k].et}</option>`).join('')}
+          </select></div>
+        <div class="form-group"><label>Nodo o sitio donde llega</label>
+          <input id="sp_nodo" class="form-control" value="${v('nodo')}" placeholder="POP, torre, nodo Azteca…"></div>
+      </div>
+      <div class="form-group"><label>Ubicación o dirección</label>
+        <input id="sp_ubic" class="form-control" value="${v('ubicacion')}"></div>
+      <div class="form-group"><label>Notas</label>
+        <textarea id="sp_notas" class="form-control" rows="2">${v('notas')}</textarea></div>`,
+      `<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+       <button class="btn btn-primary" onclick="guardarServicioProv()">💾 Guardar</button>`);
+}
+async function guardarServicioProv(){
+    const g=i=>{ const e=document.getElementById(i); return e?String(e.value).trim():''; };
+    const id=g('sp_id');
+    const datos={
+        proveedorId:g('sp_prov'), codigo:g('sp_codigo'), municipio:g('sp_municipio'),
+        depto:g('sp_depto'), categoria:g('sp_categoria'), mbps:Number(g('sp_mbps'))||0,
+        producto:g('sp_producto'), sucursal:g('sp_sucursal'),
+        costoMensual:g('sp_costo')===''?null:(Number(g('sp_costo'))||0),
+        contrato:g('sp_contrato'), fechaInicio:g('sp_inicio'), fechaRenovacion:g('sp_renov'),
+        estado:g('sp_estado')||'activo', nodo:g('sp_nodo'), ubicacion:g('sp_ubic'), notas:g('sp_notas')
+    };
+    if(!datos.codigo && !datos.municipio) return alert('Ponle al menos un código o un municipio.');
+    const servs=_provServs();
+    if(id){ const s=servs.find(x=>x.id===id); if(s) Object.assign(s,datos); }
+    else servs.push(Object.assign({id:_provId('sp'), creadoEn:Date.now(),
+                                   creadoPor:(USER&&USER.nombre)||'admin'}, datos));
+    closeModal();
+    await save();
+    renderProveedores();
+}
+async function eliminarServicioProv(id){
+    if(!_provEsAdmin()) return alert('Solo el administrador.');
+    const servs=_provServs(), s=servs.find(x=>x.id===id); if(!s) return;
+    if(!confirm('¿Quitar el servicio '+(s.codigo||'')+' de '+(s.municipio||'')+'?')) return;
+    servs.splice(servs.indexOf(s),1);
+    await save();
+    renderProveedores();
+}
+
+/* ── Los proveedores ───────────────────────────────────────────────────── */
+function modalProveedorProv(){
+    if(!_provEsAdmin()) return alert('Solo el administrador.');
+    const E=_provEsc, lista=_provTodos();
+    openModal('🏢 Proveedores', `
+      ${lista.length?lista.map(p=>{
+        const n=_provServs().filter(s=>s.proveedorId===p.id).length;
+        return `<div style="display:flex;justify-content:space-between;align-items:center;
+             padding:9px 4px;border-bottom:1px solid var(--border);">
+          <div><b>${E(p.nombre)}</b>
+            <div style="font-size:0.7rem;color:var(--muted);">${p.nit?'NIT '+E(p.nit)+' · ':''}${n} servicio(s)${p.contacto?' · '+E(p.contacto):''}${p.telefono?' · '+E(p.telefono):''}</div></div>
+          <button class="btn btn-danger btn-sm" onclick="eliminarProveedorProv('${p.id}')">🗑️</button>
+        </div>`; }).join('')
+      :'<div style="padding:14px;text-align:center;color:var(--muted);">Todavía no hay proveedores.</div>'}
+      <div style="margin:14px 0 6px;padding-top:10px;border-top:1px solid var(--border);">
+        <b style="font-size:0.9rem;">Agregar uno</b></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group"><label>Nombre</label>
+          <input id="pv_nombre" class="form-control" placeholder="Azteca Comunicaciones"></div>
+        <div class="form-group"><label>NIT</label><input id="pv_nit" class="form-control"></div>
+        <div class="form-group"><label>Contacto</label><input id="pv_contacto" class="form-control"></div>
+        <div class="form-group"><label>Teléfono</label><input id="pv_tel" class="form-control"></div>
+      </div>
+      <div class="form-group"><label>Correo de soporte</label><input id="pv_correo" class="form-control"></div>`,
+      `<button class="btn btn-outline" onclick="closeModal()">Cerrar</button>
+       <button class="btn btn-primary" onclick="guardarProveedorProv()">➕ Agregar</button>`);
+}
+async function guardarProveedorProv(){
+    const g=i=>{ const e=document.getElementById(i); return e?String(e.value).trim():''; };
+    const nombre=g('pv_nombre');
+    if(!nombre) return alert('Ponle el nombre al proveedor.');
+    _provTodos().push({id:_provId('pv'), nombre:nombre, nit:g('pv_nit'), contacto:g('pv_contacto'),
+        telefono:g('pv_tel'), correo:g('pv_correo'), creadoEn:Date.now()});
+    closeModal();
+    await save();
+    renderProveedores();
+    modalProveedorProv();
+}
+async function eliminarProveedorProv(id){
+    const lista=_provTodos(), p=lista.find(x=>x.id===id); if(!p) return;
+    const n=_provServs().filter(s=>s.proveedorId===id).length;
+    if(n) return alert('"'+p.nombre+'" tiene '+n+' servicio(s).\n\nQuítalos o pásalos a otro proveedor primero.');
+    if(!confirm('¿Quitar a "'+p.nombre+'"?')) return;
+    lista.splice(lista.indexOf(p),1);
+    closeModal();
+    await save();
+    renderProveedores();
+}
+
+
+/* ── La relación de Azteca, cargada por única vez ───────────────────────
+   Sale del Excel que pasó Elkin (corte 31/8/2026). Va escrita aquí y no se
+   pide subir el archivo porque el archivo TRAE UN DEFECTO: en las 18 filas de
+   IP pública la dirección quedó en la columna de ancho de banda y la última
+   quedó vacía —quien lo armó dejó la celda sin poner, y todo se corrió un
+   puesto a la izquierda—. Aquí ya está corregido: esas 18 van con 0 Mbps y su
+   texto en ubicación. Suman 27.400 Mbps, que es lo que dice el propio resumen
+   del archivo. Los costos y las fechas quedan VACÍOS, para llenarlos a mano. */
+const AZTECA_2026_08 = [
+  {c:"SER-274729", s:"SED-522349 / SED-523716", m:"Belén de los Andaquíes", d:"Caquetá", p:"Internet-INTERNET DEDICADO SIN UK", g:"Internet dedicado", mb:900, u:"Coordenada"},
+  {c:"SER-274742", s:"SED-522349 / SED-523716", m:"Belén de los Andaquíes", d:"Caquetá", p:"Internet-IP PÚBLICA", g:"IP pública", mb:0, u:"Coordenada"},
+  {c:"SER-274728", s:"SED-522348 / SED-523715", m:"Cartagena del Chairá", d:"Caquetá", p:"Internet-INTERNET DEDICADO SIN UK", g:"Internet dedicado", mb:2050, u:"Calle 1 #5-48"},
+  {c:"SER-274735", s:"SED-522357 / SED-523723", m:"Cartagena del Chairá", d:"Caquetá", p:"Internet-INTERNET DEDICADO SIN UK", g:"Internet dedicado", mb:250, u:"Coordenada"},
+  {c:"SER-274741", s:"SED-522348 / SED-523715", m:"Cartagena del Chairá", d:"Caquetá", p:"Internet-IP PÚBLICA", g:"IP pública", mb:0, u:"Calle 1 #5-48"},
+  {c:"SER-274748", s:"SED-522357 / SED-523723", m:"Cartagena del Chairá", d:"Caquetá", p:"Internet-IP PÚBLICA", g:"IP pública", mb:0, u:"Coordenada"},
+  {c:"SER-277967", s:"SED-648854 / SED-648855", m:"Curillo", d:"Caquetá", p:"Internet-INTERNET DEDICADO SIN UK", g:"Internet dedicado", mb:900, u:"1,03263 -75,92200"},
+  {c:"SER-277969", s:"SED-648854 / SED-648855", m:"Curillo", d:"Caquetá", p:"Internet-IP PÚBLICA", g:"IP pública", mb:0, u:"1,03263 -75,92200"},
+  {c:"SER-280733", s:"SED-718606", m:"El Doncello", d:"Caquetá", p:"Datos-CANAL NACIONAL ETHERNET SIN UK", g:"Canal nacional ethernet", mb:2000, u:"Nodo Azteca"},
+  {c:"SER-263049", s:"SED-324886", m:"El Doncello", d:"Caquetá", p:"Internet-ID CORPORATIVO", g:"ID corporativo", mb:2200, u:"Calle 6 # 03-40"},
+  {c:"SER-265842", s:"SED-324886", m:"El Doncello", d:"Caquetá", p:"Internet-IP PÚBLICA", g:"IP pública", mb:0, u:"Calle 6 # 03-40"},
+  {c:"SER-266518", s:"SED-324886", m:"El Doncello", d:"Caquetá", p:"Internet-IP PÚBLICA", g:"IP pública", mb:0, u:"Calle 6 # 03-40"},
+  {c:"SER-274726", s:"SED-522346 / SED-523713", m:"El Paujil", d:"Caquetá", p:"Internet-INTERNET DEDICADO SIN UK", g:"Internet dedicado", mb:1500, u:"Coordenadas"},
+  {c:"SER-280732", s:"SED-718605", m:"El Paujil", d:"Caquetá", p:"Datos-CANAL NACIONAL ETHERNET SIN UK", g:"Canal nacional ethernet", mb:1200, u:"Nodo Azteca"},
+  {c:"SER-274740", s:"SED-522346 / SED-523713", m:"El Paujil", d:"Caquetá", p:"Internet-IP PÚBLICA", g:"IP pública", mb:0, u:"Coordenadas"},
+  {c:"SER-277037", s:"SED-522346 / SED-523713", m:"El Paujil", d:"Caquetá", p:"Internet-IP PÚBLICA", g:"IP pública", mb:0, u:"Coordenadas"},
+  {c:"SER-274734", s:"SED-522356 / SED-523722", m:"Florencia", d:"Caquetá", p:"Internet-INTERNET DEDICADO SIN UK", g:"Internet dedicado", mb:800, u:"Coordenada"},
+  {c:"SER-280728", s:"SED-718565", m:"Florencia", d:"Caquetá", p:"Datos-CANAL NACIONAL ETHERNET SIN UK", g:"Canal nacional ethernet", mb:5600, u:"1,60763 -75,6046"},
+  {c:"SER-274747", s:"SED-522356 / SED-523722", m:"Florencia", d:"Caquetá", p:"Internet-IP PÚBLICA", g:"IP pública", mb:0, u:"Coordenada"},
+  {c:"SER-274727", s:"SED-522347", m:"La Montañita", d:"Caquetá", p:"Internet-INTERNET DEDICADO SIN UK", g:"Internet dedicado", mb:800, u:"Coordenadas"},
+  {c:"SER-277824", s:"SED-638881", m:"La Montañita", d:"Caquetá", p:"Internet-INTERNET DEDICADO SIN UK", g:"Internet dedicado", mb:600, u:"1.478810° -75.436410°"},
+  {c:"SER-277997", s:"SED-638881", m:"La Montañita", d:"Caquetá", p:"Internet-IP PÚBLICA", g:"IP pública", mb:0, u:"1.478810° -75.436410°"},
+  {c:"SER-274736", s:"SED-525043", m:"Milán", d:"Caquetá", p:"Internet-INTERNET DEDICADO SIN UK", g:"Internet dedicado", mb:600, u:"Coordenada"},
+  {c:"SER-276059", s:"SED-525043", m:"Milán", d:"Caquetá", p:"Internet-IP PÚBLICA", g:"IP pública", mb:0, u:"Coordenada"},
+  {c:"SER-276587", s:"SED-525043", m:"Milán", d:"Caquetá", p:"Internet-IP PÚBLICA", g:"IP pública", mb:0, u:"Coordenada"},
+  {c:"SER-277968", s:"SED-648856 / SED-648857", m:"San José del Fragua", d:"Caquetá", p:"Internet-INTERNET DEDICADO SIN UK", g:"Internet dedicado", mb:2800, u:"1,32456 -75,96757"},
+  {c:"SER-280729", s:"SED-718566", m:"San José del Fragua", d:"Caquetá", p:"Datos-CANAL NACIONAL ETHERNET SIN UK", g:"Canal nacional ethernet", mb:400, u:"1,32456 -75,96757"},
+  {c:"SER-280734", s:"SED-718607", m:"San José del Fragua", d:"Caquetá", p:"Datos-CANAL NACIONAL ETHERNET SIN UK", g:"Canal nacional ethernet", mb:1000, u:"Nodo Azteca"},
+  {c:"SER-277970", s:"SED-648856 / SED-648857", m:"San José del Fragua", d:"Caquetá", p:"Internet-IP PÚBLICA", g:"IP pública", mb:0, u:"1,32456 -75,96757"},
+  {c:"SER-274731", s:"SED-522352 / SED-523719", m:"San Vicente del Caguán", d:"Caquetá", p:"Internet-INTERNET DEDICADO SIN UK", g:"Internet dedicado", mb:300, u:"Coordenada"},
+  {c:"SER-274744", s:"SED-522352 / SED-523719", m:"San Vicente del Caguán", d:"Caquetá", p:"Internet-IP PÚBLICA", g:"IP pública", mb:0, u:"Coordenada"},
+  {c:"SER-274724", s:"SED-522344 / SED-523711", m:"Solita", d:"Caquetá", p:"Internet-INTERNET DEDICADO SIN UK", g:"Internet dedicado", mb:1700, u:"0°52'51.53\"N 75°37'20.35\"O"},
+  {c:"SER-274733", s:"SED-522355 / SED-523721", m:"Solita", d:"Caquetá", p:"Internet-INTERNET DEDICADO SIN UK", g:"Internet dedicado", mb:600, u:"Coordenada"},
+  {c:"SER-274739", s:"SED-522344 / SED-523711", m:"Solita", d:"Caquetá", p:"Internet-IP PÚBLICA", g:"IP pública", mb:0, u:"0°52'51.53\"N 75°37'20.35\"O"},
+  {c:"SER-274746", s:"SED-522355 / SED-523721", m:"Solita", d:"Caquetá", p:"Internet-IP PÚBLICA", g:"IP pública", mb:0, u:"Coordenada"},
+  {c:"SER-274725", s:"SED-522345", m:"Valparaíso", d:"Caquetá", p:"Internet-INTERNET DEDICADO SIN UK", g:"Internet dedicado", mb:900, u:"Coordenadas"},
+  {c:"SER-277036", s:"SED-522345", m:"Valparaíso", d:"Caquetá", p:"Internet-IP PÚBLICA", g:"IP pública", mb:0, u:"Coordenadas"},
+  {c:"SER-274737", s:"SED-525044 / SED-525326", m:"Vistahermosa", d:"Meta", p:"Internet-INTERNET DEDICADO SIN UK", g:"Internet dedicado", mb:300, u:"Coordenada"},
+  {c:"SER-274749", s:"SED-525044 / SED-525326", m:"Vistahermosa", d:"Meta", p:"Internet-IP PÚBLICA", g:"IP pública", mb:0, u:"Coordenada"}];
+async function sembrarAzteca(){
+    if(!_provEsAdmin()) return alert('Solo el administrador puede cargar la lista inicial.');
+    if(_provServs().length && !confirm('Ya hay servicios registrados.\n\n¿Agrego igual los '
+        +AZTECA_2026_08.length+' de Azteca? Los que ya estén con el mismo código NO se repiten.'))
+        return;
+    let prov=_provTodos().find(p=>/azteca/i.test(p.nombre||''));
+    if(!prov){
+        prov={id:_provId('pv'), nombre:'Azteca Comunicaciones', nit:'', contacto:'', telefono:'',
+              correo:'', creadoEn:Date.now()};
+        _provTodos().push(prov);
+    }
+    const servs=_provServs();
+    const yaEstan=new Set(servs.map(s=>String(s.codigo||'').toUpperCase()));
+    let nuevos=0;
+    AZTECA_2026_08.forEach(a=>{
+        if(yaEstan.has(String(a.c).toUpperCase())) return;
+        servs.push({id:_provId('sp'), proveedorId:prov.id, codigo:a.c, sucursal:a.s,
+            municipio:a.m, depto:a.d, producto:a.p, categoria:a.g, mbps:a.mb, ubicacion:a.u,
+            costoMensual:null, contrato:'', fechaInicio:'', fechaRenovacion:'',
+            estado:'activo', nodo:'', notas:'', creadoEn:Date.now(),
+            creadoPor:(USER&&USER.nombre)||'admin'});
+        nuevos++;
+    });
+    if(!nuevos){ alert('Ya estaban todos: no se agregó ninguno.'); return; }
+    await save();
+    renderProveedores();
+    alert('✅ Se cargaron '+nuevos+' servicios de Azteca.\n\n'
+        +'Los costos y las fechas quedaron vacíos: ve llenándolos con "+ costo" en la tabla.');
+}
+
+
+/* ── Importar pegando desde cualquier Excel ─────────────────────────────
+   No se lee el archivo: se PEGA. Un Excel de proveedor cambia de forma cada
+   vez —el de Azteca traía las columnas corridas— y adivinar el formato de un
+   archivo que no hemos visto es lo que produce importaciones que meten basura
+   sin que nadie se entere. Pegando, se ve en pantalla lo que va a entrar y se
+   dice cuántas filas y con qué columnas ANTES de tocar nada. */
+function modalImportarServiciosProv(){
+    if(!_provEsAdmin()) return alert('Solo el administrador.');
+    const E=_provEsc, provs=_provTodos();
+    openModal('📥 Importar servicios', `
+      <p style="font-size:0.8rem;color:var(--muted);line-height:1.6;margin-top:0;">
+        Copia las filas en Excel (sin el encabezado) y pégalas aquí. Se separan por
+        <b>tabulaciones</b>, que es como pega Excel. El orden de las columnas es:</p>
+      <div style="font-family:monospace;font-size:0.72rem;background:rgba(148,163,184,.12);
+           padding:8px 10px;border-radius:7px;margin-bottom:10px;line-height:1.7;">
+        Código &nbsp;|&nbsp; Sucursal &nbsp;|&nbsp; Municipio &nbsp;|&nbsp; Departamento &nbsp;|&nbsp;
+        Producto &nbsp;|&nbsp; Categoría &nbsp;|&nbsp; Mbps &nbsp;|&nbsp; Ubicación</div>
+      <div class="form-group"><label>Proveedor al que entran</label>
+        <select id="ip_prov" class="form-control">
+          ${provs.length?provs.map(p=>`<option value="${p.id}">${E(p.nombre)}</option>`).join('')
+                        :'<option value="">— agrega un proveedor primero —</option>'}
+        </select></div>
+      <div class="form-group"><label>Pega aquí</label>
+        <textarea id="ip_texto" class="form-control" rows="8" style="font-family:monospace;font-size:0.72rem;"
+          oninput="_previoImportarProv()" placeholder="SER-000000&#9;SED-1&#9;Florencia&#9;Caquetá&#9;Internet dedicado&#9;Internet dedicado&#9;900&#9;Calle 1"></textarea></div>
+      <div id="ip_previo" style="font-size:0.78rem;color:var(--muted);"></div>`,
+      `<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+       <button class="btn btn-primary" onclick="importarServiciosProv()">📥 Importar</button>`);
+}
+function _leerPegadoProv(txt){
+    const filas=[];
+    String(txt||'').split(/\r?\n/).forEach(l=>{
+        if(!l.trim()) return;
+        const c=l.split('\t').map(x=>String(x).trim());
+        if(c.length<3) return;                       // una línea suelta no es una fila
+        const mb=Number(String(c[6]||'').replace(/[^\d]/g,''));
+        filas.push({codigo:c[0]||'', sucursal:c[1]||'', municipio:c[2]||'', depto:c[3]||'Caquetá',
+                    producto:c[4]||'', categoria:c[5]||'Internet dedicado',
+                    mbps:isFinite(mb)?mb:0, ubicacion:c[7]||''});
+    });
+    return filas;
+}
+function _previoImportarProv(){
+    const t=document.getElementById('ip_texto'), d=document.getElementById('ip_previo');
+    if(!t||!d) return;
+    const filas=_leerPegadoProv(t.value);
+    if(!filas.length){ d.innerHTML='<span style="color:var(--muted)">Nada todavía.</span>'; return; }
+    const yaEstan=new Set(_provServs().map(s=>String(s.codigo||'').toUpperCase()));
+    const rep=filas.filter(f=>yaEstan.has(String(f.codigo).toUpperCase())).length;
+    const mb=filas.reduce((t2,f)=>t2+f.mbps,0);
+    d.innerHTML=`<b style="color:var(--text);">${filas.length} fila(s)</b> · ${mb.toLocaleString('es-CO')} Mbps`
+      +(rep?` · <span style="color:#f59e0b">${rep} con un código que ya está: no se repiten</span>`:'')
+      +`<div style="margin-top:6px;font-family:monospace;font-size:0.68rem;line-height:1.6;">`
+      +filas.slice(0,3).map(f=>_provEsc(f.codigo+' · '+f.municipio+' · '+f.categoria+' · '+f.mbps+' Mbps')).join('<br>')
+      +(filas.length>3?'<br>…y '+(filas.length-3)+' más':'')+'</div>';
+}
+async function importarServiciosProv(){
+    const t=document.getElementById('ip_texto'), sel=document.getElementById('ip_prov');
+    const provId=sel?sel.value:'';
+    if(!provId) return alert('Primero agrega el proveedor.');
+    const filas=_leerPegadoProv(t?t.value:'');
+    if(!filas.length) return alert('No encontré ninguna fila. Pega desde Excel, con tabulaciones.');
+    const servs=_provServs();
+    const yaEstan=new Set(servs.map(s=>String(s.codigo||'').toUpperCase()));
+    let n=0;
+    filas.forEach(f=>{
+        if(f.codigo && yaEstan.has(String(f.codigo).toUpperCase())) return;
+        servs.push(Object.assign({id:_provId('sp'), proveedorId:provId, costoMensual:null,
+            contrato:'', fechaInicio:'', fechaRenovacion:'', estado:'activo', nodo:'', notas:'',
+            creadoEn:Date.now(), creadoPor:(USER&&USER.nombre)||'admin'}, f));
+        n++;
+    });
+    closeModal();
+    if(!n) return alert('Todos los códigos ya estaban: no se agregó ninguno.');
+    await save();
+    renderProveedores();
+    alert('✅ Se importaron '+n+' servicio(s).');
+}
+
+/* ── A Excel, con los costos que falten señalados ──────────────────────── */
+function exportarProveedoresExcel(){
+    const hacer=()=>{
+        const servs=_provServs();
+        if(!servs.length) return alert('No hay servicios para exportar.');
+        const lista=servs.slice().sort((a,b)=>(a.municipio||'').localeCompare(b.municipio||''));
+        const filas=[['Proveedor','Código','Sucursal','Municipio','Departamento','Producto',
+                      'Categoría','Mbps','Costo mensual','N.° contrato','Inicio','Renovación',
+                      'Estado','Nodo','Ubicación','Notas']];
+        lista.forEach(s=>{
+            const p=_provTodos().find(x=>x.id===s.proveedorId);
+            filas.push([p?p.nombre:'', s.codigo||'', s.sucursal||'', s.municipio||'', s.depto||'',
+                s.producto||'', s.categoria||'', Number(s.mbps)||0,
+                Number(s.costoMensual)>0?Number(s.costoMensual):'', s.contrato||'',
+                s.fechaInicio||'', s.fechaRenovacion||'',
+                (PROV_ESTADOS[s.estado||'activo']||{}).et||'', s.nodo||'', s.ubicacion||'', s.notas||'']);
+        });
+        const vivos=lista.filter(s=>(PROV_ESTADOS[s.estado||'activo']||{}).cuenta);
+        const conCosto=vivos.filter(s=>Number(s.costoMensual)>0);
+        filas.push([]);
+        filas.push(['TOTAL','','','','','','', vivos.reduce((t,s)=>t+(Number(s.mbps)||0),0),
+            conCosto.reduce((t,s)=>t+Number(s.costoMensual),0),
+            conCosto.length===vivos.length?'(todos los costos)':('OJO: solo '+conCosto.length+' de '+vivos.length+' tienen costo'),
+            '','','','','','']);
+        const wb=XLSX.utils.book_new();
+        _hojaTabla(wb,'Servicios',filas,[24,14,26,22,13,32,22,10,15,14,12,12,12,18,28,34],
+            {titulo:'SERVICIOS CONTRATADOS · PROYECTOVISION · '+new Date().toLocaleDateString('es-CO'),
+             moneda:[8]});
+        // Segunda hoja: el cruce contra los clientes
+        const cuenta=_provClientesPorMun();
+        const munis=[...new Set(servs.map(s=>s.municipio).filter(Boolean))].sort();
+        const f2=[['Municipio','Servicios','Acceso (Mbps)','Transporte (Mbps)','Clientes','Activos','Mbps por activo','Costo mes']];
+        munis.forEach(m=>{
+            const suyos=servs.filter(s=>s.municipio===m && (PROV_ESTADOS[s.estado||'activo']||{}).cuenta);
+            const acc=suyos.filter(s=>_provCat(s.categoria).acceso).reduce((t,s)=>t+(Number(s.mbps)||0),0);
+            const tr =suyos.filter(s=>!_provCat(s.categoria).acceso).reduce((t,s)=>t+(Number(s.mbps)||0),0);
+            const cl=cuenta(m);
+            f2.push([m, suyos.length, acc, tr, cl.n, cl.activos,
+                cl.activos&&acc?Number((acc/cl.activos).toFixed(1)):'',
+                suyos.filter(s=>Number(s.costoMensual)>0).reduce((t,s)=>t+Number(s.costoMensual),0)||'']);
+        });
+        _hojaTabla(wb,'Contratado vs clientes',f2,[24,11,15,17,11,11,16,15],
+            {titulo:'LO CONTRATADO CONTRA LOS CLIENTES QUE HAY', moneda:[7]});
+        XLSX.writeFile(wb,'Servicios_proveedores_'+new Date().toISOString().slice(0,10)+'.xlsx');
+    };
+    if(typeof XLSX!=='undefined') return hacer();
+    const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js';
+    s.onload=hacer; s.onerror=()=>alert('No se pudo cargar la librería de Excel.');
+    document.head.appendChild(s);
+}
+
+
 function _antEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function _antTodas(){ if(!DB.antenas) DB.antenas=[]; return DB.antenas; }
 function _antEsAdmin(){ return USER.role==='admin'; }
@@ -4914,7 +5677,7 @@ function navigate(tab){
     if(document.getElementById('aiPanel')?.classList.contains('open')){
         setTimeout(()=>{actualizarContextoIA();actualizarSugerenciasIA();},100);
     }
-    const renders = { contratos:renderContratos, dash:renderDash, registro:renderRegistro, clientes:renderClientes, reportes:renderReportes, vendedores:renderVendedores, incentivos:renderIncentivos, ventas:renderVentas2, pagos_admin:renderPagosAdmin, prestamos:renderPrestamos, rrhh:renderRRHH, administracion:renderAdmin, especiales:renderClientesEspeciales, facturas:renderFacturas, recogidas:renderRecogidas, ordenes:renderOrdenes, documentos:renderDocumentos, energia:renderEnergia, antenas:renderAntenas, sgsst:renderSGSST };
+    const renders = { contratos:renderContratos, dash:renderDash, registro:renderRegistro, clientes:renderClientes, reportes:renderReportes, vendedores:renderVendedores, incentivos:renderIncentivos, ventas:renderVentas2, pagos_admin:renderPagosAdmin, prestamos:renderPrestamos, rrhh:renderRRHH, administracion:renderAdmin, especiales:renderClientesEspeciales, facturas:renderFacturas, recogidas:renderRecogidas, ordenes:renderOrdenes, documentos:renderDocumentos, energia:renderEnergia, antenas:renderAntenas, proveedores:renderProveedores, sgsst:renderSGSST };
     if(renders[tab]) renders[tab]();
     try{ if(typeof _verificarBloqueoComprobantes==='function') _verificarBloqueoComprobantes(); }catch(e){}
 }

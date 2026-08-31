@@ -390,6 +390,158 @@ const PRUEBAS = [
        +'\n¿sigue ahí?: '+r.sigue+' (false) · lo vuelve a encontrar: '+r.despues+' (0)'};}},
 
 // ──────────────────────────────── OFICINAS ────────────────────────────────
+{app:'ofi', titulo:'Cada municipio del proveedor encuentra a sus clientes',
+ porque:'El proveedor escribe "El Doncello" y WispHub escribe "DONCELLO"; también "Cartagena '
+       +'del Chairá" contra "CARTAGENA" y "San José del Fragua" contra "SAN_JOSE". Si no se '
+       +'emparejan, el cruce diría que en todas partes hay cero clientes y el módulo no serviría '
+       +'para nada. Lo delicado es no pasarse: ENTRETENIMIENTO_PA no es El Paujil.',
+ correr:W=>{ const r=E(W,
+     'const par=[["El Doncello","DONCELLO"],["El Doncello","DONCELLO_RADIO"],'
+   +'           ["Cartagena del Chairá","CARTAGENA"],["La Montañita","MONTANITA"],'
+   +'           ["San José del Fragua","SAN_JOSE"],["El Paujil","PAUJIL"],["Florencia","FLORENCIA"],'
+   // Los invisibles se ARMAN, no se escriben: uno pegado en el código se pierde al
+   // copiar y la prueba pasaría sin estar probando nada. El 127 es el que traen de
+   // verdad 83 clientes de El Paujil; el 8203 es un espacio de ancho cero.
+   +'           ["El Paujil","PAUJIL"+String.fromCharCode(127)],'
+   +'           ["El Doncello"," "+String.fromCharCode(8203)+"DONCELLO "]];'
+   +'const noDeben=[["El Paujil","ENTRETENIMIENTO_PA"],["Solita","FLORENCIA"],'
+   +'               ["Curillo","CARTAGENA"],["Milán","MONTANITA"]];'
+   +'const fallan=par.filter(function(x){ return !_munCoincide(x[0],x[1]); }).map(function(x){return x.join("~");});'
+   +'const sobran=noDeben.filter(function(x){ return _munCoincide(x[0],x[1]); }).map(function(x){return x.join("~");});'
+   +'return {fallan:fallan, sobran:sobran, clave:_munClave("Cartagena del Chairá")};');
+   const bien = r.fallan.length===0 && r.sobran.length===0;
+   return {ok:bien, detalle: bien
+     ? 'Los 9 que deben cruzar cruzan: DONCELLO, DONCELLO_RADIO, CARTAGENA, MONTANITA, SAN_JOSE… ✓'
+      +'\nIncluida la zona "PAUJIL" con el carácter invisible que traen 83 clientes reales ✓'
+      +'\nY los 4 que NO deben cruzar no cruzan, ENTRETENIMIENTO_PA incluido ✓'
+      +'\n("Cartagena del Chairá" queda como "'+r.clave+'", sin tildes ni artículos)'
+     : 'no cruzaron pero debían: '+(r.fallan.join(' · ')||'ninguno')
+       +'\ncruzaron pero NO debían: '+(r.sobran.join(' · ')||'ninguno')};}},
+
+{app:'ofi', titulo:'La capacidad de transporte no se cuenta como acceso',
+ porque:'El canal nacional ethernet lleva tráfico, no atiende clientes en ese municipio. '
+       +'Sumarlo al acceso haría creer que Doncello tiene 4.200 Mbps para sus clientes cuando el '
+       +'acceso real son los 2.200 del ID corporativo. Y las IP públicas no traen ancho de banda: '
+       +'cuentan como servicio pero no suman capacidad.',
+ correr:W=>{ const r=E(W,
+     'return {dedicado:_provCat("Internet dedicado").acceso,'
+   +'        corporativo:_provCat("ID corporativo").acceso,'
+   +'        canal:_provCat("Canal nacional ethernet").acceso,'
+   +'        ip:_provCat("IP pública").acceso,'
+   +'        desconocida:_provCat("Algo que no existe").acceso,'
+   +'        cuentaActivo:PROV_ESTADOS.activo.cuenta,'
+   +'        cuentaCancelado:PROV_ESTADOS.cancelado.cuenta};');
+   const bien = r.dedicado===true && r.corporativo===true && r.canal===false
+             && r.ip===false && r.desconocida===true
+             && r.cuentaActivo===true && r.cuentaCancelado===false;
+   return {ok:bien, detalle: bien
+     ? 'Internet dedicado e ID corporativo cuentan como acceso ✓'
+      +'\nCanal nacional (transporte) e IP pública NO ✓'
+      +'\nUna categoría que no conocemos se toma como acceso, para no esconder capacidad ✓'
+      +'\nY un servicio cancelado no suma en ninguna cuenta ✓'
+     : 'dedicado:'+r.dedicado+' corporativo:'+r.corporativo+' canal:'+r.canal+' ip:'+r.ip
+       +' desconocida:'+r.desconocida+'\nactivo cuenta:'+r.cuentaActivo+' cancelado cuenta:'+r.cuentaCancelado};}},
+
+{app:'ofi', titulo:'Las fechas de renovación se leen por texto',
+ porque:'Misma trampa que costó la v91 del inventario y la v25 de la red: new Date() sobre un '
+       +'texto de fecha interpreta el mes y el día al revés. Aquí se parte por texto. Y una fecha '
+       +'incompleta o en otro formato tiene que devolver "no sé", no un número inventado.',
+ correr:W=>{ const r=E(W,
+     'const hoy=new Date(); const iso=function(d){ const x=new Date(hoy.getFullYear(),hoy.getMonth(),hoy.getDate()+d);'
+   +'  return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0"); };'
+   +'return {hoy:_provDiasPara(iso(0)), en30:_provDiasPara(iso(30)), hace5:_provDiasPara(iso(-5)),'
+   +'        vacia:_provDiasPara(""), colombiana:_provDiasPara("31/12/2026"), nula:_provDiasPara(null)};');
+   const bien = r.hoy===0 && r.en30===30 && r.hace5===-5
+             && r.vacia===null && r.colombiana===null && r.nula===null;
+   return {ok:bien, detalle: bien
+     ? 'Hoy da 0, dentro de 30 días da 30, hace 5 días da −5 ✓'
+      +'\nY una fecha vacía, nula o en formato colombiano devuelve "no sé" en vez de un número inventado ✓'
+     : 'hoy:'+r.hoy+' (0) · en30:'+r.en30+' (30) · hace5:'+r.hace5+' (-5)'
+       +'\nvacía:'+r.vacia+' colombiana:'+r.colombiana+' nula:'+r.nula+' (los tres null)'};}},
+
+{app:'ofi', titulo:'La relación de Azteca entra completa y sin repetirse',
+ porque:'El Excel del proveedor trae las columnas corridas: en las 18 filas de IP pública la '
+       +'dirección quedó en la casilla del ancho de banda. La lista que se carga ya viene '
+       +'corregida, y tiene que cuadrar con el propio resumen del archivo: 39 servicios y '
+       +'27.400 Mbps. Cargarla dos veces no puede duplicar nada.',
+ correr:W=>{ const r=E(W,
+     'const mb=AZTECA_2026_08.reduce(function(t,a){ return t+a.mb; },0);'
+   +'const cods=AZTECA_2026_08.map(function(a){ return a.c; });'
+   +'const ips=AZTECA_2026_08.filter(function(a){ return a.g==="IP pública"; });'
+   +'const munis={}; AZTECA_2026_08.forEach(function(a){ munis[a.m]=1; });'
+   +'return {n:AZTECA_2026_08.length, mbps:mb, repetidos:cods.length-new Set(cods).size,'
+   +'        ips:ips.length, ipsConMbps:ips.filter(function(a){ return a.mb>0; }).length,'
+   +'        ipsConTexto:ips.filter(function(a){ return !!a.u; }).length,'
+   +'        municipios:Object.keys(munis).length};');
+   const bien = r.n===39 && r.mbps===27400 && r.repetidos===0 && r.ips===18
+             && r.ipsConMbps===0 && r.ipsConTexto===18 && r.municipios===13;
+   return {ok:bien, detalle: bien
+     ? '39 servicios y 27.400 Mbps: cuadra con el resumen del propio archivo ✓'
+      +'\nNingún código repetido, así que volver a cargarla no duplica ✓'
+      +'\nLas 18 IP públicas quedaron con 0 Mbps y su dirección en el campo correcto ✓'
+      +'\n13 municipios ✓'
+     : 'servicios: '+r.n+' (39) · Mbps: '+r.mbps+' (27400) · repetidos: '+r.repetidos+' (0)'
+       +'\nIP públicas: '+r.ips+' (18), con Mbps: '+r.ipsConMbps+' (0), con dirección: '+r.ipsConTexto+' (18)'
+       +'\nmunicipios: '+r.municipios+' (13)'};}},
+
+{app:'ofi', titulo:'Estado real: servicios de proveedores sin costo',
+ porque:'El costo llega vacío a propósito y se llena a mano. Mientras falten, el costo mensual '
+       +'que muestra la pantalla es solo el de los que ya tienen precio: esta prueba recuerda '
+       +'cuántos faltan para que ese total no se lea como el gasto real.',
+ correr:W=>{ const r=E(W, 'const s=(DB.serviciosProv||[]);'
+   +'const vivos=s.filter(function(x){ return (PROV_ESTADOS[x.estado||"activo"]||{}).cuenta; });'
+   +'return {total:s.length, vivos:vivos.length,'
+   +'        conCosto:vivos.filter(function(x){ return Number(x.costoMensual)>0; }).length,'
+   +'        conRenov:vivos.filter(function(x){ return !!x.fechaRenovacion; }).length};');
+   if(!r.total) return {ok:true, detalle:'Todavía no se ha cargado ningún servicio de proveedores.'};
+   const faltan=r.vivos-r.conCosto;
+   return {ok:faltan===0, ojo:true,
+     detalle: faltan===0
+       ? 'Los '+r.vivos+' servicios activos tienen su costo: el total mensual es el real.'
+       : 'De '+r.vivos+' servicios activos, '+r.conCosto+' tienen costo y faltan '+faltan+'.'
+         +'\nMientras falten, el costo mensual de la pantalla NO es el gasto real.'
+         +'\nCon fecha de renovación: '+r.conRenov+' de '+r.vivos+'.'};}},
+
+{app:'ofi', titulo:'Un guardado sin clientes cargados no los esconde',
+ porque:'Pasó de verdad el 31/8/2026 a las 9:44. Los clientes viven en documentos aparte y un '
+       +'índice dice cuántos bloques tiene cada oficina. El índice se armaba con lo que hubiera '
+       +'EN MEMORIA, así que un guardado hecho antes de que llegaran los clientes -la carga tarda '
+       +'unos segundos- lo dejaba VACÍO: los bloques seguían intactos pero nadie los encontraba, '
+       +'y las cinco oficinas aparecían sin un solo cliente. Los movimientos ya se protegían así '
+       +'desde la v168; los clientes no.',
+ correr:W=>{ const r=E(W,
+     'const remoto={A:2, B:5, C:1};'
+   +'const nadieCargo=[{id:"A",nombre:"YESCENIA",clientes:[]},{id:"B",nombre:"NATALIA",clientes:[]},'
+   +'                  {id:"C",nombre:"THOMAS",clientes:[]}];'
+   +'const p1=_planIndiceClientes(nadieCargo, remoto);'
+   +'const unaSinCargar=[{id:"A",nombre:"YESCENIA",clientes:[{n:1},{n:2}]},'
+   +'                    {id:"B",nombre:"NATALIA",clientes:[]},'
+   +'                    {id:"C",nombre:"THOMAS",clientes:[{n:3}]}];'
+   +'const p2=_planIndiceClientes(unaSinCargar, remoto);'
+   +'const encogio=[{id:"A",nombre:"YESCENIA",clientes:[{n:1}]},{id:"B",nombre:"NATALIA",clientes:[{n:2}]},'
+   +'               {id:"C",nombre:"THOMAS",clientes:[{n:3}]}];'
+   +'const p3=_planIndiceClientes(encogio, remoto);'
+   +'return {todas:p1.preservadas.length, cuales:p1.preservadas.map(function(x){return x.nombre;}).join(","),'
+   +'        bloquesB:(p1.preservadas.filter(function(x){return x.id==="B";})[0]||{}).bloques,'
+   +'        soloUna:p2.preservadas.length, esB:(p2.preservadas[0]||{}).nombre,'
+   +'        alEncoger:p3.preservadas.length,'
+   +'        vacioConNube:_indiceClientesEsSeguro([], remoto),'
+   +'        vacioSinNube:_indiceClientesEsSeguro([], {}),'
+   +'        normal:_indiceClientesEsSeguro(["A"], remoto)};');
+   const bien = r.todas===3 && r.bloquesB===5 && r.soloUna===1 && r.esB==='NATALIA'
+             && r.alEncoger===0 && r.vacioConNube===false && r.vacioSinNube===true && r.normal===true;
+   return {ok:bien, detalle: bien
+     ? 'Si NINGUNA cargó, las tres conservan su entrada y NATALIA sus 5 bloques ✓'
+      +'\nSi solo una quedó sin cargar, solo esa se protege ✓'
+      +'\nY si de verdad quedaron con pocos clientes, no se protege ninguna: eso es trabajo real ✓'
+      +'\nUn índice vacío frente a una nube con oficinas NO se escribe ✓'
+      +'\n(pero uno vacío con la nube también vacía sí, que es una base nueva)'
+     : 'ninguna cargó → preservadas: '+r.todas+' (3) ['+r.cuales+'] · bloques de NATALIA: '+r.bloquesB+' (5)'
+       +'\nsolo una sin cargar → '+r.soloUna+' (1), es '+r.esB+' (NATALIA)'
+       +'\nal encoger de verdad → '+r.alEncoger+' (0)'
+       +'\níndice vacío con nube llena: '+r.vacioConNube+' (false) · con nube vacía: '+r.vacioSinNube+' (true)'
+       +'\níndice normal: '+r.normal+' (true)'};}},
+
 {app:'ofi', titulo:'Los nombres de zona se comparan sin caracteres invisibles',
  porque:'WispHub manda espacios raros dentro de los nombres. Sin limpiarlos, la zona "FLORENCIA" '
        +'del filtro no coincidía con la "FLORENCIA" que llegaba, y esos clientes no aparecían.',
@@ -682,6 +834,74 @@ const PRUEBAS = [
        +' · recargar no alarga el plazo: '+(r.noAlarga?'✓':'✗')};}},
 
 // ────────────────────────────────── RED ──────────────────────────────────
+{app:'red', titulo:'El drop se pinta del color de su puerto',
+ porque:'Pedido de Elkin: la salida 3 del splitter es verde por norma, así que su drop tiene '
+       +'que verse verde en el mapa. Así se casa el cable de la calle con el pigtail de adentro '
+       +'sin abrir la caja. Los drops viejos no traen anotado el puerto y hay que deducirlo por '
+       +'el cliente; si dos personas se llaman igual, desempata la punta del drop.',
+ correr:W=>{ const r=E(W, 'const guardar=RED, cache=_idxCliNom;'
+   +'const gris=TIPOS.drop.color;'
+   +'RED={elementos:['
+   +'  {id:"cx", tipo:"caja", clase:"nap", nombre:"CAJA 1", g:[[1,1]]},'
+   +'  {id:"k1", tipo:"cliente", nombre:"ANA LOPEZ", puerto:3, cajaId:"cx", g:[[1.001,1]]},'
+   +'  {id:"d1", tipo:"cable", clase:"drop", cliente:"ANA LOPEZ", g:[[1,1],[1.001,1]]},'
+   +'  {id:"d2", tipo:"cable", clase:"drop", puerto:7, cliente:"NUEVO", g:[[1,1],[1.002,1]]},'
+   +'  {id:"d3", tipo:"cable", clase:"drop", cliente:"NADIE CONOCIDO", g:[[1,1],[1.003,1]]},'
+   +'  {id:"d4", tipo:"cable", clase:"drop", disponible:true, puertoAnterior:1, g:[[1,1],[1.004,1]]}'
+   +']};'
+   +'_idxCliNom=null;'
+   +'const res={deducido:colorDeDrop(RED.elementos[2]), esperado3:colorN(3).hex,'
+   +'           anotado:colorDeDrop(RED.elementos[3]), esperado7:colorN(7).hex,'
+   +'           sinCliente:colorDeDrop(RED.elementos[4]), gris:gris,'
+   +'           libre:colorDeDrop(RED.elementos[5]), esperado1:colorN(1).hex,'
+   +'           nombre3:colorN(3).n};'
+   +'RED=guardar; _idxCliNom=cache;'
+   +'return res;');
+   const bien = r.deducido===r.esperado3 && r.anotado===r.esperado7
+             && r.sinCliente===r.gris && r.libre===r.esperado1;
+   return {ok:bien, detalle: bien
+     ? 'Un drop viejo, sin puerto anotado: se deduce por el cliente y sale '+r.nombre3+' (puerto 3) ✓'
+      +'\nUno nuevo, con el puerto guardado: sale el color del 7 ✓'
+      +'\nUno de alguien que no está en el mapa: se queda gris en vez de inventar un color ✓'
+      +'\nY el que quedó disponible conserva el color del puerto del que salía ✓'
+     : 'deducido: '+r.deducido+' (esperado '+r.esperado3+')'
+       +'\nanotado: '+r.anotado+' (esperado '+r.esperado7+')'
+       +'\nsin cliente: '+r.sinCliente+' (esperado el gris '+r.gris+')'
+       +'\ndisponible: '+r.libre+' (esperado '+r.esperado1+')'};}},
+
+{app:'red', titulo:'Retirar a un cliente puede dejar el drop disponible',
+ porque:'Pedido de Elkin: cuando alguien se retira, el cable casi siempre se queda tendido hasta '
+       +'la casa. Borrarlo del mapa pierde el dato justo el día que sirve, cuando llega un vecino '
+       +'a instalar. El drop conservado deja de ser de nadie pero recuerda de quién era.',
+ correr:W=>{ const r=E(W, 'const guardar=RED, cache=_idxCliNom;'
+   +'const caja={id:"cx", tipo:"caja", clase:"nap", nombre:"CAJA 1", g:[[1,1]], puertos:{3:{cliente:"ANA LOPEZ"}}};'
+   +'const cli={id:"k1", tipo:"cliente", nombre:"ANA LOPEZ", puerto:3, cajaId:"cx", g:[[1.001,1]]};'
+   +'const dp={id:"d1", tipo:"cable", clase:"drop", cliente:"ANA LOPEZ", nombre:"ANA LOPEZ",'
+   +'          metros:42, g:[[1,1],[1.001,1]]};'
+   +'RED={elementos:[caja, cli, dp]}; _idxCliNom=null;'
+   +'const loEncontrabaAntes=!!dropDe(cli);'
+   +'_dejarDropDisponible(dp, cli, caja, "ANA LOPEZ");'
+   +'const res={loEncontrabaAntes:loEncontrabaAntes,'
+   +'  disponible:!!dp.disponible, deQuienEra:dp.clienteAnterior, puertoAnterior:dp.puertoAnterior,'
+   +'  yaNoEsDeNadie:!dp.cliente, sigueSiendoDeAna:!!dropDe(cli),'
+   +'  enLaLista:dropsDisponibles("cx").length, enOtraCaja:dropsDisponibles("otra").length,'
+   +'  metros:dp.metros, color:colorDeDrop(dp), esperado3:colorN(3).hex};'
+   +'RED=guardar; _idxCliNom=cache;'
+   +'return res;');
+   const bien = r.loEncontrabaAntes===true && r.disponible===true && r.deQuienEra==='ANA LOPEZ'
+             && r.puertoAnterior===3 && r.yaNoEsDeNadie===true && r.sigueSiendoDeAna===false
+             && r.enLaLista===1 && r.enOtraCaja===0 && r.metros===42 && r.color===r.esperado3;
+   return {ok:bien, detalle: bien
+     ? 'El drop queda marcado como disponible y ya no figura como el de Ana ✓'
+      +'\nPero recuerda de quién era y de qué puerto salía (el 3) ✓'
+      +'\nSale en la lista de su caja, y no en la de otra ✓'
+      +'\nConserva sus 42 m y el color del puerto 3 ✓'
+     : 'lo encontraba antes: '+r.loEncontrabaAntes+' (true) · disponible: '+r.disponible+' (true)'
+       +'\nde quién era: '+r.deQuienEra+' · puerto anterior: '+r.puertoAnterior+' (3)'
+       +'\nsigue saliendo como el de Ana: '+r.sigueSiendoDeAna+' (false)'
+       +'\nen la lista de su caja: '+r.enLaLista+' (1) · en otra caja: '+r.enOtraCaja+' (0)'
+       +'\ncolor: '+r.color+' (esperado '+r.esperado3+')'};}},
+
 {app:'red', titulo:'La ruta al POP toma el camino corto',
  porque:'Antes se seguía el cable más grueso sin mirar a dónde iba: una caja daba 26 saltos y '
        +'−318 dB, un número imposible. Ahora se busca el camino más corto desde el POP.',
