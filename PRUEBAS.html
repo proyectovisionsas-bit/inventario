@@ -834,6 +834,105 @@ const PRUEBAS = [
        +' · recargar no alarga el plazo: '+(r.noAlarga?'✓':'✗')};}},
 
 // ────────────────────────────────── RED ──────────────────────────────────
+{app:'red', titulo:'La señal se lee de las conexiones de verdad',
+ porque:'Había DOS sitios guardando lo mismo: el tablero de arrastrar escribía en conex y el '
+       +'diagrama leía fusiones. Elkin conectó un hilo al splitter y el diagrama seguía '
+       +'mostrándolo sin señal. Ahora manda conex, y lo que hubiera en el formato viejo se pasa '
+       +'al abrir la caja en vez de quedarse invisible.',
+ correr:W=>{ const r=E(W, 'const guardar=RED;'
+   +'const caja={id:"cx", tipo:"caja", clase:"cto", nombre:"C", g:[[1,-75]],'
+   +'  splitters:[{tipo:"1x8", ratio:""}], cables:[{id:"ca", nombre:"CABLE", hilos:12, buffers:1}],'
+   +'  conex:[{de:"cca.h3", a:"s0.in", tipo:"fusion"}],'
+   +'  fusiones:[{a:"ca|7", b:"split|0", tipo:"Fusión", et:"vieja"}]};'
+   +'RED={elementos:[caja]};'
+   +'const antes={h3:hiloConSenal(caja,"ca",3), h7:hiloConSenal(caja,"ca",7), h9:hiloConSenal(caja,"ca",9)};'
+   +'const movidas=_migrarFusiones(caja);'
+   +'const despues={h3:hiloConSenal(caja,"ca",3), h7:hiloConSenal(caja,"ca",7), h9:hiloConSenal(caja,"ca",9)};'
+   +'const res={antes:antes, despues:despues, movidas:movidas,'
+   +'  quedanFusiones:(caja.fusiones||[]).length, totalConex:caja.conex.length,'
+   +'  otraVez:_migrarFusiones(caja), tras:caja.conex.length};'
+   +'RED=guardar; return res;');
+   const bien = r.antes.h3===true && r.antes.h7===false && r.antes.h9===false
+             && r.movidas===1 && r.despues.h7===true && r.despues.h9===false
+             && r.quedanFusiones===0 && r.totalConex===2 && r.otraVez===0 && r.tras===2;
+   return {ok:bien, detalle: bien
+     ? 'El hilo conectado en conex sale con señal, y uno cualquiera no ✓'
+      +'\nEl empalme guardado en el formato viejo se pasa y pasa a verse ✓'
+      +'\nY volver a migrar no lo duplica: quedan 2 conexiones, no 3 ✓'
+     : 'antes h3:'+r.antes.h3+' (true) h7:'+r.antes.h7+' (false)'
+       +'\nmigradas: '+r.movidas+' (1) · después h7: '+r.despues.h7+' (true)'
+       +'\nfusiones que quedan: '+r.quedanFusiones+' (0) · conex: '+r.totalConex+' (2)'
+       +'\nal migrar otra vez: '+r.otraVez+' (0) · conex: '+r.tras+' (2)'};}},
+
+{app:'red', titulo:'El esquema dibuja solo las conexiones que existen',
+ porque:'Antes se pintaba una curva hasta los 16 puertos, ocupados y libres, todas naciendo del '
+       +'mismo punto. Se veía lleno pero no decía nada, y peor: hacía creer que estaba dicho lo '
+       +'que nadie había dicho. Ahora hay una línea por conexión anotada, ni una más.',
+ correr:W=>{ const r=E(W, 'const guardar=RED, gc=window._intCaja, gv=vistaFibra;'
+   +'const caja={id:"cx", tipo:"caja", clase:"cto", nombre:"CAJA", g:[[1,-75]],'
+   +'  splitters:[{tipo:"1x8", ratio:""}],'
+   +'  puertos:{1:{cliente:"ANA PEREZ"}, 2:{cliente:"LUIS GOMEZ"}},'
+   +'  cables:[{id:"ca", nombre:"LLEGA", hilos:12, buffers:1, clase:"secundario"},'
+   +'          {id:"cb", nombre:"SIGUE", hilos:12, buffers:1, clase:"secundario"}],'
+   +'  conex:[{de:"cca.h1", a:"s0.in", tipo:"fusion"},'
+   +'         {de:"s0.o1", a:"p1", tipo:"fusion"},'
+   +'         {de:"cca.h4", a:"ccb.h4", tipo:"paso"}],'
+   +'  notasInt:[{txt:"OJO hilo 5 partido", color:"rojo"}]};'
+   +'RED={elementos:[caja]}; window._intCaja="cx"; vistaFibra="numeros";'
+   // Sin usuario, puede() dice que no y el esquema no pinta las puntas tocables.
+   +'const gu=USER; USER={role:"admin", nombre:"prueba"};'
+   +'const svg=diagramaSVG(caja);'
+   +'const curvas=(svg.match(/stroke-width="2.2"/g)||[]).length;'
+   +'const res={curvas:curvas, conex:caja.conex.length,'
+   +'  traeCliente:svg.indexOf("ANA PEREZ")>=0, traeSegundo:svg.indexOf("LUIS GOMEZ")>=0,'
+   +'  traeContinua:svg.indexOf("CONTIN")>=0, traeNota:svg.indexOf("partido")>=0,'
+   +'  puntas:(svg.match(/_esqClic/g)||[]).length,'
+   +'  sinPuerto3:svg.indexOf("sin cliente")<0};'
+   +'RED=guardar; window._intCaja=gc; vistaFibra=gv; USER=gu; return res;');
+   const bien = r.curvas===3 && r.curvas===r.conex && r.traeCliente && r.traeSegundo
+             && r.traeContinua && r.traeNota && r.puntas>20 && r.sinPuerto3;
+   return {ok:bien, detalle: bien
+     ? 'Hay 3 conexiones anotadas y se dibujan 3 líneas, ni una de adorno ✓'
+      +'\nSalen los dos clientes, el cable que continúa y la nota roja ✓'
+      +'\nLos puertos libres NO se dibujan: solo los que tienen algo ✓'
+      +'\nY las '+r.puntas+' puntas son tocables para conectar ✓'
+     : 'líneas: '+r.curvas+' · conexiones: '+r.conex+' (deben coincidir)'
+       +'\ncliente: '+r.traeCliente+' · segundo: '+r.traeSegundo+' · continúa: '+r.traeContinua
+       +'\nnota: '+r.traeNota+' · puntas tocables: '+r.puntas
+       +'\nsin puertos vacíos de relleno: '+r.sinPuerto3};}},
+
+{app:'red', titulo:'Conectar varios de una vez no pisa lo ya conectado',
+ porque:'En un cable de 24 o 48 hilos, unir de a uno es media tarde. Pero un botón que hace 40 '
+       +'conexiones de golpe tiene que respetar lo que ya estaba: si pisa el trabajo de ayer, '
+       +'hace más daño que bien. Se saltan los hilos ya conectados y los destinos ocupados, y se '
+       +'dice cuáles y por qué antes de aplicar.',
+ correr:W=>{ const r=E(W, 'const guardar=RED, gc=window._intCaja;'
+   +'const caja={id:"cx", tipo:"caja", clase:"cto", nombre:"CAJA", g:[[1,-75]],'
+   +'  splitters:[{tipo:"1x8", ratio:""}], puertos:{},'
+   +'  cables:[{id:"ca", nombre:"LLEGA", hilos:12, buffers:1}],'
+   +'  conex:[{de:"cca.h2", a:"s0.o2", tipo:"fusion"}]};'
+   +'RED={elementos:[caja]}; window._intCaja="cx";'
+   +'const g=window.val;'
+   +'window.val=function(id){ return ({mu_cable:"ca", mu_desde:"1", mu_hasta:"4", mu_dest:"s0.o1"})[id]; };'
+   +'const plan=_muPlan();'
+   +'window.val=g;'
+   +'const res={hacer:plan.hacer.map(function(x){return x.de+"→"+x.a;}),'
+   +'           saltar:plan.saltar.map(function(x){return x.de+": "+x.por;})};'
+   +'RED=guardar; window._intCaja=gc; return res;');
+    // El emparejamiento es POR POSICIÓN: si el hilo 2 se salta, el 3 sigue
+    // yendo a la salida 3 y no se corre a la 2. Es lo correcto -es lo que
+    // espera quien empalma-, y la salida 2 ni se intenta.
+    const bien = r.hacer.length===3 && r.saltar.length===1
+              && r.hacer[0]==='cca.h1→s0.o1' && r.hacer[1]==='cca.h3→s0.o3'
+              && r.hacer[2]==='cca.h4→s0.o4' && /h2/.test(r.saltar[0]);
+    return {ok:bien, detalle: bien
+      ? 'De los hilos 1 al 4 hacia las salidas 1 en adelante: hace 3 y salta 1 ✓'
+       +'\nSalta el hilo 2 porque ya estaba conectado, y no toca su salida ✓'
+       +'\nEl 3 sigue yendo a la salida 3, no se corre a la 2: el emparejamiento es por'
+       +' posición, que es lo que espera quien empalma ✓'
+      : 'hace: '+r.hacer.join(' · ')+'  (esperaba h1→o1, h3→o3, h4→o4)'
+        +'\nsalta: '+r.saltar.join(' · ')+'  (esperaba solo el h2)'};}},
+
 {app:'red', titulo:'Se distingue el cable que termina del que pasa de largo',
  porque:'Pedido de Elkin, con foto: una mufla con la troncal pasando al lado y la caja sin ver un '
        +'hilo. Son dos situaciones físicas distintas y la acción es distinta: al que TERMINA cerca '
