@@ -834,6 +834,104 @@ const PRUEBAS = [
        +' · recargar no alarga el plazo: '+(r.noAlarga?'✓':'✗')};}},
 
 // ────────────────────────────────── RED ──────────────────────────────────
+{app:'red', titulo:'Se distingue el cable que termina del que pasa de largo',
+ porque:'Pedido de Elkin, con foto: una mufla con la troncal pasando al lado y la caja sin ver un '
+       +'hilo. Son dos situaciones físicas distintas y la acción es distinta: al que TERMINA cerca '
+       +'se le pega el extremo, al que PASA hay que partirlo en la caja. Confundirlas partiría en '
+       +'dos un cable que solo estaba mal dibujado.',
+ correr:W=>{ const r=E(W, 'const guardar=RED;'
+   +'const caja={id:"cx", tipo:"caja", clase:"nap", nombre:"MUFLA", g:[[1.0,-75.0]]};'
+   // un grado de latitud son ~110,5 km: 0.0005 ≈ 55 m, 0.002 ≈ 221 m
+   +'const termina={id:"c1", tipo:"cable", clase:"primario", nombre:"TERMINA CERCA", hilos:12,'
+   +'   g:[[1.010,-75.0],[1.0005,-75.0]]};'
+   +'const pasa={id:"c2", tipo:"cable", clase:"primario", nombre:"PASA DE LARGO", hilos:24,'
+   +'   g:[[1.0,-75.010],[1.0,-74.990]]};'
+   +'const lejos={id:"c3", tipo:"cable", clase:"primario", nombre:"LEJOS", hilos:12,'
+   +'   g:[[1.05,-75.05],[1.06,-75.06]]};'
+   +'const yaEsta={id:"c4", tipo:"cable", clase:"primario", nombre:"YA LLEGA", hilos:12,'
+   +'   g:[[1.02,-75.0],[1.00005,-75.0]]};'
+   +'const drop={id:"c5", tipo:"cable", clase:"drop", nombre:"DROP", g:[[1.0,-75.0],[1.0004,-75.0]]};'
+   +'RED={elementos:[caja, termina, pasa, lejos, yaEsta, drop]};'
+   +'const c=_candidatosCable(caja);'
+   +'const de=n=>c.filter(function(x){ return x.cb.nombre===n; })[0];'
+   +'const res={total:c.length, termina:(de("TERMINA CERCA")||{}).tipo,'
+   +'  pasa:(de("PASA DE LARGO")||{}).tipo, ya:(de("YA LLEGA")||{}).tipo,'
+   +'  lejos:!!de("LEJOS"), drop:!!de("DROP"),'
+   +'  dTermina:Math.round((de("TERMINA CERCA")||{}).d||0),'
+   +'  dPasa:Math.round((de("PASA DE LARGO")||{}).d||0)};'
+   +'RED=guardar;'
+   +'return res;');
+   const bien = r.termina==='pegar' && r.pasa==='partir' && r.ya==='ya'
+             && r.lejos===false && r.drop===false;
+   return {ok:bien, detalle: bien
+     ? 'El que termina a '+r.dTermina+' m: se le pega el extremo ✓'
+      +'\nEl que pasa por encima a '+r.dPasa+' m: se parte en la caja ✓'
+      +'\nEl que ya llega sale como "ya", para no ofrecer arreglar lo que está bien ✓'
+      +'\nY ni el que está lejos ni los drops se ofrecen ✓'
+     : 'termina: '+r.termina+' (pegar) · pasa: '+r.pasa+' (partir) · ya llega: '+r.ya+' (ya)'
+       +'\nofrece el lejano: '+r.lejos+' (false) · ofrece el drop: '+r.drop+' (false)'};}},
+
+{app:'red', titulo:'Partir un cable en la caja conserva el largo y los hilos',
+ porque:'Partirlo es lo que pasa de verdad en una mufla: se abre y sigue. Los dos tramos tienen '
+       +'que terminar EN la caja —si no, la caja sigue sin verlos— y entre los dos deben medir lo '
+       +'mismo que medía el cable, o el presupuesto óptico quedaría mal. El primer tramo conserva '
+       +'el id para que nada que lo referencie se quede colgando.',
+ correr:W=>{ const r=E(W, 'const guardar=RED;'
+   +'const caja={id:"cx", tipo:"caja", clase:"nap", nombre:"MUFLA", g:[[1.0,-75.0]]};'
+   +'const cb={id:"c1", tipo:"cable", clase:"primario", nombre:"TRONCAL", hilos:24, buffers:2,'
+   +'   subtipo:"ADSS 24H", g:[[1.0,-75.010],[1.0,-75.0],[1.0,-74.990]]};'
+   +'RED={elementos:[caja, cb]};'
+   +'const largoAntes=largoDe(cb.g);'
+   +'const corte=_dondeTocaCable(caja.g[0], cb.g);'
+   +'const nuevo=_partirCableEn(cb, caja, corte);'
+   +'const fin=g=>g[g.length-1];'
+   +'const enCaja=g=>metros(fin(g), caja.g[0])<1 || metros(g[0], caja.g[0])<1;'
+   +'const res={hizo:!!nuevo, mismoId:cb.id==="c1", idNuevo:!!nuevo&&nuevo.id!=="c1",'
+   +'  hilos:nuevo?nuevo.hilos:0, buffers:nuevo?nuevo.buffers:0, subtipo:nuevo?nuevo.subtipo:"",'
+   +'  tramo1EnCaja:enCaja(cb.g), tramo2EnCaja:nuevo?enCaja(nuevo.g):false,'
+   +'  largoAntes:largoAntes, suma:cb.metros+(nuevo?nuevo.metros:0),'
+   +'  nombre2:nuevo?nuevo.nombre:""};'
+   +'RED=guardar;'
+   +'return res;');
+   const dif = Math.abs(r.suma - r.largoAntes);
+   const bien = r.hizo && r.mismoId && r.idNuevo && r.hilos===24 && r.buffers===2
+             && r.subtipo==='ADSS 24H' && r.tramo1EnCaja && r.tramo2EnCaja && dif<=2;
+   return {ok:bien, detalle: bien
+     ? 'Quedan dos tramos y los dos terminan EN la caja ✓'
+      +'\nEl segundo hereda los 24 hilos, los 2 buffers y el subtipo ✓'
+      +'\nEntre los dos miden '+r.suma+' m contra los '+r.largoAntes+' m de antes ✓'
+      +'\nEl primero conserva su id, el segundo nace con uno propio y se llama "'+r.nombre2+'" ✓'
+     : 'partió: '+r.hizo+' · id del primero intacto: '+r.mismoId+' · id nuevo: '+r.idNuevo
+       +'\nhilos: '+r.hilos+' (24) · buffers: '+r.buffers+' (2) · subtipo: '+r.subtipo
+       +'\ntramo 1 en la caja: '+r.tramo1EnCaja+' · tramo 2 en la caja: '+r.tramo2EnCaja
+       +'\nlargo antes '+r.largoAntes+' m, suma después '+r.suma+' m (diferencia '+dif+')'};}},
+
+{app:'red', titulo:'Pegar el extremo enlaza la caja con el cable',
+ porque:'De nada sirve mover el cable si la caja sigue sin verlo. Después de pegarlo, '
+       +'enlazarCables tiene que encontrarlo, que es lo que llena "cables que llegan" y lo que '
+       +'usan el interior, las fusiones y la ruta al POP.',
+ correr:W=>{ const r=E(W, 'const guardar=RED;'
+   +'const caja={id:"cx", tipo:"caja", clase:"nap", nombre:"MUFLA", g:[[1.0,-75.0]]};'
+   +'const cb={id:"c1", tipo:"cable", clase:"primario", nombre:"CORTO", hilos:12,'
+   +'   g:[[1.010,-75.0],[1.0005,-75.0]]};'
+   +'RED={elementos:[caja, cb]};'
+   +'enlazarCables(RED.elementos);'
+   +'const antes=(caja.cables||[]).length;'
+   +'const cand=_candidatosCable(caja).filter(function(x){ return x.cb.id==="c1"; })[0];'
+   +'_pegarExtremo(cb, caja, cand.extremo);'
+   +'enlazarCables(RED.elementos);'
+   +'const res={antes:antes, despues:(caja.cables||[]).length,'
+   +'  pegado:metros(cb.g[cb.g.length-1], caja.g[0])<1,'
+   +'  nombre:((caja.cables||[])[0]||{}).nombre, hilos:((caja.cables||[])[0]||{}).hilos};'
+   +'RED=guardar;'
+   +'return res;');
+   const bien = r.antes===0 && r.despues===1 && r.pegado===true && r.nombre==='CORTO' && r.hilos===12;
+   return {ok:bien, detalle: bien
+     ? 'Antes la caja no veía nada; después ve el cable CORTO con sus 12 hilos ✓'
+      +'\nY el extremo quedó pegado a la caja, no cerca: encima ✓'
+     : 'cables antes: '+r.antes+' (0) · después: '+r.despues+' (1)'
+       +'\nextremo pegado: '+r.pegado+' · nombre: '+r.nombre+' · hilos: '+r.hilos};}},
+
 {app:'red', titulo:'El drop se pinta del color de su puerto',
  porque:'Pedido de Elkin: la salida 3 del splitter es verde por norma, así que su drop tiene '
        +'que verse verde en el mapa. Así se casa el cable de la calle con el pigtail de adentro '

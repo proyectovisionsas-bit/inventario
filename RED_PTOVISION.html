@@ -678,7 +678,7 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION_RED = 32; // v32: DOS PEDIDOS DE ELKIN. [1] EL DROP SE PINTA DEL COLOR DE SU PUERTO. Las salidas de un splitter van coloreadas en el orden de la norma EIA/TIA-598 -la 1 azul, la 2 naranja, la 3 verde- que la app ya usaba para los hilos de los cables. Ahora ese color aparece en dos sitios: en una franja arriba de cada puerto dentro de la caja, y en el drop que sale de el en el mapa. Asi el cable de la calle se casa con el pigtail de adentro sin abrir la caja. Los drops que se creen de aqui en adelante guardan su puerto; los que ya estaban no lo traen y se deduce por el nombre del cliente, y si dos personas se llaman igual desempata la punta del drop. Cuando no se puede saber, se queda gris en vez de inventar un color. El indice cliente-puerto se arma UNA vez por dibujado y no en cada drop, porque dibujar() corre en cada zoom y buscar el cliente de cada uno de los ~690 drops recorriendo la red entera serian mas de un millon de comparaciones por cuadro. [2] AL RETIRAR A UN CLIENTE SE PUEDE DEJAR EL DROP. Idea de Elkin: cuando alguien se retira, el cable casi siempre SE QUEDA tendido hasta la casa, y borrarlo del mapa pierde el dato justo el dia que sirve, cuando llega un vecino a instalar y hay que decidir si se tira acometida nueva. Ahora se pregunta: quitar tambien el drop, o dejarlo disponible. El que se conserva deja de ser de nadie pero recuerda de quien era y de que puerto salia; se pinta PUNTEADO y del color de ese puerto, con un circulo en la punta para poder encontrarlo, y su tooltip dice quien lo dejo. El puerto SI queda libre, porque el cliente ya no esta y la caja tiene que contarlo como capacidad. Dentro de la caja sale un aviso con cuantos drops tendidos hay y un boton para ir a cada uno, y al abrir un puerto libre que tiene drop tendido lo dice ahi mismo. v25: EL CLIENTE SE PINTA SEGUN COMO ESTA HOY, Y SE PUEDE VER SOLO UNA PARTE. [1] Antes todos los clientes eran del mismo color, asi que el mapa no distinguia a quien le esta funcionando el servicio de quien esta suspendido o ya se cancelo, que es justo lo que se necesita ver de un vistazo: donde se pierde cartera, que puerto va a quedar libre, en que zona hay que salir a recuperar. Ahora: verde activo, ambar suspendido, rojo cancelado, morado cortesia, gris retirado, cian el que todavia no cruza con la oficina. El estado NO se guarda en la red: se consulta en la ficha de la oficina, que es la que se sincroniza con WispHub, para que no haya dos verdades que se puedan desfasar. [2] Filtro por estado y por fecha de instalacion, con atajos (este mes, 3 meses, este anio) y rango a mano. Se pueden combinar: "los que instale este anio, cuantos siguen activos". Los que no cumplen no se dibujan; las cajas y los cables se dejan, porque si no no se veria de donde cuelga lo que quedo. [3] Para que esto no fuera lentisimo, el cruce de los 692 clientes del mapa contra los 804 de la oficina se hace UNA vez y se guarda (dibujar() corre en cada zoom): 27 ms. [4] CRUCE TOLERANTE A ERRATAS: medido en FLORENCIA, 230 clientes del mapa no cruzaban por nombre exacto, y buena parte eran erratas de una letra entre los dos sistemas (el mapa dice "EDGAR CASTRO BERMEO" y WispHub dice "EDGAR CASTO BERMEO"). Ahora se acepta una diferencia de hasta dos letras, PERO solo si el nombre exacto ya fallo, el nombre es largo (14 letras o mas) y hay UN UNICO candidato parecido: con dos o mas se deja sin cruzar antes que ponerle a alguien el estado de otro. Subio de 462 a 479 cruzados. Los 213 que quedan se ven en cian y tienen su propia casilla en el filtro: 66 llevan el codigo de OZmap en vez del nombre de la persona, y el resto ya no esta en WispHub. [5] LA FECHA DE INSTALACION VIENE EN DOS FORMATOS Y HAY QUE LEER LOS DOS. El mismo campo trae 2026-05-19 (el cargue masivo de mayo, ya normalizado) y 29/05/2026 16:03:00 (lo que manda WispHub tal cual en cada sincronia). Medido: 3.737 clientes con el primero y 530 con el segundo, y la oficina de MONTANITA esta ENTERA en el segundo, 212 de 212. Leer solo el primero dejaba esa oficina completa fuera del filtro por fecha y sin avisar, que es la peor forma de fallar: se veia como "no han instalado nada". En FLORENCIA hacia parecer que la ultima instalacion era del 20 de mayo cuando en realidad es del 18 de agosto, y que este mes no habia ninguna cuando hay 7. Se resuelve con el TEXTO y nunca con new Date(), misma trampa de la v91 del inventario: 05/06/2026 se entiende como 5 de junio o como 6 de mayo segun quien lo lea. OFICINAS ya lo hacia bien en _diaDeFecha y aqui se repite el mismo criterio; los informes de oficina nunca estuvieron afectados. v26: RED YA SE PUEDE INSTALAR COMO APP PROPIA. Era la unica de las cuatro sin manifiesto, asi que no aparecia como aplicacion instalable: se podia abrir en el navegador y ya. Las otras tres si lo tenian, cada una con su nombre y su direccion de arranque, que es lo que hace que el navegador las trate como apps DISTINTAS y se puedan tener las cuatro al tiempo en el escritorio. Ahora RED tambien: "PROYECTOVISION Red" / "PV Red", verde #059669, ventana propia. Los iconos NO van incrustados en base64 como en las otras -serian 33 KB de texto- sino que se DIBUJAN al abrir con canvas: un POP en el centro y cuatro cajas colgando, que es lo que la app es. Son veinte lineas en vez de 33 KB, y quedan nitidos en cualquier pantalla. Si el navegador no soporta canvas no pasa nada, la app funciona igual sin icono propio. OJO: falta un service worker para que el navegador OFREZCA instalarla solo; sin el, hay que instalarla a mano desde el menu del navegador. Eso quedo pendiente a proposito: un service worker mal hecho puede dejar la app sirviendo una version vieja para siempre, y no se toca a la ligera. v27: CADA APP RECLAMA SOLO SU ARCHIVO. Reportado por Elkin: instalo INVENTARIO y al abrir OFICINAS el navegador ya no ofrecia instalarla sino "Abrir en la app". La causa: el scope -el territorio de una app instalada- estaba puesto en la CARPETA, no en el archivo, asi que las cinco reclamaban lo mismo y la primera instalada se quedaba con todas las demas paginas. Ahora cada una declara scope y id propios, apuntando solo a su archivo. Consecuencia buscada: el boton de volver al inicio sale de la app instalada y abre index.html aparte, que es lo correcto porque el inicio es otra app. v28: IMPORTAR AHORA PREGUNTA SI AGREGAR O REEMPLAZAR. Importar siempre agregaba, y eso sirve para completar una sede; pero cuando el MISMO mapa se vuelve a importar mejor ordenado, agregar lo duplica todo: la llave de fusion incluye el tipo, asi que un punto que antes entro como poste y ahora entra como caja no se reconoce como el mismo. Caso real: DONCELLO (sede NATALIA) tenia 427 elementos cargados de un KMZ de Google Earth sin carpetas -192 postes y 235 cables, CERO cajas- y al reimportarlo bien habrian quedado 857. El reemplazo va DENTRO de la importacion y no como un boton suelto de borrar todo: asi no se puede vaciar una sede por accidente, solo cambiarla por algo que ya se tiene listo. Pide escribir AGREGAR o REEMPLAZAR, y el reemplazo confirma aparte diciendo cuantos elementos se pierden. Cualquier otra respuesta no toca nada. v29: EL INTERIOR DE LA CAJA SE LEE COMO UN EMPALME DE VERDAD. Salio de comparar nuestra ventana contra la de OZmap, que Elkin paso en una captura. [1] CUATRO COLUMNAS en el orden fisico: lo que LLEGA, los splitters, los puertos, y lo que CONTINUA. Antes todos los cables iban revueltos en una sola columna y no se podia leer de un vistazo cuantos hilos entran y siguen de largo, que es lo primero que se mira en un empalme. Cual cable es el que llega lo dice el arbol de rutas (el que va hacia el POP); si la caja todavia no alcanza el POP se toma el cable mas grueso y se AVISA que se uso ese criterio. Los hilos de paso se marcan y cada cable dice cuantos de sus hilos siguen de largo. [2] EL ESTADO DEL CLIENTE EN CADA PUERTO. En el mapa ya se pintaba desde la v25, pero al abrir la caja solo salia el nombre, y es justo ahi donde se decide si un puerto se puede reusar: un suspendido de hace meses no es lo mismo que un activo. De paso el cruce con la oficina pasa a tolerar erratas igual que el del mapa: los puertos con estado visible subieron de 0 a 447 de 591. Los 144 que quedan no cruzan porque esa gente ya no esta en WispHub, no por un fallo. [3] LOS CLIENTES COLGADOS DE LA CAJA SIN PUERTO ASIGNADO ahora se ven. Antes un puerto estaba ocupado o libre, sin punto medio, y ese trabajo pendiente no aparecia por ningun lado. [4] COMO ESTA HECHA CADA UNION: fusion, conector, de paso o dejado en reserva. Antes todo se guardaba como fusion. Lo ya guardado se sigue leyendo como fusion salvo cuando une dos hilos de cables distintos, que es un paso: se muestra bien sin tener que tocar los datos viejos. v30: UBICAR CLIENTES CON LA COORDENADA DE WISPHUB, con tope de 300 m. Idea de Elkin: muchas cajas ya saben QUIEN esta en cada puerto pero no DONDE vive, y WispHub guarda una coordenada por cliente. Antes de construirlo se midio, y el dato NO es de fiar: solo 1.532 de 4.128 clientes la tienen llena, y en FLORENCIA esta mal -53 clientes comparten el mismo punto exacto y, comparada contra la ubicacion levantada en campo por OZmap, solo 1 de 176 cae a menos de 100 m, con error mediano de 1.762 metros. En DONCELLO y CARTAGENA si parece real (941 clientes en 888 puntos distintos). Por eso esto NO ubica a todo el que tenga coordenada: solo al que quede a MENOS DE 300 METROS de su caja, que es lo maximo creible para una acometida. Antes de tocar nada muestra el plan completo -cuantos se ubicarian, cuantos se dejan por lejos y a que distancia estaba cada uno- y lo que pone queda marcado como ubicacionAuto, con una nota que dice de donde salio y que no esta verificado en campo, para poder deshacerlo todo de un boton sin tocar lo puesto a mano. Probado sobre DONCELLO: de 719 nombres anotados en los puertos ubica 37, con mediana de 70 metros (6, 7, 8, 10 m los primeros) y maximo 281; deja 20 por estar a mas de 300 m. Ademas la importacion de KML ahora LEE los puertos anotados a mano en la descripcion de la caja (P1. JUAN PEREZ), que es como venia el mapa de Doncello: 719 nombres que estaban ahi guardados sin que nadie los pudiera usar, y que ahora llegan directo al campo de puertos. v31: LA UBICACION QUE TOMA EL TECNICO MANDA SOBRE LA DE WISPHUB. Al ubicar clientes ya no se mira solo WispHub: se juntan tambien las coordenadas que los tecnicos toman en la puerta al finalizar una instalacion (TECNICOS v91). Esas van PRIMERO y pisan a las de WispHub cuando existen las dos, porque las tomo una persona parada en el sitio y con su margen de error anotado, no un formulario llenado a la carrera. Las de mas de 100 metros de margen se descartan. Al juntar las dos listas hay que reconocer a la misma persona aunque los registros no traigan los mismos campos -el tecnico no captura el numero de servicio-, asi que basta que coincida UNO de los tres datos que identifican (servicio, cedula o nombre); una llave que los exigiera todos dejaba pasar a la misma persona dos veces.
+const APP_VERSION_RED = 33; // v33: CONECTARLE UN CABLE A UNA CAJA, Y ELEGIR EL HILO POR SU COLOR. Pedido de Elkin con una foto: una mufla en la Calle 21 con la troncal pasando al lado y la caja sin ver ni un hilo. La causa: enlazarCables deduce a que caja llega un cable por geometria y solo mira los EXTREMOS -si uno cae a menos de 30 m de la caja, quedan enlazados-, asi que un cable que PASA por encima no tiene ningun extremo ahi y la caja no lo ve. Medido sobre las tres sedes: 10 cajas sin ningun cable enlazado y las 10 son ese mismo caso, con un cable pasando entre 0 y 5 metros; la de la foto sale en la lista, MFLA 1 Z3-T3 NORTE con la troncal ZONA NORTE VIA NEIVA-B a 5 m. En EL PAUJIL aparecio ademas otra cosa: 71 cables sin ningun extremo en una caja y 225 extremos que quedaron entre 30 y 120 m de una, mediana 42 m, que es dibujo impreciso al que no le alcanzan los 30 m. Son dos situaciones FISICAS distintas y por eso son dos acciones: al que TERMINA ahi pero quedo corto se le PEGA el extremo; al que PASA se le PARTE en la caja, que es lo que de verdad ocurre en una mufla -se abre el cable, entra y sigue-. Antes de tocar nada se dibuja en el mapa como va a quedar, y si el guardado falla se deshace en memoria para que la pantalla no muestre algo que la nube no tiene. El cable se mueve DE VERDAD y no se anota el enlace aparte, porque enlazarCables vacia la lista de cables de cada caja y la reconstruye entera en cada carga: un enlace anotado a mano se perderia en la siguiente recarga. FALLO ENCONTRADO POR LA PRUEBA NUEVA: el segundo extremo se descartaba con b.el!==a.el para no anotar dos veces un cable que empieza y termina en la misma caja, pero cerca() siempre devuelve una caja este cerca o no; si el extremo A quedaba lejos y la caja mas proxima a el resultaba ser esta misma, el extremo B se descartaba aunque estuviera encima. Medido: 11 enlaces perdidos, 10 en EL PAUJIL y 1 en DONCELLO, todos con el otro extremo entre 31 y 67 m. LOS HILOS AHORA SE VEN. Los empalmes ya se podian anotar desde la v29, pero el hilo se elegia en una lista desplegable que decia "buffer 4 Cafe - hilo 3 Verde". Medido antes de tocar nada: en las cuatro sedes hay CERO empalmes anotados. La funcion existia y nadie la uso nunca, y no es raro: quien esta frente a una caja abierta no busca un renglon de texto, busca el hilo verde del tubo cafe. Ahora cada tubo va en su fila con su color y cada hilo es una pastilla del color que le toca por norma; se toca el que entra, se toca a donde va -splitter o el hilo de otro cable- y se anota. Lo que se guarda es exactamente lo mismo que antes, asi que lo viejo sigue sirviendo. v32: DOS PEDIDOS DE ELKIN. [1] EL DROP SE PINTA DEL COLOR DE SU PUERTO. Las salidas de un splitter van coloreadas en el orden de la norma EIA/TIA-598 -la 1 azul, la 2 naranja, la 3 verde- que la app ya usaba para los hilos de los cables. Ahora ese color aparece en dos sitios: en una franja arriba de cada puerto dentro de la caja, y en el drop que sale de el en el mapa. Asi el cable de la calle se casa con el pigtail de adentro sin abrir la caja. Los drops que se creen de aqui en adelante guardan su puerto; los que ya estaban no lo traen y se deduce por el nombre del cliente, y si dos personas se llaman igual desempata la punta del drop. Cuando no se puede saber, se queda gris en vez de inventar un color. El indice cliente-puerto se arma UNA vez por dibujado y no en cada drop, porque dibujar() corre en cada zoom y buscar el cliente de cada uno de los ~690 drops recorriendo la red entera serian mas de un millon de comparaciones por cuadro. [2] AL RETIRAR A UN CLIENTE SE PUEDE DEJAR EL DROP. Idea de Elkin: cuando alguien se retira, el cable casi siempre SE QUEDA tendido hasta la casa, y borrarlo del mapa pierde el dato justo el dia que sirve, cuando llega un vecino a instalar y hay que decidir si se tira acometida nueva. Ahora se pregunta: quitar tambien el drop, o dejarlo disponible. El que se conserva deja de ser de nadie pero recuerda de quien era y de que puerto salia; se pinta PUNTEADO y del color de ese puerto, con un circulo en la punta para poder encontrarlo, y su tooltip dice quien lo dejo. El puerto SI queda libre, porque el cliente ya no esta y la caja tiene que contarlo como capacidad. Dentro de la caja sale un aviso con cuantos drops tendidos hay y un boton para ir a cada uno, y al abrir un puerto libre que tiene drop tendido lo dice ahi mismo. v25: EL CLIENTE SE PINTA SEGUN COMO ESTA HOY, Y SE PUEDE VER SOLO UNA PARTE. [1] Antes todos los clientes eran del mismo color, asi que el mapa no distinguia a quien le esta funcionando el servicio de quien esta suspendido o ya se cancelo, que es justo lo que se necesita ver de un vistazo: donde se pierde cartera, que puerto va a quedar libre, en que zona hay que salir a recuperar. Ahora: verde activo, ambar suspendido, rojo cancelado, morado cortesia, gris retirado, cian el que todavia no cruza con la oficina. El estado NO se guarda en la red: se consulta en la ficha de la oficina, que es la que se sincroniza con WispHub, para que no haya dos verdades que se puedan desfasar. [2] Filtro por estado y por fecha de instalacion, con atajos (este mes, 3 meses, este anio) y rango a mano. Se pueden combinar: "los que instale este anio, cuantos siguen activos". Los que no cumplen no se dibujan; las cajas y los cables se dejan, porque si no no se veria de donde cuelga lo que quedo. [3] Para que esto no fuera lentisimo, el cruce de los 692 clientes del mapa contra los 804 de la oficina se hace UNA vez y se guarda (dibujar() corre en cada zoom): 27 ms. [4] CRUCE TOLERANTE A ERRATAS: medido en FLORENCIA, 230 clientes del mapa no cruzaban por nombre exacto, y buena parte eran erratas de una letra entre los dos sistemas (el mapa dice "EDGAR CASTRO BERMEO" y WispHub dice "EDGAR CASTO BERMEO"). Ahora se acepta una diferencia de hasta dos letras, PERO solo si el nombre exacto ya fallo, el nombre es largo (14 letras o mas) y hay UN UNICO candidato parecido: con dos o mas se deja sin cruzar antes que ponerle a alguien el estado de otro. Subio de 462 a 479 cruzados. Los 213 que quedan se ven en cian y tienen su propia casilla en el filtro: 66 llevan el codigo de OZmap en vez del nombre de la persona, y el resto ya no esta en WispHub. [5] LA FECHA DE INSTALACION VIENE EN DOS FORMATOS Y HAY QUE LEER LOS DOS. El mismo campo trae 2026-05-19 (el cargue masivo de mayo, ya normalizado) y 29/05/2026 16:03:00 (lo que manda WispHub tal cual en cada sincronia). Medido: 3.737 clientes con el primero y 530 con el segundo, y la oficina de MONTANITA esta ENTERA en el segundo, 212 de 212. Leer solo el primero dejaba esa oficina completa fuera del filtro por fecha y sin avisar, que es la peor forma de fallar: se veia como "no han instalado nada". En FLORENCIA hacia parecer que la ultima instalacion era del 20 de mayo cuando en realidad es del 18 de agosto, y que este mes no habia ninguna cuando hay 7. Se resuelve con el TEXTO y nunca con new Date(), misma trampa de la v91 del inventario: 05/06/2026 se entiende como 5 de junio o como 6 de mayo segun quien lo lea. OFICINAS ya lo hacia bien en _diaDeFecha y aqui se repite el mismo criterio; los informes de oficina nunca estuvieron afectados. v26: RED YA SE PUEDE INSTALAR COMO APP PROPIA. Era la unica de las cuatro sin manifiesto, asi que no aparecia como aplicacion instalable: se podia abrir en el navegador y ya. Las otras tres si lo tenian, cada una con su nombre y su direccion de arranque, que es lo que hace que el navegador las trate como apps DISTINTAS y se puedan tener las cuatro al tiempo en el escritorio. Ahora RED tambien: "PROYECTOVISION Red" / "PV Red", verde #059669, ventana propia. Los iconos NO van incrustados en base64 como en las otras -serian 33 KB de texto- sino que se DIBUJAN al abrir con canvas: un POP en el centro y cuatro cajas colgando, que es lo que la app es. Son veinte lineas en vez de 33 KB, y quedan nitidos en cualquier pantalla. Si el navegador no soporta canvas no pasa nada, la app funciona igual sin icono propio. OJO: falta un service worker para que el navegador OFREZCA instalarla solo; sin el, hay que instalarla a mano desde el menu del navegador. Eso quedo pendiente a proposito: un service worker mal hecho puede dejar la app sirviendo una version vieja para siempre, y no se toca a la ligera. v27: CADA APP RECLAMA SOLO SU ARCHIVO. Reportado por Elkin: instalo INVENTARIO y al abrir OFICINAS el navegador ya no ofrecia instalarla sino "Abrir en la app". La causa: el scope -el territorio de una app instalada- estaba puesto en la CARPETA, no en el archivo, asi que las cinco reclamaban lo mismo y la primera instalada se quedaba con todas las demas paginas. Ahora cada una declara scope y id propios, apuntando solo a su archivo. Consecuencia buscada: el boton de volver al inicio sale de la app instalada y abre index.html aparte, que es lo correcto porque el inicio es otra app. v28: IMPORTAR AHORA PREGUNTA SI AGREGAR O REEMPLAZAR. Importar siempre agregaba, y eso sirve para completar una sede; pero cuando el MISMO mapa se vuelve a importar mejor ordenado, agregar lo duplica todo: la llave de fusion incluye el tipo, asi que un punto que antes entro como poste y ahora entra como caja no se reconoce como el mismo. Caso real: DONCELLO (sede NATALIA) tenia 427 elementos cargados de un KMZ de Google Earth sin carpetas -192 postes y 235 cables, CERO cajas- y al reimportarlo bien habrian quedado 857. El reemplazo va DENTRO de la importacion y no como un boton suelto de borrar todo: asi no se puede vaciar una sede por accidente, solo cambiarla por algo que ya se tiene listo. Pide escribir AGREGAR o REEMPLAZAR, y el reemplazo confirma aparte diciendo cuantos elementos se pierden. Cualquier otra respuesta no toca nada. v29: EL INTERIOR DE LA CAJA SE LEE COMO UN EMPALME DE VERDAD. Salio de comparar nuestra ventana contra la de OZmap, que Elkin paso en una captura. [1] CUATRO COLUMNAS en el orden fisico: lo que LLEGA, los splitters, los puertos, y lo que CONTINUA. Antes todos los cables iban revueltos en una sola columna y no se podia leer de un vistazo cuantos hilos entran y siguen de largo, que es lo primero que se mira en un empalme. Cual cable es el que llega lo dice el arbol de rutas (el que va hacia el POP); si la caja todavia no alcanza el POP se toma el cable mas grueso y se AVISA que se uso ese criterio. Los hilos de paso se marcan y cada cable dice cuantos de sus hilos siguen de largo. [2] EL ESTADO DEL CLIENTE EN CADA PUERTO. En el mapa ya se pintaba desde la v25, pero al abrir la caja solo salia el nombre, y es justo ahi donde se decide si un puerto se puede reusar: un suspendido de hace meses no es lo mismo que un activo. De paso el cruce con la oficina pasa a tolerar erratas igual que el del mapa: los puertos con estado visible subieron de 0 a 447 de 591. Los 144 que quedan no cruzan porque esa gente ya no esta en WispHub, no por un fallo. [3] LOS CLIENTES COLGADOS DE LA CAJA SIN PUERTO ASIGNADO ahora se ven. Antes un puerto estaba ocupado o libre, sin punto medio, y ese trabajo pendiente no aparecia por ningun lado. [4] COMO ESTA HECHA CADA UNION: fusion, conector, de paso o dejado en reserva. Antes todo se guardaba como fusion. Lo ya guardado se sigue leyendo como fusion salvo cuando une dos hilos de cables distintos, que es un paso: se muestra bien sin tener que tocar los datos viejos. v30: UBICAR CLIENTES CON LA COORDENADA DE WISPHUB, con tope de 300 m. Idea de Elkin: muchas cajas ya saben QUIEN esta en cada puerto pero no DONDE vive, y WispHub guarda una coordenada por cliente. Antes de construirlo se midio, y el dato NO es de fiar: solo 1.532 de 4.128 clientes la tienen llena, y en FLORENCIA esta mal -53 clientes comparten el mismo punto exacto y, comparada contra la ubicacion levantada en campo por OZmap, solo 1 de 176 cae a menos de 100 m, con error mediano de 1.762 metros. En DONCELLO y CARTAGENA si parece real (941 clientes en 888 puntos distintos). Por eso esto NO ubica a todo el que tenga coordenada: solo al que quede a MENOS DE 300 METROS de su caja, que es lo maximo creible para una acometida. Antes de tocar nada muestra el plan completo -cuantos se ubicarian, cuantos se dejan por lejos y a que distancia estaba cada uno- y lo que pone queda marcado como ubicacionAuto, con una nota que dice de donde salio y que no esta verificado en campo, para poder deshacerlo todo de un boton sin tocar lo puesto a mano. Probado sobre DONCELLO: de 719 nombres anotados en los puertos ubica 37, con mediana de 70 metros (6, 7, 8, 10 m los primeros) y maximo 281; deja 20 por estar a mas de 300 m. Ademas la importacion de KML ahora LEE los puertos anotados a mano en la descripcion de la caja (P1. JUAN PEREZ), que es como venia el mapa de Doncello: 719 nombres que estaban ahi guardados sin que nadie los pudiera usar, y que ahora llegan directo al campo de puertos. v31: LA UBICACION QUE TOMA EL TECNICO MANDA SOBRE LA DE WISPHUB. Al ubicar clientes ya no se mira solo WispHub: se juntan tambien las coordenadas que los tecnicos toman en la puerta al finalizar una instalacion (TECNICOS v91). Esas van PRIMERO y pisan a las de WispHub cuando existen las dos, porque las tomo una persona parada en el sitio y con su margen de error anotado, no un formulario llenado a la carrera. Las de mas de 100 metros de margen se descartan. Al juntar las dos listas hay que reconocer a la misma persona aunque los registros no traigan los mismos campos -el tecnico no captura el numero de servicio-, asi que basta que coincida UNO de los tres datos que identifican (servicio, cedula o nombre); una llave que los exigiera todos dejaba pasar a la misma persona dos veces.
 
 const firebaseConfig = {
     apiKey: "AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w",
@@ -1873,7 +1873,17 @@ function enlazarCables(els){
         cb.cajaBId = b.d<30 ? b.el.id : '';
         if(a.d<30) a.el.cables.push({id:cb.id, nombre:cb.nombre, hacia:cb.cajaB, sub:cb.subtipo,
                                      hilos:cb.hilos, buffers:cb.buffers, clase:cb.clase, extremo:'A'});
-        if(b.d<30 && b.el!==a.el) b.el.cables.push({id:cb.id, nombre:cb.nombre, hacia:cb.cajaA, sub:cb.subtipo,
+        /* v33 — el segundo extremo se descartaba con `b.el!==a.el`, para no
+           anotar dos veces un cable que empieza y termina en la MISMA caja.
+           Pero cerca() siempre devuelve una caja, esté cerca o no: si el
+           extremo A quedó lejos y la caja más próxima a él resultaba ser esta
+           misma, el extremo B se descartaba aunque estuviera encima. La caja
+           se quedaba sin ver un cable que sí le llega. Medido: 11 enlaces en
+           todo el sistema, 10 en EL PAUJIL y 1 en DONCELLO, todos con el otro
+           extremo entre 31 y 67 m. Ahora solo se descarta si el extremo A
+           REALMENTE enlazó con esta misma caja. */
+        if(b.d<30 && !(a.d<30 && b.el===a.el))
+            b.el.cables.push({id:cb.id, nombre:cb.nombre, hacia:cb.cajaA, sub:cb.subtipo,
                                      hilos:cb.hilos, buffers:cb.buffers, clase:cb.clase, extremo:'B'});
     });
 }
@@ -2832,6 +2842,7 @@ function fichaHTML(el){
             <button class="btn btn-sm btn-out" style="flex:1" onclick="ventanaCaja('${el.id}')">🪟 Cuadro</button>
             <button class="btn btn-sm btn-out" style="flex:1" onclick="abrirInterior('${el.id}')">📊 Interior</button>
             <button class="btn btn-sm btn-out" style="flex:1" onclick="abrirFusiones('${el.id}')">🔗 Fusiones${(el.fusiones||[]).length?' ('+el.fusiones.length+')':''}</button>
+            <button class="btn btn-sm btn-out" style="flex:1" onclick="modalConectarCable('${el.id}')">🔌 Conectar cable</button>
             <button class="btn btn-sm btn-out" style="flex:1" onclick="etiquetaCaja('${el.id}')">🏷️ Etiqueta</button>
             <button class="btn btn-sm btn-out" style="flex:1" onclick="modo('ruta');iluminarRuta(RED.elementos.find(e=>e.id==='${el.id}'))">💡 Ruta</button>
           </div>
@@ -2845,7 +2856,12 @@ function fichaHTML(el){
                  ${esc((c.nombre||'').slice(0,24))}</b>
                <span style="font-size:.72rem">${c.hilos||'?'}H · hacia ${esc((c.hacia||'—').slice(0,16))}</span>
              </div>`).join('')}`
-           :'<p class="ayuda" style="margin-top:10px">No hay cables enlazados. Reimporta el KML para que se deduzcan.</p>'}
+           :`<div class="aviso" style="margin-top:10px;background:rgba(245,158,11,.10);
+                border-color:rgba(245,158,11,.4);color:#fcd34d;font-size:.75rem">
+               ⚠️ Esta caja no ve ningún cable. Si hay uno pasando al lado, la app no lo enlaza
+               sola: el enlace se deduce mirando los EXTREMOS del cable.
+               <button class="btn btn-sm btn-out" style="width:100%;margin-top:6px"
+                  onclick="modalConectarCable('${el.id}')">🔌 Conectarle un cable</button></div>`}
           <div class="sec" style="margin-top:14px">Splitters</div>
           ${(el.splitters||[]).length
             ? el.splitters.map((sp,i)=>`<div class="dato">
@@ -7842,36 +7858,368 @@ async function exportarExcel(){
    splitter. Sin esto no se puede responder "si corto este hilo, quién
    se cae".
    ════════════════════════════════════════════════════════════════════ */
-function abrirFusiones(id){
-    const el=RED.elementos.find(e=>e.id===id); if(!el) return;
-    window._fusCaja=id;
-    el.fusiones=el.fusiones||[];
+/* ════════════════════════════════════════════════════════════════════
+   CONECTARLE UN CABLE A UNA CAJA (v33)
+   ────────────────────────────────────────────────────────────────────
+   Pedido de Elkin, con una foto: una mufla en la Calle 21 con la troncal
+   pasando al lado y la caja sin ver ni un hilo. "Quiero tomar la fibra y
+   arrastrarla hacia la caja".
+   Por qué pasa: enlazarCables() deduce a qué caja llega un cable por
+   geometría, y solo mira los EXTREMOS —si un extremo cae a menos de 30 m
+   de la caja, quedan enlazados—. Un cable que PASA por encima no tiene
+   ningún extremo ahí, así que la caja no lo ve.
+   Medido sobre las tres sedes: 10 cajas sin ningún cable enlazado y las
+   10 son ese mismo caso, con un cable pasando entre 0 y 5 metros. En EL
+   PAUJIL hay además otra cosa: 71 cables sin ningún extremo en una caja
+   y 225 extremos que quedaron entre 30 y 120 m de una (mediana 42 m),
+   que es dibujo impreciso al que no le alcanzan los 30 m.
+   Son dos situaciones FÍSICAS distintas y por eso son dos acciones:
+     · el cable TERMINA ahí pero quedó corto  → se le pega el extremo
+     · el cable PASA y la caja lo abre        → se PARTE en la caja
+   Lo segundo es lo que de verdad ocurre en una mufla: se abre el cable,
+   entra y sigue. Partirlo en dos deja la topología correcta y el interior
+   muestra bien "lo que llega" y "lo que continúa".
+   OJO — por qué se mueve el cable de verdad y no se anota el enlace y ya:
+   enlazarCables() vacía la lista de cables de cada caja y la reconstruye
+   entera cada vez que se carga la sede. Un enlace anotado a mano se
+   perdería en la siguiente recarga. Moviendo la geometría, el mapa queda
+   mostrando lo que físicamente hay, que además es lo correcto.
+   ════════════════════════════════════════════════════════════════════ */
+
+/* Distancia de un punto a un segmento, en metros. A esta escala la
+   aproximación plana sobra: un grado de longitud son 111,32 km por el
+   coseno de la latitud, y aquí estamos sobre 1,5° N. */
+function _distSegM(p, a, b){
+    const kx=111320*Math.cos(p[0]*Math.PI/180), ky=110540;
+    const px=(p[1]-a[1])*kx, py=(p[0]-a[0])*ky;
+    const bx=(b[1]-a[1])*kx, by=(b[0]-a[0])*ky;
+    const L=bx*bx+by*by;
+    let t = L ? (px*bx+py*by)/L : 0;
+    t=Math.max(0,Math.min(1,t));
+    const dx=px-bx*t, dy=py-by*t;
+    return {d:Math.sqrt(dx*dx+dy*dy), t:t};
+}
+/* Dónde toca un punto a un cable: a qué distancia y en qué tramo. */
+function _dondeTocaCable(p, g){
+    let mejor={d:1e9, i:0, t:0};
+    for(let i=0;i+1<g.length;i++){
+        const r=_distSegM(p, g[i], g[i+1]);
+        if(r.d<mejor.d) mejor={d:r.d, i:i, t:r.t};
+    }
+    return mejor;
+}
+/* Qué cables se le pueden conectar a esta caja y qué habría que hacerle a
+   cada uno. Devuelve la lista ya ordenada por cercanía.
+   `ya` son los que la caja YA ve: se muestran para que quede claro que no
+   hace falta tocarlos. */
+function _candidatosCable(caja, topeExtremo, topePaso){
+    topeExtremo = topeExtremo || 250;
+    topePaso    = topePaso    || 60;
+    const p=caja.g[0], out=[];
+    RED.elementos.forEach(cb=>{
+        if(cb.tipo!=='cable' || cb.clase==='drop' || !cb.g || cb.g.length<2) return;
+        const dA=metros(p, cb.g[0]), dB=metros(p, cb.g[cb.g.length-1]);
+        const dExtremo=Math.min(dA,dB);
+        const extremo = dA<=dB ? 'A' : 'B';
+        if(dExtremo<30){ out.push({cb:cb, tipo:'ya', d:dExtremo, extremo:extremo}); return; }
+        const paso=_dondeTocaCable(p, cb.g);
+        // Si un extremo está razonablemente cerca, lo natural es que el cable
+        // TERMINE aquí y haya quedado corto. Si no, y el trazo pasa por encima,
+        // es un cable de paso que la caja abre.
+        if(dExtremo<topeExtremo && dExtremo<=paso.d+15)
+            out.push({cb:cb, tipo:'pegar', d:dExtremo, extremo:extremo});
+        else if(paso.d<topePaso)
+            out.push({cb:cb, tipo:'partir', d:paso.d, corte:paso});
+    });
+    return out.sort((x,y)=>x.d-y.d);
+}
+
+/* Pegarle el extremo del cable a la caja. */
+function _pegarExtremo(cb, caja, extremo){
+    const g=cb.g.map(x=>x.slice());
+    if(extremo==='A') g[0]=caja.g[0].slice();
+    else g[g.length-1]=caja.g[0].slice();
+    cb.g=g;
+    cb.metros=largoDe(g);
+    return cb;
+}
+/* Partir el cable EN la caja: entra y sigue. El primer tramo conserva el id
+   y el nombre del cable original —para que nada que lo referencie se quede
+   colgando— y el segundo nace como cable nuevo con el mismo calibre.
+   El punto de corte es la caja misma, no la proyección sobre el trazo:
+   físicamente el cable entra a la caja. */
+function _partirCableEn(cb, caja, corte){
+    const g=cb.g.map(x=>x.slice());
+    const P=caja.g[0].slice();
+    const i=corte.i;
+    const g1=g.slice(0, i+1).concat([P]);
+    const g2=[P].concat(g.slice(i+1));
+    if(g1.length<2 || g2.length<2) return null;   // el corte cayó en una punta
+    const nuevo=Object.assign({}, JSON.parse(JSON.stringify(cb)), {
+        id:_nuevoId(),
+        nombre:(cb.nombre||'Cable')+' · tramo 2',
+        g:g2, metros:largoDe(g2),
+        notas:((cb.notas?cb.notas+' · ':'')+'Segundo tramo, al partir el cable en '
+               +(caja.nombre||'la caja')+'.'),
+        partidoDe:cb.id, creadoEn:Date.now(), creadoPor:(USER&&USER.nombre)||''
+    });
+    delete nuevo.cables; delete nuevo.cajaA; delete nuevo.cajaB;
+    delete nuevo.cajaAId; delete nuevo.cajaBId;
+    cb.g=g1; cb.metros=largoDe(g1);
+    cb.notas=(cb.notas?cb.notas+' · ':'')+'Partido en '+(caja.nombre||'la caja')+'.';
+    return nuevo;
+}
+
+
+/* La ventana: qué cables hay alrededor y qué le pasaría a cada uno. */
+function modalConectarCable(cajaId){
+    const caja=RED.elementos.find(e=>e.id===cajaId);
+    if(!caja || caja.tipo!=='caja') return;
+    if(!puede('editar','caja')) return noPuede('editar','caja');
+    window._conCajaCable=cajaId;
+    const cands=_candidatosCable(caja);
+    const ya=cands.filter(c=>c.tipo==='ya');
+    const hacer=cands.filter(c=>c.tipo!=='ya');
+    window._candCable=hacer;
+    const linea=(c,i)=>{
+        const col=(TIPOS[c.cb.clase]||{}).color||'#888';
+        const esPegar=c.tipo==='pegar';
+        return `<div style="border:1px solid var(--border);border-radius:9px;padding:9px 11px;margin-bottom:8px;">
+          <div style="display:flex;align-items:center;gap:7px;">
+            <span style="display:inline-block;width:16px;height:3px;border-radius:2px;background:${col}"></span>
+            <b style="font-size:.82rem">${esc((c.cb.nombre||'Cable').slice(0,34))}</b>
+            <span style="font-size:.7rem;color:var(--muted)">${c.cb.hilos||'?'}H${c.cb.buffers?' · '+c.cb.buffers+'B':''}</span>
+          </div>
+          <div style="font-size:.74rem;color:${esPegar?'#0ea5e9':'#f59e0b'};margin-top:4px;">
+            ${esPegar
+              ? `Su extremo ${c.extremo} está a <b>${Math.round(c.d)} m</b>: el cable termina aquí pero quedó corto.`
+              : `Pasa a <b>${Math.round(c.d)} m</b> sin terminar aquí: es un cable de paso que esta caja abre.`}
+          </div>
+          <div style="font-size:.72rem;color:var(--muted);margin-top:3px;">
+            ${esPegar
+              ? 'Se le pega el extremo a la caja. El cable no cambia de largo casi nada.'
+              : 'Se PARTE en la caja: entra un tramo y sale el otro, como en una mufla de verdad.'}
+          </div>
+          <button class="btn btn-sm ${esPegar?'btn-primary':'btn-out'}" style="width:100%;margin-top:7px"
+             onclick="_verPreviaCable(${i})">${esPegar?'🧲 Pegarlo a la caja':'✂️ Partirlo aquí'}</button>
+        </div>`;
+    };
+    abrirModal('🔌 Conectarle un cable a '+esc(caja.nombre||''), `
+      ${ya.length?`<div class="aviso" style="background:rgba(16,185,129,.10);border-color:rgba(16,185,129,.4);
+          color:#6ee7b7;font-size:.76rem;margin-bottom:10px;">
+          ✅ Esta caja ya ve ${ya.length} cable(s): ${ya.map(c=>esc((c.cb.nombre||'').slice(0,20))).join(', ')}.</div>`:''}
+      ${hacer.length?`
+        <p class="ayuda" style="margin-top:0">Estos están cerca pero la caja <b>no los ve</b>, porque el enlace
+           se deduce mirando los extremos del cable. Elige qué hacer con cada uno.</p>
+        ${hacer.slice(0,12).map(linea).join('')}
+        ${hacer.length>12?`<p class="ayuda">…y ${hacer.length-12} más lejos.</p>`:''}`
+       :`<div class="vacio" style="padding:18px">No hay ningún cable cerca que la caja no esté viendo ya.</div>`}`,
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cerrar</button>`);
+}
+
+/* Antes de tocar nada se DIBUJA lo que va a pasar. Mover un cable cambia la
+   topología de la red —de ahí salen las rutas al POP y los presupuestos
+   ópticos—, así que se ve primero y se confirma después. */
+function _verPreviaCable(i){
+    const c=(window._candCable||[])[i];
+    const caja=RED.elementos.find(e=>e.id===window._conCajaCable);
+    if(!c||!caja) return;
+    cerrarModal(); modo('ver'); limpiarTemporal();
+    temp=L.layerGroup().addTo(mapa);
+    const opt={pane:'ruta', renderer:rendRuta};
+    const P=caja.g[0];
+    let resumen='';
+    if(c.tipo==='pegar'){
+        const g=c.cb.g.map(x=>x.slice());
+        if(c.extremo==='A') g[0]=P.slice(); else g[g.length-1]=P.slice();
+        L.polyline(c.cb.g,{...opt,color:'#64748b',weight:3,dashArray:'5,5',opacity:.7}).addTo(temp);
+        L.polyline(g,{...opt,color:'#22d3ee',weight:5,opacity:1}).addTo(temp);
+        resumen='El extremo '+c.extremo+' se mueve '+Math.round(c.d)+' m hasta la caja. '
+               +'El largo pasa de '+(c.cb.metros||largoDe(c.cb.g))+' m a '+largoDe(g)+' m.';
+    }else{
+        const g=c.cb.g.map(x=>x.slice());
+        const g1=g.slice(0,c.corte.i+1).concat([P.slice()]);
+        const g2=[P.slice()].concat(g.slice(c.corte.i+1));
+        L.polyline(g1,{...opt,color:'#22d3ee',weight:5,opacity:1}).addTo(temp);
+        L.polyline(g2,{...opt,color:'#a78bfa',weight:5,opacity:1}).addTo(temp);
+        resumen='Queda un tramo de '+largoDe(g1)+' m (azul) y otro de '+largoDe(g2)+' m (morado), '
+               +'los dos terminando en la caja.';
+    }
+    L.circleMarker(P,{...opt,radius:11,weight:3,color:'#fde047',fillColor:'#0b1220',fillOpacity:.9}).addTo(temp);
+    mapa.fitBounds(L.latLngBounds(c.cb.g).pad(.25));
+    abrirModal(c.tipo==='pegar'?'🧲 Pegar el cable a la caja':'✂️ Partir el cable en la caja', `
+      <p style="font-size:.84rem;line-height:1.6;margin-top:0">${resumen}</p>
+      <p class="ayuda">Mira el mapa detrás de esta ventana: así va a quedar.</p>
+      ${c.tipo==='partir'?`<p class="ayuda" style="color:#f59e0b">
+         El cable se convierte en dos. El primer tramo conserva el nombre y el segundo
+         queda como "${esc((c.cb.nombre||'Cable').slice(0,24))} · tramo 2".</p>`:''}`,
+      `<button class="btn btn-sm btn-out" onclick="cerrarModal();limpiarTemporal();modalConectarCable('${caja.id}')">Volver</button>
+       <button class="btn btn-sm btn-primary" onclick="_aplicarCable(${i})">✔️ Hacerlo</button>`);
+}
+
+async function _aplicarCable(i){
+    const c=(window._candCable||[])[i];
+    const caja=RED.elementos.find(e=>e.id===window._conCajaCable);
+    if(!c||!caja) return;
+    if(!puede('editar','caja')) return noPuede('editar','caja');
+    const respaldo=JSON.parse(JSON.stringify(c.cb));
+    let creado=null;
+    if(c.tipo==='pegar') _pegarExtremo(c.cb, caja, c.extremo);
+    else {
+        creado=_partirCableEn(c.cb, caja, c.corte);
+        if(!creado){ cerrarModal(); return alert('El corte cae justo en una punta del cable: '
+            +'mejor usa "pegarlo a la caja".'); }
+        RED.elementos.push(creado);
+    }
+    enlazarCables(RED.elementos);
+    cerrarModal(); limpiarTemporal(); mostrarCarga('Guardando…');
+    try{ await guardarRed(SEDE.id, RED.elementos); }
+    catch(e){
+        // Si no se pudo guardar, se deshace en memoria: la pantalla no puede
+        // quedar mostrando algo que la nube no tiene.
+        Object.assign(c.cb, respaldo);
+        if(creado){ const k=RED.elementos.indexOf(creado); if(k>=0) RED.elementos.splice(k,1); }
+        enlazarCables(RED.elementos);
+        ocultarCarga(); dibujar();
+        return alert('No se pudo guardar, así que no se cambió nada:\n\n'+(e.message||e));
+    }
+    ocultarCarga(); dibujar(); pintarPanel(caja);
+    const n=(caja.cables||[]).length;
+    alert('✅ Listo. '+(caja.nombre||'La caja')+' ahora ve '+n+' cable(s).\n\n'
+        +'En 🔗 Fusiones puedes elegir qué hilo entra al splitter.');
+}
+window.modalConectarCable=modalConectarCable;
+window._verPreviaCable=_verPreviaCable;
+window._aplicarCable=_aplicarCable;
+
+
+/* ════════════════════════════════════════════════════════════════════
+   ELEGIR EL HILO POR SU COLOR (v33)
+   ────────────────────────────────────────────────────────────────────
+   Los empalmes ya se podían anotar desde la v29, pero el hilo se elegía
+   en una lista desplegable que decía "buffer 4 Café · hilo 3 Verde".
+   Medido antes de tocar nada: en las cuatro sedes hay CERO empalmes
+   anotados. La función existía y nadie la usó nunca, y no es raro —
+   quien está frente a una caja abierta no busca un renglón de texto,
+   busca el hilo verde del tubo café.
+   Ahora los hilos se ven: cada tubo en su fila con su color, cada hilo
+   como una pastilla del color que le toca por norma. Se toca el que
+   entra, se toca a dónde va, y listo. La lista desplegable se queda
+   debajo como campo oculto, así que lo que se guarda es exactamente lo
+   mismo que antes y los datos viejos siguen sirviendo.
+   ════════════════════════════════════════════════════════════════════ */
+function _fuChips(el, campo, sel){
     const cables=el.cables||[];
-    const opcHilo=(sel)=>cables.map(cb=>{
-        const m=mapaFibra(cb); if(!m) return '';
-        return `<optgroup label="${esc((cb.nombre||'').slice(0,28))} (${cb.hilos}H)">`
-             + m.flatMap(b=>b.hilos.map(h=>
-                `<option value="${cb.id}|${h.n}" ${sel===cb.id+'|'+h.n?'selected':''}>`
-                +`buffer ${b.buffer} ${b.c.n} · hilo ${h.n} ${h.c.n}</option>`)).join('')
-             + '</optgroup>';
+    if(!cables.length) return '';
+    return cables.map(cb=>{
+        const m=mapaFibra(cb);
+        if(!m) return `<div class="ayuda">${esc((cb.nombre||'Cable').slice(0,28))}: no dice cuántos hilos tiene.</div>`;
+        return `<div style="margin-bottom:9px;">
+          <div style="font-size:.74rem;font-weight:700;color:var(--text);margin-bottom:3px;">
+            <span style="display:inline-block;width:14px;height:3px;border-radius:2px;
+                  background:${(TIPOS[cb.clase]||{}).color||'#888'};vertical-align:3px"></span>
+            ${esc((cb.nombre||'Cable').slice(0,30))}
+            <span style="font-weight:400;color:var(--muted)">${cb.hilos}H${cb.buffers?' · '+cb.buffers+'B':''}</span></div>
+          ${m.map(b=>`<div style="display:flex;align-items:center;gap:3px;margin-bottom:3px;flex-wrap:wrap;">
+             <span title="Buffer ${b.buffer} · ${b.c.n}" style="display:inline-flex;align-items:center;
+                   justify-content:center;min-width:30px;height:20px;border-radius:5px;font-size:.6rem;
+                   font-weight:800;background:${b.c.hex};color:${b.c.txt};
+                   border:1px solid rgba(255,255,255,.25)">T${b.buffer}</span>
+             ${b.hilos.map(h=>{
+                const v=cb.id+'|'+h.n, act=(sel===v);
+                return `<button onclick="_fuElegir('${campo}','${v}')"
+                   title="Tubo ${b.buffer} ${b.c.n} · hilo ${h.n} ${h.c.n}"
+                   style="min-width:24px;height:20px;border-radius:5px;font-size:.6rem;font-weight:800;
+                          cursor:pointer;background:${h.c.hex};color:${h.c.txt};
+                          border:${act?'2px solid #fde047':'1px solid rgba(255,255,255,.25)'};
+                          box-shadow:${act?'0 0 0 2px rgba(253,224,71,.35)':'none'};">${h.n}</button>`;
+             }).join('')}
+           </div>`).join('')}
+        </div>`;
     }).join('');
-    const opcDestino=(el.splitters||[]).map((s,i)=>
-        `<option value="split|${i}">Splitter ${s.tipo}${s.ratio?' ('+s.ratio+')':''}</option>`).join('');
-    abrirModal('🔗 Fusiones de '+esc(el.nombre||''), `
-      ${cables.length?`
-        <label>Hilo que entra</label>
-        <select id="fu_a">${opcHilo()}</select>
-        <label style="margin-top:10px">Se empalma con</label>
-        <select id="fu_b">
-          ${opcDestino?`<optgroup label="Splitters">${opcDestino}</optgroup>`:''}
-          <optgroup label="Hilos">${opcHilo()}</optgroup>
-        </select>
-        <label style="margin-top:10px">Tipo</label>
-        <select id="fu_tipo"><option>Fusión</option><option>Conector</option><option>Paso directo</option></select>
-        <button class="btn btn-sm btn-primary" style="margin-top:12px" onclick="agregarFusion()">➕ Agregar</button>
-      `:'<div class="vacio">Esta caja no tiene cables enlazados, así que no hay hilos que empalmar.</div>'}
-      <div class="sec" style="margin-top:16px">Empalmes anotados <span class="cuenta">${el.fusiones.length}</span></div>
-      ${el.fusiones.length? el.fusiones.map((f,i)=>`
+}
+function _fuElegir(campo, valor){
+    window._fuSel=window._fuSel||{a:'',b:'',tipo:'Fusión'};
+    if(campo==='b' && String(valor).indexOf('split|')===0) window._fuSel.b=valor;
+    else window._fuSel[campo]=valor;
+    // Al elegir el que entra, el paso siguiente es el destino: se pasa solo.
+    if(campo==='a' && !window._fuSel.b) window._fuPaso=2;
+    _pintarFusiones();
+}
+function _fuPasoIr(n){ window._fuPaso=n; _pintarFusiones(); }
+function _fuTipo(t){ window._fuSel=window._fuSel||{}; window._fuSel.tipo=t; _pintarFusiones(); }
+
+function _fuTexto(el, v){
+    if(!v) return '—';
+    if(String(v).indexOf('split|')===0){
+        const s=(el.splitters||[])[+String(v).split('|')[1]];
+        return 'Splitter '+(s?s.tipo:'');
+    }
+    const [ci,hi]=String(v).split('|');
+    const cb=(el.cables||[]).find(x=>x.id===ci);
+    const c=colorN(+hi);
+    return (cb?esc((cb.nombre||'').slice(0,18)):'?')+' · hilo '+hi+' '+c.n;
+}
+function _fuPunto(v){
+    if(!v || String(v).indexOf('split|')===0) return '#8b5cf6';
+    return colorN(+String(v).split('|')[1]).hex;
+}
+
+function _pintarFusiones(){
+    const el=RED.elementos.find(e=>e.id===window._fusCaja); if(!el) return;
+    const cuerpo=document.getElementById('fu_cuerpo'); if(!cuerpo) return;
+    const s=window._fuSel||{a:'',b:'',tipo:'Fusión'};
+    const paso=window._fuPaso||1;
+    const cables=el.cables||[];
+    const pill=(n,txt,activo)=>`<button class="btn btn-sm ${activo?'btn-primary':'btn-out'}"
+        style="font-size:.72rem" onclick="_fuPasoIr(${n})">${txt}</button>`;
+    cuerpo.innerHTML=`
+      ${!cables.length?`
+        <div class="vacio" style="padding:14px">
+          Esta caja no ve ningún cable, así que no hay hilos que empalmar.<br><br>
+          <button class="btn btn-sm btn-primary" onclick="cerrarModal();modalConectarCable('${el.id}')">
+            🔌 Conectarle un cable</button></div>`:`
+        <div style="display:flex;gap:6px;margin-bottom:9px;flex-wrap:wrap;align-items:center;">
+          ${pill(1,'1 · Hilo que entra',paso===1)}
+          ${pill(2,'2 · A dónde va',paso===2)}
+          <span style="flex:1"></span>
+          <span style="font-size:.7rem;color:var(--muted)">T = tubo</span>
+        </div>
+        <div style="border:1px solid var(--border);border-radius:9px;padding:9px;margin-bottom:9px;">
+          ${paso===1
+            ? _fuChips(el,'a',s.a)
+            : `${(el.splitters||[]).length?`
+                 <div style="font-size:.74rem;font-weight:700;margin-bottom:4px;">Splitters de la caja</div>
+                 <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:9px;">
+                 ${(el.splitters||[]).map((sp,i)=>{
+                    const v='split|'+i, act=(s.b===v);
+                    return `<button class="btn btn-sm ${act?'btn-primary':'btn-out'}" style="font-size:.72rem"
+                      onclick="_fuElegir('b','${v}')">🔀 ${esc(sp.tipo)}${sp.ratio?' ('+esc(sp.ratio)+')':''}</button>`;
+                 }).join('')}</div>`:''}
+               <div style="font-size:.74rem;font-weight:700;margin-bottom:4px;">…o directo a otro hilo</div>
+               ${_fuChips(el,'b',s.b)}`}
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;font-size:.78rem;flex-wrap:wrap;">
+          <span class="punto" style="background:${_fuPunto(s.a)}"></span>
+          <b>${_fuTexto(el,s.a)}</b>
+          <span style="color:var(--muted)">→</span>
+          <span class="punto" style="background:${_fuPunto(s.b)}"></span>
+          <b>${_fuTexto(el,s.b)}</b>
+        </div>
+        <div style="display:flex;gap:5px;margin-top:8px;flex-wrap:wrap;">
+          ${['Fusión','Conector','Paso directo'].map(t=>
+            `<button class="btn btn-sm ${s.tipo===t?'btn-primary':'btn-out'}" style="font-size:.72rem"
+               onclick="_fuTipo('${t}')">${t}</button>`).join('')}
+          <span style="flex:1"></span>
+          <button class="btn btn-sm btn-primary" ${(s.a&&s.b)?'':'disabled'}
+             onclick="agregarFusion()">➕ Anotar el empalme</button>
+        </div>
+        <input type="hidden" id="fu_a" value="${esc(s.a||'')}">
+        <input type="hidden" id="fu_b" value="${esc(s.b||'')}">
+        <input type="hidden" id="fu_tipo" value="${esc(s.tipo||'Fusión')}">`}
+
+      <div class="sec" style="margin-top:14px">Empalmes anotados <span class="cuenta">${(el.fusiones||[]).length}</span></div>
+      ${(el.fusiones||[]).length? el.fusiones.map((f,i)=>`
           <div class="fila">
             <span class="punto" style="background:${f.colorA||'#888'}"></span>
             <span class="nom" style="font-size:.76rem">${esc(f.et)}</span>
@@ -7879,8 +8227,23 @@ function abrirFusiones(id){
           </div>`).join('')
         : '<div class="vacio" style="padding:14px">Todavía no hay ninguno anotado.</div>'}
       <p class="ayuda">Esto es lo único de la red que no se puede deducir del mapa: hay que abrir la
-         caja y anotarlo. Con esto queda registrado qué se cae si se corta un hilo.</p>`,
+         caja y anotarlo. Con esto queda registrado qué se cae si se corta un hilo.</p>`;
+}
+window._fuElegir=_fuElegir; window._fuPasoIr=_fuPasoIr; window._fuTipo=_fuTipo;
+window._pintarFusiones=_pintarFusiones;
+
+
+function abrirFusiones(id){
+    const el=RED.elementos.find(e=>e.id===id); if(!el) return;
+    window._fusCaja=id;
+    el.fusiones=el.fusiones||[];
+    // v33: la selección de hilos vive en _pintarFusiones, con los colores de
+    // la norma. Aquí solo se arma el marco y se reinicia lo elegido.
+    window._fuSel={a:'', b:'', tipo:'Fusión'};
+    window._fuPaso=1;
+    abrirModal('🔗 Empalmes de '+esc(el.nombre||''), '<div id="fu_cuerpo"></div>',
       `<button class="btn btn-sm btn-out" onclick="cerrarModal()">Cerrar</button>`);
+    _pintarFusiones();
 }
 async function agregarFusion(){
     const el=RED.elementos.find(e=>e.id===window._fusCaja); if(!el) return;
@@ -7902,7 +8265,10 @@ async function agregarFusion(){
     mostrarCarga('Guardando…');
     try{ await guardarRed(SEDE.id, RED.elementos); }
     catch(e){ el.fusiones.pop(); ocultarCarga(); return alert('No se pudo guardar:\n\n'+(e.message||e)); }
-    ocultarCarga(); abrirFusiones(window._fusCaja);
+    ocultarCarga();
+    window._fuSel={a:'', b:'', tipo:(window._fuSel||{}).tipo||'Fusión'};
+    window._fuPaso=1;
+    _pintarFusiones();
 }
 async function quitarFusion(i){
     const el=RED.elementos.find(e=>e.id===window._fusCaja); if(!el||!el.fusiones) return;
@@ -7910,7 +8276,7 @@ async function quitarFusion(i){
     mostrarCarga('Guardando…');
     try{ await guardarRed(SEDE.id, RED.elementos); }
     catch(e){ el.fusiones.splice(i,0,f); ocultarCarga(); return alert('No se pudo guardar.'); }
-    ocultarCarga(); abrirFusiones(window._fusCaja);
+    ocultarCarga(); _pintarFusiones();
 }
 
 /* ════════════════════════════════════════════════════════════════════
