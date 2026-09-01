@@ -645,6 +645,46 @@ const PRUEBAS = [
          +'\nMientras falten, el costo mensual de la pantalla NO es el gasto real.'
          +'\nCon fecha de renovación: '+r.conRenov+' de '+r.vivos+'.'};}},
 
+{app:'ofi', titulo:'La orden que el técnico finalizó no se devuelve al guardar',
+ porque:'Reportado por Elkin por TERCERA vez: el técnico finaliza, bodega aprueba el material, '
+       +'y la orden vuelve a salir pendiente. Quedaban tres agujeros: las lecturas frescas '
+       +'podían venir del caché sin avisar, el documento quedaba congelado durante los '
+       +'reintentos, y la fusión decidía solo por hora de reloj —un PC adelantado le ganaba al '
+       +'celular del técnico—. La fusión ahora corre en cada intento, lee del servidor o falla, '
+       +'y la prueba de cierre (finalizada, material, cancelación) desempata contra el reloj.',
+ correr:W=>{ const r=E(W,
+     'const T=Date.now();'
+   // [1] el técnico la finalizó DESPUÉS: la nube gana por hora
+   +'const c1=_fusionOrdenesPura('
+   +'  [{id:"a", estado:"aceptada", actualizada:T-60000}],'
+   +'  [{id:"a", estado:"finalizada", finalizada:T-1000, actualizada:T-1000}], T);'
+   // [2] RELOJ CORRIDO: la copia local vieja trae sello MAYOR, pero la nube trae la prueba
+   +'const c2=_fusionOrdenesPura('
+   +'  [{id:"a", estado:"aceptada", actualizada:T+300000}],'
+   +'  [{id:"a", estado:"finalizada", finalizada:T-1000, actualizada:T-1000, materialGastado:{items:[]}}], T);'
+   // [3] reagenda legítima hecha aquí: retrocede el estado CON sello fresco y sin prueba en la nube
+   +'const c3=_fusionOrdenesPura('
+   +'  [{id:"a", estado:"aceptada", actualizada:T}],'
+   +'  [{id:"a", estado:"reagendar", actualizada:T-60000}], T);'
+   // [4] orden creada en otro equipo hace 5 min se suma; una archivada de hace días no vuelve
+   +'const c4=_fusionOrdenesPura('
+   +'  [{id:"a", estado:"pendiente", actualizada:T}],'
+   +'  [{id:"a", estado:"pendiente", actualizada:T},'
+   +'   {id:"nueva", estado:"pendiente", creada:T-5*60000, actualizada:T-5*60000},'
+   +'   {id:"vieja", estado:"finalizada", finalizada:T-5*86400000, actualizada:T-5*86400000}], T);'
+   +'return {c1:c1.fusion[0].estado, c2:c2.fusion[0].estado, c2mat:!!c2.fusion[0].materialGastado,'
+   +'        c3:c3.fusion[0].estado, c4ids:c4.fusion.map(function(o){return o.id;}).sort().join(",")};');
+   const bien = r.c1==='finalizada' && r.c2==='finalizada' && r.c2mat===true
+             && r.c3==='aceptada' && r.c4ids==='a,nueva';
+   return {ok:bien, detalle: bien
+     ? 'El técnico la finalizó después: la finalización se respeta ✓'
+      +'\nCon el reloj del PC adelantado, la PRUEBA de cierre le gana al reloj: no se devuelve ✓'
+      +'\nUna reagenda legítima (retroceso hecho aquí, con sello fresco) sí pasa ✓'
+      +'\nLa orden creada en otro equipo entra, y la archivada vieja no vuelve ✓'
+     : 'finalizada por hora: '+r.c1+' (finalizada)'
+       +'\ncon reloj corrido: '+r.c2+' (finalizada) · conserva material: '+r.c2mat+' (true)'
+       +'\nreagenda: '+r.c3+' (aceptada) · ids finales: '+r.c4ids+' (a,nueva)'};}},
+
 {app:'ofi', titulo:'Un guardado sin clientes cargados no los esconde',
  porque:'Pasó de verdad el 31/8/2026 a las 9:44. Los clientes viven en documentos aparte y un '
        +'índice dice cuántos bloques tiene cada oficina. El índice se armaba con lo que hubiera '
