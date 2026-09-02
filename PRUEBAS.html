@@ -1321,6 +1321,71 @@ const PRUEBAS = [
        +'\nen la lista de su caja: '+r.enLaLista+' (1) · en otra caja: '+r.enOtraCaja+' (0)'
        +'\ncolor: '+r.color+' (esperado '+r.esperado3+')'};}},
 
+{app:'red', titulo:'Sin tema elegido, la red abre en la réplica de OZmap',
+ porque:'Elkin revisó la v38 y no funcionaba como OZmap: la app abría en nocturno y la réplica '
+       +'quedaba escondida detrás de un botón que había que conocer. Ahora sin elección guardada '
+       +'se abre en diurno (la réplica); quien ya eligió nocturno lo conserva, y el arranque por '
+       +'defecto NO escribe la llave compartida: solo el botón decide por las cuatro apps.',
+ correr:W=>{ const r=E(W,
+     'const antes=localStorage.getItem("pv_theme");'
+   +'try{'
+   +'  localStorage.removeItem("pv_theme");'
+   +'  aplicarTemaGuardado();'
+   +'  const sinEleccion=document.body.classList.contains("light-mode");'
+   +'  const escribio=localStorage.getItem("pv_theme");'
+   +'  localStorage.setItem("pv_theme","dark");'
+   +'  aplicarTemaGuardado();'
+   +'  const conNocturno=document.body.classList.contains("light-mode");'
+   +'  localStorage.setItem("pv_theme","light");'
+   +'  aplicarTemaGuardado();'
+   +'  const conDiurno=document.body.classList.contains("light-mode");'
+   +'  return {sinEleccion, escribio, conNocturno, conDiurno};'
+   +'} finally {'
+   +'  if(antes===null) localStorage.removeItem("pv_theme"); else localStorage.setItem("pv_theme",antes);'
+   +'  aplicarTemaGuardado();'
+   +'}');
+   const bien = r.sinEleccion===true && r.escribio===null
+             && r.conNocturno===false && r.conDiurno===true;
+   return {ok:bien, detalle: bien
+     ? 'Sin elección guardada abre en la réplica ✓ y NO escribe la llave compartida ✓'
+      +'\nQuien eligió nocturno lo conserva ✓ y quien eligió diurno también ✓'
+     : 'sin elección abre claro: '+r.sinEleccion+' (true) · escribió la llave: '+JSON.stringify(r.escribio)+' (null)'
+       +'\ncon nocturno guardado queda claro: '+r.conNocturno+' (false) · con diurno: '+r.conDiurno+' (true)'};}},
+
+{app:'red', titulo:'El globo x/y dice ocupados sobre capacidad, sin inventar',
+ porque:'Con todo activado en OZmap, cada zona muestra un globo x/y: puertos ocupados sobre '
+       +'capacidad instalada. Es la lectura comercial del mapa. El nuestro tiene que contar solo '
+       +'las cajas DENTRO de la region, y un condominio sin unidades ni splitter no puede mostrar '
+       +'un globo inventado: mejor ninguno que uno falso.',
+ correr:W=>{ const r=E(W, 'const guardar=RED;'
+   +'const caja=(id,la,lo,cap,ocupados)=>{ const c={id, tipo:"caja", clase:"cto", nombre:id,'
+   +'    g:[[la,lo]], splitters:[{tipo:"1x"+cap, ratio:""}], puertos:{}};'
+   +'  for(let k=1;k<=ocupados;k++) c.puertos[k]={cliente:"C"+k};'
+   +'  return c; };'
+   +'RED={elementos:['
+   +'  caja("dentro1", 1.001, 1.001, 8, 3),'
+   +'  caja("dentro2", 1.002, 1.002, 16, 5),'
+   +'  caja("fuera",   5, 5, 8, 8)'
+   +']};'
+   +'const region={g:[[1,1],[1,1.01],[1.01,1.01],[1.01,1]]};'
+   +'const pen=_penetracionRegion(region);'
+   +'const condo={tipo:"caja", clase:"condominio", unidades:24,'
+   +'  splitters:[{tipo:"1x8", ratio:""}], puertos:{1:{cliente:"A"},2:{cliente:"B"}}};'
+   +'const g1=_globoCondominio(condo);'
+   +'const vacio={tipo:"caja", clase:"condominio", splitters:[], puertos:{}};'
+   +'const g2=_globoCondominio(vacio);'
+   +'RED=guardar;'
+   +'return {ocu:pen.ocu, cap:pen.cap, cajas:pen.cajas, condo:g1, vacio:g2};');
+   const bien = r.ocu===8 && r.cap===24 && r.cajas===2
+             && r.condo && r.condo.ocu===2 && r.condo.total===24 && r.vacio===null;
+   return {ok:bien, detalle: bien
+     ? 'La región suma SOLO sus dos cajas: 8 ocupados de 24, y la de afuera no cuenta ✓'
+      +'\nEl condominio muestra 2 de sus 24 unidades ✓'
+      +'\nY uno sin unidades ni splitter NO muestra globo: mejor ninguno que uno falso ✓'
+     : 'región: '+r.ocu+'/'+r.cap+' en '+r.cajas+' cajas (esperaba 8/24 en 2)'
+       +'\ncondominio: '+JSON.stringify(r.condo)+' (ocu 2, total 24)'
+       +'\nvacío: '+JSON.stringify(r.vacio)+' (null)'};}},
+
 {app:'red', titulo:'De lejos los clientes se agrupan en globos, como en OZmap',
  porque:'Con el mapa alejado, cientos de puntos de clientes son ruido. OZmap los junta en globos '
        +'verdes con el número y aquí igual. La agrupación es por celdas de PANTALLA: dos que se '
