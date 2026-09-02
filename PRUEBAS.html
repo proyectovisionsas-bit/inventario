@@ -848,7 +848,7 @@ const PRUEBAS = [
      if(!r.ok) throw new Error('no se pudo leer REVISION_SOPORTES.gs ('+r.status+')');
      return r.text();
    });
-   const gs=new Function(codigo+';\nreturn {comparar:REV_comparar, pasajero:REV_esPasajero};')();
+   const gs=new Function(codigo+';\nreturn {comparar:REV_comparar, pasajero:REV_esPasajero, sigue:REV_debeContinuar};')();
    const leidoBase={es_comprobante:true, valor:50000, destinatario:'', cuenta_destino:'',
                     referencia:'', entidad:'', legible:true, nota:''};
    const caso=(fPapel,fMov,fSubida)=>gs.comparar(
@@ -870,7 +870,12 @@ const PRUEBAS = [
              && tapadoYTarde.length===2
              && sinDato.length===1 && sinDato[0].que.indexOf('movimiento')>=0
              && gs.pasajero(503)===true && gs.pasajero(429)===true && gs.pasajero(500)===true
-             && gs.pasajero(404)===false && gs.pasajero(400)===false;
+             && gs.pasajero(404)===false && gs.pasajero(400)===false
+             && gs.sigue(48,35,false,0)===true   // quedó cola y se avanzó: otra corrida
+             && gs.sigue(0,35,false,0)===false   // cola vacía: a dormir
+             && gs.sigue(48,0,false,0)===false   // nada avanzó: repetir no mejora nada
+             && gs.sigue(48,35,true,0)===false   // Gemini saturado: mañana será
+             && gs.sigue(48,35,false,10)===false; // tope de la cadena: no se corre eternamente
    const cuenta=r=>r.map(x=>x.gravedad).join(',')||'ninguno';
    return {ok:bien, detalle: bien
      ? 'El caso de Elkin (papel del 10/ago subido el 1/sep, movimiento tapado con la fecha vieja):'
@@ -878,6 +883,8 @@ const PRUEBAS = [
       +'\nUn papel con fecha del futuro también se anota ✓ y sin dato de subida no se cae:'
       +' sigue el chequeo del movimiento ✓'
       +'\nUn 503 de Gemini (saturado) se reconoce como pasajero y se aplaza; un 404 no ✓'
+      +'\nY con cola grande la corrida se encadena sola: sigue si avanzó y quedó cola, para si'
+      +' está vacía, si no avanzó, si Gemini está saturado o al tope de 10 corridas ✓'
      : 'caso de Elkin: '+cuenta(elCasoDeElkin)+' (alta) · mismo día: '+cuenta(mismoDia)+' (ninguno)'
       +'\nfin de semana: '+cuenta(finDeSemana)+' (ninguno) · futuro: '+cuenta(delFuturo)+' (media)'
       +'\ntapado y tarde: '+cuenta(tapadoYTarde)+' (2 reparos) · sin dato: '+cuenta(sinDato)+' (media)'};}},

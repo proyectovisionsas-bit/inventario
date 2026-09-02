@@ -59,6 +59,12 @@
  * pasajero (429/5xx) reintenta a los 10 segundos y, si persiste, APLAZA el
  * soporte para la noche siguiente (hasta 3 noches); tres saturaciones
  * seguidas cortan la corrida para no quemar tiempo contra un servicio caído.
+ *
+ * Y LA TERCERA DEL DÍA, pedida por Elkin: la corrida ya no se conforma con
+ * una tanda fija de 35. Trabaja mirando el reloj (4,5 minutos, porque Apps
+ * Script corta a los 6), guarda, y si quedó cola SE PROGRAMA SOLA para dos
+ * minutos después, hasta vaciarla. El disparador de la 1 a. m. no cambia, y
+ * un solo ▶ manual de revisarSoportesPendientes también encadena el resto.
  * ════════════════════════════════════════════════════════════════════════════
  */
 
@@ -72,7 +78,9 @@ var REV_COLECCION  = 'oficinas_sistema';
 // no existe), así que si un día empieza a fallar con "404", entra a
 // aistudio.google.com, mira qué modelos hay y cambia solo esta línea.
 var REV_MODELO     = 'gemini-3.6-flash';        // rápido y barato; lee imagen y PDF
-var REV_POR_TANDA  = 35;                        // cuántos por corrida (Apps Script corta a los 6 min)
+var REV_POR_TANDA  = 100;                       // tope de seguridad por corrida; el reloj es el que manda
+var REV_TOPE_MS    = 270000;                    // 4,5 min de trabajo: Apps Script corta a los 6, mejor parar antes con todo guardado
+var REV_MAX_CADENA = 10;                        // continuaciones por noche (10 × ~40 soportes alcanza de sobra)
 var REV_PAUSA_MS   = 1200;                      // respiro entre llamadas, para no chocar con el límite
 
 function REV_prop(nombre){
@@ -342,8 +350,36 @@ function REV_comparar(item, leido){
 
 // ════════════════════════════════════════════════════════════════════════════
 // LA CORRIDA DE CADA NOCHE
+// Pedido de Elkin (2 sep 2026): que haga LAS QUE HAGAN FALTA por noche sin
+// pasarse del límite. Apps Script corta toda ejecución a los 6 minutos, así
+// que una sola corrida no puede con una cola grande. En vez de subir el tope
+// y rezar, la corrida mira el reloj: trabaja 4,5 minutos, GUARDA lo hecho, y
+// si quedó cola se programa a sí misma para dentro de un par de minutos.
+// Así la noche entera es una cadena de corridas cortas y la cola amanece
+// vacía, sin acercarse nunca al corte. La cadena tiene tope (REV_MAX_CADENA)
+// y solo continúa si esta corrida avanzó de verdad: contra un Gemini caído
+// no se insiste (eso ya lo corta la regla de las 3 saturaciones seguidas).
+// El disparador de la 1 a. m. NO cambia: sigue llamando a
+// revisarSoportesPendientes, y el ▶ manual también — con una sola ejecutada,
+// el resto sigue solo.
 // ════════════════════════════════════════════════════════════════════════════
-function revisarSoportesPendientes(){
+function revisarSoportesPendientes(){ REV_correr(false); }
+function continuarRevisionNocturna(){ REV_correr(true); }
+
+/* ¿Vale la pena otra corrida? Solo si quedó cola, si ESTA corrida avanzó
+   (nuevos > 0: si nada entró, repetir no va a mejorar nada), si no cortó la
+   saturación de Gemini, y si la cadena no llegó a su tope. */
+function REV_debeContinuar(restantes, nuevos, cortada, cadena){
+  return restantes > 0 && nuevos > 0 && !cortada && (Number(cadena)||0) < REV_MAX_CADENA;
+}
+
+function REV_correr(esContinuacion){
+  var inicioCorrida = Date.now();
+  // Los ganchos de continuación ya disparados quedan como chatarra en el
+  // proyecto (hay un máximo de 20): se limpian al arrancar.
+  ScriptApp.getProjectTriggers().forEach(function(t){
+    if(t.getHandlerFunction() === 'continuarRevisionNocturna') ScriptApp.deleteTrigger(t);
+  });
   var doc = REV_leerDoc();
   var cola = doc.cola || [];
   var pendientes = cola.filter(function(x){ return !x.revisado; });
@@ -358,8 +394,10 @@ function revisarSoportesPendientes(){
   var nuevos = 0, conReparos = 0, fallidos = 0;
   var cortada = false, seguidos = 0, aplazados = 0;
 
+  var porTiempo = false;
   tanda.forEach(function(item, i){
     if(cortada) return;
+    if((Date.now() - inicioCorrida) > REV_TOPE_MS){ porTiempo = true; return; }
     if(i > 0) Utilities.sleep(REV_PAUSA_MS);
     var salida = { id:item.id, oficina:item.oficina, movId:item.movId,
                    revisadoEn:new Date().toISOString() };
@@ -420,11 +458,21 @@ function revisarSoportesPendientes(){
   // límite de 1 MB por documento que impone Firestore.
   if(doc.resultados.length > 1500) doc.resultados = doc.resultados.slice(-1500);
   doc.ultimaCorrida = new Date().toISOString();
+  // La cuenta de la cadena: la corrida de la 1 a. m. (o el ▶ manual) la pone
+  // en cero; cada continuación suma uno.
+  doc.cadena = esContinuacion ? (Number(doc.cadena)||0) + 1 : 0;
 
   REV_guardarDoc(doc);
+  var restantes = pendientes.length - nuevos;
   Logger.log('Revisados '+nuevos+' · con reparos '+conReparos+' · con error '+fallidos
            + (aplazados ? ' · aplazados por saturación '+aplazados : '')
-           + ' · quedan '+(pendientes.length-nuevos)+' para la próxima corrida.');
+           + (porTiempo ? ' · se paró por tiempo, con todo guardado' : '')
+           + ' · quedan '+restantes+'.');
+
+  if(REV_debeContinuar(restantes, nuevos, cortada, doc.cadena)){
+    ScriptApp.newTrigger('continuarRevisionNocturna').timeBased().after(90*1000).create();
+    Logger.log('La revisión continúa SOLA en un par de minutos con los '+restantes+' que quedan.');
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -441,7 +489,8 @@ function instalarRevisionNocturna(){
 function quitarRevisionNocturna(){
   var n = 0;
   ScriptApp.getProjectTriggers().forEach(function(t){
-    if(t.getHandlerFunction() === 'revisarSoportesPendientes'){ ScriptApp.deleteTrigger(t); n++; }
+    if(t.getHandlerFunction() === 'revisarSoportesPendientes'
+    || t.getHandlerFunction() === 'continuarRevisionNocturna'){ ScriptApp.deleteTrigger(t); n++; }
   });
   Logger.log('Se quitaron '+n+' programación(es). La revisión ya no corre sola.');
 }
