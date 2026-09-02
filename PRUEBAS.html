@@ -837,6 +837,48 @@ const PRUEBAS = [
        +'\nuna sola '+r.unaSolaOficina+' · sin oficinas '+r.sinOficinas
        +' · egreso '+r.egresoResta+' · ingreso '+r.ingresoSuma+' · vacío '+r.valorSucio};}},
 
+{app:'ofi', titulo:'Un comprobante viejo subido hoy se anota, aunque el movimiento lo tapen',
+ porque:'El chequeo nocturno comparaba la fecha del papel contra la fecha del MOVIMIENTO, y esa '
+       +'la escribe quien registra: poniendo la fecha vieja del papel todo cuadraba. Caso real de '
+       +'Elkin: el 1 de septiembre subieron un comprobante del 10 de agosto y nadie se enteró. '
+       +'Ahora también se compara contra el día de SUBIDA, que no lo escribe nadie. Esta prueba '
+       +'ejecuta el comparador de verdad, leído del archivo del Apps Script, no una copia.',
+ correr:async W=>{
+   const codigo=await fetch('REVISION_SOPORTES.gs').then(r=>{
+     if(!r.ok) throw new Error('no se pudo leer REVISION_SOPORTES.gs ('+r.status+')');
+     return r.text();
+   });
+   const gs=new Function(codigo+';\nreturn {comparar:REV_comparar};')();
+   const leidoBase={es_comprobante:true, valor:50000, destinatario:'', cuenta_destino:'',
+                    referencia:'', entidad:'', legible:true, nota:''};
+   const caso=(fPapel,fMov,fSubida)=>gs.comparar(
+     {valorRegistrado:50000, fechaRegistrada:fMov, tipo:'egreso', subidoEn:fSubida},
+     Object.assign({}, leidoBase, {fecha:fPapel}));
+
+   const elCasoDeElkin = caso('2026-08-10','2026-08-10','2026-09-01T14:00:00.000Z');
+   const mismoDia      = caso('2026-09-01','2026-09-01','2026-09-01T14:00:00.000Z');
+   const finDeSemana   = caso('2026-08-28','2026-08-31','2026-08-31T09:00:00.000Z');
+   const delFuturo     = caso('2026-09-06','2026-09-06','2026-09-01T14:00:00.000Z');
+   const tapadoYTarde  = caso('2026-08-10','2026-09-01','2026-09-01T14:00:00.000Z');
+   const sinDato       = gs.comparar({valorRegistrado:50000, fechaRegistrada:'2026-09-01', tipo:'egreso'},
+                                     Object.assign({}, leidoBase, {fecha:'2026-08-10'}));
+
+   const bien = elCasoDeElkin.length===1 && elCasoDeElkin[0].gravedad==='alta'
+             && elCasoDeElkin[0].que.indexOf('subió')>=0
+             && mismoDia.length===0 && finDeSemana.length===0
+             && delFuturo.length===1 && delFuturo[0].que.indexOf('POSTERIOR')>=0
+             && tapadoYTarde.length===2
+             && sinDato.length===1 && sinDato[0].que.indexOf('movimiento')>=0;
+   const cuenta=r=>r.map(x=>x.gravedad).join(',')||'ninguno';
+   return {ok:bien, detalle: bien
+     ? 'El caso de Elkin (papel del 10/ago subido el 1/sep, movimiento tapado con la fecha vieja):'
+      +' ahora salta con gravedad ALTA ✓\nSubir el mismo día o el lunes lo del viernes: sin reparos ✓'
+      +'\nUn papel con fecha del futuro también se anota ✓ y sin dato de subida no se cae:'
+      +' sigue el chequeo del movimiento ✓'
+     : 'caso de Elkin: '+cuenta(elCasoDeElkin)+' (alta) · mismo día: '+cuenta(mismoDia)+' (ninguno)'
+      +'\nfin de semana: '+cuenta(finDeSemana)+' (ninguno) · futuro: '+cuenta(delFuturo)+' (media)'
+      +'\ntapado y tarde: '+cuenta(tapadoYTarde)+' (2 reparos) · sin dato: '+cuenta(sinDato)+' (media)'};}},
+
 {app:'ofi', titulo:'La cola del segundo par de ojos se arma bien',
  porque:'El programa que revisa los soportes vive en el Apps Script del Drive y solo ve esta cola. '
        +'Si una entrada le llega incompleta, ese comprobante no se revisa y nadie se entera. '
@@ -860,8 +902,12 @@ const PRUEBAS = [
    +'                    "fechaRegistrada","tipo","creadoEn"].filter(function(k){'
    +'                       return e[k]===undefined || e[k]===null || e[k]===""; });'
    // El corte se respeta: nada anterior a la fecha pedida
+   // v278: un movimiento viejo con soporte subido DESPUÉS del corte sí entra
+   // (para eso fue el arreglo); mal encolado es solo el viejo por los DOS lados.
    +'        var viejos=mem.cola.filter(function(x){'
-   +'                       return String(x.fechaRegistrada||"").slice(0,10) < "2026-08-01"; }).length;'
+   +'                       var fm=String(x.fechaRegistrada||"").slice(0,10);'
+   +'                       var fsu=String(x.subidoEn||"").slice(0,10);'
+   +'                       return (!fm || fm < "2026-08-01") && (!fsu || fsu < "2026-08-01"); }).length;'
    // Lo resuelto deja de contarse como abierto
    +'        mem.resultados=[{id:"x", estado:"revisar", reparos:[{gravedad:"alta",que:"algo"}]},'
    +'                        {id:"y", estado:"revisar", resuelto:true, reparos:[]},'

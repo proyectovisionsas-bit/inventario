@@ -46,6 +46,12 @@
  *
  *  4. Elige  instalarRevisionNocturna  y dale ▶ una sola vez.
  *     Desde ahí corre solo, todas las noches a la 1 a. m.
+ *
+ * ACTUALIZADO EL 2 SEP 2026: se agregó el chequeo de la fecha de SUBIDA (un
+ * comprobante viejo subido hoy ahora se anota, aunque el movimiento se haya
+ * registrado con la fecha vieja). Si ya lo tenías andando, basta con
+ * reemplazar TODO el contenido del archivo por este y guardar: el
+ * programador nocturno sigue igual, no hay que instalar nada de nuevo.
  * ════════════════════════════════════════════════════════════════════════════
  */
 
@@ -256,6 +262,31 @@ function REV_comparar(item, leido){
     reparos.push({gravedad: d > 30 ? 'alta' : 'media',
       que:'El comprobante es del '+leido.fecha+' y el movimiento quedó el '
          + String(item.fechaRegistrada||'').slice(0,10)+' ('+d+' días de diferencia).'});
+  }
+
+  // La fecha contra el día de SUBIDA (pedido de Elkin, 2 sep 2026). El chequeo
+  // de arriba compara contra la fecha del MOVIMIENTO, y esa la escribe quien
+  // registra: si pone la fecha vieja del papel, todo cuadra. El caso real fue
+  // un comprobante del 10 de agosto subido el 1 de septiembre sin que nadie
+  // se enterara. La holgura es de 3 días: pagar viernes y subir lunes pasa;
+  // tres semanas no. Y un papel con fecha POSTERIOR a su subida también se
+  // anota: o la fecha se leyó mal o el papel no es de ese pago.
+  var fSubida = String(item.subidoEn || item.creadoEn || '').slice(0,10);
+  if(leido.fecha && fSubida){
+    var dPapel = new Date(leido.fecha+'T12:00:00'), dSubida = new Date(fSubida+'T12:00:00');
+    if(!isNaN(dPapel) && !isNaN(dSubida)){
+      var atraso = Math.round((dSubida - dPapel)/86400000);   // positivo = papel viejo
+      if(atraso > 3){
+        reparos.push({gravedad: atraso > 15 ? 'alta' : 'media',
+          que:'El comprobante es del '+leido.fecha+' pero se subió el '+fSubida
+             +': '+atraso+' días después.'});
+      } else if(atraso < -1){
+        reparos.push({gravedad:'media',
+          que:'El comprobante tiene fecha del '+leido.fecha+', POSTERIOR al día en que'
+             +' se subió ('+fSubida+'). O la fecha se leyó mal o el papel no'
+             +' corresponde a este pago.'});
+      }
+    }
   }
 
   // A quién se le pagó. Solo aplica a los INGRESOS: la plata que entra tiene
