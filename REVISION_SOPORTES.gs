@@ -52,6 +52,13 @@
  * registrado con la fecha vieja). Si ya lo tenías andando, basta con
  * reemplazar TODO el contenido del archivo por este y guardar: el
  * programador nocturno sigue igual, no hay que instalar nada de nuevo.
+ *
+ * Y MÁS TARDE ESE MISMO DÍA: Gemini respondió 503 ("saturado, vuelve luego")
+ * en plena prueba de Elkin. Antes, esa saturación a la 1 a. m. marcaba el
+ * soporte como error PARA SIEMPRE sin haberlo leído. Ahora un error
+ * pasajero (429/5xx) reintenta a los 10 segundos y, si persiste, APLAZA el
+ * soporte para la noche siguiente (hasta 3 noches); tres saturaciones
+ * seguidas cortan la corrida para no quemar tiempo contra un servicio caído.
  * ════════════════════════════════════════════════════════════════════════════
  */
 
@@ -187,8 +194,11 @@ function REV_preguntarGemini(blob, mime){
     method:'post', contentType:'application/json',
     payload: JSON.stringify(cuerpo), muteHttpExceptions:true
   });
-  if(r.getResponseCode() !== 200)
-    throw new Error('Gemini respondió '+r.getResponseCode()+': '+r.getContentText().slice(0,200));
+  if(r.getResponseCode() !== 200){
+    var eG = new Error('Gemini respondió '+r.getResponseCode()+': '+r.getContentText().slice(0,200));
+    eG.pasajero = REV_esPasajero(r.getResponseCode());
+    throw eG;
+  }
   var d = JSON.parse(r.getContentText());
   var txt = '';
   try{ txt = d.candidates[0].content.parts[0].text; }
@@ -207,6 +217,24 @@ function REV_preguntarGemini(blob, mime){
     var m = txt.match(/\{[\s\S]*\}/);          // por si envuelve el JSON en texto
     if(m) return JSON.parse(m[0]);
     throw new Error('No se entendió la respuesta de Gemini: '+txt.slice(0,150));
+  }
+}
+
+/* Un 429 o un 5xx no es culpa de nadie: es Gemini saturado o caído, y pasa a
+   ratos (Elkin lo vio el 2 sep 2026: 503 "high demand"). Ese error es
+   PASAJERO: mañana el mismo archivo se lee bien. Un 400 o 404 sí es de
+   verdad y reintentar no lo arregla. */
+function REV_esPasajero(codigo){
+  return codigo === 429 || codigo >= 500;
+}
+
+/* Un respiro y un segundo intento antes de rendirse esta noche. */
+function REV_preguntarGeminiConCalma(blob, mime){
+  try{ return REV_preguntarGemini(blob, mime); }
+  catch(e){
+    if(!e || !e.pasajero) throw e;
+    Utilities.sleep(10000);
+    return REV_preguntarGemini(blob, mime);
   }
 }
 
@@ -328,8 +356,10 @@ function revisarSoportesPendientes(){
 
   var tanda = pendientes.slice(0, REV_POR_TANDA);
   var nuevos = 0, conReparos = 0, fallidos = 0;
+  var cortada = false, seguidos = 0, aplazados = 0;
 
   tanda.forEach(function(item, i){
+    if(cortada) return;
     if(i > 0) Utilities.sleep(REV_PAUSA_MS);
     var salida = { id:item.id, oficina:item.oficina, movId:item.movId,
                    revisadoEn:new Date().toISOString() };
@@ -343,7 +373,7 @@ function revisarSoportesPendientes(){
       if(mime.indexOf('image/') !== 0 && mime !== 'application/pdf')
         throw new Error('Tipo de archivo que no se puede leer: '+mime);
 
-      var leido = REV_preguntarGemini(blob, mime);
+      var leido = REV_preguntarGeminiConCalma(blob, mime);
       var reparos = REV_comparar(item, leido);
 
       salida.leido   = leido;
@@ -351,10 +381,31 @@ function revisarSoportesPendientes(){
       salida.estado  = reparos.length === 0 ? 'ok'
                      : (reparos.some(function(r){ return r.gravedad === 'alta'; }) ? 'revisar' : 'aviso');
       if(reparos.length) conReparos++;
+      seguidos = 0;
     }catch(e){
+      /* Un error PASAJERO (Gemini saturado o caído) no consume el soporte:
+         se aplaza sin marcarlo revisado y mañana se intenta de nuevo. Solo
+         a la cuarta noche fallida se registra como error, para que un
+         archivo gafado no se reintente eternamente. Y tres pasajeros
+         SEGUIDOS cortan la corrida: si Gemini está caído, insistir con los
+         que faltan solo quema el tiempo y la cuota. */
+      var intentos = 0, k0;
+      for(k0=0; k0<cola.length; k0++) if(cola[k0].id === item.id)
+        intentos = Number(cola[k0].intentosPasajeros || 0);
+      if(e && e.pasajero && intentos < 3){
+        for(k0=0; k0<cola.length; k0++) if(cola[k0].id === item.id)
+          cola[k0].intentosPasajeros = intentos + 1;
+        aplazados++; seguidos++;
+        if(seguidos >= 3){
+          cortada = true;
+          Logger.log('Gemini está saturado: se corta la corrida y lo pendiente queda para mañana.');
+        }
+        return;
+      }
       salida.estado = 'error';
       salida.error  = String(e.message || e);
       fallidos++;
+      seguidos = 0;
     }
     doc.resultados.push(salida);
     // Se marca en la cola para no volver a gastar en el mismo.
@@ -372,6 +423,7 @@ function revisarSoportesPendientes(){
 
   REV_guardarDoc(doc);
   Logger.log('Revisados '+nuevos+' · con reparos '+conReparos+' · con error '+fallidos
+           + (aplazados ? ' · aplazados por saturación '+aplazados : '')
            + ' · quedan '+(pendientes.length-nuevos)+' para la próxima corrida.');
 }
 
@@ -423,7 +475,13 @@ function probarConfiguracion(){
       'image/png', 'prueba.png');
     var r = REV_preguntarGemini(png, 'image/png');
     Logger.log('✓ Gemini respondió correctamente (dijo es_comprobante='+r.es_comprobante+').');
-  }catch(e){ problemas.push('Gemini no respondió bien: '+e.message); }
+  }catch(e){
+    if(e && e.pasajero)
+      Logger.log('✓ La clave de Gemini llega a Google, pero el modelo está saturado en este'
+               + ' momento (es pasajero y no depende de ti). La configuración está bien;'
+               + ' la corrida nocturna reintenta sola.');
+    else problemas.push('Gemini no respondió bien: '+e.message);
+  }
 
   try{
     DriveApp.getRootFolder().getName();

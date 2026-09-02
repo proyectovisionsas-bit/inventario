@@ -848,7 +848,7 @@ const PRUEBAS = [
      if(!r.ok) throw new Error('no se pudo leer REVISION_SOPORTES.gs ('+r.status+')');
      return r.text();
    });
-   const gs=new Function(codigo+';\nreturn {comparar:REV_comparar};')();
+   const gs=new Function(codigo+';\nreturn {comparar:REV_comparar, pasajero:REV_esPasajero};')();
    const leidoBase={es_comprobante:true, valor:50000, destinatario:'', cuenta_destino:'',
                     referencia:'', entidad:'', legible:true, nota:''};
    const caso=(fPapel,fMov,fSubida)=>gs.comparar(
@@ -868,13 +868,16 @@ const PRUEBAS = [
              && mismoDia.length===0 && finDeSemana.length===0
              && delFuturo.length===1 && delFuturo[0].que.indexOf('POSTERIOR')>=0
              && tapadoYTarde.length===2
-             && sinDato.length===1 && sinDato[0].que.indexOf('movimiento')>=0;
+             && sinDato.length===1 && sinDato[0].que.indexOf('movimiento')>=0
+             && gs.pasajero(503)===true && gs.pasajero(429)===true && gs.pasajero(500)===true
+             && gs.pasajero(404)===false && gs.pasajero(400)===false;
    const cuenta=r=>r.map(x=>x.gravedad).join(',')||'ninguno';
    return {ok:bien, detalle: bien
      ? 'El caso de Elkin (papel del 10/ago subido el 1/sep, movimiento tapado con la fecha vieja):'
       +' ahora salta con gravedad ALTA ✓\nSubir el mismo día o el lunes lo del viernes: sin reparos ✓'
       +'\nUn papel con fecha del futuro también se anota ✓ y sin dato de subida no se cae:'
       +' sigue el chequeo del movimiento ✓'
+      +'\nUn 503 de Gemini (saturado) se reconoce como pasajero y se aplaza; un 404 no ✓'
      : 'caso de Elkin: '+cuenta(elCasoDeElkin)+' (alta) · mismo día: '+cuenta(mismoDia)+' (ninguno)'
       +'\nfin de semana: '+cuenta(finDeSemana)+' (ninguno) · futuro: '+cuenta(delFuturo)+' (media)'
       +'\ntapado y tarde: '+cuenta(tapadoYTarde)+' (2 reparos) · sin dato: '+cuenta(sinDato)+' (media)'};}},
