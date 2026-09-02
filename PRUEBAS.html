@@ -1319,6 +1319,65 @@ const PRUEBAS = [
        +'\nen la lista de su caja: '+r.enLaLista+' (1) · en otra caja: '+r.enOtraCaja+' (0)'
        +'\ncolor: '+r.color+' (esperado '+r.esperado3+')'};}},
 
+{app:'red', titulo:'Medir de caja a caja sigue el cable, no la recta',
+ porque:'Visto en OZmap con Elkin: cuántos metros hay entre dos cajas SIGUIENDO el cable es la '
+       +'pregunta diaria del que empalma, y la línea recta engaña porque el cable va por los '
+       +'postes. Es el mismo cálculo de la ruta al POP pero entre dos cajas cualesquiera. Y si '
+       +'la red está partida entre las dos, hay que decirlo, no inventar un número.',
+ correr:W=>{ const r=E(W, 'const guardar=RED;'
+   +'const caja=(id,nom,clase,cables)=>({id, nombre:nom, tipo:"caja", clase:clase||"nap", g:[[1,1]], cables:cables||[]});'
+   +'const cable=(id,m)=>({id, tipo:"cable", metros:m, g:[[1,1],[1,1.001]]});'
+   +'RED={elementos:['
+   +'  caja("P","POP","pop",[{id:"c1",hacia:"A"},{id:"c3",hacia:"C"}]),'
+   +'  caja("A","A",null,[{id:"c1",hacia:"POP"},{id:"c2",hacia:"B"}]),'
+   +'  caja("B","B",null,[{id:"c2",hacia:"A"},{id:"c5",hacia:"D"}]),'
+   +'  caja("C","C",null,[{id:"c3",hacia:"POP"},{id:"c4",hacia:"D"}]),'
+   +'  caja("D","D",null,[{id:"c4",hacia:"C"},{id:"c5",hacia:"B"}]),'
+   +'  caja("X","SUELTA",null,[]),'
+   +'  cable("c1",100), cable("c2",100), cable("c3",1500), cable("c4",1500), cable("c5",10)'
+   +']};'
+   +'const bc=_caminoEntreCajas("B","C");'
+   +'const pa=_caminoEntreCajas("P","A");'
+   +'const px=_caminoEntreCajas("P","X");'
+   +'const res={bc:bc?{m:bc.metros, pasos:bc.pasos.length, por:bc.pasos.map(function(x){return x.cajaId;}).join("→")}:null,'
+   +'           pa:pa?pa.metros:null, px:px};'
+   +'RED=guardar; return res;');
+   const bien = r.bc && r.bc.m===1510 && r.bc.pasos===2 && r.bc.por==='D→C'
+             && r.pa===100 && r.px===null;
+   return {ok:bien, detalle: bien
+     ? 'De B a C hay un rodeo de 1.700 m y un atajo por D de 1.510 m: toma el atajo ✓'
+      +'\nY dice por dónde pasa: por la caja D ✓'
+      +'\nEntre vecinas directas da los metros del cable (100) ✓'
+      +'\nY con una caja SUELTA responde "no hay camino" en vez de inventar un número ✓'
+     : 'B→C: '+JSON.stringify(r.bc)+' (esperaba 1510 m, 2 pasos, D→C)'
+       +'\nP→A: '+r.pa+' (100) · hasta la suelta: '+JSON.stringify(r.px)+' (null)'};}},
+
+{app:'red', titulo:'La viabilidad tiene memoria y no se llena de ecos',
+ porque:'Visto en OZmap: cada consulta de viabilidad queda registrada, y las NEGADAS amontonadas '
+       +'son el mejor dato para decidir dónde ampliar — demanda esperando. Pero dos clics '
+       +'seguidos en el mismo andén son UNA pregunta, no dos: el registro que se llena de ecos '
+       +'termina mintiendo sobre cuánta demanda hay.',
+ correr:W=>{ const r=E(W,
+     'const T=Date.now(); const lista=[];'
+   +'const p1=[1.61, -75.60], cerca=[1.61003, -75.60003], lejos=[1.62, -75.61];'
+   +'const a=_viabRegistrar(lista, p1, "lleno", 0, T);'
+   +'const b=_viabRegistrar(lista, cerca, "lleno", 0, T+60000);'      // mismo sitio, misma respuesta: eco
+   +'const c=_viabRegistrar(lista, cerca, "si", 80, T+120000);'       // mismo sitio, respuesta DISTINTA: vale
+   +'const d=_viabRegistrar(lista, lejos, "lleno", 0, T+180000);'     // otro sitio: vale
+   +'const e=_viabRegistrar(lista, p1, "lleno", 0, T+2*3600000);'     // mismo sitio, horas después: vale
+   +'const cuenta=_viabCerca(lista, p1, 60);'
+   +'return {a,b,c,d,e, total:lista.length, cerca:cuenta};');
+   const bien = r.a===true && r.b===false && r.c===true && r.d===true && r.e===true
+             && r.total===4 && r.cerca.total===3 && r.cerca.lleno===2 && r.cerca.si===1;
+   return {ok:bien, detalle: bien
+     ? 'La primera consulta se anota ✓ y el doble clic en el mismo andén NO se repite ✓'
+      +'\nUna respuesta distinta en el mismo sitio sí cuenta (algo cambió en la red) ✓'
+      +'\nOtro sitio cuenta, y el mismo sitio horas después también ✓'
+      +'\nY el contador del punto dice: 3 consultas aquí, 2 sin cupo y 1 con cupo ✓'
+     : 'primera: '+r.a+' (true) · eco: '+r.b+' (false) · distinta: '+r.c+' (true)'
+       +'\notro sitio: '+r.d+' (true) · horas después: '+r.e+' (true) · total: '+r.total+' (4)'
+       +'\ncerca del punto: '+JSON.stringify(r.cerca)+' (total 3, lleno 2, si 1)'};}},
+
 {app:'red', titulo:'La ruta al POP toma el camino corto',
  porque:'Antes se seguía el cable más grueso sin mirar a dónde iba: una caja daba 26 saltos y '
        +'−318 dB, un número imposible. Ahora se busca el camino más corto desde el POP.',
