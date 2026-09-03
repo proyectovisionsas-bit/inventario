@@ -1377,6 +1377,69 @@ const PRUEBAS = [
        +'\nen la lista de su caja: '+r.enLaLista+' (1) · en otra caja: '+r.enOtraCaja+' (0)'
        +'\ncolor: '+r.color+' (esperado '+r.esperado3+')'};}},
 
+{app:'inv', titulo:'La garantía sabe de qué proveedor y de qué lote llegó cada serial',
+ porque:'Pedido de Elkin: las referencias llegan en lotes de proveedores y fechas distintas, y '
+       +'cuando un equipo sale por garantía hay que saber de dónde vino. El origen se captura al '
+       +'reabastecer y al crear el artículo, y se consulta con el botón 🛡️ pegando o escaneando '
+       +'el serial. Si el registro no guarda o la búsqueda no encuentra, la garantía queda a ciegas.',
+ correr:W=>{ const r=E(W,
+     'const gL=window._fbLeerArchivoInv, gG=window._fbGuardarArchivoInv, gLot=window.LOTES;'
+   +'let guardado=null;'
+   +'window._fbLeerArchivoInv=async function(){ return {lotes:[]}; };'
+   +'window._fbGuardarArchivoInv=async function(n,d){ guardado=JSON.parse(JSON.stringify(d)); };'
+   +'LOTES=null;'
+   +'return _registrarLote({proveedor:"FiberHome Colombia", factura:"FAC-4512", articulo:"ONT HG8145V5",'
+   +'                       bodega:"FLORENCIA", sns:["48575443AAAA0001"," 48575443aaaa0002 "], cantidad:2})'
+   +' .then(function(lo){'
+   +'   const g=_garantiaDeSN("  48575443aaaa0001  ");'
+   +'   const noEsta=_garantiaDeSN("SINLOTE99");'
+   +'   const vacio=_loteMereceRegistro({proveedor:" ", factura:"", sns:[]});'
+   +'   const soloSN=_loteMereceRegistro({proveedor:"", factura:"", sns:["X1"]});'
+   +'   const res={prov:g&&g.proveedor, fac:g&&g.factura, dos:lo&&lo.sns.length,'
+   +'              limpio:lo&&lo.sns[1], guardo:!!(guardado&&guardado.lotes&&guardado.lotes.length===1),'
+   +'              noEsta:noEsta===null, vacio:vacio, soloSN:soloSN};'
+   +'   window._fbLeerArchivoInv=gL; window._fbGuardarArchivoInv=gG; LOTES=gLot;'
+   +'   return res;'
+   +' });');
+   return Promise.resolve(r).then(rr=>{
+     if(rr && rr.error) return {ok:false, detalle:'No se pudo probar: '+rr.error};
+     const bien = rr.prov==='FiberHome Colombia' && rr.fac==='FAC-4512' && rr.dos===2
+               && rr.limpio==='48575443aaaa0002' && rr.guardo===true && rr.noEsta===true
+               && rr.vacio===false && rr.soloSN===true;
+     return {ok:bien, detalle: bien
+       ? 'Un serial pegado con espacios y en minúsculas encuentra su lote: proveedor, factura y fecha ✓'
+        +'\nEl lote guarda los seriales limpios y quedó en su documento aparte de la nube ✓'
+        +'\nUn serial sin lote responde "sin origen" en vez de inventar, y una entrada sin proveedor,'
+        +' sin factura y sin seriales NO llena el registro de ruido ✓'
+       : 'proveedor '+rr.prov+' · factura '+rr.fac+' · sns '+rr.dos+' (2) · limpio "'+rr.limpio+'"'
+        +'\nguardó '+rr.guardo+' (true) · sin lote da null: '+rr.noEsta
+        +' · vacío no registra: '+(rr.vacio===false)+' · solo-SN sí: '+rr.soloSN};
+   });}},
+
+{app:'red', titulo:'La pantalla de carga es el cubo de OZmap, armado completo',
+ porque:'Elkin trajo el archivo de arranque de su OZmap y lo único de interfaz que viene ahí es '
+       +'la animación de carga: un cubo de 3x3x3 cubitos isométricos con coreografía propia por '
+       +'cubito. Se copió con sus coordenadas exactas. Si un día faltan cubitos o la animación se '
+       +'pierde en una limpieza de CSS, la carga queda en blanco y nadie sabría por qué.',
+ correr:W=>{ const r=E(W,
+     'mostrarCarga("probando");'
+   +'const visible=!document.getElementById("cargando").classList.contains("hidden");'
+   +'const cubos=document.querySelectorAll("#cargando .cube").length;'
+   +'const caras=document.querySelectorAll("#cargando .face").length;'
+   +'const primero=document.querySelector("#cargando .cube.h1.w1.l1");'
+   +'const anim=primero?getComputedStyle(primero).animationName:"";'
+   +'ocultarCarga();'
+   +'const oculto=document.getElementById("cargando").classList.contains("hidden");'
+   +'return {visible, cubos, caras, anim, oculto};');
+   const bien = r.visible===true && r.cubos===27 && r.caras===81
+             && r.anim==='ozh1w1l1' && r.oculto===true;
+   return {ok:bien, detalle: bien
+     ? 'Al cargar se muestran los 27 cubitos con sus 81 caras ✓'
+      +'\nCada cubito tiene su animación de OZmap conectada (ozh1w1l1…) ✓'
+      +'\nY al terminar la carga, la cortina se esconde ✓'
+     : 'visible '+r.visible+' (true) · cubos '+r.cubos+' (27) · caras '+r.caras+' (81)'
+      +'\nanimación "'+r.anim+'" (ozh1w1l1) · se ocultó '+r.oculto+' (true)'};}},
+
 {app:'red', titulo:'Sin tema elegido, la red abre en la réplica de OZmap',
  porque:'Elkin revisó la v38 y no funcionaba como OZmap: la app abría en nocturno y la réplica '
        +'quedaba escondida detrás de un botón que había que conocer. Ahora sin elección guardada '
