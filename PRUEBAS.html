@@ -837,6 +837,51 @@ const PRUEBAS = [
        +'\nuna sola '+r.unaSolaOficina+' · sin oficinas '+r.sinOficinas
        +' · egreso '+r.egresoResta+' · ingreso '+r.ingresoSuma+' · vacío '+r.valorSucio};}},
 
+{app:'ofi', titulo:'La nómina da los mismos pesos que la planilla de la contadora',
+ porque:'Elkin trajo la planilla real de julio de 2026. Si el sistema no da EXACTAMENTE los pesos de la '
+       +'contadora, nadie le va a creer y se vuelve a la hoja. Se prueban sus filas con sus números: '
+       +'Yulbrey, Kevin (con bono aparte), Elkin (sin auxilio), la base de seguridad social, el prorrateo '
+       +'de vacaciones, los festivos de Colombia, los días hábiles y el saldo de vacaciones.',
+ correr:W=>{ const r=E(W,
+     'const conf=Object.assign({}, _nomConf(), {smmlv:1750905, auxTransporte:249095, topeAuxSmmlv:2, salud:4, pension:4, pensionTotal:16, saludEmpresa:0, cajaComp:4, senaIcbf:0, incapacidadPct:100, bonoEnNeto:false, arlClases:{I:0.522,II:1.044,III:2.436,IV:4.35,V:6.96}, arlClaseDefecto:"I", diasVacaciones:15, sabadoHabil:true});'
+   +'const yul=_nomCalcular({id:1, nombre:"YULBREY", salario:1750905, auxTrans:249095, fechaIngreso:"2024-01-15"}, {}, conf, "2026-07");'
+   +'const kev=_nomCalcular({id:2, nombre:"KEVIN", salario:1904000, auxTrans:249095}, {bono:250000}, conf, "2026-07");'
+   +'const elk=_nomCalcular({id:3, nombre:"ELKIN", salario:3805000}, {}, conf, "2026-07");'
+   +'const joel=_nomCalcular({id:4, nombre:"JOEL", salario:1750905, auxTrans:249095}, {vac:3}, conf, "2026-07");'
+   +'const ret=_nomCalcular({id:5, nombre:"RETIRO", salario:3000000, auxTrans:0}, {fechaRetiro:"2026-07-15"}, conf, "2026-07");'
+   +'const T=_nomTotales([yul,kev,elk], conf);'
+   +'const fest=_festivosColombia(2026);'
+   +'const hab=_diasHabilesEntre("2026-06-16","2026-07-03", true);'
+   +'const regs=[{empleadoId:4, tipo:"disfrute", desde:"2026-06-16", hasta:"2026-07-03", habiles:hab}];'
+   +'const saldo=_vacSaldo({id:4, fechaIngreso:"2024-01-15"}, regs, "2026-07-31", conf);'
+   +'const r2=x=>Math.round(x*100)/100;'
+   +'return {yul:{sueldo:r2(yul.sueldo), aux:r2(yul.auxilio), total:r2(yul.totalIngresos), salud:r2(yul.salud), neto:r2(yul.neto)},'
+   +'        kev:{total:r2(kev.totalIngresos), neto:r2(kev.neto), bono:kev.bono},'
+   +'        elk:{aux:elk.aux, total:r2(elk.totalIngresos), salud:r2(elk.salud), neto:r2(elk.neto)},'
+   +'        joel:{dias:joel.dias, sueldo:r2(joel.sueldo), auxilio:r2(joel.auxilio), vacDisf:r2(joel.vacDisf), salud:r2(joel.salud)},'
+   +'        ret:{dias:ret.dias, sueldo:r2(ret.sueldo)},'
+   +'        base:r2(T.baseCot), pension16:r2(T.pila.pension), caja:r2(T.pila.caja),'
+   +'        festivos:fest.length, tiene:["2026-01-12","2026-04-02","2026-04-03","2026-05-18","2026-06-08","2026-06-15","2026-06-29","2026-08-17","2026-11-16"].every(f=>fest.indexOf(f)>=0),'
+   +'        habiles:hab, vacJulio:_vacDiasEnMes(regs, 4, "2026-07"), vacJunio:_vacDiasEnMes(regs, 4, "2026-06"),'
+   +'        servicio:saldo.servicio, causadas:r2(saldo.causadas), saldo:r2(saldo.saldo)};');
+   const bien = r.yul.sueldo===1750905 && r.yul.aux===249095 && r.yul.total===2000000 && r.yul.salud===70036.2 && r.yul.neto===1859927.6
+             && r.kev.total===2153095 && r.kev.neto===2000775 && r.kev.bono===250000
+             && r.elk.aux===0 && r.elk.total===3805000 && r.elk.salud===152200 && r.elk.neto===3500600
+             && r.joel.dias===27 && r.joel.sueldo===1575814.5 && r.joel.auxilio===224185.5 && r.joel.vacDisf===175090.5 && r.joel.salud===70036.2
+             && r.ret.dias===15 && r.ret.sueldo===1500000
+             && r.base===7459905 && r.pension16===1193584.8 && r.caja===298396.2
+             && r.festivos===18 && r.tiene===true
+             && r.habiles===15 && r.vacJulio===3 && r.vacJunio===15
+             && r.servicio===916 && r.causadas===38.17 && r.saldo===23.17;
+   return {ok:bien, detalle: bien
+     ? 'Yulbrey: sueldo 1.750.905 + aux 249.095 = 2.000.000 · salud 70.036,2 · neto 1.859.927,6 — igual a la planilla ✓'
+      +'\nKevin: total 2.153.095 y neto 2.000.775 con el bono de 250.000 APARTE ✓ · Elkin: sin auxilio, neto 3.500.600 ✓'
+      +'\nJoel con 3 días de vacaciones: 27 días, sueldo 1.575.814,5, auxilio sin esos días, vacaciones 175.090,5, y salud igual (base sueldo + vacaciones) ✓'
+      +'\nRetiro el 15: 15 días, 1.500.000 ✓ · Base SS de los tres 7.459.905 → pensión 16 % 1.193.584,8 · caja 4 % 298.396,2 ✓'
+      +'\nFestivos 2026: 18, con Semana Santa, Ascensión, Corpus y los trasladados al lunes ✓ · 16 jun–3 jul = 15 hábiles (como sus 15 días) y la nómina toma 3 en julio y 15 en junio ✓'
+      +'\nSaldo de vacaciones: 916 días de servicio → 38,17 causadas − 15 = 23,17 ✓'
+     : JSON.stringify(r)};}},
+
 {app:'ofi', titulo:'El vigilante de avisos solo avisa lo nuevo, y lo dice claro',
  porque:'Pedido de Elkin: un aviso al celular cuando haya solicitudes de aprobación pendientes. Un '
        +'vigilante que avisa lo mismo cada 5 minutos se silencia en un día; uno que se olvida de una '
