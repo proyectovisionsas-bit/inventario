@@ -391,6 +391,7 @@
                 <button class="nav-btn" data-tab="reportes">📊 Reportes Excel</button>
                 <button class="nav-btn admin-only" data-tab="delete_req" style="color:#ef4444;">🗑️ Solicitudes</button>
                 <button class="nav-btn admin-only" data-tab="auditoria" style="color:#0ea5e9;">🩺 Auditoría</button>
+                <button class="nav-btn admin-only" data-tab="catalogo" style="color:#8b5cf6;">🗂️ Catálogo</button>
                 <button class="nav-btn admin-only" data-tab="admin" style="color:#f59e0b;">⚙️ Configuración</button>
             </div>
         </div>
@@ -1181,6 +1182,261 @@ function _gBuscar(){
     box.innerHTML = origen + donde + pasos;
 }
 window.modalGarantia=modalGarantia; window._gBuscar=_gBuscar;
+
+/* ════════════════════════════════════════════════════════════════════════════
+   🗂️ EL CATÁLOGO COMO CAPA (v104 · Etapa 1 del nuevo orden de bodegas)
+   ────────────────────────────────────────────────────────────────────────────
+   La radiografía del 2 sep 2026 sobre los datos reales: 255 filas en 5
+   bodegas, y el MISMO equipo escrito de hasta cuatro formas (ONT EG8145V5
+   GPON DUAL BAND · EG8145V5 · ONU GPON EG8145V5 5G · ONU EG8145V5). Eran 16
+   modelos así, más 25 filas repetidas dentro de una misma bodega porque
+   "nuevo" y "usado" viven como artículos separados. No lo creó nadie mal: lo
+   fabrican los traslados, que buscan el destino por nombre EXACTO y cuando
+   no lo encuentran crean otra fila.
+
+   Los mejores sistemas (Odoo, Splynx, Sonar) separan el CATÁLOGO —la
+   referencia definida una sola vez— de las EXISTENCIAS por bodega. Esta
+   etapa trae el catálogo, pero como una CAPA encima de lo que hay:
+
+   · Una referencia = un nombre limpio + los nombres (alias) con que ese
+     artículo quedó escrito en las bodegas. Vive en su propio documento
+     (inventario/catalogo); el documento principal NO se toca.
+   · La pestaña Bodegas gana la vista "Por referencia": una fila por
+     referencia con nuevo, usado y total, y debajo las filas de siempre con
+     SUS MISMOS botones. Se apaga con un clic y todo vuelve a como estaba.
+   · Las propuestas de agrupación se REVISAN, no se aplican solas: dos
+     módulos SFP de distinto alcance comparten código y no son lo mismo.
+
+   Por eso el riesgo es cero: nada de lo que hace esta capa cambia una
+   cantidad, un serial o un flujo. Solo cambia cómo se MIRA.
+   ════════════════════════════════════════════════════════════════════════════ */
+var CATALOGO = null;                  // {referencias:[{id,nombre,categoria,unidad,stockMin,alias:[]}]}
+
+function _catNorm(n){ return String(n==null?'':n).trim().toLowerCase().replace(/\s+/g,' '); }
+function _catEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+async function _catalogoLeer(forzar){
+    if(CATALOGO && !forzar) return CATALOGO;
+    if(window._fbLeerArchivoInv){
+        try{ const d = await _fbLeerArchivoInv('catalogo');
+             CATALOGO = {referencias: Array.isArray(d.referencias) ? d.referencias : []}; }
+        catch(e){ console.warn('No se pudo leer el catálogo:', e); CATALOGO = CATALOGO || {referencias:[]}; }
+    } else CATALOGO = CATALOGO || {referencias:[]};
+    return CATALOGO;
+}
+async function _catalogoGuardar(){
+    if(!window._fbGuardarArchivoInv) return;
+    await _fbGuardarArchivoInv('catalogo', CATALOGO);
+}
+
+/* ¿A qué referencia pertenece este nombre? Por alias o por el nombre mismo,
+   sin distinguir mayúsculas ni espacios de más. null si a ninguna. */
+function _referenciaDe(nombre, catalogo){
+    const k=_catNorm(nombre); if(!k) return null;
+    const lista=((catalogo||CATALOGO)||{}).referencias||[];
+    for(const r of lista){
+        if(_catNorm(r.nombre)===k) return r;
+        if((r.alias||[]).some(a=>_catNorm(a)===k)) return r;
+    }
+    return null;
+}
+
+/* Agrupa los materiales de UNA bodega: por referencia si la hay, y si no,
+   por nombre. Es PURA (recibe todo, no toca nada) para poderla probar; y
+   la prueba exige lo que importa: la suma de los grupos es la suma de las
+   filas, ni una unidad más ni una menos. */
+function _agruparPorReferencia(materiales, catalogo){
+    const grupos=new Map();
+    (materiales||[]).forEach(m=>{
+        const r=_referenciaDe(m.nombre, catalogo);
+        const k=r ? 'ref:'+r.id : 'nom:'+_catNorm(m.nombre);
+        let g=grupos.get(k);
+        if(!g){
+            g={clave:k, referencia:r||null, nombre:r?r.nombre:m.nombre,
+               categoria:r?(r.categoria||'material'):(m.categoria||'material'),
+               unidad:r?(r.unidad||m.unidad||''):(m.unidad||''),
+               stockMin:r?(Number(r.stockMin)||0):0,
+               nuevo:0, usado:0, total:0, seriales:0, filas:[]};
+            grupos.set(k,g);
+        }
+        const c=Number(m.cantidad)||0;
+        if(m.tipo==='usado') g.usado+=c; else g.nuevo+=c;
+        g.total+=c; g.seriales+=(m.snes||[]).length; g.filas.push(m);
+        if(!r) g.stockMin=Math.max(g.stockMin, Number(m.stockMin)||0);
+    });
+    return Array.from(grupos.values()).sort((a,b)=>String(a.nombre).localeCompare(String(b.nombre),'es'));
+}
+
+/* Propuestas de agrupación: nombres que comparten un código de modelo
+   (EG8141A5, HG8145X6-10...). PURA. Los nombres ya cubiertos por una
+   referencia no se vuelven a proponer. El nombre más largo se sugiere como
+   nombre de la referencia, porque suele ser el más descriptivo. */
+function _proponerReferencias(nombres, catalogo){
+    const cubiertos=new Set();
+    (((catalogo||CATALOGO)||{}).referencias||[]).forEach(r=>(r.alias||[]).concat([r.nombre]).forEach(a=>cubiertos.add(_catNorm(a))));
+    const porToken=new Map();
+    Array.from(new Set((nombres||[]).map(n=>String(n||'').trim()).filter(Boolean))).forEach(n=>{
+        if(cubiertos.has(_catNorm(n))) return;
+        const toks=n.toUpperCase().match(/\b(?=[A-Z0-9-]*\d)(?=[A-Z0-9-]*[A-Z])[A-Z0-9-]{5,}\b/g)||[];
+        toks.forEach(t=>{ if(!porToken.has(t)) porToken.set(t,new Set()); porToken.get(t).add(n); });
+    });
+    const vistos=new Set(), out=[];
+    porToken.forEach((set,t)=>{
+        if(set.size<2) return;
+        const lista=[...set].filter(n=>!vistos.has(n));
+        if(lista.length<2) return;
+        lista.forEach(n=>vistos.add(n));
+        out.push({token:t, nombres:lista, sugerido:lista.slice().sort((a,b)=>b.length-a.length)[0]});
+    });
+    return out;
+}
+
+/* Todos los nombres que existen hoy en bodegas y cuadrillas, sin repetir. */
+function _nombresEnUso(){
+    const s=new Set();
+    (DB.bodegas||[]).forEach(b=>(b.materiales||[]).forEach(m=>{ if(m&&m.nombre) s.add(String(m.nombre).trim()); }));
+    (DB.cuadrillas||[]).forEach(c=>(c.materiales||[]).forEach(m=>{ if(m&&m.nombre) s.add(String(m.nombre).trim()); }));
+    return Array.from(s).sort((a,b)=>a.localeCompare(b,'es'));
+}
+/* Lo que las filas dicen de un nombre: si alguna tiene seriales o es
+   "equipo", la referencia es equipo; la unidad más usada. */
+function _evidenciaDeNombre(n){
+    let eq=false; const uni={};
+    (DB.bodegas||[]).forEach(b=>(b.materiales||[]).forEach(m=>{
+        if(_catNorm(m.nombre)!==_catNorm(n)) return;
+        if(m.categoria==='equipo' || (m.snes||[]).length) eq=true;
+        const u=String(m.unidad||'').trim(); if(u) uni[u]=(uni[u]||0)+1;
+    }));
+    const unidad=Object.entries(uni).sort((a,b)=>b[1]-a[1]).map(x=>x[0])[0]||'Und';
+    return {eq, unidad};
+}
+
+async function _agregarReferencia(datos){
+    await _catalogoLeer(true);
+    const nombre=String(datos.nombre||'').trim();
+    const alias=Array.from(new Set((datos.alias||[]).map(a=>String(a||'').trim()).filter(Boolean)));
+    if(!nombre) return alert('Ponle nombre a la referencia.');
+    if(!alias.length) return alert('Marca al menos un nombre de los que existen en las bodegas.');
+    const choque=[];
+    alias.concat([nombre]).forEach(a=>{ const r=_referenciaDe(a); if(r && r.id!==datos.id) choque.push(a+' → ya está en "'+r.nombre+'"'); });
+    if(choque.length) return alert('Estos nombres ya pertenecen a otra referencia:\n\n• '+choque.join('\n• ')+'\n\nQuítalos de allá primero.');
+    if(datos.id){
+        const r=CATALOGO.referencias.find(x=>x.id===datos.id); if(!r) return alert('La referencia ya no existe.');
+        r.nombre=nombre; r.categoria=datos.categoria||'material'; r.unidad=String(datos.unidad||'').trim();
+        r.stockMin=Number(datos.stockMin)||0; r.alias=alias; r.actualizado=Date.now();
+    } else {
+        CATALOGO.referencias.push({id:'ref'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),
+            nombre, categoria:datos.categoria||'material', unidad:String(datos.unidad||'').trim(),
+            stockMin:Number(datos.stockMin)||0, alias, creado:Date.now(),
+            creadoPor:(window.USER&&(USER.nombre||'Admin'))||''});
+    }
+    try{ await _catalogoGuardar(); }
+    catch(e){ alert('No se pudo guardar el catálogo: '+(e.message||e)); return; }
+    logMsg('Catálogo: referencia "'+nombre+'" ('+alias.length+' nombre(s))');
+    closeModal(); renderTab('catalogo');
+}
+async function _quitarReferencia(idRef){
+    await _catalogoLeer(true);
+    const r=CATALOGO.referencias.find(x=>x.id===idRef); if(!r) return;
+    if(!confirm('¿Quitar la referencia "'+r.nombre+'"?\n\nLos datos de las bodegas no cambian: solo dejan de verse agrupados.')) return;
+    CATALOGO.referencias=CATALOGO.referencias.filter(x=>x.id!==idRef);
+    try{ await _catalogoGuardar(); }catch(e){ return alert('No se pudo guardar: '+(e.message||e)); }
+    renderTab('catalogo');
+}
+window._agruparPorReferencia=_agruparPorReferencia; window._proponerReferencias=_proponerReferencias;
+window._referenciaDe=_referenciaDe; window._catalogoLeer=_catalogoLeer; window._catNorm=_catNorm;
+window._agregarReferencia=_agregarReferencia; window._quitarReferencia=_quitarReferencia;
+
+/* ── La pestaña Catálogo (solo admin) ── */
+async function renderCatalogo(c){
+    if(!(USER && USER.role==='admin')) return navigate('dash');
+    c.innerHTML='<div class="card"><p class="text-muted">Cargando el catálogo…</p></div>';
+    await _catalogoLeer(true);
+    const refs=CATALOGO.referencias.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre,'es'));
+    const props=_proponerReferencias(_nombresEnUso());
+    window._propuestasCat=props;
+    c.innerHTML=`
+    <div class="card">
+        <div class="card-header"><h2>🗂️ Catálogo de referencias</h2>
+            <button class="btn btn-primary btn-sm" onclick="modalNuevaReferencia()">➕ Nueva referencia</button></div>
+        <p class="text-muted" style="font-size:0.86rem;line-height:1.55;">Una referencia agrupa los nombres con que el mismo artículo quedó escrito en distintas bodegas.
+            <strong>No cambia ningún dato</strong>: solo le dice a la vista "🗂️ Por referencia" de Bodegas qué filas van juntas y con qué nombre limpio. Se deshace quitando la referencia.</p>
+        ${refs.length ? `<div class="table-wrap"><table><thead><tr><th>Referencia</th><th>Categoría</th><th>Unidad</th><th>Mínimo</th><th>Nombres que agrupa</th><th></th></tr></thead><tbody>
+            ${refs.map(r=>`<tr>
+                <td><strong>${_catEsc(r.nombre)}</strong></td>
+                <td><span class="${r.categoria==='equipo'?'cat-badge-eq':'cat-badge-mat'}">${r.categoria==='equipo'?'🖥️ Equipo':'📦 Material'}</span></td>
+                <td>${_catEsc(r.unidad||'')}</td><td>${r.stockMin||'-'}</td>
+                <td style="font-size:0.8rem;">${(r.alias||[]).map(a=>'<span class="sn-tag">'+_catEsc(a)+'</span>').join(' ')}</td>
+                <td style="white-space:nowrap;"><button class="btn btn-outline btn-sm" onclick="modalEditarReferencia('${r.id}')">✏️</button>
+                    <button class="btn btn-danger btn-sm" onclick="_quitarReferencia('${r.id}')">✕</button></td>
+            </tr>`).join('')}</tbody></table></div>`
+          : '<p class="text-muted">Todavía no hay referencias. Abajo hay propuestas para empezar, o crea una con ➕.</p>'}
+    </div>
+    <div class="card">
+        <div class="card-header"><h2>💡 Propuestas de agrupación (${props.length})</h2></div>
+        <p class="text-muted" style="font-size:0.84rem;line-height:1.5;">Nombres que comparten un código de modelo. <strong>Revisa antes de aceptar:</strong> dos módulos SFP de distinto alcance comparten código y NO son lo mismo — desmarca lo que no corresponda y corrige el nombre.</p>
+        ${props.length ? props.map((p,i)=>{ const ev=_evidenciaDeNombre(p.sugerido); return `
+        <div style="border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;margin-bottom:10px;">
+            <div style="font-weight:700;margin-bottom:6px;">Código <span class="sn-tag">${_catEsc(p.token)}</span> · ${p.nombres.length} nombres</div>
+            <div class="sn-select-area" style="max-height:120px;overflow-y:auto;">
+                ${p.nombres.map(n=>`<label class="sn-check"><input type="checkbox" class="propCat_${i}" value="${_catEsc(n)}" checked> <span class="sn-label">${_catEsc(n)}</span></label>`).join('')}
+            </div>
+            <div class="form-row" style="margin-top:8px;">
+                <div class="form-group"><label>Nombre de la referencia</label><input id="propNom_${i}" class="form-control" value="${_catEsc(p.sugerido)}"></div>
+                <div class="form-group"><label>Categoría</label><select id="propCatg_${i}" class="form-control">
+                    <option value="equipo" ${ev.eq?'selected':''}>🖥️ Equipo</option><option value="material" ${!ev.eq?'selected':''}>📦 Material</option></select></div>
+                <div class="form-group"><label>Unidad</label><input id="propUni_${i}" class="form-control" value="${_catEsc(ev.unidad)}"></div>
+                <div class="form-group"><label>Stock mínimo</label><input id="propMin_${i}" type="number" min="0" class="form-control" value="0"></div>
+            </div>
+            <button class="btn btn-success btn-sm" onclick="_crearReferenciaDesdePropuesta(${i})">✅ Crear referencia con los marcados</button>
+        </div>`; }).join('') : '<p class="text-muted">No hay propuestas pendientes: todo lo que comparte código ya está agrupado.</p>'}
+    </div>`;
+}
+function _crearReferenciaDesdePropuesta(i){
+    const marcados=Array.from(document.querySelectorAll('.propCat_'+i+':checked')).map(x=>x.value);
+    _agregarReferencia({nombre:id('propNom_'+i).value, categoria:id('propCatg_'+i).value,
+        unidad:id('propUni_'+i).value, stockMin:id('propMin_'+i).value, alias:marcados});
+}
+/* El formulario de una referencia, nuevo o de edición. */
+function _formReferenciaHTML(r){
+    const cubiertos=new Set(); (CATALOGO.referencias||[]).forEach(x=>{ if(r&&x.id===r.id) return; (x.alias||[]).concat([x.nombre]).forEach(a=>cubiertos.add(_catNorm(a))); });
+    const mios=new Set((r?r.alias:[]).map(_catNorm));
+    const libres=_nombresEnUso().filter(n=>!cubiertos.has(_catNorm(n)));
+    return `
+        <div class="form-row">
+            <div class="form-group"><label>Nombre limpio *</label><input id="refNom" class="form-control" value="${_catEsc(r?r.nombre:'')}" placeholder="Ej: ONT Huawei EG8145V5"></div>
+            <div class="form-group"><label>Categoría</label><select id="refCat" class="form-control">
+                <option value="equipo" ${r&&r.categoria==='equipo'?'selected':''}>🖥️ Equipo</option>
+                <option value="material" ${!r||r.categoria!=='equipo'?'selected':''}>📦 Material</option></select></div>
+        </div>
+        <div class="form-row">
+            <div class="form-group"><label>Unidad</label><input id="refUni" class="form-control" value="${_catEsc(r?r.unidad:'Und')}"></div>
+            <div class="form-group"><label>Stock mínimo</label><input id="refMin" type="number" min="0" class="form-control" value="${r?(r.stockMin||0):0}"></div>
+        </div>
+        <div class="form-group"><label>Nombres que agrupa <small class="text-muted">(los que existen hoy en bodegas y cuadrillas)</small></label>
+            <input class="form-control" placeholder="🔍 Filtrar nombres…" style="margin-bottom:6px;" oninput="document.querySelectorAll('#refAlias label').forEach(l=>{l.style.display=l.textContent.toLowerCase().includes(this.value.toLowerCase())?'':'none';})">
+            <div id="refAlias" class="sn-select-area" style="max-height:220px;overflow-y:auto;">
+                ${libres.map(n=>`<label class="sn-check"><input type="checkbox" class="refAliasChk" value="${_catEsc(n)}" ${mios.has(_catNorm(n))?'checked':''}> <span class="sn-label">${_catEsc(n)}</span></label>`).join('')||'<p class="text-muted">No quedan nombres sin agrupar.</p>'}
+            </div>
+        </div>`;
+}
+function _leerFormReferencia(idRef){
+    return {id:idRef||null, nombre:id('refNom').value, categoria:id('refCat').value, unidad:id('refUni').value,
+            stockMin:id('refMin').value, alias:Array.from(document.querySelectorAll('.refAliasChk:checked')).map(x=>x.value)};
+}
+async function modalNuevaReferencia(){
+    await _catalogoLeer();
+    openModal('➕ Nueva referencia', _formReferenciaHTML(null), ()=>_agregarReferencia(_leerFormReferencia(null)));
+}
+async function modalEditarReferencia(idRef){
+    await _catalogoLeer(true);
+    const r=CATALOGO.referencias.find(x=>x.id===idRef); if(!r) return alert('La referencia ya no existe.');
+    openModal('✏️ '+r.nombre, _formReferenciaHTML(r), ()=>_agregarReferencia(_leerFormReferencia(idRef)));
+}
+window.renderCatalogo=renderCatalogo; window.modalNuevaReferencia=modalNuevaReferencia;
+window.modalEditarReferencia=modalEditarReferencia; window._crearReferenciaDesdePropuesta=_crearReferenciaDesdePropuesta;
+
+
 
 function _rastroSN(sn){
     const k=_snNormal(sn); if(!k||_snEsRelleno(k)) return [];
@@ -2184,7 +2440,7 @@ function renderTab(tab) { const main=id('main-content'); if(!main) return; try {
             case 'reportes': renderReportes(main); break;
             case 'ventas': renderVentas(main); break;
             case 'cuartos': renderCuartos(main); break;
-            case 'delete_req': renderDeleteReq(main); break; case 'auditoria': renderAuditoria(main); break; case 'admin': renderAdmin(main); break; } try{ if(window._hidratarFotosInv) setTimeout(window._hidratarFotosInv, 60); }catch(eH){} } catch(e) { console.error(e); } }
+            case 'delete_req': renderDeleteReq(main); break; case 'auditoria': renderAuditoria(main); break; case 'catalogo': renderCatalogo(main); break; case 'admin': renderAdmin(main); break; } try{ if(window._hidratarFotosInv) setTimeout(window._hidratarFotosInv, 60); }catch(eH){} } catch(e) { console.error(e); } }
 
 // ── Exponer funciones clave al scope global para que el módulo Firebase pueda accederlas ──
 window.DB = DB;
@@ -5942,12 +6198,14 @@ function renderInvGlobal(c) { if(USER.role!=='bodega') return navigate('dash');
 // BODEGAS (CRUD)
 function renderBodegas(c) {
     const bs = getUserBodegas();
+    const porRef = _vistaPorReferencia();
     c.innerHTML = `<div class="card"><div class="card-header"><h2>🏭 ${USER.role==='admin'?'Bodegas':'Mi Bodega'}</h2><div class="flex">
         ${USER.role==='admin'?`<button class="btn btn-primary btn-sm" onclick="modalNewBodega()">➕ Nueva</button>`:''}
         ${canDo('bodegas','exportar_excel')?`<button class="btn btn-success btn-sm" onclick="exportBodegaExcel()">📥 Exportar Excel</button>`:''}
         ${canDo('bodegas','importar_excel')?`<button class="btn btn-outline btn-sm" onclick="modalImportBodegaExcel()">📤 Importar Excel</button>`:''}
         <button class="btn btn-warning btn-sm" onclick="modalGarantia()" title="¿De qué proveedor y lote llegó este equipo?">🛡️ Garantía</button>
-    </div></div>` + bs.map(b => {
+        <button class="btn ${porRef?'btn-primary':'btn-outline'} btn-sm" onclick="_alternarVistaRef()" title="Una fila por referencia, con nuevo y usado juntos. Los datos no cambian: solo la forma de verlos.">🗂️ Por referencia: ${porRef?'SÍ':'NO'}</button>
+    </div></div>` + (porRef && USER.role==='admin' ? _resumenReferenciasHTML(bs) : '') + bs.map(b => {
         const total = b.materiales.reduce((s,m)=>s+m.cantidad,0);
         return `<details style="margin-bottom:10px;border:1px solid #eee;border-radius:8px;padding:10px;background:white;">
             <summary style="cursor:pointer;font-weight:bold;font-size:1.1rem;">🏭 ${b.nombre} <span class="badge badge-new">${total} uds</span></summary>
@@ -5957,8 +6215,23 @@ function renderBodegas(c) {
                     ${canDo('bodegas','agregar_material')?`<button class="btn btn-primary btn-sm" onclick="modalAddMat('${b.id}')">📦 + Material</button>`:''}
                     ${USER.role==='admin'?`<button class="btn btn-outline btn-sm" onclick="modalEditPass('${b.id}')">🔑</button><button class="btn btn-danger btn-sm" onclick="delBodega('${b.id}')">🗑️</button>`:''}
                 </div>
-                ${b.materiales.length?`<table><thead><tr><th>Artículo / Categoría</th><th>Tipo</th><th>Cant</th><th>Unidad</th><th>SNs</th><th>Acción</th></tr></thead><tbody>
-                ${b.materiales.map(m=>`<tr>
+                ${porRef ? _tablaPorReferenciaHTML(b) : _tablaMaterialesHTML(b, b.materiales)}
+            </div>
+        </details>`;
+    }).join('') + '</div>';
+    // El catálogo vive aparte y llega un instante después: cuando llegue, se
+    // repinta — solo si la vista agrupada sigue en pantalla.
+    if(porRef && CATALOGO===null){
+        _catalogoLeer().then(()=>{ if(document.querySelector('[id^="refDet_"]') || document.getElementById('tabResumenRef')) renderTab('bodegas'); }).catch(()=>{});
+    }
+}
+
+/* ── v104: la vista de siempre, partida en piezas reutilizables ──
+   La fila de un material es EXACTAMENTE la de antes, con sus mismos botones
+   (editar, reabastecer, historial, borrar, agregar SN). La vista "por
+   referencia" la reutiliza tal cual: así ningún flujo cambia de camino. */
+function _filaMaterialHTML(b, m){
+    return `<tr>
                     <td>
                         ${_tieneFotos(m)?_imgFotoInv(_fotosDeMaterial(m)[0], 'class="img-thumb" style="margin-right:5px;"'):``}
                         <strong>${m.nombre}</strong>
@@ -5975,11 +6248,61 @@ function renderBodegas(c) {
                         <button class="btn btn-outline btn-sm" onclick="modalHistorial('${b.id}','${m.id}')" title="Ver historial">📋</button>
                         <button class="btn btn-danger btn-sm" onclick="delMat('${b.id}','${m.id}')">✕</button>
                     </td>
-                </tr>`).join('')}
-                </tbody></table>`:'<p class="text-muted">Sin materiales</p>'}
-            </div>
-        </details>`;
-    }).join('') + '</div>';
+                </tr>`;
+}
+function _tablaMaterialesHTML(b, mats){
+    return (mats||[]).length?`<table><thead><tr><th>Artículo / Categoría</th><th>Tipo</th><th>Cant</th><th>Unidad</th><th>SNs</th><th>Acción</th></tr></thead><tbody>
+                ${mats.map(m=>_filaMaterialHTML(b,m)).join('')}
+                </tbody></table>`:'<p class="text-muted">Sin materiales</p>';
+}
+function _vistaPorReferencia(){ try{ return localStorage.getItem('inv_vistaRef')!=='0'; }catch(e){ return true; } }
+function _alternarVistaRef(){ try{ localStorage.setItem('inv_vistaRef', _vistaPorReferencia()?'0':'1'); }catch(e){} renderTab('bodegas'); }
+window._alternarVistaRef=_alternarVistaRef;
+
+/* Una fila por referencia: nuevo, usado, total; y debajo, escondidas, las
+   filas de siempre con sus botones. */
+function _tablaPorReferenciaHTML(b){
+    const grupos=_agruparPorReferencia(b.materiales||[]);
+    if(!grupos.length) return '<p class="text-muted">Sin materiales</p>';
+    return `<table><thead><tr><th>Referencia</th><th>🟢 Nuevo</th><th>🟡 Usado</th><th>Total</th><th>Unidad</th><th>SNs</th><th></th></tr></thead><tbody>
+    ${grupos.map((g,i)=>{
+        const bajo = g.stockMin && g.total < g.stockMin;
+        const idDet='refDet_'+b.id+'_'+i;
+        const nombresOrig=g.filas.map(f=>f.nombre).filter((v,k,a)=>a.indexOf(v)===k);
+        const nota = g.referencia
+            ? `<br><small class="text-muted">🗂️ ${g.filas.length} fila(s): ${nombresOrig.map(n=>_catEsc(n)).join(' · ')}</small>`
+            : (g.filas.length>1?`<br><small class="text-muted">${g.filas.length} filas con este nombre</small>`:'');
+        return `<tr>
+            <td><strong>${_catEsc(g.nombre)}</strong> <span class="${g.categoria==='equipo'?'cat-badge-eq':'cat-badge-mat'}">${g.categoria==='equipo'?'🖥️ Equipo':'📦 Material'}</span>${nota}</td>
+            <td>${g.nuevo}</td><td>${g.usado}</td>
+            <td><strong>${g.total}</strong>${g.stockMin?` <small style="color:${bajo?'#e74c3c':'#64748b'};">(mín:${g.stockMin})</small>`:''}</td>
+            <td>${_catEsc(g.unidad||'')}</td><td>${g.seriales||'-'}</td>
+            <td><button class="btn btn-outline btn-sm" onclick="const d=document.getElementById('${idDet}'); d.style.display=d.style.display==='none'?'':'none';">▸ ${g.filas.length} fila(s)</button></td>
+        </tr>
+        <tr id="${idDet}" style="display:none;"><td colspan="7" style="padding:6px 6px 10px 18px;background:#f8fafc;">${_tablaMaterialesHTML(b, g.filas)}</td></tr>`;
+    }).join('')}
+    </tbody></table>`;
+}
+
+/* Para el admin: cuánto hay de cada referencia sumando TODAS las bodegas.
+   Es la pregunta que antes no tenía respuesta: "¿cuántas EG8145V5 tengo?" */
+function _resumenReferenciasHTML(bs){
+    const tot=new Map();
+    (bs||[]).forEach(b=>_agruparPorReferencia(b.materiales||[]).forEach(g=>{
+        let t=tot.get(g.clave);
+        if(!t){ t={nombre:g.nombre, categoria:g.categoria, unidad:g.unidad, nuevo:0, usado:0, total:0, seriales:0, porBodega:[]}; tot.set(g.clave,t); }
+        t.nuevo+=g.nuevo; t.usado+=g.usado; t.total+=g.total; t.seriales+=g.seriales;
+        t.porBodega.push(b.nombre+': '+g.total);
+    }));
+    const filas=[...tot.values()].sort((a,b)=>b.total-a.total);
+    return `<details class="card" style="margin-bottom:12px;">
+        <summary style="cursor:pointer;font-weight:bold;">🗂️ Totales por referencia en todas las bodegas <span class="badge badge-new">${filas.length}</span></summary>
+        <input class="form-control" placeholder="🔍 Filtrar…" style="margin:8px 0;" oninput="document.querySelectorAll('#tabResumenRef tbody tr').forEach(tr=>{tr.style.display=tr.textContent.toLowerCase().includes(this.value.toLowerCase())?'':'none';})">
+        <div class="table-wrap"><table id="tabResumenRef"><thead><tr><th>Referencia</th><th>Por bodega</th><th>🟢 Nuevo</th><th>🟡 Usado</th><th>Total</th><th>SNs</th></tr></thead><tbody>
+        ${filas.map(t=>`<tr><td><strong>${_catEsc(t.nombre)}</strong> <span class="${t.categoria==='equipo'?'cat-badge-eq':'cat-badge-mat'}">${t.categoria==='equipo'?'🖥️':'📦'}</span></td>
+            <td style="font-size:0.8rem;color:#64748b;">${t.porBodega.map(x=>_catEsc(x)).join(' · ')}</td>
+            <td>${t.nuevo}</td><td>${t.usado}</td><td><strong>${t.total}</strong> ${_catEsc(t.unidad||'')}</td><td>${t.seriales||'-'}</td></tr>`).join('')}
+        </tbody></table></div></details>`;
 }
 
 const MAX_SNS_BODEGA = 200;
@@ -9623,7 +9946,7 @@ const HISTORIAL_DOC = 'inventario/historial';
 // Campos que SOLO escribe Inventario (Técnicos no los toca) y que solo crecen.
 // Se guardan en un documento aparte para que inventario/datos no llegue al tope de 1MB.
 const HISTORIAL_FIELDS = ['editRequests','entregas','cuartos','logs','transfers','deleteRequests','ventas'];
-const APP_VERSION_INV = 103; // ⬆️ Subir en cada versión publicada de Inventario (v103: LOTES — EL PASAPORTE DE CADA EQUIPO. Pedido de Elkin: las referencias llegan en lotes distintos, de proveedores distintos, en fechas distintas, y cuando un equipo sale por garantia hay que saber de que proveedor es, de que lote y cuando llego. Esa informacion solo existe completa EN EL MOMENTO EN QUE LLEGA la mercancia, asi que se captura ahi: Reabastecer y Agregar material ganan dos campos OPCIONALES (proveedor, con lista de los ya usados, y lote/factura); la fecha la pone el sistema. No son obligatorios a proposito: un campo obligatorio molesto termina en xxx tecleado, que es peor que vacio. Se registra el lote solo si trae algo que recordar (proveedor, factura o seriales): el cable reabastecido sin datos no llena el registro de ruido. La consulta es el boton ESCUDO Garantia en Bodegas: se pega o se ESCANEA con la camara el serial del equipo dañado y responde de que proveedor llego, en que lote, cuando, a que bodega, donde esta hoy (bodega o cuadrilla) y por donde ha pasado (el rastro de la v99). La busqueda va del lote mas reciente hacia atras: si un equipo salio y volvio a entrar en otra compra, manda la ultima llegada. Los lotes viven en SU PROPIO documento de la nube (inventario/lotes) porque el principal ya conoce de cerca el limite de 1 MB, y si el registro pasa de 850 KB avisa con tiempo. Los seriales que llegaron antes del 2 de septiembre de 2026 responden sin-origen-registrado en vez de inventar. v99: LOS SERIALES REPETIDOS — POR QUE VUELVEN. Elkin pregunto por que no se resolvia de una vez la unica prueba que quedaba en ambar. No era una falla del programa sino del inventario: 27 seriales anotados en dos sitios son 27 equipos contados dos veces, y eso no se arregla desde el codigo porque depende de donde esta el aparato de verdad. Pero al mirarlos uno por uno aparecieron tres cosas que si son del programa. [1] LA HERRAMIENTA QUE LOS ARREGLA BORRABA EL EQUIPO. _dejarSNSoloEn quitaba el serial por VALOR en cada sitio descartado, y ese filtro se lleva TODAS las copias de ese articulo. Cuando el serial estaba dos veces dentro de la MISMA lista -tres casos en los datos de hoy- el sitio elegido y el descartado eran el mismo objeto, asi que tambien se borraba la copia que se queria conservar: el equipo desaparecia del inventario y la cantidad bajaba igual. Ahora se cuenta por material cuantas copias deben quedar (una en el elegido, cero en los demas) y se recorta a esa cifra. [2] LA CAUSA SEGUIA ABIERTA. integrarRecuperado sumaba el serial a la bodega sin mirar si ya estaba en otro lado. El aviso de la v82 no lo atrapaba: compara NOMBRE y cantidad, y solo actua cuando el recuperado trae cuadrillaId, y los que manda la app de Tecnicos por retiro de un cliente no la traen. Medido: 9 de los 27 entraron justo por ahi. Integrar significa que el aparato VOLVIO a la bodega, asi que ahora se MUEVE en vez de duplicarse: se enseña de donde sale, se pide confirmacion y se descuenta de alla. Reabastecer tambien revisa los seriales, igual que Agregar Serial, porque se teclean a mano igual. [3] YA NO HAY QUE ADIVINAR. Antes la herramienta pedia elegir a ciegas entre dos sitios. Ahora le pregunta al historial: si el equipo entro por un recuperado YA INTEGRADO a una bodega, por un traslado aceptado o por una entrega a esa cuadrilla, esa es la respuesta, y viene marcada con el motivo y la fecha. Entre dos articulos de la misma bodega desempata el nombre, que es la misma regla con la que se creo el duplicado. Hay un boton que resuelve de una vez todos los que tienen prueba, enseñando antes la lista completa. Medido hoy sobre los datos reales: de los 27, en 13 el historial lo demuestra y 14 siguen decidiendose a mano -los que no dejaron rastro, como dos ONT que figuran a la vez en FLORENCIA y en DONCELLO-. Nada se aplica sin enseñar antes que va a pasar. v98: LA APROBACION SE DESHACIA SOLA. Reportado por Elkin: acepta una solicitud, desaparece y despues vuelve a salir, y bodega termina creando la misma orden varias veces. Encontrado y REPRODUCIDO paso a paso. Al recibir un snapshot, _protegerSnapshotInv mete en el array entrante los registros que esta sesion edito y aun no ha guardado -eso esta bien, si no el snapshot los borraria de la pantalla-. Pero acto seguido se guardaba ESE MISMO array como la foto de referencia de lo que hay en la nube, con el cambio local adentro. A partir de ahi _sesionTocoInv, que es quien decide los conflictos, comparaba lo local contra una foto que ya traia lo local: respondia que la sesion NO habia tocado nada, y en el siguiente guardado la fusion dejaba entrar el valor VIEJO de la nube. Medido: aprobar dejaba el material en 1, llegaba un snapshot cualquiera y al fusionar volvia a 0. Nada avisaba, porque en pantalla el cambio se veia aplicado; por eso bodega pedia lo mismo otra vez. En los datos hay tres casos repetidos, separados 6, 39 y 49 minutos, todos de DONCELLO. Ahora la foto se toma ANTES de proteger, asi que retrata la NUBE y no la pantalla. Comprobado en los dos sentidos: la aprobacion propia sobrevive, y el cambio hecho por otra oficina sigue entrando cuando esta sesion no toco nada. Nota aparte: el sintoma tambien lo producia el limite de 1 MB, resuelto en la v97; el archivador esta funcionando (historial 15%, datos 48%). v97: LOS CUATRO REPORTES DE HOY. [1] TIEMPO REAL EN TODOS LOS DISPOSITIVOS. Los escuchas de Firebase ya estaban puestos: lo que fallaba era el GUARDADO. Medido sobre los datos reales de hoy, inventario/datos pesaba 790 KB y inventario/historial 747 KB, del maximo de 1 MB que admite Firestore. Pasado ese tope Firebase RECHAZA la escritura entera, asi que el cambio no salia del equipo y los demas no lo veian nunca. El archivador de la v90 no podia ayudar: sus plazos fijos (45, 120, 180 dias) no alcanzaban a NADA, porque lo que llena el documento son 389 consumos y 339 instalaciones RECIENTES. Ahora el archivador se regula solo: si un documento pasa del 70% del limite, acorta los plazos por escalones (30, 20, 14, 7 dias) hasta dejarlo por debajo del 60%, y nunca los alarga. Ademas archiva siete listas mas que antes (solicitudes de cambio y de borrado ya decididas, entregas, transferencias, ventas, logs). Probado hoy: 1.271 registros y 913 KB al archivo, historial 73%->15% y datos 77%->44%. Lo PENDIENTE no se archiva nunca y nada sale de la base sin haberlo leido antes en el archivo. [2] LA RECARGA YA NO PIDE LA CLAVE. La sesion se recuerda en sessionStorage, que vive solo en esa pestana y muere al cerrarla, asi que el equipo compartido de la bodega no amanece con la sesion abierta. Caduca a las 12 horas, no guarda la contrasena y se comprueba contra la base al volver: si a la bodega le cambiaron la clave o la borraron, se pide entrar de nuevo. [3] LA SOLICITUD DECIDIDA YA NO REAPARECE. El blindaje de la v79 caducaba a los 3 minutos; si el guardado fallaba por lo del punto [1], al minuto 4 el snapshot la devolvia a pendiente. Ahora la decision se sostiene SIN PLAZO y solo se suelta cuando la nube ya la trae con ese mismo estado. Se guarda tambien en el navegador, asi que sobrevive a una recarga, y se limpia a los 30 dias. [4] UN SERIAL, UN SITIO. modalAddSN solo miraba dentro del mismo articulo, asi que el mismo equipo podia quedar en dos bodegas, o en una bodega y una cuadrilla a la vez. Medido: 31 seriales estaban en dos sitios (un ONT figuraba en FLORENCIA y en DONCELLO). Ahora se BLOQUEA en vez de avisar, y en la Auditoria hay 🔧 Seriales repetidos para arreglar los que ya estaban: se elige donde esta de verdad el equipo y se quita de los demas, ajustando la cantidad. Los rellenos que no son seriales (N/A, SN, guiones) se siguen aceptando repetidos. v91: LECTURA DE FECHAS UNIFICADA. Ademas del texto, ahora se guarda una marca de tiempo NUMERICA (confirmadoMs, rechazadoMs) y la logica la prefiere. El texto se conserva sin tocar porque bodega lo muestra tal cual en pantalla, asi que el usuario no ve ningun cambio. El motivo: tanto TECNICOS como esta app guardaban las fechas con toLocaleDateString(), que en Colombia da DD/MM/AAAA, y new Date() lo interpreta como MM/DD: 17/8/2026 daba fecha invalida y 5/8/2026 se leia como 8 de MAYO. Un numero no admite interpretacion. Los registros anteriores siguen resolviendose con _msDeFechaInv. v90: EL ARCHIVADO YA ES AUTOMATICO, como en OFICINAS. Alla se resolvio asi en la v170 tras chocar con el limite de 1 MB; bodega se habia quedado solo con el boton manual, y por eso el historial viejo se acumulaba. Ahora corre dentro del guardado, antes de armar el documento. Es barato: _calcularAligerado() es puro en memoria y devuelve vacio casi siempre, asi que un guardado normal no cuesta nada extra; solo hay lecturas y escrituras cuando de verdad hay historial viejo, y una vez movido no se repite. Seguridad: escribe el archivo, lo vuelve a LEER para confirmar y solo entonces saca los registros de la base; si la escritura o la verificacion fallan, no se quita nada. El boton manual sigue existiendo y ahora comparte el mismo nucleo (_archivarInv) en vez de duplicar la logica. v89: EL ARCHIVADOR NO PODIA LEER LAS FECHAS. El boton Aligerar la base existia y sus reglas eran correctas, pero _diasDeInv usaba new Date() sobre fechas en formato colombiano DD/MM/AAAA que TECNICOS escribe con toLocaleDateString(). new Date() espera MM/DD, asi que 17/8/2026 daba Invalid Date y el registro quedaba invisible para el archivador PARA SIEMPRE, y 5/8/2026 se leia como 8 de MAYO, con la antiguedad mal calculada. Por eso habia 639 consumos ya resueltos (solo 12 seguian pendientes) ocupando el 48% de un documento al 80% de su limite. Ahora _msDeFechaInv resuelve DD/MM/AAAA a mano antes de Date.parse. Medido sobre los datos reales: los registros archivables pasaron de 1 a 458, unos 216 KB. El archivado sigue siendo manual. v88: CONFLICTOS DE CUADRILLAS Y BODEGAS RESUELTOS POR QUIEN TOCO EL REGISTRO. Habia dos reglas fijas y ninguna era correcta en ambos sentidos: el listener hacia Object.assign y la nube pisaba una edicion local sin guardar; y la fusion al guardar se quedaba con la copia local, revirtiendo el descuento que un tecnico acababa de hacer (el material quedaba en recuperados Y en la cuadrilla, contado dos veces). Ahora se guarda el contenido de cada registro en la ultima sincronia y se compara: si esta sesion no lo toco entra lo de la nube, si lo toco se conserva lo local. Sin base o registro desconocido gana lo local, igual que antes, para que un camino no cubierto degrade en vez de perder datos. Solo aplica a cuadrillas y bodegas. v87: GUARDA CONTRA CANTIDADES INVALIDAS. integrarRecuperado SUMA r.cant al stock de la bodega; si ese valor era negativo, cero o texto, restaba o corrompia el stock en silencio y lo registraba como entrada. Ahora se rechaza con un aviso claro. Se pone aqui ademas de en la app de Tecnicos porque un registro guardado ANTES de acotar la entrada seguiria causando el dano al integrarlo. Tambien se acoto la cantidad de equipos del cliente, que sin || guardaba NaN al vaciar el campo. v86: DIAGRAMA DEL CUARTO. Se restauro el boton IMPRIMIR, que estaba perdido: la funcion existia pero apuntaba al id diagSvg y el modal actual crea diagramaSVG, asi que aunque alguien la llamara no hacia nada, y ademas ningun boton la llamaba. Al imprimir se fuerza el color (print-color-adjust): sin eso el navegador omite los fondos y, como el diagrama es oscuro, salia una hoja practicamente en blanco. Se elimino descargarDiagramaSVG, que quedo redundante frente a descargarDiagrama (esta ultima si funciona y ademas agrega el xmlns al archivo). Y en la descarga: la fecha del nombre venia en UTC (de noche ponia la de manana) y la URL temporal se liberaba en el mismo instante del clic, lo que puede cortar la descarga. v85: solo comentarios. Se elimino la constante CAMPOS_DE_TECNICOS, que estaba declarada y NUNCA se usaba: era residuo del enfoque de la v72, reemplazado despues por la fusion universal _fusionarConNubeInv. El comentario del nucleo de guardado describia esa proteccion vieja, asi que enganaba a quien lo leyera. Ahora describe la fusion real y documenta su limite conocido: para un registro que ya existe en ambos lados gana la copia LOCAL, y como una cuadrilla no tiene campo 'estado', un descuento de stock hecho por un tecnico puede revertirse si esta sesion guarda antes de que el listener la refresque. Sin cambios de comportamiento. v84: limpieza de modalDiagramaCompleto duplicada. v83: MENSAJE DEL DIA al iniciar sesion. Ademas del saludo aparece una frase corta para arrancar labores, elegida segun el DIA DE LA SEMANA y estable durante toda la jornada (cambia al dia siguiente, no en cada recarga). Escritas para el trabajo de bodega: material, cuadrillas, seriales, consumos. Uno de cada tres dias se suma un recordatorio practico (anotar serial al entregar, confirmar consumos, revisar la Auditoria, registrar lo que entra, recibir devoluciones el mismo dia). Se editan en FRASES_DIA_INV y TIPS_DIA_INV. Incluye v82: COHERENCIA CON LA APP DE TECNICOS. La app de Tecnicos v71 corrigio que las devoluciones de material NO descontaban del stock del tecnico (quedaba contado dos veces). Aqui: [1] al integrar un recuperado que vino de una cuadrilla con una version anterior, se AVISA si ese material todavia figura a nombre del tecnico, para no contarlo doble. [2] La 🩺 Auditoria detecta ahora tres problemas del cruce con Tecnicos: material contado DOS veces (devuelto a la bodega pero aun en poder del tecnico), equipos danados que siguen en el stock del tecnico, tecnicos SIN CEDULA (la app de Tecnicos los busca por cedula: sin ella no pueden devolver material ni reportar consumos) y un mismo tecnico registrado en DOS cuadrillas (sus reportes irian a la cuadrilla equivocada). Incluye v81: (v81: CAUSA REAL DEL PROBLEMA DE GUARDADO — la base llego a 0.98 MB del maximo de 1 MB que permite Firestore, y pasado ese tope Firebase deja de guardar: por eso las solicitudes aprobadas reaparecian. El diagnostico de la v79 mostro que lo mas pesado NO son las fotos sino las listas de historial que crecen sin parar: consumosPendientes 370KB, bodegas 348KB, instalaciones 161KB, recuperados 81KB. NUEVO en 🩺 Auditoria: panel de espacio con barra de uso y desglose por seccion, boton ARCHIVAR HISTORIAL VIEJO (mueve a documentos por año los consumos ya resueltos de mas de 45 dias, las instalaciones de mas de 120 y los recuperados ya integrados; lo PENDIENTE nunca se archiva), boton para mover las fotos, y boton VER ARCHIVO para consultar lo guardado. Nada se borra y todo se verifica en la nube ANTES de sacarlo de la base. Incluye v80: (v80: LAS FOTOS DE MATERIALES SALEN DE LA BASE PRINCIPAL — esta era la causa de fondo de que los guardados fallaran y las solicitudes reaparecieran. Las fotos se guardaban DENTRO de inventario/datos como texto base64; entre todas hacian que el documento pasara el limite de 1 MB de Firestore, y a partir de ahi NINGUN cambio se guardaba. Ahora cada foto vive en su propio documento (inventario/foto_XXX) y el material solo guarda su codigo; se ven exactamente igual, se cargan solas al abrir la pantalla y las fotos nuevas ya no engordan la base. NUEVO en 🩺 Auditoria: panel de espacio que muestra cuanto pesa la base y cuantos MB ocupan las fotos incrustadas, con boton para MOVERLAS todas: va una por una, comprueba que quedo guardada ANTES de sacarla (ninguna se pierde), guarda bodega por bodega y se puede retomar si se interrumpe. Incluye v79: (v79: LAS SOLICITUDES APROBADAS/RECHAZADAS YA NO REAPARECEN. Causa: el snapshot de Firebase REEMPLAZA la lista completa con lo que hay en la nube; si el guardado aun no habia terminado —o FALLO, como cuando Firebase responde 'write stream exhausted maximum allowed queued writes'— la solicitud volvia a salir como pendiente. Tres correcciones: [1] BLINDAJE DE DECISIONES: toda decision tomada en esta sesion (aprobar, rechazar, aceptar/rechazar transferencia) se vuelve a imponer sobre el snapshot durante 3 minutos, hasta que quede confirmada en la nube. [2] EL GUARDADO FALLIDO YA NO ES INVISIBLE: antes solo se pintaba un indicador chiquito y se escribia en la consola, asi que el usuario creia que su cambio habia quedado; ahora avisa claro que NO se guardo y REINTENTA solo hasta 3 veces. [3] DIAGNOSTICO DE TAMANO: Firestore rechaza documentos de mas de 1 MB y no habia forma de enterarse; ahora se mide en cada guardado, se avisa en consola desde 800 KB y con alerta si pasa el limite, indicando que seccion pesa mas. Incluye v78: (v78: AUDITORIA GENERAL DEL INVENTARIO + correcciones de flujo. NUEVA PANTALLA 🩺 Auditoria (admin): revisa TUS datos reales y reporta stock negativo, seriales repetidos dentro de un articulo, el MISMO equipo registrado en dos lugares a la vez, desajustes entre cantidad y seriales, articulos duplicados en una bodega, cuadrillas con material sin bodega asignada, y material EN EL LIMBO (transferencias sin aceptar, consumos de tecnicos sin confirmar, recuperados sin integrar, solicitudes sin decidir), ordenado por gravedad y exportable a Excel. CORRECCIONES: [1] enviar transferencia validaba articulo por articulo mientras descontaba — si el stock habia cambiado quedaba NEGATIVO, y si el articulo ya no existia reventaba a mitad dejando material descontado SIN transferencia creada (perdido); ahora valida todo primero y no toca nada si algo falla. [2] aceptar/rechazar transferencia agregaba los seriales con push SIN comprobar si ya estaban (el mismo equipo dos veces en la bodega), reventaba si la bodega destino u origen ya no existia (material en el limbo) y al rechazar buscaba por NOMBRE creando duplicados si lo habian renombrado. [3] misma duplicacion de seriales corregida en recuperados integrados, devoluciones de cuadrilla y entregas. [4] KARDEX: ventas, transferencias, entregas, devoluciones y recuperados no dejaban NINGUN rastro en el historial del articulo; ahora si. [5] agregar seriales avisa si estan repetidos o si superan el stock. Incluye v77: (v77: SOLICITUDES DE CAMBIO Y ELIMINACION CORREGIDAS — cuatro fallas: [1] la EDICION de una bodega se aplicaba al material ANTES de mirar el rol, asi que el cambio quedaba hecho sin aprobacion y RECHAZARLO no revertia nada (la aprobacion era decorativa); ahora la bodega solo PROPONE y el material no se toca hasta que el admin apruebe. [2] ELIMINAR UNA VENTA no devolvia el material a la bodega aunque vender SI lo descuenta: el stock desaparecia sin venta que lo justificara; ahora se devuelve cantidad y seriales, con registro en el kardex, y si el articulo ya no existe se vuelve a crear (aplica tambien al borrado directo del admin). [3] RECHAZAR una eliminacion RESUCITABA material fantasma con la cantidad vieja cuando el articulo ya no estaba (agotado, transferido o borrado aparte); ahora rechazar no toca la bodega y, si el articulo falta, se le PREGUNTA al admin. [4] Aprobar eliminacion borraba el articulo SIN dejar rastro en el kardex y sin avisar si la cantidad habia cambiado desde la solicitud; ahora registra la salida y avisa. Ademas approveEdit avisa si la cantidad cambio antes de pisarla, y ya no cierra solicitudes en silencio cuando la bodega o el articulo ya no existen. Incluye v76: CUARTOS DE EQUIPOS — puertos huerfanos y conexiones protegidas: aviso ambar en el equipo cuando hay puertos OCUPADOS sin conexion que los respalde + boton 🧹 Liberarlos (respeta enlaces inter-sede); boton ✏️ para EDITAR conexiones (mover puertos con selector real, cable, color, notas); y TODA modificacion de conexiones (crear/editar/eliminar/liberar) va por TRANSACCION con validacion fresca — dos sesiones ya no se pisan y un puerto no puede ocuparse dos veces. Incluye v75: GUARDADO MAS RAPIDO — la fusion usa la copia del listener cuando tiene <15s (cero descargas extra, misma proteccion); si esta vieja, lee de la red como siempre. Incluye v74: FUSION UNIVERSAL ENTRE SESIONES — el trabajo simultaneo de varias bodegas y tecnicos ya no se pisa: al guardar se fusiona con la nube fresca (datos + historial), lo de otras sesiones se incorpora, los borrados propios dejan LAPIDA y no reviven, las decisiones ajenas (confirmados/integrados/aceptados) se respetan, y un snapshot ya no borra de la pantalla lo recien creado (se conserva y reenvia solo). ENTREGAS ahora con TRANSACCION multi-documento: valida el stock y los seriales sobre datos FRESCOS (si otra sesion entrego mientras tanto, avisa claro), descuenta bodega + suma cuadrilla + registra la entrega de forma atomica. Incluye v73: al CONFIRMAR un consumo de cliente, el material queda anotado AUTOMATICAMENTE en la ficha del cliente — seccion "🧰 Material instalado" — emparejando primero por CEDULA (que ahora envia el tecnico v69) y si no por nombre; si no se encuentra el cliente, avisa claro y el boton "Sincronizar material con clientes" (tambien mejorado con cedula) queda como red de seguridad. Incluye v72: [1] confirmación de consumos con TRANSACCIÓN — el descuento a la cuadrilla ya no se puede revertir por una sincronización cruzada; [2] config Firebase integrada — no vuelve a pedirla; [3] login con ojito 👁️ y Enter; [4] BLINDAJE: guardas anti-borrado de clientes (carga incompleta o encogimiento drástico NO reescriben la nube), firma para no reescribir chunks sin cambios, carga de clientes en paralelo con reintentos, COLA de guardado (nunca se solapan), fusión de envíos recientes de técnicos antes de guardar, y fotos pequeñas ya no se recomprimen)
+const APP_VERSION_INV = 104; // ⬆️ Subir en cada versión publicada de Inventario (v104: EL CATALOGO COMO CAPA, Etapa 1 del nuevo orden de bodegas. La radiografia del 2 sep 2026 sobre los datos reales mostro 16 modelos escritos de hasta cuatro formas (ONT EG8145V5 GPON DUAL BAND, EG8145V5, ONU GPON EG8145V5 5G, ONU EG8145V5), 25 filas repetidas dentro de una misma bodega porque nuevo y usado son articulos separados, tres formas de la misma unidad y 80 filas material con seriales. Nadie lo creo mal: lo fabrican los traslados, que buscan el destino por nombre EXACTO y crean otra fila cuando no lo encuentran. Los mejores sistemas separan el CATALOGO (la referencia definida una vez) de las EXISTENCIAS por bodega; esta etapa trae el catalogo como una CAPA encima de lo que hay, sin tocar un dato: [1] pestaña Catalogo (admin) donde una referencia agrupa los nombres con que el mismo articulo quedo escrito, con propuestas automaticas por codigo de modelo que se REVISAN antes de aceptar (dos SFP de distinto alcance comparten codigo y no son lo mismo); vive en su propio documento inventario/catalogo. [2] En Bodegas, la vista Por referencia: una fila por referencia con nuevo, usado y total, y debajo las filas de siempre con SUS MISMOS botones; para el admin, los totales por referencia en todas las bodegas, que es la pregunta que antes no tenia respuesta. Se apaga con un clic y todo vuelve a como estaba. La prueba exige lo que importa: la suma de los grupos es la suma de las filas, sobre los datos reales. v103: LOTES — EL PASAPORTE DE CADA EQUIPO. Pedido de Elkin: las referencias llegan en lotes distintos, de proveedores distintos, en fechas distintas, y cuando un equipo sale por garantia hay que saber de que proveedor es, de que lote y cuando llego. Esa informacion solo existe completa EN EL MOMENTO EN QUE LLEGA la mercancia, asi que se captura ahi: Reabastecer y Agregar material ganan dos campos OPCIONALES (proveedor, con lista de los ya usados, y lote/factura); la fecha la pone el sistema. No son obligatorios a proposito: un campo obligatorio molesto termina en xxx tecleado, que es peor que vacio. Se registra el lote solo si trae algo que recordar (proveedor, factura o seriales): el cable reabastecido sin datos no llena el registro de ruido. La consulta es el boton ESCUDO Garantia en Bodegas: se pega o se ESCANEA con la camara el serial del equipo dañado y responde de que proveedor llego, en que lote, cuando, a que bodega, donde esta hoy (bodega o cuadrilla) y por donde ha pasado (el rastro de la v99). La busqueda va del lote mas reciente hacia atras: si un equipo salio y volvio a entrar en otra compra, manda la ultima llegada. Los lotes viven en SU PROPIO documento de la nube (inventario/lotes) porque el principal ya conoce de cerca el limite de 1 MB, y si el registro pasa de 850 KB avisa con tiempo. Los seriales que llegaron antes del 2 de septiembre de 2026 responden sin-origen-registrado en vez de inventar. v99: LOS SERIALES REPETIDOS — POR QUE VUELVEN. Elkin pregunto por que no se resolvia de una vez la unica prueba que quedaba en ambar. No era una falla del programa sino del inventario: 27 seriales anotados en dos sitios son 27 equipos contados dos veces, y eso no se arregla desde el codigo porque depende de donde esta el aparato de verdad. Pero al mirarlos uno por uno aparecieron tres cosas que si son del programa. [1] LA HERRAMIENTA QUE LOS ARREGLA BORRABA EL EQUIPO. _dejarSNSoloEn quitaba el serial por VALOR en cada sitio descartado, y ese filtro se lleva TODAS las copias de ese articulo. Cuando el serial estaba dos veces dentro de la MISMA lista -tres casos en los datos de hoy- el sitio elegido y el descartado eran el mismo objeto, asi que tambien se borraba la copia que se queria conservar: el equipo desaparecia del inventario y la cantidad bajaba igual. Ahora se cuenta por material cuantas copias deben quedar (una en el elegido, cero en los demas) y se recorta a esa cifra. [2] LA CAUSA SEGUIA ABIERTA. integrarRecuperado sumaba el serial a la bodega sin mirar si ya estaba en otro lado. El aviso de la v82 no lo atrapaba: compara NOMBRE y cantidad, y solo actua cuando el recuperado trae cuadrillaId, y los que manda la app de Tecnicos por retiro de un cliente no la traen. Medido: 9 de los 27 entraron justo por ahi. Integrar significa que el aparato VOLVIO a la bodega, asi que ahora se MUEVE en vez de duplicarse: se enseña de donde sale, se pide confirmacion y se descuenta de alla. Reabastecer tambien revisa los seriales, igual que Agregar Serial, porque se teclean a mano igual. [3] YA NO HAY QUE ADIVINAR. Antes la herramienta pedia elegir a ciegas entre dos sitios. Ahora le pregunta al historial: si el equipo entro por un recuperado YA INTEGRADO a una bodega, por un traslado aceptado o por una entrega a esa cuadrilla, esa es la respuesta, y viene marcada con el motivo y la fecha. Entre dos articulos de la misma bodega desempata el nombre, que es la misma regla con la que se creo el duplicado. Hay un boton que resuelve de una vez todos los que tienen prueba, enseñando antes la lista completa. Medido hoy sobre los datos reales: de los 27, en 13 el historial lo demuestra y 14 siguen decidiendose a mano -los que no dejaron rastro, como dos ONT que figuran a la vez en FLORENCIA y en DONCELLO-. Nada se aplica sin enseñar antes que va a pasar. v98: LA APROBACION SE DESHACIA SOLA. Reportado por Elkin: acepta una solicitud, desaparece y despues vuelve a salir, y bodega termina creando la misma orden varias veces. Encontrado y REPRODUCIDO paso a paso. Al recibir un snapshot, _protegerSnapshotInv mete en el array entrante los registros que esta sesion edito y aun no ha guardado -eso esta bien, si no el snapshot los borraria de la pantalla-. Pero acto seguido se guardaba ESE MISMO array como la foto de referencia de lo que hay en la nube, con el cambio local adentro. A partir de ahi _sesionTocoInv, que es quien decide los conflictos, comparaba lo local contra una foto que ya traia lo local: respondia que la sesion NO habia tocado nada, y en el siguiente guardado la fusion dejaba entrar el valor VIEJO de la nube. Medido: aprobar dejaba el material en 1, llegaba un snapshot cualquiera y al fusionar volvia a 0. Nada avisaba, porque en pantalla el cambio se veia aplicado; por eso bodega pedia lo mismo otra vez. En los datos hay tres casos repetidos, separados 6, 39 y 49 minutos, todos de DONCELLO. Ahora la foto se toma ANTES de proteger, asi que retrata la NUBE y no la pantalla. Comprobado en los dos sentidos: la aprobacion propia sobrevive, y el cambio hecho por otra oficina sigue entrando cuando esta sesion no toco nada. Nota aparte: el sintoma tambien lo producia el limite de 1 MB, resuelto en la v97; el archivador esta funcionando (historial 15%, datos 48%). v97: LOS CUATRO REPORTES DE HOY. [1] TIEMPO REAL EN TODOS LOS DISPOSITIVOS. Los escuchas de Firebase ya estaban puestos: lo que fallaba era el GUARDADO. Medido sobre los datos reales de hoy, inventario/datos pesaba 790 KB y inventario/historial 747 KB, del maximo de 1 MB que admite Firestore. Pasado ese tope Firebase RECHAZA la escritura entera, asi que el cambio no salia del equipo y los demas no lo veian nunca. El archivador de la v90 no podia ayudar: sus plazos fijos (45, 120, 180 dias) no alcanzaban a NADA, porque lo que llena el documento son 389 consumos y 339 instalaciones RECIENTES. Ahora el archivador se regula solo: si un documento pasa del 70% del limite, acorta los plazos por escalones (30, 20, 14, 7 dias) hasta dejarlo por debajo del 60%, y nunca los alarga. Ademas archiva siete listas mas que antes (solicitudes de cambio y de borrado ya decididas, entregas, transferencias, ventas, logs). Probado hoy: 1.271 registros y 913 KB al archivo, historial 73%->15% y datos 77%->44%. Lo PENDIENTE no se archiva nunca y nada sale de la base sin haberlo leido antes en el archivo. [2] LA RECARGA YA NO PIDE LA CLAVE. La sesion se recuerda en sessionStorage, que vive solo en esa pestana y muere al cerrarla, asi que el equipo compartido de la bodega no amanece con la sesion abierta. Caduca a las 12 horas, no guarda la contrasena y se comprueba contra la base al volver: si a la bodega le cambiaron la clave o la borraron, se pide entrar de nuevo. [3] LA SOLICITUD DECIDIDA YA NO REAPARECE. El blindaje de la v79 caducaba a los 3 minutos; si el guardado fallaba por lo del punto [1], al minuto 4 el snapshot la devolvia a pendiente. Ahora la decision se sostiene SIN PLAZO y solo se suelta cuando la nube ya la trae con ese mismo estado. Se guarda tambien en el navegador, asi que sobrevive a una recarga, y se limpia a los 30 dias. [4] UN SERIAL, UN SITIO. modalAddSN solo miraba dentro del mismo articulo, asi que el mismo equipo podia quedar en dos bodegas, o en una bodega y una cuadrilla a la vez. Medido: 31 seriales estaban en dos sitios (un ONT figuraba en FLORENCIA y en DONCELLO). Ahora se BLOQUEA en vez de avisar, y en la Auditoria hay 🔧 Seriales repetidos para arreglar los que ya estaban: se elige donde esta de verdad el equipo y se quita de los demas, ajustando la cantidad. Los rellenos que no son seriales (N/A, SN, guiones) se siguen aceptando repetidos. v91: LECTURA DE FECHAS UNIFICADA. Ademas del texto, ahora se guarda una marca de tiempo NUMERICA (confirmadoMs, rechazadoMs) y la logica la prefiere. El texto se conserva sin tocar porque bodega lo muestra tal cual en pantalla, asi que el usuario no ve ningun cambio. El motivo: tanto TECNICOS como esta app guardaban las fechas con toLocaleDateString(), que en Colombia da DD/MM/AAAA, y new Date() lo interpreta como MM/DD: 17/8/2026 daba fecha invalida y 5/8/2026 se leia como 8 de MAYO. Un numero no admite interpretacion. Los registros anteriores siguen resolviendose con _msDeFechaInv. v90: EL ARCHIVADO YA ES AUTOMATICO, como en OFICINAS. Alla se resolvio asi en la v170 tras chocar con el limite de 1 MB; bodega se habia quedado solo con el boton manual, y por eso el historial viejo se acumulaba. Ahora corre dentro del guardado, antes de armar el documento. Es barato: _calcularAligerado() es puro en memoria y devuelve vacio casi siempre, asi que un guardado normal no cuesta nada extra; solo hay lecturas y escrituras cuando de verdad hay historial viejo, y una vez movido no se repite. Seguridad: escribe el archivo, lo vuelve a LEER para confirmar y solo entonces saca los registros de la base; si la escritura o la verificacion fallan, no se quita nada. El boton manual sigue existiendo y ahora comparte el mismo nucleo (_archivarInv) en vez de duplicar la logica. v89: EL ARCHIVADOR NO PODIA LEER LAS FECHAS. El boton Aligerar la base existia y sus reglas eran correctas, pero _diasDeInv usaba new Date() sobre fechas en formato colombiano DD/MM/AAAA que TECNICOS escribe con toLocaleDateString(). new Date() espera MM/DD, asi que 17/8/2026 daba Invalid Date y el registro quedaba invisible para el archivador PARA SIEMPRE, y 5/8/2026 se leia como 8 de MAYO, con la antiguedad mal calculada. Por eso habia 639 consumos ya resueltos (solo 12 seguian pendientes) ocupando el 48% de un documento al 80% de su limite. Ahora _msDeFechaInv resuelve DD/MM/AAAA a mano antes de Date.parse. Medido sobre los datos reales: los registros archivables pasaron de 1 a 458, unos 216 KB. El archivado sigue siendo manual. v88: CONFLICTOS DE CUADRILLAS Y BODEGAS RESUELTOS POR QUIEN TOCO EL REGISTRO. Habia dos reglas fijas y ninguna era correcta en ambos sentidos: el listener hacia Object.assign y la nube pisaba una edicion local sin guardar; y la fusion al guardar se quedaba con la copia local, revirtiendo el descuento que un tecnico acababa de hacer (el material quedaba en recuperados Y en la cuadrilla, contado dos veces). Ahora se guarda el contenido de cada registro en la ultima sincronia y se compara: si esta sesion no lo toco entra lo de la nube, si lo toco se conserva lo local. Sin base o registro desconocido gana lo local, igual que antes, para que un camino no cubierto degrade en vez de perder datos. Solo aplica a cuadrillas y bodegas. v87: GUARDA CONTRA CANTIDADES INVALIDAS. integrarRecuperado SUMA r.cant al stock de la bodega; si ese valor era negativo, cero o texto, restaba o corrompia el stock en silencio y lo registraba como entrada. Ahora se rechaza con un aviso claro. Se pone aqui ademas de en la app de Tecnicos porque un registro guardado ANTES de acotar la entrada seguiria causando el dano al integrarlo. Tambien se acoto la cantidad de equipos del cliente, que sin || guardaba NaN al vaciar el campo. v86: DIAGRAMA DEL CUARTO. Se restauro el boton IMPRIMIR, que estaba perdido: la funcion existia pero apuntaba al id diagSvg y el modal actual crea diagramaSVG, asi que aunque alguien la llamara no hacia nada, y ademas ningun boton la llamaba. Al imprimir se fuerza el color (print-color-adjust): sin eso el navegador omite los fondos y, como el diagrama es oscuro, salia una hoja practicamente en blanco. Se elimino descargarDiagramaSVG, que quedo redundante frente a descargarDiagrama (esta ultima si funciona y ademas agrega el xmlns al archivo). Y en la descarga: la fecha del nombre venia en UTC (de noche ponia la de manana) y la URL temporal se liberaba en el mismo instante del clic, lo que puede cortar la descarga. v85: solo comentarios. Se elimino la constante CAMPOS_DE_TECNICOS, que estaba declarada y NUNCA se usaba: era residuo del enfoque de la v72, reemplazado despues por la fusion universal _fusionarConNubeInv. El comentario del nucleo de guardado describia esa proteccion vieja, asi que enganaba a quien lo leyera. Ahora describe la fusion real y documenta su limite conocido: para un registro que ya existe en ambos lados gana la copia LOCAL, y como una cuadrilla no tiene campo 'estado', un descuento de stock hecho por un tecnico puede revertirse si esta sesion guarda antes de que el listener la refresque. Sin cambios de comportamiento. v84: limpieza de modalDiagramaCompleto duplicada. v83: MENSAJE DEL DIA al iniciar sesion. Ademas del saludo aparece una frase corta para arrancar labores, elegida segun el DIA DE LA SEMANA y estable durante toda la jornada (cambia al dia siguiente, no en cada recarga). Escritas para el trabajo de bodega: material, cuadrillas, seriales, consumos. Uno de cada tres dias se suma un recordatorio practico (anotar serial al entregar, confirmar consumos, revisar la Auditoria, registrar lo que entra, recibir devoluciones el mismo dia). Se editan en FRASES_DIA_INV y TIPS_DIA_INV. Incluye v82: COHERENCIA CON LA APP DE TECNICOS. La app de Tecnicos v71 corrigio que las devoluciones de material NO descontaban del stock del tecnico (quedaba contado dos veces). Aqui: [1] al integrar un recuperado que vino de una cuadrilla con una version anterior, se AVISA si ese material todavia figura a nombre del tecnico, para no contarlo doble. [2] La 🩺 Auditoria detecta ahora tres problemas del cruce con Tecnicos: material contado DOS veces (devuelto a la bodega pero aun en poder del tecnico), equipos danados que siguen en el stock del tecnico, tecnicos SIN CEDULA (la app de Tecnicos los busca por cedula: sin ella no pueden devolver material ni reportar consumos) y un mismo tecnico registrado en DOS cuadrillas (sus reportes irian a la cuadrilla equivocada). Incluye v81: (v81: CAUSA REAL DEL PROBLEMA DE GUARDADO — la base llego a 0.98 MB del maximo de 1 MB que permite Firestore, y pasado ese tope Firebase deja de guardar: por eso las solicitudes aprobadas reaparecian. El diagnostico de la v79 mostro que lo mas pesado NO son las fotos sino las listas de historial que crecen sin parar: consumosPendientes 370KB, bodegas 348KB, instalaciones 161KB, recuperados 81KB. NUEVO en 🩺 Auditoria: panel de espacio con barra de uso y desglose por seccion, boton ARCHIVAR HISTORIAL VIEJO (mueve a documentos por año los consumos ya resueltos de mas de 45 dias, las instalaciones de mas de 120 y los recuperados ya integrados; lo PENDIENTE nunca se archiva), boton para mover las fotos, y boton VER ARCHIVO para consultar lo guardado. Nada se borra y todo se verifica en la nube ANTES de sacarlo de la base. Incluye v80: (v80: LAS FOTOS DE MATERIALES SALEN DE LA BASE PRINCIPAL — esta era la causa de fondo de que los guardados fallaran y las solicitudes reaparecieran. Las fotos se guardaban DENTRO de inventario/datos como texto base64; entre todas hacian que el documento pasara el limite de 1 MB de Firestore, y a partir de ahi NINGUN cambio se guardaba. Ahora cada foto vive en su propio documento (inventario/foto_XXX) y el material solo guarda su codigo; se ven exactamente igual, se cargan solas al abrir la pantalla y las fotos nuevas ya no engordan la base. NUEVO en 🩺 Auditoria: panel de espacio que muestra cuanto pesa la base y cuantos MB ocupan las fotos incrustadas, con boton para MOVERLAS todas: va una por una, comprueba que quedo guardada ANTES de sacarla (ninguna se pierde), guarda bodega por bodega y se puede retomar si se interrumpe. Incluye v79: (v79: LAS SOLICITUDES APROBADAS/RECHAZADAS YA NO REAPARECEN. Causa: el snapshot de Firebase REEMPLAZA la lista completa con lo que hay en la nube; si el guardado aun no habia terminado —o FALLO, como cuando Firebase responde 'write stream exhausted maximum allowed queued writes'— la solicitud volvia a salir como pendiente. Tres correcciones: [1] BLINDAJE DE DECISIONES: toda decision tomada en esta sesion (aprobar, rechazar, aceptar/rechazar transferencia) se vuelve a imponer sobre el snapshot durante 3 minutos, hasta que quede confirmada en la nube. [2] EL GUARDADO FALLIDO YA NO ES INVISIBLE: antes solo se pintaba un indicador chiquito y se escribia en la consola, asi que el usuario creia que su cambio habia quedado; ahora avisa claro que NO se guardo y REINTENTA solo hasta 3 veces. [3] DIAGNOSTICO DE TAMANO: Firestore rechaza documentos de mas de 1 MB y no habia forma de enterarse; ahora se mide en cada guardado, se avisa en consola desde 800 KB y con alerta si pasa el limite, indicando que seccion pesa mas. Incluye v78: (v78: AUDITORIA GENERAL DEL INVENTARIO + correcciones de flujo. NUEVA PANTALLA 🩺 Auditoria (admin): revisa TUS datos reales y reporta stock negativo, seriales repetidos dentro de un articulo, el MISMO equipo registrado en dos lugares a la vez, desajustes entre cantidad y seriales, articulos duplicados en una bodega, cuadrillas con material sin bodega asignada, y material EN EL LIMBO (transferencias sin aceptar, consumos de tecnicos sin confirmar, recuperados sin integrar, solicitudes sin decidir), ordenado por gravedad y exportable a Excel. CORRECCIONES: [1] enviar transferencia validaba articulo por articulo mientras descontaba — si el stock habia cambiado quedaba NEGATIVO, y si el articulo ya no existia reventaba a mitad dejando material descontado SIN transferencia creada (perdido); ahora valida todo primero y no toca nada si algo falla. [2] aceptar/rechazar transferencia agregaba los seriales con push SIN comprobar si ya estaban (el mismo equipo dos veces en la bodega), reventaba si la bodega destino u origen ya no existia (material en el limbo) y al rechazar buscaba por NOMBRE creando duplicados si lo habian renombrado. [3] misma duplicacion de seriales corregida en recuperados integrados, devoluciones de cuadrilla y entregas. [4] KARDEX: ventas, transferencias, entregas, devoluciones y recuperados no dejaban NINGUN rastro en el historial del articulo; ahora si. [5] agregar seriales avisa si estan repetidos o si superan el stock. Incluye v77: (v77: SOLICITUDES DE CAMBIO Y ELIMINACION CORREGIDAS — cuatro fallas: [1] la EDICION de una bodega se aplicaba al material ANTES de mirar el rol, asi que el cambio quedaba hecho sin aprobacion y RECHAZARLO no revertia nada (la aprobacion era decorativa); ahora la bodega solo PROPONE y el material no se toca hasta que el admin apruebe. [2] ELIMINAR UNA VENTA no devolvia el material a la bodega aunque vender SI lo descuenta: el stock desaparecia sin venta que lo justificara; ahora se devuelve cantidad y seriales, con registro en el kardex, y si el articulo ya no existe se vuelve a crear (aplica tambien al borrado directo del admin). [3] RECHAZAR una eliminacion RESUCITABA material fantasma con la cantidad vieja cuando el articulo ya no estaba (agotado, transferido o borrado aparte); ahora rechazar no toca la bodega y, si el articulo falta, se le PREGUNTA al admin. [4] Aprobar eliminacion borraba el articulo SIN dejar rastro en el kardex y sin avisar si la cantidad habia cambiado desde la solicitud; ahora registra la salida y avisa. Ademas approveEdit avisa si la cantidad cambio antes de pisarla, y ya no cierra solicitudes en silencio cuando la bodega o el articulo ya no existen. Incluye v76: CUARTOS DE EQUIPOS — puertos huerfanos y conexiones protegidas: aviso ambar en el equipo cuando hay puertos OCUPADOS sin conexion que los respalde + boton 🧹 Liberarlos (respeta enlaces inter-sede); boton ✏️ para EDITAR conexiones (mover puertos con selector real, cable, color, notas); y TODA modificacion de conexiones (crear/editar/eliminar/liberar) va por TRANSACCION con validacion fresca — dos sesiones ya no se pisan y un puerto no puede ocuparse dos veces. Incluye v75: GUARDADO MAS RAPIDO — la fusion usa la copia del listener cuando tiene <15s (cero descargas extra, misma proteccion); si esta vieja, lee de la red como siempre. Incluye v74: FUSION UNIVERSAL ENTRE SESIONES — el trabajo simultaneo de varias bodegas y tecnicos ya no se pisa: al guardar se fusiona con la nube fresca (datos + historial), lo de otras sesiones se incorpora, los borrados propios dejan LAPIDA y no reviven, las decisiones ajenas (confirmados/integrados/aceptados) se respetan, y un snapshot ya no borra de la pantalla lo recien creado (se conserva y reenvia solo). ENTREGAS ahora con TRANSACCION multi-documento: valida el stock y los seriales sobre datos FRESCOS (si otra sesion entrego mientras tanto, avisa claro), descuenta bodega + suma cuadrilla + registra la entrega de forma atomica. Incluye v73: al CONFIRMAR un consumo de cliente, el material queda anotado AUTOMATICAMENTE en la ficha del cliente — seccion "🧰 Material instalado" — emparejando primero por CEDULA (que ahora envia el tecnico v69) y si no por nombre; si no se encuentra el cliente, avisa claro y el boton "Sincronizar material con clientes" (tambien mejorado con cedula) queda como red de seguridad. Incluye v72: [1] confirmación de consumos con TRANSACCIÓN — el descuento a la cuadrilla ya no se puede revertir por una sincronización cruzada; [2] config Firebase integrada — no vuelve a pedirla; [3] login con ojito 👁️ y Enter; [4] BLINDAJE: guardas anti-borrado de clientes (carga incompleta o encogimiento drástico NO reescriben la nube), firma para no reescribir chunks sin cambios, carga de clientes en paralelo con reintentos, COLA de guardado (nunca se solapan), fusión de envíos recientes de técnicos antes de guardar, y fotos pequeñas ya no se recomprimen)
 const CHUNK_SIZE = 800; // clients per document - allows ~10000 clients
 
 // Helper: split array into chunks
