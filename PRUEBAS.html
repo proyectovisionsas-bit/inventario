@@ -1377,6 +1377,45 @@ const PRUEBAS = [
        +'\nen la lista de su caja: '+r.enLaLista+' (1) · en otra caja: '+r.enOtraCaja+' (0)'
        +'\ncolor: '+r.color+' (esperado '+r.esperado3+')'};}},
 
+{app:'inv', titulo:'La búsqueda y los filtros de bodegas encuentran lo que deben y nada más',
+ porque:'Pedido de Elkin: barra de búsqueda y filtros en los materiales. Un filtro que deja pasar de más '
+       +'esconde el problema entre ruido; uno que deja pasar de menos hace creer que el equipo no existe. '
+       +'Se prueban las reglas puras: varias palabras se exigen todas, se busca también por alias de la '
+       +'referencia y por serial, y bajo mínimo usa el mínimo del catálogo cuando la fila no tiene.',
+ correr:W=>{ const r=E(W,
+     'const ref={id:"r1", nombre:"ONT Huawei EG8145V5", alias:["EG8145V5"], etiquetas:["WiFi 5"], stockMin:5, categoria:"equipo"};'
+   +'const m1={nombre:"EG8145V5", tipo:"nuevo", cantidad:2, snes:["48575443AAAA0001"], categoria:"equipo"};'
+   +'const m2={nombre:"CABLE DROP", tipo:"nuevo", cantidad:5000, unidad:"m", snes:[], categoria:"material", stockMin:800, observaciones:"carrete azul"};'
+   +'const m3={nombre:"CABLE DROP", tipo:"usado", cantidad:0, snes:[], categoria:"material"};'
+   +'const F=o=>Object.assign({q:"",cat:"",tipo:"",stock:"",sn:"",etq:""},o);'
+   +'const g=_agruparPorReferencia([m1,m2,m3], {referencias:[ref]});'
+   +'const gOnt=g.find(x=>x.nombre==="ONT Huawei EG8145V5"), gDrop=g.find(x=>x.nombre==="CABLE DROP");'
+   +'return {'
+   +'  porAlias: _materialCoincide(m1, F({q:"huawei wifi"}), ref),'
+   +'  todasLasPalabras: _materialCoincide(m2, F({q:"cable rojo"}), null),'
+   +'  porSerial: _materialCoincide(m1, F({q:"aaaa0001"}), ref),'
+   +'  porObservacion: _materialCoincide(m2, F({q:"carrete"}), null),'
+   +'  porTipo: [_materialCoincide(m3, F({q:"cable usad"}), null), _materialCoincide(m2, F({q:"cable usad"}), null)],'
+   +'  catMaterial: [_materialCoincide(m2, F({cat:"material"}), null), _materialCoincide(m1, F({cat:"material"}), ref)],'
+   +'  bajoMinimoDelCatalogo: [_materialCoincide(m1, F({stock:"bajo"}), ref), _materialCoincide(m2, F({stock:"bajo"}), null), _materialCoincide(m3, F({stock:"bajo"}), null)],'
+   +'  enCero: _materialCoincide(m3, F({stock:"cero"}), null),'
+   +'  sinSerial: [_materialCoincide(m2, F({sn:"no"}), null), _materialCoincide(m1, F({sn:"no"}), ref)],'
+   +'  etiqueta: _materialCoincide(m1, F({etq:"wifi 5"}), ref),'
+   +'  grupoBajo: [_grupoCoincide(gOnt, F({stock:"bajo"})), _grupoCoincide(gDrop, F({stock:"bajo"}))],'
+   +'  grupoTexto: _grupoCoincide(gDrop, F({q:"drop"}))'
+   +'};');
+   const bien = r.porAlias===true && r.todasLasPalabras===false && r.porSerial===true && r.porObservacion===true
+             && r.catMaterial.join()==='true,false' && r.bajoMinimoDelCatalogo.join()==='true,false,false'
+             && r.enCero===true && r.sinSerial.join()==='true,false' && r.etiqueta===true
+             && r.porTipo.join()==='true,false'
+             && r.grupoBajo.join()==='true,false' && r.grupoTexto===true;
+   return {ok:bien, detalle: bien
+     ? '"huawei wifi" encuentra la fila EG8145V5 por su referencia y etiqueta; "cable rojo" no pasa porque exige todas las palabras ✓'
+      +'\nSe encuentra por serial, por observación y por nuevo/usado ("cable usad") ✓ · categoría, en cero y sin serial filtran bien ✓'
+      +'\nBajo mínimo usa el mínimo del catálogo (2 < 5) y no marca el cable (5.000 ≥ 800) ni una fila sin mínimo ✓'
+      +'\nEn la vista por referencia el grupo de la ONT sale bajo mínimo y el del cable no ✓'
+     : JSON.stringify(r)};}},
+
 {app:'inv', titulo:'La vista por referencia no cambia ni una unidad: agrupa, no toca',
  porque:'Etapa 1 del nuevo orden de bodegas. El catálogo es una CAPA: agrupa las filas del mismo '
        +'artículo bajo un nombre limpio, con nuevo y usado juntos. Lo único que no puede pasar es que '
