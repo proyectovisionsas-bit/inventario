@@ -837,6 +837,38 @@ const PRUEBAS = [
        +'\nuna sola '+r.unaSolaOficina+' · sin oficinas '+r.sinOficinas
        +' · egreso '+r.egresoResta+' · ingreso '+r.ingresoSuma+' · vacío '+r.valorSucio};}},
 
+{app:'ofi', titulo:'El vigilante de avisos solo avisa lo nuevo, y lo dice claro',
+ porque:'Pedido de Elkin: un aviso al celular cuando haya solicitudes de aprobación pendientes. Un '
+       +'vigilante que avisa lo mismo cada 5 minutos se silencia en un día; uno que se olvida de una '
+       +'solicitud la deja morir. Se prueba el comparador REAL leído del archivo del Apps Script: qué '
+       +'es pendiente en cada app, qué es nuevo respecto a lo ya avisado, qué se olvida al resolverse, '
+       +'y el texto del aviso.',
+ correr:async W=>{
+   const codigo=await fetch('AVISOS_PENDIENTES.gs').then(r=>{ if(!r.ok) throw new Error('no se pudo leer AVISOS_PENDIENTES.gs ('+r.status+')'); return r.text(); });
+   const gs=new Function(codigo+';\nreturn {inv:AV_pendientesInventario, ofi:AV_pendientesOficinas, nov:AV_novedades, txt:AV_texto};')();
+   const inv={editRequests:[{id:'e1', estado:'pendiente', materialNombre:'ONT EG8145V5', bodegaNombre:'FLORENCIA', motivo:'cambiar cantidad'},
+                            {id:'e2', estado:'aprobada', materialNombre:'CABLE'}],
+              deleteRequests:[{id:'d1', estado:'pendiente', tipo:'venta', materialNombre:'TV BOX', cantidad:2, bodegaNombre:'PAUJIL', obs:'venta repetida'}]};
+   const ofi={solicitudes:[{id:'s1', estado:'pendiente', tipo:'registro_pasado', descripcion:'Registro ingreso del 28/08: mensualidad', oficina:'DONCELLO'},
+                           {id:'s2', estado:'rechazada', tipo:'eliminar_mov', descripcion:'x'}]};
+   const pend=gs.inv(inv).concat(gs.ofi(ofi));
+   const primera=gs.nov(pend, []);                                  // nunca se ha avisado nada
+   const segunda=gs.nov(pend, pend.map(x=>x.id));                    // ya se avisó todo
+   const resuelta=gs.nov(pend.filter(x=>x.id!=='inv_d_d1'), pend.map(x=>x.id));   // la de borrado se aprobó
+   const t=gs.txt(pend, false), r=gs.txt(pend.slice(0,1), true);
+   const bien = pend.length===3 && pend.map(x=>x.app).join()==='inventario,inventario,oficinas'
+             && pend[2].tipo==='Registro con fecha pasada' && pend[0].que.indexOf('cambiar cantidad')>=0
+             && primera.nuevas.length===3 && segunda.nuevas.length===0 && segunda.vigentes.length===3
+             && resuelta.nuevas.length===0 && resuelta.vigentes.length===2 && resuelta.vigentes.indexOf('inv_d_d1')<0
+             && t.titulo==='📋 3 solicitudes nuevas por aprobar' && t.cuerpo.split('\n').length===3
+             && r.titulo==='⏰ Siguen pendientes 1 solicitud por aprobar';
+   return {ok:bien, detalle: bien
+     ? 'De 5 registros solo 3 están pendientes: edición y borrado del inventario, y un registro con fecha pasada de oficinas ✓'
+      +'\nLa primera ronda avisa las 3; la segunda no repite ninguna; al aprobarse el borrado, se olvida y no vuelve a sonar ✓'
+      +'\nEl aviso dice "📋 3 solicitudes nuevas por aprobar" con una línea por solicitud, y el recordatorio se distingue ✓'
+     : 'pendientes '+pend.length+' (3) · apps '+pend.map(x=>x.app).join()+' · primera '+primera.nuevas.length+' (3) · segunda '+segunda.nuevas.length+'/'+segunda.vigentes.length+' (0/3)'
+      +'\nresuelta '+resuelta.nuevas.length+'/'+resuelta.vigentes.length+' (0/2) · título "'+t.titulo+'" · líneas '+t.cuerpo.split('\n').length+' · recordatorio "'+r.titulo+'"'};}},
+
 {app:'ofi', titulo:'Un comprobante viejo subido hoy se anota, aunque el movimiento lo tapen',
  porque:'El chequeo nocturno comparaba la fecha del papel contra la fecha del MOVIMIENTO, y esa '
        +'la escribe quien registra: poniendo la fecha vieja del papel todo cuadraba. Caso real de '
