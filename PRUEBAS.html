@@ -837,6 +837,47 @@ const PRUEBAS = [
        +'\nuna sola '+r.unaSolaOficina+' · sin oficinas '+r.sinOficinas
        +' · egreso '+r.egresoResta+' · ingreso '+r.ingresoSuma+' · vacío '+r.valorSucio};}},
 
+{app:'ofi', titulo:'La sincronización automática trae clientes nuevos sin retirar a nadie sola',
+ porque:'Elkin: siempre faltan clientes o falta dinero. Medido contra la API: los clientes nuevos '
+       +'solo entraban con la sincronización manual, y un pago registrado tarde se escapaba de la '
+       +'ventana de 4 días. Ahora la sync automática concilia clientes cada hora con las mismas reglas '
+       +'de la manual, pero SOLO agrega, sella, reactiva y actualiza; retirar o mover queda para una '
+       +'persona. Y una vez al día mira 35 días de pagos hacia atrás.',
+ correr:W=>{ const r=E(W,
+     'const ahora=Date.now();'
+   +'const ofi={id:"of1", nombre:"PRUEBA", cuentaWisphub:"cta", zonasWisphub:["PAUJIL"], clientes:['
+   +'   {id:"c1", nombre:"YA ESTABA", cedula:"111", servicioWisphub:"111@x", llaveWisphub:"cta:1", estado:"Activo"},'
+   +'   {id:"c2", nombre:"SE FUE DE WISPHUB", cedula:"222", servicioWisphub:"222@x", llaveWisphub:"cta:2", estado:"Activo"}]};'
+   +'const raw=[{id_servicio:1, servicio:"111@x", cedula:"111", nombre:"YA ESTABA", zona:{nombre:"PAUJIL"}, estado:"Suspendido", plan_internet:{nombre:"50 MEGAS"}, precio_plan:70000},'
+   +'           {id_servicio:3, servicio:"333@x", cedula:"333", nombre:"NUEVO INSTALADO", zona:{nombre:"PAUJIL"}, estado:"Activo", fecha_instalacion:"04/09/2026 16:15:00"},'
+   +'           {id_servicio:4, servicio:"444@x", cedula:"444", nombre:"DE OTRA ZONA", zona:{nombre:"DONCELLO"}, estado:"Activo"}];'
+   +'const gO=DB.oficinas, gL=DB.logsAuditoria; DB.oficinas=[ofi]; DB.logsAuditoria=[];'
+   +'try{'
+   +'  const plan=conciliarOficina(ofi, raw, {cta:raw});'
+   +'  const seguro=_planClientesSeguro(plan);'
+   +'  const h=aplicarConciliacion(seguro);'
+   +'  const est=_actualizarEstadosClientesWisphub(ofi, _filtrarPorZonaOficina(ofi, raw, c=>_zonaDe(c)))||{};'
+   +'  const nombres=ofi.clientes.map(c=>c.nombre);'
+   +'  const seFue=ofi.clientes.find(c=>c.id==="c2");'
+   +'  const yaEstaba=ofi.clientes.find(c=>c.id==="c1");'
+   +'  return {planRetirar:plan.retirar.length, planAgregar:plan.agregar.length, seguroRetirar:seguro.retirar.length,'
+   +'          agregados:h.agregados, retirados:h.retirados, nombres,'
+   +'          seFueSigue: !!seFue && !seFue.retiradoWisphub, estadoActualizado: yaEstaba && yaEstaba.estado, planActualizado: yaEstaba && yaEstaba.plan,'
+   +'          deOtraZona: nombres.indexOf("DE OTRA ZONA")<0,'
+   +'          profundo:[_debeBarridoProfundo(0, ahora), _debeBarridoProfundo(ahora-3600e3, ahora), _debeBarridoProfundo(ahora-21*3600e3, ahora)],'
+   +'          completa:[_listaClientesCompleta(2378,2378), _listaClientesCompleta(2000,2378), _listaClientesCompleta(0,0), _listaClientesCompleta(5,0)]};'
+   +'} finally { DB.oficinas=gO; DB.logsAuditoria=gL; }');
+   const bien = r.planRetirar===1 && r.planAgregar===1 && r.seguroRetirar===0
+             && r.agregados===1 && r.retirados===0 && r.nombres.indexOf('NUEVO INSTALADO')>=0
+             && r.seFueSigue===true && r.estadoActualizado==='Suspendido' && r.planActualizado==='50 MEGAS' && r.deOtraZona===true
+             && r.profundo.join()==='true,false,true' && r.completa.join()==='true,false,false,true';
+   return {ok:bien, detalle: bien
+     ? 'El cliente instalado ayer entra solo; el de otra zona no se cuela ✓'
+      +'\nAl que ya no aparece en WispHub la sync automática NO lo retira (el plan manual sí lo propondría): eso lo decide una persona ✓'
+      +'\nEl que ya estaba recibe su estado y plan nuevos (Suspendido, 50 MEGAS) ✓'
+      +'\nEl barrido de 35 días se hace una vez al día, y un listado recortado (2.000 de 2.378) se ignora ✓'
+     : JSON.stringify(r)};}},
+
 {app:'ofi', titulo:'La nómina da los mismos pesos que la planilla de la contadora',
  porque:'Elkin trajo la planilla real de julio de 2026. Si el sistema no da EXACTAMENTE los pesos de la '
        +'contadora, nadie le va a creer y se vuelve a la hoja. Se prueban sus filas con sus números: '
