@@ -837,6 +837,36 @@ const PRUEBAS = [
        +'\nuna sola '+r.unaSolaOficina+' · sin oficinas '+r.sinOficinas
        +' · egreso '+r.egresoResta+' · ingreso '+r.ingresoSuma+' · vacío '+r.valorSucio};}},
 
+{app:'ofi', titulo:'El comprobante encuentra su pago por la fecha que dice el papel, y por valor único si hace falta',
+ porque:'Elkin pidió revisar el cargue de comprobantes. El enlace buscaba el pago solo en el día del '
+       +'formulario (la fecha leída por la IA se ignoraba) y exigía que el nombre del pagador coincidiera '
+       +'con el cliente: quien subía hoy los de ayer, o cuyo esposo pagó, quedaba SIN pago. Se prueba la '
+       +'función pura: fecha del comprobante manda, valor único enlaza marcado, y dos iguales no se adivinan.',
+ correr:W=>{ const r=E(W,
+     'const pagos=()=>[{id:"p1", valor:60000, forma:"Cta Bancolombia", fecha:"2026-09-03", clienteWisphub:"JUAN PEREZ"},'
+   +'                 {id:"p2", valor:60000, forma:"Cta Bancolombia", fecha:"2026-09-04", clienteWisphub:"MARIA LOPEZ"},'
+   +'                 {id:"p3", valor:45000, forma:"Cta Bancolombia", fecha:"2026-09-04", clienteWisphub:"PEDRO GOMEZ"},'
+   +'                 {id:"p4", valor:45000, forma:"Efectivo", fecha:"2026-09-04", clienteWisphub:"OTRO EFECTIVO"}];'
+   +'const F="Cta Bancolombia";'
+   +'const a=_elegirPagoParaComprobante(pagos(), 60000, "JUAN PEREZ", "2026-09-03", "2026-09-04", F);'
+   +'const b=_elegirPagoParaComprobante(pagos(), 45000, "ESPOSA DE ALGUIEN", "2026-09-04", "2026-09-04", F);'
+   +'const c=_elegirPagoParaComprobante(pagos(), 60000, "NADIE CONOCIDO", "2026-09-04", "2026-09-04", F);'
+   +'const d=_elegirPagoParaComprobante(pagos(), 45000, "PEDRO GOMEZ", "2026-09-20", "2026-09-20", F);'
+   +'const e=_elegirPagoParaComprobante(pagos(), 45000, "PEDRO GOMEZ", "", "2026-09-04", F);'
+   +'const esc=[_escalaParaPDF(4000,3000), _escalaParaPDF(800,600), _escalaParaPDF(1200,2400)];'
+   +'return {a:a&&[a.pago.id,a.motivo], b:b&&[b.pago.id,b.motivo], c, d, e:e&&[e.pago.id,e.motivo], esc};');
+   const bien = r.a && r.a.join()==='p1,nombre'
+             && r.b && r.b.join()==='p3,valorUnico'
+             && r.c===null && r.d===null
+             && r.e && r.e.join()==='p3,nombre'
+             && JSON.stringify(r.esc)===JSON.stringify([{w:1600,h:1200},{w:800,h:600},{w:800,h:1600}]);
+   return {ok:bien, detalle: bien
+     ? 'El comprobante del 3 subido con fecha del 4 encuentra su pago del 3 por nombre ✓'
+      +'\nSin nombre igual pero con UN solo pago de 45.000 ese día: enlaza marcado "por valor único" ✓'
+      +'\nDos pagos de 60.000 en ±1 día y ningún nombre igual: no adivina ✓ · lejos en fechas: nada ✓ · sin fecha leída usa la del formulario ✓'
+      +'\nLas fotos para el PDF bajan a 1.600 px de lado y las pequeñas quedan iguales ✓'
+     : JSON.stringify(r)};}},
+
 {app:'ofi', titulo:'La sincronización automática trae clientes nuevos sin retirar a nadie sola',
  porque:'Elkin: siempre faltan clientes o falta dinero. Medido contra la API: los clientes nuevos '
        +'solo entraban con la sincronización manual, y un pago registrado tarde se escapaba de la '
