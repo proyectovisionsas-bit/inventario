@@ -898,6 +898,58 @@ const PRUEBAS = [
       +'\nEl panel deja abierta solo la novedad grave y cuenta 1 nota callada ✓'
      : JSON.stringify(r)};}},
 
+{app:'ofi', titulo:'Los clientes nuevos muestran su alta y su primer pago, cruzados por cédula',
+ porque:'Elkin (7 sep 2026): no se reflejaban los usuarios nuevos ni qué pagaron al inicio, y el reporte no '
+       +'cuadraba con WispHub. Medido contra la API: los clientes SÍ estaban al día; el cruce con los pagos era '
+       +'por nombre y solo del mes, así que el instalado el 27 que pagó en septiembre quedaba "sin pago" para '
+       +'siempre. Ahora se cruza por cédula desde la instalación, la fecha se lee en cualquier formato (y se '
+       +'ignora un año 5202), el alta sale en la tarjeta del cliente, y la sync manual detecta los duplicados '
+       +'creados a mano (misma cédula, o mismo nombre exacto sin cédula).',
+ correr:W=>{ const r=E(W,
+     'const o={id:"of_prueba_alta", nombre:"PRUEBA", cuentaWisphub:"cta", zonasWisphub:["PAUJIL"], clientes:['
+   +'  {id:"n1", nombre:"jJUAN CAMILO PASCUAL", cedula:"1075232765", llaveWisphub:"cta:1", fechaInstalacion:"18/08/2026 10:00:00", costoInstalacion:55000, estado:"Activo"},'
+   +'  {id:"n2", nombre:"SIN PAGO", cedula:"999", llaveWisphub:"cta:2", fechaInstalacion:"2026-08-20", estado:"Activo"},'
+   +'  {id:"v1", nombre:"VIEJO", cedula:"111", llaveWisphub:"cta:3", fechaInstalacion:"05/01/2025 09:00:00", estado:"Activo"},'
+   +'  {id:"d1", nombre:"DUPLICADO A MANO", cedula:"111", estado:"Activo"},'
+   +'  {id:"m2", nombre:"Viejo ", estado:"Activo", fechaInstalacion:"2026-09-01"},'
+   +'  {id:"m1", nombre:"A MANO SIN CEDULA", estado:"Activo", fechaInstalacion:"2026-09-01"}],'
+   +' movimientos:['
+   +'  {id:"p0", tipo:"ingreso", valor:20000, fecha:"2026-08-01T15:00:00.000Z", concepto:"Viejo", cedulaWisphub:"1075232765", forma:"Efectivo", facturaWisphub:"0"},'
+   +'  {id:"p1", tipo:"ingreso", valor:55000, fecha:"2026-08-17T15:00:00.000Z", concepto:"Renta y mantenimiento de la red: PAUJIL\\r\\nPlan", cedulaWisphub:"1075232765", forma:"Efectivo", facturaWisphub:"1"},'
+   +'  {id:"p2", tipo:"ingreso", valor:60000, fecha:"2026-09-05T15:00:00.000Z", concepto:"Renta", cedulaWisphub:"1075232765", forma:"Efectivo", facturaWisphub:"2"}]};'
+   +'const hoy="2026-09-07";'
+   +'const a1=_altaWisphubDe(o, o.clientes[0], null, hoy), a2=_altaWisphubDe(o, o.clientes[1], null, hoy), a3=_altaWisphubDe(o, o.clientes[2], null, hoy), a4=_altaWisphubDe(o, o.clientes[5], null, hoy);'
+   +'const fechas=[_fechaInstISO("31/08/2026 15:15:00"), _fechaInstISO("2026-05-20"), _fechaInstISO("07/09/5202 08:00:00"), _fechaInstISO("")];'
+   +'const pend=[_esPendienteInstalar("01/01/2025 10:00:00", 7), _esPendienteInstalar("", 7)];'
+   +'const idx=_indicePagosNuevos([{cliente:"JUAN CAMILO PASCUAL GARZON", cedula:"1075232765", total:55000}, {cliente:"OTRA PERSONA", cedula:"", total:1}]);'
+   +'const cruce=[idx.deCliente({cliente:"jJUAN CAMILO PASCUAL", cedula:"1075232765"}).length, idx.deCliente({cliente:"OTRA PERSONA", cedula:""}).length, idx.deCliente({cliente:"NADIE", cedula:"5"}).length];'
+   +'const raw=[{id_servicio:1, servicio:"1075232765@x", cedula:"1075232765", nombre:"JUAN", zona:{nombre:"PAUJIL"}, estado:"Activo", fecha_instalacion:"18/08/2026 10:00:00", costo_instalacion:"55000"},'
+   +'           {id_servicio:2, servicio:"999@x", cedula:"999", nombre:"SIN PAGO", zona:{nombre:"PAUJIL"}, estado:"Activo"},'
+   +'           {id_servicio:3, servicio:"111@x", cedula:"111", nombre:"VIEJO", zona:{nombre:"PAUJIL"}, estado:"Suspendido", fecha_instalacion:"05/01/2025 09:00:00", costo_instalacion:"40000"}];'
+   +'const gO=DB.oficinas; DB.oficinas=[o]; let plan, seguro, est;'
+   +'try{ plan=conciliarOficina(o, raw, {cta:raw}); seguro=_planClientesSeguro(plan); est=_actualizarEstadosClientesWisphub(o, raw); } finally { DB.oficinas=gO; }'
+   +'const viejo=o.clientes[2];'
+   +'return {a1:{esNuevo:a1.esNuevo, inst:a1.inst, primer:a1.primerPago&&[a1.primerPago.fecha,a1.primerPago.valor,a1.primerPago.concepto], pagos:a1.pagos, lista:a1.lista.length, total:a1.total, costo:a1.costoInst},'
+   +'        a2:{esNuevo:a2.esNuevo, primer:a2.primerPago}, a3:{esNuevo:a3.esNuevo}, a4:{esNuevo:a4.esNuevo}, fechas, pend, cruce,'
+   +'        dup:plan.duplicados.map(c=>c.id).sort(), sinW:plan.sinWisphub, sinWNombres:plan.sinWisphubNombres, seguroDup:seguro.duplicados.length, retirar:plan.retirar.length,'
+   +'        viejo:{estado:viejo.estado, costo:viejo.costoInstalacion}, actualizados:est.actualizados};');
+   const bien = r.a1.esNuevo===true && r.a1.inst==='2026-08-18'
+             && JSON.stringify(r.a1.primer)===JSON.stringify(['2026-08-17',55000,'Renta y mantenimiento de la red: PAUJIL'])
+             && r.a1.pagos===2 && r.a1.lista===2 && r.a1.total===115000 && r.a1.costo===55000
+             && r.a2.esNuevo===true && r.a2.primer===null && r.a3.esNuevo===false && r.a4.esNuevo===false
+             && JSON.stringify(r.fechas)===JSON.stringify(['2026-08-31','2026-05-20','',''])
+             && JSON.stringify(r.pend)==='[false,true]' && JSON.stringify(r.cruce)==='[1,1,0]'
+             && JSON.stringify(r.dup)==='["d1","m2"]' && r.sinW===1 && JSON.stringify(r.sinWNombres)==='["A MANO SIN CEDULA"]'
+             && r.seguroDup===0 && r.retirar===0
+             && r.viejo.estado==='Suspendido' && r.viejo.costo===40000 && r.actualizados>=1;
+   return {ok:bien, detalle: bien
+     ? 'El instalado el 18/08 muestra su primer pago del 17/08 (pagó un día antes de que fuera el técnico) y no el de agosto 1 ✓'
+      +'\nEl que no ha pagado sale marcado; el de 2025 no es nuevo; el creado a mano sin WispHub tampoco ✓ · fechas de Excel, de la API y un año 5202 se leen bien ✓'
+      +'\nUna fecha vieja de WispHub ya NO sale como "pendiente de instalar" ✓ · el cruce del reporte encuentra por cédula al "jJUAN CAMILO" ✓'
+      +'\nLa sync manual detecta el duplicado por cédula y el duplicado por nombre exacto sin cédula; la automática no los toca; el creado sin cédula solo se lista ✓'
+      +'\nLa actualización de estados empareja por llave y trae estado y costo de instalación de WispHub ✓'
+     : JSON.stringify(r)};}},
+
 {app:'ofi', titulo:'La sincronización automática trae clientes nuevos sin retirar a nadie sola',
  porque:'Elkin: siempre faltan clientes o falta dinero. Medido contra la API: los clientes nuevos '
        +'solo entraban con la sincronización manual, y un pago registrado tarde se escapaba de la '
