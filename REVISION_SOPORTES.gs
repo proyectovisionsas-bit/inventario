@@ -47,6 +47,10 @@
  *  4. Elige  instalarRevisionNocturna  y dale ▶ una sola vez.
  *     Desde ahí corre solo, todas las noches a la 1 a. m.
  *
+ * ACTUALIZADO EL 7 SEP 2026: Gemini ya no anota que la fecha es del año en curso
+ *   ("La fecha registra el año 2026": ruido que llenaba el panel de avisos). Se le
+ *   dice qué día es hoy y, por si insiste, esa nota se descarta. Basta con volver a
+ *   pegar todo el archivo; no hay que tocar triggers ni propiedades.
  * ACTUALIZADO EL 2 SEP 2026: se agregó el chequeo de la fecha de SUBIDA (un
  * comprobante viejo subido hoy ahora se anota, aunque el movimiento se haya
  * registrado con la fecha vieja). Si ya lo tenías andando, basta con
@@ -193,7 +197,7 @@ function REV_preguntarGemini(blob, mime){
           + REV_MODELO + ':generateContent?key=' + encodeURIComponent(REV_prop('GEMINI_KEY'));
   var cuerpo = {
     contents: [{ parts: [
-      { text: REV_INSTRUCCION },
+      { text: REV_INSTRUCCION + REV_contextoHoy() },
       { inline_data: { mime_type: mime, data: Utilities.base64Encode(blob.getBytes()) } }
     ]}],
     generationConfig: { temperature: 0, responseMimeType: 'application/json' }
@@ -267,6 +271,24 @@ function REV_diasEntre(a, b){
   var d1 = new Date(a+'T12:00:00'), d2 = new Date(b+'T12:00:00');
   if(isNaN(d1) || isNaN(d2)) return null;
   return Math.round(Math.abs(d1-d2)/86400000);
+}
+
+/* v3 (7 sep 2026): Gemini se extrañaba del año ("La fecha registra el año 2026")
+   y llenaba el panel de avisos sin sentido. Se le dice qué día es hoy y, por si
+   insiste, la nota que solo habla del año se descarta aquí. */
+function REV_contextoHoy(){
+  var hoy = Utilities.formatDate(new Date(), 'America/Bogota', 'yyyy-MM-dd');
+  return '\n\nContexto: hoy es ' + hoy + '. Una fecha de este año o del anterior es '
+       + 'completamente normal: NO la comentes en "nota". La "nota" es solo para cosas '
+       + 'raras del documento (tachones, varios pagos, datos ilegibles, cifras que no cuadran).';
+}
+function REV_notaEsRuido(nota){
+  var t = String(nota||'').toLowerCase();
+  var y = new Date().getFullYear();
+  var anios = '(' + y + '|' + (y-1) + ')';
+  var deAnio = new RegExp('(a[ñn]o|year).{0,14}' + anios + '|' + anios + '.{0,14}(a[ñn]o|year)').test(t);
+  var otraCosa = /valor|monto|\$|cuenta|nombre|borros|cortad|varios|total|tach|ilegible|dupli/.test(t);
+  return deAnio && !otraCosa;
 }
 
 function REV_comparar(item, leido){
@@ -343,7 +365,7 @@ function REV_comparar(item, leido){
     }
   }
 
-  if(leido.nota) reparos.push({gravedad:'baja', que:'La IA anotó: '+leido.nota});
+  if(leido.nota && !REV_notaEsRuido(leido.nota)) reparos.push({gravedad:'baja', que:'La IA anotó: '+leido.nota});
 
   return reparos;
 }

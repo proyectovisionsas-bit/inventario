@@ -867,6 +867,37 @@ const PRUEBAS = [
       +'\nLas fotos para el PDF bajan a 1.600 px de lado y las pequeñas quedan iguales ✓'
      : JSON.stringify(r)};}},
 
+{app:'ofi', titulo:'Cada novedad de la revisión de soportes lleva al pago exacto y calla el ruido del año',
+ porque:'Elkin (7 sep 2026): la IA le creaba novedades pero con la fecha mostrada no encontraba el pago. '
+       +'La tarjeta mostraba la fecha de la REVISIÓN nocturna como si fuera la del pago, porque el script '
+       +'solo guarda oficina y movId. Ahora se ubica el movimiento real (fecha, valor, archivo) y hay botón '
+       +'"Ir al pago". Y las notas "la fecha registra el año 2026" dejan de contar como avisos.',
+ correr:W=>{ const r=E(W,
+     'const o={id:"of_prueba_rev", nombre:"OFICINA PRUEBA", movimientos:[{id:"mov_prueba_rev", fecha:"2026-09-04T15:10:00.000Z", valor:95000, tipo:"ingreso", forma:"Cta Bancolombia", descripcion:"CLIENTE DE PRUEBA",'
+   +'  comprobantes:[{url:"https://drive.google.com/thumbnail?id=ARCHIVO123&sz=w1600", fileId:"ARCHIVO123", fecha:"2026-09-04T16:00:00.000Z"}]}]};'
+   +'DB.oficinas.push(o);'
+   +'try{'
+   +'  const ub=_revUbicarMov("mov_prueba_rev");'
+   +'  const r={id:"rev_x", oficina:"OFICINA PRUEBA", movId:"mov_prueba_rev", llave:"mov_prueba_rev|ARCHIVO123", estado:"aviso", revisadoEn:"2026-09-07T06:11:00.000Z", reparos:[{gravedad:"baja", que:"La IA anotó: La fecha registra el año 2026."}]};'
+   +'  const grave=Object.assign({}, r, {id:"rev_y", estado:"revisar", reparos:[{gravedad:"alta", que:"El comprobante dice $95.000 y se registró $104.000 (diferencia de $9.000)."}]});'
+   +'  const datos=_revDatosDe(r, {cola:[], resultados:[r]});'
+   +'  const ruido=[_revEsNotaDeRuido("La IA anotó: La fecha registra el año 2026."), _revEsNotaDeRuido("La IA anotó: La fecha registrada es del año 2026."),'
+   +'               _revEsNotaDeRuido("La IA anotó: Se observan varios comprobantes físicos junto con un recibo de caja por valor total de $95.000."), _revEsNotaDeRuido("El comprobante dice $95.000 y se registró $104.000.")];'
+   +'  const abiertos=_revAbiertos({resultados:[r, grave]}).map(x=>x.id);'
+   +'  return {ub: ub&&[ub.o.id, ub.m.id], fecha:String(datos.fecha).slice(0,10), valor:datos.valor, url:datos.url, enlace:_revEnlaceVer(datos.url), ruido, abiertos, ocultos:_revOcultosPorRuido({resultados:[r, grave]}), perdido:_revUbicarMov("no_existe")};'
+   +'} finally { DB.oficinas=DB.oficinas.filter(x=>x.id!=="of_prueba_rev"); }');
+   const bien = r.ub && r.ub.join()==='of_prueba_rev,mov_prueba_rev'
+             && r.fecha==='2026-09-04' && r.valor===95000
+             && /ARCHIVO123/.test(r.url) && r.enlace==='https://drive.google.com/file/d/ARCHIVO123/view'
+             && JSON.stringify(r.ruido)==='[true,true,false,false]'
+             && JSON.stringify(r.abiertos)==='["rev_y"]' && r.ocultos===1 && r.perdido===null;
+   return {ok:bien, detalle: bien
+     ? 'La novedad encuentra su movimiento real: oficina, fecha del pago (4 sep, no la de la revisión), valor y archivo ✓'
+      +'\nEl enlace del soporte abre el archivo del Drive ✓ · un movId que ya no existe devuelve nulo sin romper ✓'
+      +'\n"La fecha registra el año 2026" se reconoce como ruido; una nota sobre varios pagos o una diferencia de valor NO ✓'
+      +'\nEl panel deja abierta solo la novedad grave y cuenta 1 nota callada ✓'
+     : JSON.stringify(r)};}},
+
 {app:'ofi', titulo:'La sincronización automática trae clientes nuevos sin retirar a nadie sola',
  porque:'Elkin: siempre faltan clientes o falta dinero. Medido contra la API: los clientes nuevos '
        +'solo entraban con la sincronización manual, y un pago registrado tarde se escapaba de la '
