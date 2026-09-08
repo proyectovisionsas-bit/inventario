@@ -898,6 +898,59 @@ const PRUEBAS = [
       +'\nEl panel deja abierta solo la novedad grave y cuenta 1 nota callada ✓'
      : JSON.stringify(r)};}},
 
+{app:'ofi', titulo:'El registro de llegadas cuenta bien la tardanza y deja ver quién escribió cada marca',
+ porque:'Elkin (8 sep 2026): que el registro de llegadas funcione y sea verídico. Estaba sin usar (22 empleados, '
+       +'cero registros) y no habría podido: el reporte del mes nunca mostraba nada porque guardaba "8/9/2026" y '
+       +'filtraba "2026/09", el domingo contaba como día hábil y no había salidas. Ahora el jefe marca, pero cada '
+       +'marca queda con quién la escribió y a qué hora real, una corrección no borra nada, y al lado se muestra '
+       +'la primera señal propia del empleado ese día.',
+ correr:W=>{ const r=E(W,
+     'const H={oficina:{lv:{e1:"08:00",s1:"11:50",e2:"14:00",s2:"18:00"}, sab:{e1:"08:00",s2:"13:00",continua:true}},'
+   +'          tecnico:{lv:{e1:"08:10",s1:"12:00",e2:"14:00",s2:"18:00"}, sab:{e1:"08:00",s2:"13:00",continua:true}}};'
+   +'const dias=[_asisDiaSemana("2026-09-06"), _asisDiaSemana("2026-09-05"), _asisDiaSemana("2026-09-07"), _asisDiaSemana("8/9/2026")];'
+   +'const lun=_asisAnalizarDia({fecha:"2026-09-07", e1:{hora:"08:12"}, s1:{hora:"11:50"}, e2:{hora:"14:20"}, s2:{hora:"18:00"}}, H.oficina, 5);'
+   +'const dom=_asisAnalizarDia({fecha:"2026-09-06", e1:{hora:"09:00"}}, H.oficina, 5);'
+   +'const sab=_asisAnalizarDia({fecha:"2026-09-05", e1:{hora:"08:30"}, s2:{hora:"13:00"}}, H.oficina, 5);'
+   +'const puntual=_asisAnalizarDia({fecha:"2026-09-07", e1:{hora:"08:04"}}, H.oficina, 5);'
+   +'const retraso=_asisRetraso({fecha:"2026-09-07", hora:"08:00", escritoEn:new Date(2026,8,7,10,47,0).getTime(), desfaseMs:0});'
+   +'const enElMomento=_asisRetraso({fecha:"2026-09-07", hora:"08:00", escritoEn:new Date(2026,8,7,8,1,0).getTime(), desfaseMs:0});'
+   +'const marcas=[{id:"a", fecha:"2026-09-07", empId:"1", empNombre:"JUAN", tipo:"e1", hora:"08:00", escritoEn:1000},'
+   +'              {id:"b", fecha:"2026-09-07", empId:"1", empNombre:"JUAN", tipo:"e1", hora:"08:40", escritoEn:2000, corrige:"a", motivo:"me equivoque"},'
+   +'              {id:"c", fecha:"2026-09-07", empId:"1", empNombre:"JUAN", tipo:"s2", hora:"18:00", escritoEn:3000},'
+   +'              {id:"d", fecha:"2026-09-07", empId:"1", empNombre:"JUAN", tipo:"s2", hora:"", escritoEn:4000, anula:"c", motivo:"no salio"},'
+   +'              {id:"e", fecha:"2026-09-06", empId:"2", empNombre:"ANA", tipo:"e1", hora:"08:00", escritoEn:5000}];'
+   +'const g=_asisAgrupar(marcas); const juan=g.find(d=>d.empId==="1");'
+   +'const emp={nombre:"KEVIN PEREZ", documento:"123"};'
+   +'const ses=[{quien:"kevin perez", app:"Tecnicos", fecha:new Date(2026,8,7,10,20,0).getTime()},'
+   +'           {quien:"KEVIN PEREZ", app:"Tecnicos", fecha:new Date(2026,8,7,15,0,0).getTime()},'
+   +'           {quien:"OTRO", app:"Tecnicos", fecha:new Date(2026,8,7,7,0,0).getTime()}];'
+   +'const ords=[{tecnicoCedula:"123", aceptada:new Date(2026,8,7,9,5,0).getTime()}];'
+   +'const senal=_asisPrimeraSenal(emp, "2026-09-07", ses, ords);'
+   +'const senalSolaApp=_asisPrimeraSenal(emp, "2026-09-07", ses, []);'
+   +'const otroDia=_asisPrimeraSenal(emp, "2026-09-08", ses, ords);'
+   +'const gU=USER; USER={role:"oficina", id:"of1", nombre:"JEFE"};'
+   +'const permisos=[_asisPuedeMarcar({oficinas:["of1"]}), _asisPuedeMarcar({oficinas:["of2"]}), _asisPuedeMarcar({oficinas:[]})];'
+   +'USER={role:"admin"}; permisos.push(_asisPuedeMarcar({oficinas:["of2"]})); USER=gU;'
+   +'return {dias, lun, dom:dom.laborable, sab:[sab.esSabado, sab.tardanza, sab.completo], puntual:puntual.tardanza,'
+   +'        retraso, textoRetraso:_asisTexto(retraso), enElMomento,'
+   +'        juan:[juan.e1.hora, juan.s2?juan.s2.hora:null, juan.historial.length], nDias:g.length,'
+   +'        senal:senal&&[senal.hora, senal.de], senalSolaApp:senalSolaApp&&senalSolaApp.hora, otroDia, permisos};');
+   const bien = JSON.stringify(r.dias)==='[0,6,1,-1]'
+             && r.lun.tardanza===22 && r.lun.tardanzaE1===7 && r.lun.tardanzaE2===15 && r.lun.completo===true
+             && r.dom===false && JSON.stringify(r.sab)==='[true,25,true]' && r.puntual===0
+             && r.retraso===167 && r.textoRetraso==='2 h 47 min' && r.enElMomento===1
+             && JSON.stringify(r.juan)==='["08:40",null,4]' && r.nDias===2
+             && JSON.stringify(r.senal)==='["09:05","aceptó una orden"]' && r.senalSolaApp==='10:20' && r.otroDia===null
+             && JSON.stringify(r.permisos)==='[true,false,true,true]';
+   return {ok:bien, detalle: bien
+     ? 'El domingo no cuenta y el sábado usa su horario de corrido; una fecha ilegible se rechaza en vez de pasar por lunes ✓'
+      +'\nLlegar 08:12 con 5 min de tolerancia son 7 min de tardanza, y 08:04 no es tardanza ✓'
+      +'\nAnotar a las 10:47 que alguien llegó a las 8:00 queda como "2 h 47 min después"; anotarlo a las 8:01, como del momento ✓'
+      +'\nUna corrección manda sobre la marca vieja y una anulación la retira, pero las cuatro quedan en el historial ✓'
+      +'\nLa señal propia del empleado toma la más temprana del día (la orden de las 9:05 antes que la app de las 10:20) y no se cuela la de otro ✓'
+      +'\nEl jefe marca a los suyos y no a los de otra oficina; el administrador, a cualquiera ✓'
+     : JSON.stringify(r)};}},
+
 {app:'ofi', titulo:'Los clientes nuevos muestran su alta y su primer pago, cruzados por cédula',
  porque:'Elkin (7 sep 2026): no se reflejaban los usuarios nuevos ni qué pagaron al inicio, y el reporte no '
        +'cuadraba con WispHub. Medido contra la API: los clientes SÍ estaban al día; el cruce con los pagos era '
