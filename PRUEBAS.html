@@ -898,6 +898,50 @@ const PRUEBAS = [
       +'\nEl panel deja abierta solo la novedad grave y cuenta 1 nota callada ✓'
      : JSON.stringify(r)};}},
 
+{app:'ofi', titulo:'Las horas extras se calculan con el sueldo y solo suman las aprobadas',
+ porque:'Elkin (8 sep 2026): un módulo de horas extras con descripción del trabajo, fotos y cálculo del valor, '
+       +'más reportes en PDF y Excel. El valor sale del sueldo dividido entre las horas del mes por el factor del '
+       +'tipo de hora; los factores se editan en Config porque cada reforma los mueve. Al aprobar queda congelado. '
+       +'El resumen que va al PDF y al Excel solo cuenta lo aprobado: lo pendiente o rechazado no es plata que se deba.',
+ correr:W=>{ const r=E(W,
+     'const conf={tipos:[{id:"hed",nombre:"Hora extra diurna",factor:1.25},{id:"hen",nombre:"Hora extra nocturna",factor:1.75},'
+   +'                   {id:"rn",nombre:"Recargo nocturno",factor:0.35},{id:"dom",nombre:"Recargo dominical o festivo",factor:0.8}],'
+   +'            divisor:240, topeHorasDia:4};'
+   +'const emp={nombre:"JUAN", salario:"1750905"};'
+   +'const vh=_heValorHora(emp, conf);'
+   +'const c1=_heCalcular({tipo:"hed", horas:2}, emp, conf);'
+   +'const c2=_heCalcular({tipo:"hen", horas:3}, emp, conf);'
+   +'const c3=_heCalcular({tipo:"dom", horas:8}, emp, conf);'
+   +'const cSinTipo=_heCalcular({tipo:"noexiste", horas:2}, emp, conf);'
+   +'const cSinSueldo=_heCalcular({tipo:"hed", horas:2}, {nombre:"X"}, conf);'
+   +'const horas=[_heHorasEntre("18:00","21:30"), _heHorasEntre("22:00","02:00"), _heHorasEntre("","21:00"), _heHorasEntre("08:00","08:00")];'
+   +'const lista=[{id:"a", empId:"1", empNombre:"JUAN", empDocumento:"111", horas:2, valor:18239, tipoNombre:"Hora extra diurna", estado:"aprobada"},'
+   +'            {id:"b", empId:"1", empNombre:"JUAN", empDocumento:"111", horas:3, valor:38301, tipoNombre:"Hora extra nocturna", estado:"aprobada"},'
+   +'            {id:"c", empId:"2", empNombre:"ANA", empDocumento:"222", horas:1, valor:9120, tipoNombre:"Hora extra diurna", estado:"pendiente"},'
+   +'            {id:"d", empId:"2", empNombre:"ANA", empDocumento:"222", horas:5, valor:45600, tipoNombre:"Hora extra diurna", estado:"rechazada"}];'
+   +'const res=_heResumenPorEmpleado(lista);'
+   +'const conFactores={factores:{hed:1.3}, divisor:230, topeHorasDia:3};'
+   +'const gC=DB.config; DB.config=Object.assign({}, gC||{}, {horasExtras:conFactores});'
+   +'let leida; try{ leida=_heConf(); } finally { DB.config=gC; }'
+   +'return {vh:Math.round(vh), c1:[c1.factor,c1.valor], c2:[c2.factor,c2.valor], c3:[c3.factor,c3.valor],'
+   +'        cSinTipo:[cSinTipo.factor,cSinTipo.valor], cSinSueldo:cSinSueldo.valor, horas,'
+   +'        res:res.map(e=>[e.empNombre,e.reportes,e.horas,e.valor]),'
+   +'        leida:[leida.divisor, leida.topeHorasDia, (leida.tipos.find(t=>t.id==="hed")||{}).factor, (leida.tipos.find(t=>t.id==="hen")||{}).factor]};');
+   const bien = r.vh===7295
+             && JSON.stringify(r.c1)==='[1.25,18239]' && JSON.stringify(r.c2)==='[1.75,38301]' && JSON.stringify(r.c3)==='[0.8,46691]'
+             && JSON.stringify(r.cSinTipo)==='[0,0]' && r.cSinSueldo===0
+             && JSON.stringify(r.horas)==='[3.5,4,0,0]'
+             && JSON.stringify(r.res)==='[["JUAN",2,5,56540]]'
+             && JSON.stringify(r.leida)==='[230,3,1.3,1.75]';
+   return {ok:bien, detalle: bien
+     ? 'Con un mínimo de $1.750.905 la hora ordinaria da $7.295, y 2 h extra diurnas $18.239 ✓'
+      +'\n3 h nocturnas al 75% dan $38.301 y 8 h de recargo dominical al 80%, $46.691 ✓'
+      +'\nUn tipo que no existe o un empleado sin sueldo dan cero en vez de romperse ✓'
+      +'\nDe 18:00 a 21:30 son 3,5 h y de 22:00 a 02:00 son 4 h: cruza la medianoche bien ✓'
+      +'\nEl resumen del reporte suma solo las aprobadas: las de ANA (una pendiente y una rechazada) no cuentan ✓'
+      +'\nCambiar los factores en Config manda sobre los de fábrica, y los que no se tocan siguen igual ✓'
+     : JSON.stringify(r)};}},
+
 {app:'ofi', titulo:'El registro de llegadas cuenta bien la tardanza y deja ver quién escribió cada marca',
  porque:'Elkin (8 sep 2026): que el registro de llegadas funcione y sea verídico. Estaba sin usar (22 empleados, '
        +'cero registros) y no habría podido: el reporte del mes nunca mostraba nada porque guardaba "8/9/2026" y '
@@ -912,6 +956,9 @@ const PRUEBAS = [
    +'const dom=_asisAnalizarDia({fecha:"2026-09-06", e1:{hora:"09:00"}}, H.oficina, 5);'
    +'const sab=_asisAnalizarDia({fecha:"2026-09-05", e1:{hora:"08:30"}, s2:{hora:"13:00"}}, H.oficina, 5);'
    +'const puntual=_asisAnalizarDia({fecha:"2026-09-07", e1:{hora:"08:04"}}, H.oficina, 5);'
+   +'const Hsin={lv:H.oficina.lv, sab:{e1:"08:00", s2:"13:00", continua:true, noLaboral:true}};'
+   +'const sabOff=_asisAnalizarDia({fecha:"2026-09-05", e1:{hora:"10:00"}}, Hsin, 5);'
+   +'const lunSigue=_asisAnalizarDia({fecha:"2026-09-07", e1:{hora:"08:20"}}, Hsin, 5);'
    +'const retraso=_asisRetraso({fecha:"2026-09-07", hora:"08:00", escritoEn:new Date(2026,8,7,10,47,0).getTime(), desfaseMs:0});'
    +'const enElMomento=_asisRetraso({fecha:"2026-09-07", hora:"08:00", escritoEn:new Date(2026,8,7,8,1,0).getTime(), desfaseMs:0});'
    +'const marcas=[{id:"a", fecha:"2026-09-07", empId:"1", empNombre:"JUAN", tipo:"e1", hora:"08:00", escritoEn:1000},'
@@ -933,6 +980,7 @@ const PRUEBAS = [
    +'USER={role:"admin"}; permisos.push(_asisPuedeMarcar({oficinas:["of2"]})); USER=gU;'
    +'return {dias, lun, dom:dom.laborable, sab:[sab.esSabado, sab.tardanza, sab.completo], puntual:puntual.tardanza,'
    +'        retraso, textoRetraso:_asisTexto(retraso), enElMomento,'
+   +'        sabOff:[sabOff.laborable, sabOff.tardanza], lunSigue:[lunSigue.laborable, lunSigue.tardanza],'
    +'        juan:[juan.e1.hora, juan.s2?juan.s2.hora:null, juan.historial.length], nDias:g.length,'
    +'        senal:senal&&[senal.hora, senal.de], senalSolaApp:senalSolaApp&&senalSolaApp.hora, otroDia, permisos};');
    const bien = JSON.stringify(r.dias)==='[0,6,1,-1]'
@@ -941,6 +989,7 @@ const PRUEBAS = [
              && r.retraso===167 && r.textoRetraso==='2 h 47 min' && r.enElMomento===1
              && JSON.stringify(r.juan)==='["08:40",null,4]' && r.nDias===2
              && JSON.stringify(r.senal)==='["09:05","aceptó una orden"]' && r.senalSolaApp==='10:20' && r.otroDia===null
+             && JSON.stringify(r.sabOff)==='[false,0]' && JSON.stringify(r.lunSigue)==='[true,15]'
              && JSON.stringify(r.permisos)==='[true,false,true,true]';
    return {ok:bien, detalle: bien
      ? 'El domingo no cuenta y el sábado usa su horario de corrido; una fecha ilegible se rechaza en vez de pasar por lunes ✓'
@@ -948,6 +997,7 @@ const PRUEBAS = [
       +'\nAnotar a las 10:47 que alguien llegó a las 8:00 queda como "2 h 47 min después"; anotarlo a las 8:01, como del momento ✓'
       +'\nUna corrección manda sobre la marca vieja y una anulación la retira, pero las cuatro quedan en el historial ✓'
       +'\nLa señal propia del empleado toma la más temprana del día (la orden de las 9:05 antes que la app de las 10:20) y no se cuela la de otro ✓'
+      +'\nSi la empresa apaga los sábados, el sábado deja de medirse y el lunes sigue contando igual ✓'
       +'\nEl jefe marca a los suyos y no a los de otra oficina; el administrador, a cualquiera ✓'
      : JSON.stringify(r)};}},
 
