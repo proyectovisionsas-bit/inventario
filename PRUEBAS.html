@@ -898,48 +898,52 @@ const PRUEBAS = [
       +'\nEl panel deja abierta solo la novedad grave y cuenta 1 nota callada ✓'
      : JSON.stringify(r)};}},
 
-{app:'ofi', titulo:'Las horas extras se calculan con el sueldo y solo suman las aprobadas',
- porque:'Elkin (8 sep 2026): un módulo de horas extras con descripción del trabajo, fotos y cálculo del valor, '
-       +'más reportes en PDF y Excel. El valor sale del sueldo dividido entre las horas del mes por el factor del '
-       +'tipo de hora; los factores se editan en Config porque cada reforma los mueve. Al aprobar queda congelado. '
-       +'El resumen que va al PDF y al Excel solo cuenta lo aprobado: lo pendiente o rechazado no es plata que se deba.',
+{app:'ofi', titulo:'La hora extra se paga por el valor en pesos de la tabla, no por un porcentaje',
+ porque:'Elkin (8 sep 2026): en Config debía poder escribir el VALOR de la hora extra en pesos, no el porcentaje, '
+       +'y con los valores consultados. Se consultaron el 8 sep 2026: salario mínimo 1.750.905 y, desde el 15 de julio, '
+       +'jornada de 42 horas (210 al mes), así que la hora ordinaria vale 8.338 y el recargo dominical subió al 90 %. '
+       +'La diferencia que cuida esta prueba: una hora EXTRA se paga completa, un RECARGO solo suma lo de encima, '
+       +'porque esa hora ya va en el sueldo. Poner la hora completa en un recargo sería pagar dos veces.',
  correr:W=>{ const r=E(W,
-     'const conf={tipos:[{id:"hed",nombre:"Hora extra diurna",factor:1.25},{id:"hen",nombre:"Hora extra nocturna",factor:1.75},'
-   +'                   {id:"rn",nombre:"Recargo nocturno",factor:0.35},{id:"dom",nombre:"Recargo dominical o festivo",factor:0.8}],'
-   +'            divisor:240, topeHorasDia:4};'
-   +'const emp={nombre:"JUAN", salario:"1750905"};'
-   +'const vh=_heValorHora(emp, conf);'
-   +'const c1=_heCalcular({tipo:"hed", horas:2}, emp, conf);'
-   +'const c2=_heCalcular({tipo:"hen", horas:3}, emp, conf);'
-   +'const c3=_heCalcular({tipo:"dom", horas:8}, emp, conf);'
-   +'const cSinTipo=_heCalcular({tipo:"noexiste", horas:2}, emp, conf);'
-   +'const cSinSueldo=_heCalcular({tipo:"hed", horas:2}, {nombre:"X"}, conf);'
-   +'const horas=[_heHorasEntre("18:00","21:30"), _heHorasEntre("22:00","02:00"), _heHorasEntre("","21:00"), _heHorasEntre("08:00","08:00")];'
-   +'const lista=[{id:"a", empId:"1", empNombre:"JUAN", empDocumento:"111", horas:2, valor:18239, tipoNombre:"Hora extra diurna", estado:"aprobada"},'
-   +'            {id:"b", empId:"1", empNombre:"JUAN", empDocumento:"111", horas:3, valor:38301, tipoNombre:"Hora extra nocturna", estado:"aprobada"},'
-   +'            {id:"c", empId:"2", empNombre:"ANA", empDocumento:"222", horas:1, valor:9120, tipoNombre:"Hora extra diurna", estado:"pendiente"},'
-   +'            {id:"d", empId:"2", empNombre:"ANA", empDocumento:"222", horas:5, valor:45600, tipoNombre:"Hora extra diurna", estado:"rechazada"}];'
-   +'const res=_heResumenPorEmpleado(lista);'
-   +'const conFactores={factores:{hed:1.3}, divisor:230, topeHorasDia:3};'
-   +'const gC=DB.config; DB.config=Object.assign({}, gC||{}, {horasExtras:conFactores});'
-   +'let leida; try{ leida=_heConf(); } finally { DB.config=gC; }'
-   +'return {vh:Math.round(vh), c1:[c1.factor,c1.valor], c2:[c2.factor,c2.valor], c3:[c3.factor,c3.valor],'
-   +'        cSinTipo:[cSinTipo.factor,cSinTipo.valor], cSinSueldo:cSinSueldo.valor, horas,'
-   +'        res:res.map(e=>[e.empNombre,e.reportes,e.horas,e.valor]),'
-   +'        leida:[leida.divisor, leida.topeHorasDia, (leida.tipos.find(t=>t.id==="hed")||{}).factor, (leida.tipos.find(t=>t.id==="hen")||{}).factor]};');
-   const bien = r.vh===7295
-             && JSON.stringify(r.c1)==='[1.25,18239]' && JSON.stringify(r.c2)==='[1.75,38301]' && JSON.stringify(r.c3)==='[0.8,46691]'
-             && JSON.stringify(r.cSinTipo)==='[0,0]' && r.cSinSueldo===0
-             && JSON.stringify(r.horas)==='[3.5,4,0,0]'
-             && JSON.stringify(r.res)==='[["JUAN",2,5,56540]]'
-             && JSON.stringify(r.leida)==='[230,3,1.3,1.75]';
+     'const v=_heValoresDesdeSueldo(1750905, 210);'
+   +'const conf={tipos:[{id:"hed",nombre:"Hora extra diurna",pct:25,extra:true,valor:v.hed},'
+   +'                   {id:"hen",nombre:"Hora extra nocturna",pct:75,extra:true,valor:v.hen},'
+   +'                   {id:"rn",nombre:"Recargo nocturno (solo el recargo)",pct:35,extra:false,valor:v.rn},'
+   +'                   {id:"dom",nombre:"Recargo dominical o festivo (solo el recargo)",pct:90,extra:false,valor:v.dom}],'
+   +'            sueldoBase:1750905, horasMes:210, ajustarPorSueldo:false, topeHorasDia:4};'
+   +'const minimo={nombre:"EDILBER", salario:"1750905"}, alto={nombre:"OSCAR", salario:"2400000"};'
+   +'const c1=_heCalcular({tipo:"hed", horas:3}, minimo, conf);'
+   +'const c2=_heCalcular({tipo:"rn", horas:4}, minimo, conf);'
+   +'const cAlto=_heCalcular({tipo:"hed", horas:3}, alto, conf);'
+   +'const confAj=Object.assign({}, conf, {ajustarPorSueldo:true});'
+   +'const cAjust=_heCalcular({tipo:"hed", horas:3}, alto, confAj);'
+   +'const cSinSueldo=_heCalcular({tipo:"hed", horas:3}, {nombre:"X"}, confAj);'
+   +'const cSinTipo=_heCalcular({tipo:"noexiste", horas:2}, minimo, conf);'
+   +'const unidades=[_heUnidadDe({valorUnidad:14591}), _heUnidadDe({valorHora:7295, factor:1.25}), _heUnidadDe({horas:2, valor:20844}), _heUnidadDe(null)];'
+   +'const horas=[_heHorasEntre("18:00","21:30"), _heHorasEntre("22:00","02:00"), _heHorasEntre("","21:00")];'
+   +'const lista=[{empId:"1", empNombre:"JUAN", empDocumento:"111", horas:3, valor:43773, estado:"aprobada", tipoNombre:"Hora extra nocturna"},'
+   +'            {empId:"1", empNombre:"JUAN", empDocumento:"111", horas:2, valor:20844, estado:"aprobada", tipoNombre:"Hora extra diurna"},'
+   +'            {empId:"2", empNombre:"ANA", empDocumento:"222", horas:5, valor:52110, estado:"pendiente", tipoNombre:"Hora extra diurna"}];'
+   +'return {v, horaOrdinaria:Math.round(1750905/210),'
+   +'        c1:[c1.valorUnidad, c1.valor], c2:[c2.valorUnidad, c2.valor], cAlto:cAlto.valor,'
+   +'        cAjust:[cAjust.valorUnidad, cAjust.valor], cSinSueldo:cSinSueldo.valor, cSinTipo:[cSinTipo.valorUnidad, cSinTipo.valor],'
+   +'        unidades, horas, res:_heResumenPorEmpleado(lista).map(e=>[e.empNombre, e.reportes, e.horas, e.valor])};');
+   const bien = JSON.stringify(r.v)===JSON.stringify({hed:10422, hen:14591, hedd:17926, hend:22095, rn:2918, dom:7504, rndom:10422})
+             && r.horaOrdinaria===8338
+             && JSON.stringify(r.c1)==='[10422,31266]' && JSON.stringify(r.c2)==='[2918,11672]'
+             && r.cAlto===31266 && JSON.stringify(r.cAjust)==='[14286,42858]' && r.cSinSueldo===31266
+             && JSON.stringify(r.cSinTipo)==='[0,0]'
+             && JSON.stringify(r.unidades)==='[14591,9119,10422,0]'
+             && JSON.stringify(r.horas)==='[3.5,4,0]'
+             && JSON.stringify(r.res)==='[["JUAN",2,5,64617]]';
    return {ok:bien, detalle: bien
-     ? 'Con un mínimo de $1.750.905 la hora ordinaria da $7.295, y 2 h extra diurnas $18.239 ✓'
-      +'\n3 h nocturnas al 75% dan $38.301 y 8 h de recargo dominical al 80%, $46.691 ✓'
-      +'\nUn tipo que no existe o un empleado sin sueldo dan cero en vez de romperse ✓'
-      +'\nDe 18:00 a 21:30 son 3,5 h y de 22:00 a 02:00 son 4 h: cruza la medianoche bien ✓'
-      +'\nEl resumen del reporte suma solo las aprobadas: las de ANA (una pendiente y una rechazada) no cuentan ✓'
-      +'\nCambiar los factores en Config manda sobre los de fábrica, y los que no se tocan siguen igual ✓'
+     ? 'Con el mínimo de 2026 y la jornada de 42 horas, la hora ordinaria da $8.338 ✓'
+      +'\nLa tabla sale igual a la consultada: extra diurna $10.422, nocturna $14.591, dominical diurna $17.926 ✓'
+      +'\nUn RECARGO nocturno de 4 h paga $11.672 (solo el 35%), no la hora completa: no se paga dos veces ✓'
+      +'\nSin la casilla de ajuste, todos cobran igual; con ella, quien gana $2.400.000 cobra $14.286 la hora ✓'
+      +'\nUn empleado sin sueldo no rompe el ajuste y un tipo que no existe da cero ✓'
+      +'\nLos reportes de la versión anterior siguen mostrando su valor por hora ($9.119 de 7.295 × 1,25) ✓'
+      +'\nEl resumen del reporte suma solo lo aprobado ✓'
      : JSON.stringify(r)};}},
 
 {app:'ofi', titulo:'El registro de llegadas cuenta bien la tardanza y deja ver quién escribió cada marca',
