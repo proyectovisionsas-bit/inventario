@@ -946,6 +946,58 @@ const PRUEBAS = [
       +'\nEl resumen del reporte suma solo lo aprobado ✓'
      : JSON.stringify(r)};}},
 
+{app:'ofi', titulo:'La jornada registra solo lo que el administrador enciende, y borrar exige rango exacto',
+ porque:'Elkin (8 sep 2026): poder elegir con un visto si se registran solo las entradas o solo las salidas, que una '
+       +'oficina tenga que PEDIR el cambio de una hora ya escrita explicando por qué, y poder borrar los registros de '
+       +'una fecha o un periodo. Lo que se apaga tiene que desaparecer de los botones, del reporte y de las descargas, '
+       +'y dejar de contar para la tardanza y para la jornada completa. Y el borrado tiene que acertar el rango: '
+       +'llevarse un día de más sería borrar trabajo de alguien.',
+ correr:W=>{ const r=E(W,
+     'const H={lv:{e1:"08:00",s1:"11:50",e2:"14:00",s2:"18:00"}, sab:{e1:"08:00",s2:"13:00",continua:true}};'
+   +'const act=[_asisTiposActivos({registrar:{entradas:true,salidas:true}}),'
+   +'           _asisTiposActivos({registrar:{entradas:true,salidas:false}}),'
+   +'           _asisTiposActivos({registrar:{entradas:false,salidas:true}})];'
+   +'const dia={fecha:"2026-09-07", e1:{hora:"08:12"}, e2:{hora:"14:20"}};'
+   +'const todo=_asisAnalizarDia(dia, H, 5);'
+   +'const soloEnt=_asisAnalizarDia(dia, H, 5, ["e1","e2"]);'
+   +'const soloSal=_asisAnalizarDia({fecha:"2026-09-07", s1:{hora:"11:50"}, s2:{hora:"18:00"}}, H, 5, ["s1","s2"]);'
+   +'const sabSoloEnt=_asisAnalizarDia({fecha:"2026-09-05", e1:{hora:"08:30"}}, H, 5, ["e1","e2"]);'
+   +'const marcas=[{id:"a", fecha:"2026-09-01", empId:"1", oficinaId:"of1"},'
+   +'              {id:"b", fecha:"2026-09-05", empId:"1", oficinaId:"of1"},'
+   +'              {id:"c", fecha:"2026-09-05", empId:"2", oficinaId:"of2"},'
+   +'              {id:"d", fecha:"2026-10-02", empId:"1", oficinaId:"of1"},'
+   +'              {id:"e", fecha:"2026-08-31", empId:"1", oficinaId:"of1"}];'
+   +'const mes=_asisFiltrarBorrado(marcas, {desde:"2026-09-01", hasta:"2026-09-30"});'
+   +'const unDia=_asisFiltrarBorrado(marcas, {desde:"2026-09-05", hasta:"2026-09-05", oficinaId:"of1"});'
+   +'const unEmp=_asisFiltrarBorrado(marcas, {desde:"2026-01-01", hasta:"2026-12-31", empId:"2"});'
+   +'const nada=_asisFiltrarBorrado(marcas, {desde:"2026-07-01", hasta:"2026-07-31"});'
+   +'const meses=[_asisMesesEntre("2026-09-01","2026-11-15"), _asisMesesEntre("2026-09-14","2026-09-14"), _asisMesesEntre("2026-11-01","2026-09-01")];'
+   +'const sols=[{id:"s1", estado:"pendiente", empId:"7", fecha:"2026-09-08", tipo:"e1"},'
+   +'            {id:"s2", estado:"aprobada", empId:"7", fecha:"2026-09-08", tipo:"s2"}];'
+   +'const pend=[_asisPendienteDe(sols,"7","2026-09-08","e1"), _asisPendienteDe(sols,"7","2026-09-08","s2"), _asisPendienteDe(sols,"9","2026-09-08","e1")];'
+   +'return {act, todo:[todo.tardanza, todo.completo], soloEnt:[soloEnt.tardanza, soloEnt.completo],'
+   +'        soloSal:[soloSal.tardanza, soloSal.completo], sabSoloEnt:[sabSoloEnt.esSabado, sabSoloEnt.tardanza, sabSoloEnt.completo],'
+   +'        mes:[mes.borradas.map(m=>m.id), mes.quedan.map(m=>m.id)],'
+   +'        unDia:unDia.borradas.map(m=>m.id), unEmp:unEmp.borradas.map(m=>m.id), nada:[nada.borradas.length, nada.quedan.length],'
+   +'        meses, pend};');
+   const bien = JSON.stringify(r.act)==='[["e1","s1","e2","s2"],["e1","e2"],["s1","s2"]]'
+             && JSON.stringify(r.todo)==='[22,false]' && JSON.stringify(r.soloEnt)==='[22,true]'
+             && JSON.stringify(r.soloSal)==='[0,true]' && JSON.stringify(r.sabSoloEnt)==='[true,25,true]'
+             && JSON.stringify(r.mes)==='[["a","b","c"],["d","e"]]'
+             && JSON.stringify(r.unDia)==='["b"]' && JSON.stringify(r.unEmp)==='["c"]'
+             && JSON.stringify(r.nada)==='[0,5]'
+             && JSON.stringify(r.meses)==='[["2026-09","2026-10","2026-11"],["2026-09"],[]]'
+             && JSON.stringify(r.pend)==='[true,false,false]';
+   return {ok:bien, detalle: bien
+     ? 'Apagar las salidas deja solo las entradas, y apagar las entradas deja solo las salidas ✓'
+      +'\nUn día con las dos entradas está INCOMPLETO si se piden salidas, y COMPLETO si no se piden; la tardanza no cambia ✓'
+      +'\nEl sábado sigue con su horario de corrido aunque solo se registren entradas ✓'
+      +'\nBorrar septiembre se lleva los tres de septiembre y respeta el 31 de agosto y el 2 de octubre ✓'
+      +'\nBorrar un día de una oficina toca una sola marca, y borrar por empleado solo la suya ✓'
+      +'\nUn rango sin nada no borra nada, y un rango al revés no devuelve meses ✓'
+      +'\nLa marca con un pedido de cambio esperando se reconoce, y no se confunde con la de otro empleado ✓'
+     : JSON.stringify(r)};}},
+
 {app:'ofi', titulo:'El registro de llegadas cuenta bien la tardanza y deja ver quién escribió cada marca',
  porque:'Elkin (8 sep 2026): que el registro de llegadas funcione y sea verídico. Estaba sin usar (22 empleados, '
        +'cero registros) y no habría podido: el reporte del mes nunca mostraba nada porque guardaba "8/9/2026" y '
