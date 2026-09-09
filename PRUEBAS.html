@@ -946,6 +946,55 @@ const PRUEBAS = [
       +'\nEl resumen del reporte suma solo lo aprobado ✓'
      : JSON.stringify(r)};}},
 
+{app:'ofi', titulo:'Quitar a alguien de todas las oficinas lo saca de todas, no lo mete en todas',
+ porque:'Elkin (8 sep 2026): "lo quité de todas las oficinas, pero si abro otra oficina sigue apareciendo". '
+       +'La regla decía que un empleado sin ninguna oficina pertenecía a TODAS, así que quitarlo de todas lo metía '
+       +'en todas. Estaba repetida en tres sitios: la lista de la jornada, quién puede marcar a quién, y el '
+       +'directorio con la nómina. Medido en los datos reales: cinco personas activas sin oficina (el administrador, '
+       +'los dos gerentes, el ingeniero y la de seguridad en el trabajo) salían en las cinco oficinas, y de paso cada '
+       +'jefe veía sus sueldos en la nómina de su oficina.',
+ correr:W=>{ const r=E(W,
+     'const gO=DB.oficinas, gE=DB.rrhh_empleados, gU=USER;'
+   +'DB.oficinas=[{id:"of1", nombre:"UNO"}, {id:"of2", nombre:"DOS"}];'
+   +'DB.rrhh_empleados=[{id:1, nombre:"DE UNO", cargo:"AUXILIAR", oficinas:["of1"], estado:"Activo", salario:"1750905"},'
+   +'                   {id:2, nombre:"DE DOS", cargo:"TECNICO", oficinas:["of2"], estado:"Activo", salario:"1750905"},'
+   +'                   {id:3, nombre:"EN LAS DOS", cargo:"TECNICO", oficinas:["of1","of2"], estado:"Activo"},'
+   +'                   {id:4, nombre:"SIN OFICINA", cargo:"GERENTE", oficinas:[], estado:"Activo", salario:"3805000"},'
+   +'                   {id:5, nombre:"INACTIVO SIN OFICINA", cargo:"GERENTE", oficinas:[], estado:"Inactivo"}];'
+   +'try{'
+   +'  const l1=_asisEmpleadosDe("of1").map(e=>e.id), l2=_asisEmpleadosDe("of2").map(e=>e.id);'
+   +'  const sin=_asisEmpleadosDe("__sin__").map(e=>e.id);'
+   +'  const todos=_asisEmpleadosDe("").map(e=>e.id);'
+   +'  USER={role:"oficina", id:"of1", nombre:"JEFE UNO"};'
+   +'  const jefe=[_asisPuedeMarcar(DB.rrhh_empleados[0]), _asisPuedeMarcar(DB.rrhh_empleados[1]), _asisPuedeMarcar(DB.rrhh_empleados[3])];'
+   +'  const rrhhJefe=getRRHH().map(e=>e.id);'
+   +'  USER={role:"admin"};'
+   +'  const admin=[_asisPuedeMarcar(DB.rrhh_empleados[3]), getRRHH().length];'
+   +'  const coincide=[_asisCoincideOficina({oficinaId:"of1"},"of1"), _asisCoincideOficina({oficinaId:"of1"},"of2"),'
+   +'                  _asisCoincideOficina({oficinaId:""},"__sin__"), _asisCoincideOficina({oficinaId:"of1"},"__sin__"),'
+   +'                  _asisCoincideOficina({oficinaId:"of1"},""), _asisCoincideOficina({},"__sin__")];'
+   +'  const marcas=[{oficinaId:"of1", empId:"1"}, {oficinaId:"", empId:"4"}, {oficinaId:"of2", empId:"2"}];'
+   +'  const deUno=marcas.filter(m=>_asisCoincideOficina(m,"of1")).length;'
+   +'  const deSin=marcas.filter(m=>_asisCoincideOficina(m,"__sin__")).length;'
+   +'  return {l1, l2, sin, todos, jefe, rrhhJefe, admin, coincide, deUno, deSin};'
+   +'} finally { DB.oficinas=gO; DB.rrhh_empleados=gE; USER=gU; }');
+   const bien = JSON.stringify(r.l1)==='[1,3]' && JSON.stringify(r.l2)==='[2,3]'
+             && JSON.stringify(r.sin)==='[4]' && JSON.stringify(r.todos)==='[1,2,3,4]'
+             && JSON.stringify(r.jefe)==='[true,false,false]'
+             && JSON.stringify(r.rrhhJefe)==='[1,3]'
+             && JSON.stringify(r.admin)==='[true,5]'
+             && JSON.stringify(r.coincide)==='[true,false,true,false,true,true]'
+             && r.deUno===1 && r.deSin===1;
+   return {ok:bien, detalle: bien
+     ? 'Cada oficina ve solo a los suyos, y quien está en dos sale en las dos ✓'
+      +'\nEl que no tiene ninguna oficina ya NO sale en ninguna: aparece aparte, en "sin oficina asignada" ✓'
+      +'\nUn inactivo sin oficina tampoco se cuela en ese grupo ✓'
+      +'\nUn jefe puede marcar a los suyos, no a los de otra oficina y tampoco al que no tiene oficina ✓'
+      +'\nEl directorio y la nómina del jefe dejan de mostrarle al gerente sin oficina, con su sueldo ✓'
+      +'\nEl administrador sigue viendo a los cinco y puede marcarle a cualquiera ✓'
+      +'\nLas marcas se filtran por oficina, y las que quedaron sin oficina se ven en su grupo ✓'
+     : JSON.stringify(r)};}},
+
 {app:'ofi', titulo:'La jornada registra solo lo que el administrador enciende, y borrar exige rango exacto',
  porque:'Elkin (8 sep 2026): poder elegir con un visto si se registran solo las entradas o solo las salidas, que una '
        +'oficina tenga que PEDIR el cambio de una hora ya escrita explicando por qué, y poder borrar los registros de '
@@ -1046,7 +1095,7 @@ const PRUEBAS = [
              && JSON.stringify(r.juan)==='["08:40",null,4]' && r.nDias===2
              && JSON.stringify(r.senal)==='["09:05","aceptó una orden"]' && r.senalSolaApp==='10:20' && r.otroDia===null
              && JSON.stringify(r.sabOff)==='[false,0]' && JSON.stringify(r.lunSigue)==='[true,15]'
-             && JSON.stringify(r.permisos)==='[true,false,true,true]';
+             && JSON.stringify(r.permisos)==='[true,false,false,true]';   // v290: sin oficina ya no es de todos
    return {ok:bien, detalle: bien
      ? 'El domingo no cuenta y el sábado usa su horario de corrido; una fecha ilegible se rechaza en vez de pasar por lunes ✓'
       +'\nLlegar 08:12 con 5 min de tolerancia son 7 min de tardanza, y 08:04 no es tardanza ✓'
@@ -1054,7 +1103,7 @@ const PRUEBAS = [
       +'\nUna corrección manda sobre la marca vieja y una anulación la retira, pero las cuatro quedan en el historial ✓'
       +'\nLa señal propia del empleado toma la más temprana del día (la orden de las 9:05 antes que la app de las 10:20) y no se cuela la de otro ✓'
       +'\nSi la empresa apaga los sábados, el sábado deja de medirse y el lunes sigue contando igual ✓'
-      +'\nEl jefe marca a los suyos y no a los de otra oficina; el administrador, a cualquiera ✓'
+      +'\nEl jefe marca a los suyos, no a los de otra oficina ni a quien no tiene oficina; el administrador, a cualquiera ✓'
      : JSON.stringify(r)};}},
 
 {app:'ofi', titulo:'Los clientes nuevos muestran su alta y su primer pago, cruzados por cédula',
