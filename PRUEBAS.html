@@ -946,6 +946,53 @@ const PRUEBAS = [
       +'\nEl resumen del reporte suma solo lo aprobado ✓'
      : JSON.stringify(r)};}},
 
+{app:'ofi', titulo:'Un guardado de otra oficina ya no revierte lo que se acaba de editar',
+ porque:'Elkin (9 sep 2026): "hice modificaciones en los empleados y no se están guardando". Se guardaban: a las '
+       +'23:00 estaba quitado de las cuatro oficinas y a la mañana siguiente había vuelto a las cuatro. El documento '
+       +'principal se escribe completo desde la memoria de cada equipo, y la fusión decía que ante un registro que '
+       +'existe en los dos lados gana la sesión que acaba de actuar. Eso vale si esa sesión tocó ESE registro, pero no '
+       +'cuando una oficina guarda un pago con una copia de los empleados de hace horas: sin tocar nada de RRHH '
+       +'reescribía la lista entera. Ahora cada edición queda sellada con la hora y gana la más reciente.',
+ correr:W=>{ const r=E(W,
+     'const ahora=Date.now();'
+   +'const mio={id:7, nombre:"ELKIN", oficinas:[], actualizado:ahora};'
+   +'const vieja={id:7, nombre:"ELKIN", oficinas:["of1","of2"], actualizado:ahora-3*3600000};'
+   +'const sinSello={id:7, nombre:"ELKIN", oficinas:["of1","of2"]};'
+   +'const regla=[_nubeEsMasNueva(mio, vieja), _nubeEsMasNueva(vieja, mio), _nubeEsMasNueva(mio, sinSello), _nubeEsMasNueva(sinSello, mio), _nubeEsMasNueva({id:1},{id:1})];'
+   +'const ts=[_tsRegistro(mio)>0, _tsRegistro(sinSello), _tsRegistro({actualizada:"2026-09-01T10:00:00Z"})>0, _tsRegistro(null), _tsRegistro({actualizado:"no es fecha"})];'
+   +'const gE=DB.rrhh_empleados, gT=DB._tumbas, gI=window._idsRemotos, gV=DB.ventas;'
+   +'const cp=x=>JSON.parse(JSON.stringify(x));'
+   +'try{'
+   +'  DB.ventas=[]; DB._tumbas=[]; window._idsRemotos={rrhh_empleados:new Set([7])};'
+   +'  DB.rrhh_empleados=[cp(mio)]; _fusionarConNube({rrhh_empleados:[cp(vieja)]});'
+   +'  const g1=DB.rrhh_empleados[0].oficinas.length;'
+   +'  DB.rrhh_empleados=[cp(vieja)]; _fusionarConNube({rrhh_empleados:[cp(mio)]});'
+   +'  const g2=DB.rrhh_empleados[0].oficinas.length;'
+   +'  DB.rrhh_empleados=[cp(mio)]; _fusionarConNube({rrhh_empleados:[cp(sinSello)]});'
+   +'  const g3=DB.rrhh_empleados[0].oficinas.length;'
+   +'  DB.rrhh_empleados=[cp(mio)];'
+   +'  const s1={rrhh_empleados:[cp(vieja)], _tumbas:[]}; _protegerLocalesEnSnapshot(s1);'
+   +'  const p1=s1.rrhh_empleados[0].oficinas.length;'
+   +'  DB.rrhh_empleados=[cp(vieja)];'
+   +'  const s2={rrhh_empleados:[cp(mio)], _tumbas:[]}; _protegerLocalesEnSnapshot(s2);'
+   +'  const p2=s2.rrhh_empleados[0].oficinas.length;'
+   +'  DB.rrhh_empleados=[cp(sinSello)];'
+   +'  const s3={rrhh_empleados:[cp(sinSello)], _tumbas:[]}; _protegerLocalesEnSnapshot(s3);'
+   +'  const p3=s3.rrhh_empleados.length;'
+   +'  return {regla, ts, g1, g2, g3, p1, p2, p3};'
+   +'} finally { DB.rrhh_empleados=gE; DB._tumbas=gT; window._idsRemotos=gI; DB.ventas=gV; }');
+   const bien = JSON.stringify(r.regla)==='[false,true,false,false,false]'
+             && JSON.stringify(r.ts)==='[true,0,true,0,0]'
+             && r.g1===0 && r.g2===0 && r.g3===0
+             && r.p1===0 && r.p2===0 && r.p3===1;
+   return {ok:bien, detalle: bien
+     ? 'Al guardar: mi edición de hace un momento le gana a la copia de hace tres horas de otra oficina ✓'
+      +'\nY al revés: si la nube trae la edición más reciente, esa gana y no la pisa mi memoria vieja ✓'
+      +'\nSi la otra copia no trae sello, no se puede comparar y manda quien está guardando, como antes ✓'
+      +'\nAl recibir un snapshot pasa lo mismo: lo recién editado aquí no lo revierte una copia vieja ✓'
+      +'\nUna fecha ilegible o ausente cuenta como sin sello, sin romper nada ✓'
+     : JSON.stringify(r)};}},
+
 {app:'ofi', titulo:'Quitar a alguien de todas las oficinas lo saca de todas, no lo mete en todas',
  porque:'Elkin (8 sep 2026): "lo quité de todas las oficinas, pero si abro otra oficina sigue apareciendo". '
        +'La regla decía que un empleado sin ninguna oficina pertenecía a TODAS, así que quitarlo de todas lo metía '
@@ -1329,7 +1376,7 @@ const PRUEBAS = [
              && gs.sigue(48,35,false,0)===true   // quedó cola y se avanzó: otra corrida
              && gs.sigue(0,35,false,0)===false   // cola vacía: a dormir
              && gs.sigue(48,0,false,0)===false   // nada avanzó: repetir no mejora nada
-             && gs.sigue(48,35,true,0)===false   // Gemini saturado: mañana será
+             && gs.sigue(48,35,true,0)===true    // Gemini saturado: espera y vuelve, NO acaba la noche
              && gs.sigue(48,35,false,10)===false; // tope de la cadena: no se corre eternamente
    const cuenta=r=>r.map(x=>x.gravedad).join(',')||'ninguno';
    return {ok:bien, detalle: bien
@@ -1339,7 +1386,8 @@ const PRUEBAS = [
       +' sigue el chequeo del movimiento ✓'
       +'\nUn 503 de Gemini (saturado) se reconoce como pasajero y se aplaza; un 404 no ✓'
       +'\nY con cola grande la corrida se encadena sola: sigue si avanzó y quedó cola, para si'
-      +' está vacía, si no avanzó, si Gemini está saturado o al tope de 10 corridas ✓'
+      +' está vacía, si no avanzó, o al tope de 10 corridas ✓'
+      +'\nSi Gemini está saturado ya NO se acaba la noche: espera y vuelve, que era lo que dejaba la cola quieta ✓'
      : 'caso de Elkin: '+cuenta(elCasoDeElkin)+' (alta) · mismo día: '+cuenta(mismoDia)+' (ninguno)'
       +'\nfin de semana: '+cuenta(finDeSemana)+' (ninguno) · futuro: '+cuenta(delFuturo)+' (media)'
       +'\ntapado y tarde: '+cuenta(tapadoYTarde)+' (2 reparos) · sin dato: '+cuenta(sinDato)+' (media)'};}},
