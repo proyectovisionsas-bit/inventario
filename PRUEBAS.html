@@ -147,6 +147,40 @@ const E = (W, cuerpo) => W.eval('(function(){'+cuerpo+'})()');
 const PRUEBAS = [
 
 // ─────────────────────────────── INVENTARIO ───────────────────────────────
+{app:'inv', titulo:'En el inventario, lo que otro equipo acaba de registrar ya no se pierde',
+ porque:'La comparación contra la última sincronía (¿esta sesión tocó ESE registro?) existía desde la v88, pero solo '
+       +'para bodegas y cuadrillas. En las demás listas seguía ganando la sesión que guardaba de último, así que una '
+       +'entrega, una instalación o una solicitud que otro equipo acababa de registrar se perdía en silencio. Ahora '
+       +'la regla vale para todas, y sigue siendo segura: si yo lo edité, gana lo mío.',
+ correr:W=>{ const r=E(W,
+     'const cp=x=>JSON.parse(JSON.stringify(x));'
+   +'const inst={id:"i1", cliente:"JUAN", estado:"pendiente"};'
+   +'const bod={id:"b1", nombre:"BODEGA", n:1};'
+   +'const ent={id:"e1", material:"ONT", cantidad:2};'
+   +'_guardarBaseStockInv({instalaciones:[cp(inst)], bodegas:[cp(bod)], cuadrillas:[], entregas:[cp(ent)]});'
+   +'return {'
+   +'  instalacionIntacta:_sesionTocoInv("instalaciones", cp(inst)),'
+   +'  instalacionEditada:_sesionTocoInv("instalaciones", Object.assign({}, inst, {estado:"hecha"})),'
+   +'  entregaIntacta:_sesionTocoInv("entregas", cp(ent)),'
+   +'  entregaEditada:_sesionTocoInv("entregas", Object.assign({}, ent, {cantidad:5})),'
+   +'  bodegaIntacta:_sesionTocoInv("bodegas", cp(bod)),'
+   +'  bodegaEditada:_sesionTocoInv("bodegas", Object.assign({}, bod, {n:2})),'
+   +'  desconocido:_sesionTocoInv("instalaciones", {id:"noExiste"}),'
+   +'  sinId:_sesionTocoInv("instalaciones", {cliente:"SIN ID"}),'
+   +'  nulo:_sesionTocoInv("instalaciones", null)'
+   +'};');
+   const bien = r.instalacionIntacta===false && r.instalacionEditada===true
+             && r.entregaIntacta===false && r.entregaEditada===true
+             && r.bodegaIntacta===false && r.bodegaEditada===true
+             && r.desconocido===true && r.sinId===true && r.nulo===true;
+   return {ok:bien, detalle: bien
+     ? 'Una instalación intacta desde la última sincronía deja entrar lo que registró el otro equipo ✓'
+      +'\nUna que esta sesión editó se conserva: el arreglo no puede perder trabajo propio ✓'
+      +'\nLo mismo con las entregas, que antes no tenían ninguna protección ✓'
+      +'\nBodegas sigue comportándose igual que siempre ✓'
+      +'\nUn registro desconocido, sin id o nulo conserva lo local, que es el lado seguro ✓'
+     : JSON.stringify(r)};}},
+
 {app:'inv', titulo:'La base cabe en Firebase',
  porque:'Firebase rechaza un documento de más de 1 MB. Si se pasa, NINGÚN cambio se guarda: '
        +'por eso las solicitudes aprobadas reaparecían y los otros equipos no veían nada.',
@@ -944,6 +978,62 @@ const PRUEBAS = [
       +'\nUn empleado sin sueldo no rompe el ajuste y un tipo que no existe da cero ✓'
       +'\nLos reportes de la versión anterior siguen mostrando su valor por hora ($9.119 de 7.295 × 1,25) ✓'
       +'\nEl resumen del reporte suma solo lo aprobado ✓'
+     : JSON.stringify(r)};}},
+
+{app:'ofi', titulo:'Guardar sin haber tocado algo ya no borra el trabajo de otra oficina',
+ porque:'Elkin (10 sep 2026): "no se están guardando las modificaciones en las diferentes áreas". Medido ese día: '
+       +'25 sesiones de nueve personas en las cuatro apps, varias al tiempo, con Firestore sano y ningún documento '
+       +'pasado del límite. La causa era la fusión: el documento principal se escribe completo desde la memoria de '
+       +'cada equipo y, ante un registro presente en los dos lados, ganaba la sesión que acababa de guardar. Eso vale '
+       +'si esa sesión tocó ESE registro; no cuando una oficina guarda un pago con una copia de hace horas. Ahora se '
+       +'compara contra cómo estaba en la última sincronía, que es la regla que INVENTARIO ya usaba para bodegas.',
+ correr:W=>{ const r=E(W,
+     'const cp=x=>JSON.parse(JSON.stringify(x));'
+   +'const gA=DB.antenas, gT=DB._tumbas, gI=window._idsRemotos;'
+   +'try{'
+   +'  const nube=[{id:"a1", nombre:"UNA", notas:"lo cambió el administrador"}];'
+   +'  DB._tumbas=[]; window._idsRemotos={};'
+   +'  DB.antenas=[{id:"a1", nombre:"UNA", notas:"viejo"}];'
+   +'  _guardarBaseColab({antenas:cp(DB.antenas)});'
+   +'  _fusionarConNube({antenas:cp(nube)});'
+   +'  const noToque=DB.antenas[0].notas;'
+   +'  DB.antenas=[{id:"a1", nombre:"UNA", notas:"viejo"}];'
+   +'  _guardarBaseColab({antenas:cp(DB.antenas)});'
+   +'  DB.antenas[0].notas="lo escribí yo";'
+   +'  _fusionarConNube({antenas:cp(nube)});'
+   +'  const siToque=DB.antenas[0].notas;'
+   +'  DB.antenas=[{id:"a1", nombre:"UNA", notas:"viejo"}];'
+   +'  _guardarBaseColab({antenas:cp(DB.antenas)});'
+   +'  DB.antenas[0].notas="lo escribí yo";'
+   +'  const s1={antenas:[{id:"a1", nombre:"UNA", notas:"copia vieja"}], _tumbas:[]};'
+   +'  _protegerLocalesEnSnapshot(s1);'
+   +'  const snapMio=s1.antenas[0].notas;'
+   +'  DB.antenas=[{id:"a1", nombre:"UNA", notas:"viejo"}];'
+   +'  _guardarBaseColab({antenas:cp(DB.antenas)});'
+   +'  const s2={antenas:[{id:"a1", nombre:"UNA", notas:"lo cambió otro"}], _tumbas:[]};'
+   +'  _protegerLocalesEnSnapshot(s2);'
+   +'  const snapAjeno=s2.antenas[0].notas;'
+   +'  _guardarBaseColab({});'
+   +'  DB.antenas=[{id:"a1", notas:"sin base"}];'
+   +'  _fusionarConNube({antenas:[{id:"a1", notas:"nube"}]});'
+   +'  const sinBase=DB.antenas[0].notas;'
+   +'  const faltan=["antenas","serviciosProv","proveedores","alertasComprobantes","borradosPermanentes"].filter(c=>COLS_COLABORATIVAS.indexOf(c)<0);'
+   +'  const toco=[_sesionToco("antenas",{id:"a1", notas:"viejo"}), _sesionToco("antenas",{id:"nadie"}), _sesionToco("noExiste",{id:"a1"}), _sesionToco("antenas",null)];'
+   +'  return {noToque, siToque, snapMio, snapAjeno, sinBase, faltan, toco};'
+   +'} finally { DB.antenas=gA; DB._tumbas=gT; window._idsRemotos=gI; }');
+   const bien = r.noToque==='lo cambió el administrador'
+             && r.siToque==='lo escribí yo'
+             && r.snapMio==='lo escribí yo'
+             && r.snapAjeno==='lo cambió otro'
+             && r.sinBase==='sin base'
+             && JSON.stringify(r.faltan)==='[]'
+             && JSON.stringify(r.toco)==='[true,true,true,true]';
+   return {ok:bien, detalle: bien
+     ? 'Si esta sesión NO tocó el registro, entra el cambio de la otra oficina en vez de borrarlo ✓'
+      +'\nSi esta sesión SÍ lo editó, gana lo de aquí: el arreglo no puede perder trabajo propio ✓'
+      +'\nUn snapshot con copia vieja ya no revierte lo que se acaba de escribir, y si no lo toqué sí entra ✓'
+      +'\nSin base de comparación (primera sincronía) se conserva lo local, como antes ✓'
+      +'\nLas cinco áreas que no tenían ninguna protección ya entran a la fusión: antenas, servicios de proveedores, proveedores, alertas de comprobantes y borrados permanentes ✓'
      : JSON.stringify(r)};}},
 
 {app:'ofi', titulo:'Un guardado de otra oficina ya no revierte lo que se acaba de editar',
