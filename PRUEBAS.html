@@ -147,6 +147,58 @@ const E = (W, cuerpo) => W.eval('(function(){'+cuerpo+'})()');
 const PRUEBAS = [
 
 // ─────────────────────────────── INVENTARIO ───────────────────────────────
+{app:'inv', titulo:'El historial ya no entra en bucle: tiene base propia, sin base no se reenvía y hay freno',
+ porque:'10 sep 2026: con la v108 cada sesión de Inventario reescribía inventario/historial cada ~10 s. La base '
+       +'de comparación solo se tomaba de inventario/datos, así que las listas del historial nunca tenían con qué '
+       +'compararse: cada snapshot las daba por "tocadas" y las reenviaba, y las demás sesiones hacían lo mismo. '
+       +'Se gastaron 44.000 de las 50.000 lecturas gratis del día y una entrega falló con "Quota exceeded".',
+ correr:async W=>{ const r=E(W,
+     'const cp=x=>JSON.parse(JSON.stringify(x));'
+   +'const gB=window._baseStockInv, gR=window._reenviosInv, gP=window._reenvioInvProgramado, gS=window._fbSave, gE=window.DB.entregas;'
+   +'try{'
+   +'  window._fbSave=function(){ window._pruebaSaves=(window._pruebaSaves||0)+1; }; window._pruebaSaves=0;'
+   +'  const crudo={id:"e1", material:"ONT", cantidad:2};'
+   +'  const protegido={id:"e1", material:"ONT", cantidad:9};'
+   +'  window._baseStockInv={};'
+   +'  window._fotoIdsRemotosInv(null, {entregas:[cp(protegido)]}, null, {entregas:[cp(crudo)]});'
+   +'  const baseEsNube = window._sesionTocoInv("entregas", cp(crudo))===false && window._sesionTocoInv("entregas", cp(protegido))===true;'
+   +'  const otroOrden = window._sesionTocoInv("entregas", {cantidad:2, material:"ONT", id:"e1"})===false;'
+   +'  const conoce = window._baseConoceInv("entregas","e1")===true && window._baseConoceInv("entregas","zz")===false;'
+   +'  window._baseStockInv={}; window._reenviosInv=[]; window._reenvioInvProgramado=false;'
+   +'  window.DB.entregas=[{id:"e1", material:"ONT", cantidad:9}];'
+   +'  const ent1={entregas:[{id:"e1", material:"ONT", cantidad:2}]};'
+   +'  const p1=window._protegerSnapshotInv(ent1, ["entregas"], {}, []);'
+   +'  const sinBase={preservados:p1, local:ent1.entregas[0].cantidad, programado:window._reenvioInvProgramado};'
+   +'  window._guardarBaseStockInv({entregas:[{id:"e1", material:"ONT", cantidad:2}]});'
+   +'  window.DB.entregas=[{id:"e1", material:"ONT", cantidad:9}];'
+   +'  const ent2={entregas:[{id:"e1", material:"ONT", cantidad:2}]};'
+   +'  const p2=window._protegerSnapshotInv(ent2, ["entregas"], {}, []);'
+   +'  const conBase={preservados:p2, programado:window._reenvioInvProgramado, reenvios:(window._reenviosInv||[]).length};'
+   +'  window._reenvioInvProgramado=false; const t=Date.now(); window._reenviosInv=[t-1000,t-2000,t-3000];'
+   +'  const ent3={entregas:[{id:"e1", material:"ONT", cantidad:2}]};'
+   +'  const p3=window._protegerSnapshotInv(ent3, ["entregas"], {}, []);'
+   +'  const frenado={preservados:p3, programado:window._reenvioInvProgramado, reenvios:window._reenviosInv.length, local:ent3.entregas[0].cantidad};'
+   +'  window._reenvioInvProgramado=true; window.DB.entregas=[{id:"nuevo1", material:"CAJA", cantidad:1}];'
+   +'  const vuelo=[1,2,3].map(()=>{ const e={entregas:[]}; const n=window._protegerSnapshotInv(e, ["entregas"], {}, []); return n+"/"+e.entregas.length; });'
+   +'  const atascado=(window._enVueloAtascadosInv||[]).includes("entregas│nuevo1");'
+   +'  return {baseEsNube, otroOrden, conoce, sinBase, conBase, frenado, vuelo, atascado};'
+   +'} finally { window._baseStockInv=gB; window._reenviosInv=gR; window._reenvioInvProgramado=gP; window.DB.entregas=gE; setTimeout(()=>{ window._fbSave=gS; }, 2500); }');
+   await new Promise(res=>setTimeout(res, 1900));
+   const guardados = E(W, 'return window._pruebaSaves;');
+   const bien = r.baseEsNube===true && r.otroOrden===true && r.conoce===true
+             && r.sinBase.preservados===0 && r.sinBase.local===9 && r.sinBase.programado===false
+             && r.conBase.preservados===1 && r.conBase.programado===true && r.conBase.reenvios===1
+             && r.frenado.preservados===1 && r.frenado.programado===false && r.frenado.reenvios===3 && r.frenado.local===9
+             && JSON.stringify(r.vuelo)==='["1/1","1/1","0/1"]' && r.atascado===true
+             && guardados===1;
+   return {ok:bien, detalle: bien
+     ? 'La base del historial retrata la nube (copia cruda), no lo que esta sesión tiene en pantalla ✓'
+      +'\nEl mismo registro con las llaves en otro orden ya no se toma por "tocado" ✓'
+      +'\nSin base con qué comparar se conserva lo local en pantalla, pero NO se reenvía: eso era el bucle ✓'
+      +'\nCon base y editado aquí, sí se reenvía una vez (el guardado de prueba se llamó exactamente 1 vez) ✓'
+      +'\nCon 3 reenvíos en los últimos 10 minutos, el cuarto se frena y lo local sigue en pantalla ✓'
+      +'\nUna creación que la nube nunca recibe se reenvía 2 veces y a la tercera se queda en pantalla sin reenviar (y se avisa en consola) ✓'
+     : JSON.stringify(r)+' guardados='+guardados};}},
 {app:'inv', titulo:'En el inventario, lo que otro equipo acaba de registrar ya no se pierde',
  porque:'La comparación contra la última sincronía (¿esta sesión tocó ESE registro?) existía desde la v88, pero solo '
        +'para bodegas y cuadrillas. En las demás listas seguía ganando la sesión que guardaba de último, así que una '
@@ -980,6 +1032,132 @@ const PRUEBAS = [
       +'\nEl resumen del reporte suma solo lo aprobado ✓'
      : JSON.stringify(r)};}},
 
+{app:'ofi', titulo:'Un comprobante recién adjuntado no desaparece al recargar los movimientos',
+ porque:'Elkin (11 sep 2026): los comprobantes se ven un momento y desaparecen. Los movimientos de cada oficina viven '
+       +'en bloques aparte y se cargaban REEMPLAZANDO la lista local entera: si otra sesión guardaba mientras se subía '
+       +'el comprobante, la recarga lo borraba de la pantalla, y el guardado de esa otra sesión (con su copia vieja) '
+       +'lo borraba de la nube. Además el freno de 20 s descartaba recargas en vez de aplazarlas, y el flujo de '
+       +'adjuntar sostenía un objeto que podía quedar huérfano durante la subida.',
+ correr:W=>{ const r=E(W,
+     'const cp=x=>JSON.parse(JSON.stringify(x));'
+   +'const oid="ofiPrueba296"; const c1={url:"u1", fileId:"f1", nombre:"a.pdf"}, c2={url:"u2", fileId:"f2", nombre:"b.pdf"};'
+   +'const mA={id:"mA", concepto:"Pago", valor:1000, comprobantes:[]};'
+   +'const mB={id:"mB", concepto:"Otro", valor:2000, comprobantes:[]};'
+   +'const r0=_fusionarMovsAlCargar(oid, [cp(mA)], [cp(mA), cp(mB)]);'
+   +'const sinBase = r0.sinBase===true && r0.lista.length===2;'
+   +'_guardarBaseMovs(oid, [cp(mA), cp(mB)]);'
+   +'const r1=_fusionarMovsAlCargar(oid, [cp(mA), cp(mB)], [Object.assign(cp(mA), {comprobantes:[c1]}), cp(mB)]);'
+   +'const ajenoEntra = r1.lista[0].comprobantes.length===1 && r1.preservados===0;'
+   +'const r2=_fusionarMovsAlCargar(oid, [Object.assign(cp(mA), {comprobantes:[c1]}), cp(mB)], [cp(mA), cp(mB)]);'
+   +'const mioSeConserva = r2.lista[0].comprobantes.length===1 && r2.lista[0].comprobantes[0].fileId==="f1" && r2.preservados===1;'
+   +'const r3=_fusionarMovsAlCargar(oid, [Object.assign(cp(mA), {comprobantes:[c1]}), cp(mB)], [Object.assign(cp(mA), {comprobantes:[c2]}), cp(mB)]);'
+   +'const union = r3.lista[0].comprobantes.map(c=>c.fileId).sort().join()==="f1,f2";'
+   +'const r4=_fusionarMovsAlCargar(oid, [cp(mA), cp(mB), {id:"mNuevo", concepto:"Nuevo", valor:5}], [cp(mA)]);'
+   +'const enVuelo = r4.lista.map(m=>m.id).sort().join()==="mA,mNuevo";'
+   +'_marcarMovBorrado(oid, "mB");'
+   +'const r5=_fusionarMovsAlCargar(oid, [cp(mA)], [cp(mA), cp(mB)]);'
+   +'const borradoNoRevive = r5.lista.map(m=>m.id).join()==="mA";'
+   +'const gO=DB.oficinas; let destinoFresco=false;'
+   +'try{ DB.oficinas=[{id:oid, nombre:"P", movimientos:[cp(mA)]}]; const viejo=DB.oficinas[0].movimientos[0]; DB.oficinas[0].movimientos=[cp(mA)]; const d=_movDestino(oid, "mA", viejo); destinoFresco = d!==viejo && d===DB.oficinas[0].movimientos[0] && Array.isArray(d.comprobantes); } finally { DB.oficinas=gO; }'
+   +'const dedupe = _unirComprobantes([c1],[cp(c1), c2]).length===2;'
+   +'return {sinBase, ajenoEntra, mioSeConserva, union, enVuelo, borradoNoRevive, destinoFresco, dedupe};');
+   const bien = r.sinBase && r.ajenoEntra && r.mioSeConserva && r.union && r.enVuelo && r.borradoNoRevive && r.destinoFresco && r.dedupe;
+   return {ok:bien, detalle: bien
+     ? 'Sin base (primera carga) manda la nube, como antes ✓'
+      +'\nUn comprobante que otra sesión adjuntó entra al recargar (yo no toqué ese movimiento) ✓'
+      +'\nEl comprobante que adjunté aquí y aún no se ha guardado se conserva aunque la nube traiga la copia vieja ✓'
+      +'\nSi los dos lados adjuntaron, quedan los dos (unión sin repetir) ✓'
+      +'\nUn movimiento creado aquí que la nube nunca trajo se conserva; el que la nube tuvo y ya no, se va ✓'
+      +'\nUn movimiento borrado aquí hace poco no revive con la recarga ✓'
+      +'\nAl terminar la subida, el comprobante se agrega al movimiento fresco, no al huérfano ✓'
+     : JSON.stringify(r)};}},
+{app:'ofi', titulo:'Una solicitud aprobada no vuelve a quedar pendiente por el guardado de otra oficina',
+ porque:'Elkin (11 sep 2026): apruebo una solicitud en un dispositivo, la abro en otro y aparece pendiente otra vez. '
+       +'solicitudes no estaba en la lista de colecciones con fusión, así que el guardado de una oficina con copia '
+       +'vieja escribía pendiente encima del aprobado; y al aprobar de nuevo un registro pasado, el movimiento se '
+       +'inyectaba dos veces. Vacaciones y metas estaban igual de desprotegidas.',
+ correr:W=>{ const r=E(W,
+     'const cp=x=>JSON.parse(JSON.stringify(x));'
+   +'const gS=DB.solicitudes, gT=DB._tumbas, gI=window._idsRemotos, gO=DB.oficinas, gP=window._reenvioProgramado;'
+   +'try{'
+   +'  const faltan=["solicitudes","rrhh_vacaciones","metas"].filter(c=>COLS_COLABORATIVAS.indexOf(c)<0);'
+   +'  DB._tumbas=[]; window._idsRemotos={};'
+   +'  DB.solicitudes=[{id:"s1", tipo:"eliminar_mov", estado:"pendiente", fecha:"2026-09-11T09:14:53"}];'
+   +'  _guardarBaseColab({solicitudes:cp(DB.solicitudes)});'
+   +'  _fusionarConNube({solicitudes:[{id:"s1", tipo:"eliminar_mov", estado:"aprobado", fecha:"2026-09-11T09:14:53", actualizado:1}]});'
+   +'  const oficinaRespeta=DB.solicitudes[0].estado;'
+   +'  DB.solicitudes=[{id:"s1", tipo:"eliminar_mov", estado:"pendiente", fecha:"2026-09-11T09:14:53"}];'
+   +'  _guardarBaseColab({solicitudes:cp(DB.solicitudes)});'
+   +'  DB.solicitudes[0].estado="aprobado"; _sellar(DB.solicitudes[0]);'
+   +'  _fusionarConNube({solicitudes:[{id:"s1", tipo:"eliminar_mov", estado:"pendiente", fecha:"2026-09-11T09:14:53"}]});'
+   +'  const adminGana=DB.solicitudes[0].estado;'
+   +'  const snap={solicitudes:[{id:"s1", tipo:"eliminar_mov", estado:"pendiente", fecha:"2026-09-11T09:14:53"}], _tumbas:[]};'
+   +'  COLS_COLABORATIVAS.forEach(c=>{ if(c!=="solicitudes") snap[c]=cp(DB[c]||[]); });'
+   +'  window._reenvioProgramado=true; _protegerLocalesEnSnapshot(snap);'
+   +'  const snapNoRevierte=snap.solicitudes[0].estado;'
+   +'  DB.oficinas=[{id:"ofiPrueba", nombre:"PRUEBA", movimientos:[]}];'
+   +'  DB.solicitudes=[{id:"s2", tipo:"registro_pasado", oid:"ofiPrueba", estado:"pendiente", fecha:"2026-09-11T10:00:00", movData:{tipo:"ingreso", concepto:"Prueba", forma:"Efectivo", valor:1000, fecha:"2026-09-10T12:00:00"}}];'
+   +'  aprobarSolicitud("s2", true);'
+   +'  DB.solicitudes[0].estado="pendiente";'
+   +'  aprobarSolicitud("s2", true);'
+   +'  const movs=DB.oficinas[0].movimientos.length, marca=DB.oficinas[0].movimientos[0]&&DB.oficinas[0].movimientos[0].solicitudId;'
+   +'  const sellada=typeof DB.solicitudes[0].actualizado==="number";'
+   +'  return {faltan, oficinaRespeta, adminGana, snapNoRevierte, movs, marca, sellada};'
+   +'} finally { DB.solicitudes=gS; DB._tumbas=gT; window._idsRemotos=gI; DB.oficinas=gO; window._reenvioProgramado=gP; }');
+   const bien = JSON.stringify(r.faltan)==='[]' && r.oficinaRespeta==='aprobado' && r.adminGana==='aprobado'
+             && r.snapNoRevierte==='aprobado' && r.movs===1 && r.marca==='s2' && r.sellada===true;
+   return {ok:bien, detalle: bien
+     ? 'solicitudes, rrhh_vacaciones y metas ya están en la fusión ✓'
+      +'\nUna oficina que guarda con la solicitud pendiente (sin haberla tocado) recibe el aprobado de la nube en vez de revertirlo ✓'
+      +'\nSi el administrador aprobó aquí y la nube aún trae pendiente, gana la aprobación ✓'
+      +'\nUn snapshot con copia vieja tampoco la devuelve a pendiente ✓'
+      +'\nAprobar dos veces un registro pasado inyecta el movimiento UNA sola vez, marcado con su solicitud ✓'
+      +'\nLa decisión queda sellada con hora ✓'
+     : JSON.stringify(r)};}},
+{app:'ofi', titulo:'La fusión no puede entrar en bucle ni confundir lo editado con lo sincronizado',
+ porque:'Blindaje preventivo tras el bucle de INVENTARIO v108 (10 sep 2026). La base de comparación retrata la '
+       +'nube (copia cruda, antes de proteger) y no la pantalla; sin base con qué comparar se conserva lo local '
+       +'pero no se reenvía; más de 3 reenvíos en 10 minutos se frenan; y la comparación ignora el orden de las '
+       +'llaves, que Firestore devuelve ordenadas y cada sesión conserva como las creó.',
+ correr:W=>{ const r=E(W,
+     'const cp=x=>JSON.parse(JSON.stringify(x));'
+   +'const gA=DB.antenas, gT=DB._tumbas, gI=window._idsRemotos, gR=window._reenviosColab, gP=window._reenvioProgramado;'
+   +'try{'
+   +'  DB._tumbas=[]; window._idsRemotos={};'
+   +'  const todo=(ant)=>{ const o={_tumbas:[]}; COLS_COLABORATIVAS.forEach(c=>{ o[c]=cp(DB[c]||[]); }); o.antenas=ant; return o; };'
+   +'  const crudo=[{id:"a1", nombre:"UNA", notas:"nube"}];'
+   +'  const protegido=[{id:"a1", nombre:"UNA", notas:"mio sin guardar"}];'
+   +'  _fotoIdsRemotos({antenas:cp(protegido)}, {antenas:cp(crudo)});'
+   +'  const baseEsNube = _sesionToco("antenas", cp(crudo[0]))===false && _sesionToco("antenas", cp(protegido[0]))===true;'
+   +'  const otroOrden = _sesionToco("antenas", {notas:"nube", nombre:"UNA", id:"a1"})===false;'
+   +'  const conoce = _baseConoce("antenas","a1")===true && _baseConoce("antenas","zz")===false;'
+   +'  _guardarBaseColab({}); window._reenviosColab=[]; window._reenvioProgramado=false;'
+   +'  DB.antenas=[{id:"a1", nombre:"UNA", notas:"mio"}];'
+   +'  const s1=todo([{id:"a1", nombre:"UNA", notas:"nube"}]);'
+   +'  _protegerLocalesEnSnapshot(s1);'
+   +'  const sinBase={local:s1.antenas[0].notas, programado:window._reenvioProgramado, reenvios:(window._reenviosColab||[]).length};'
+   +'  window._reenvioProgramado=false; const t=Date.now(); window._reenviosColab=[t-1000,t-2000,t-3000];'
+   +'  _guardarBaseColab({antenas:[{id:"a1", nombre:"UNA", notas:"nube"}]});'
+   +'  DB.antenas=[{id:"a1", nombre:"UNA", notas:"mio"}];'
+   +'  const s2=todo([{id:"a1", nombre:"UNA", notas:"nube"}]);'
+   +'  _protegerLocalesEnSnapshot(s2);'
+   +'  const frenado={local:s2.antenas[0].notas, programado:window._reenvioProgramado, reenvios:window._reenviosColab.length};'
+   +'  window._reenvioProgramado=true; window._idsRemotos={}; DB.antenas=[{id:"nuevo1", nombre:"NUEVA"}];'
+   +'  const vuelo=[1,2,3].map(()=>{ const e=todo([]); _protegerLocalesEnSnapshot(e); return e.antenas.length; });'
+   +'  const intentos=[_enVueloIntento("x","z1"), _enVueloIntento("x","z1"), _enVueloIntento("x","z1")];'
+   +'  return {baseEsNube, otroOrden, conoce, sinBase, frenado, vuelo, intentos};'
+   +'} finally { DB.antenas=gA; DB._tumbas=gT; window._idsRemotos=gI; window._reenviosColab=gR; window._reenvioProgramado=gP; }');
+   const bien = r.baseEsNube===true && r.otroOrden===true && r.conoce===true
+             && r.sinBase.local==='mio' && r.sinBase.programado===false && r.sinBase.reenvios===0
+             && r.frenado.local==='mio' && r.frenado.programado===false && r.frenado.reenvios===3
+             && JSON.stringify(r.vuelo)==='[1,1,1]' && JSON.stringify(r.intentos)==='[true,true,false]';
+   return {ok:bien, detalle: bien
+     ? 'La base de comparación retrata la nube (copia cruda), no la pantalla con el cambio sin guardar ✓'
+      +'\nEl mismo registro con las llaves en otro orden ya no se toma por "tocado" ✓'
+      +'\nSin base con qué comparar se conserva lo local en pantalla, pero NO se reenvía ✓'
+      +'\nCon 3 reenvíos en los últimos 10 minutos, el cuarto se frena y lo local sigue en pantalla ✓'
+      +'\nUna creación que la nube nunca recibe se reenvía 2 veces y a la tercera se queda en pantalla sin reenviar ✓'
+     : JSON.stringify(r)};}},
 {app:'ofi', titulo:'Guardar sin haber tocado algo ya no borra el trabajo de otra oficina',
  porque:'Elkin (10 sep 2026): "no se están guardando las modificaciones en las diferentes áreas". Medido ese día: '
        +'25 sesiones de nueve personas en las cuatro apps, varias al tiempo, con Firestore sano y ningún documento '
@@ -2719,7 +2897,9 @@ const PRUEBAS = [
    for(const a of apps){
      const f=D.createElement('iframe');
      f.style.cssText='position:absolute;left:-9999px;width:1px;height:1px';
-     f.src='/'+a; D.body.appendChild(f);
+     // SIEMPRE en modo prueba: sin esto, una copia local mas nueva escribia
+     // app_version en produccion y bloqueaba a todas las sesiones (10 sep 2026).
+     f.src='/'+a+'?prueba=1'; D.body.appendChild(f);
      await new Promise(res=>{ f.onload=()=>setTimeout(res,1500); setTimeout(res,9000); });
      let m=null;
      try{
