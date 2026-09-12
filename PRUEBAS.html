@@ -773,6 +773,54 @@ const PRUEBAS = [
        +'\ncon reloj corrido: '+r.c2+' (finalizada) · conserva material: '+r.c2mat+' (true)'
        +'\nreagenda: '+r.c3+' (aceptada) · ids finales: '+r.c4ids+' (a,nueva)'};}},
 
+{app:'ofi', titulo:'Cuando algo no se guarda, se dice en pantalla; y una copia de prueba nunca bloquea a las oficinas',
+ porque:'Revisión del 12/9/2026 ("parece que no se guarda"): había cuatro caminos en que el sistema decía "Guardado" o no decía nada '
+       +'mientras la nube no recibía el dato: un comprobante que Drive rechazaba, un guardado con una oficina sin cargar (sus '
+       +'movimientos no se reescriben, y eso es correcto, pero el usuario no lo sabía), el reintento por Firebase ocupado que nunca '
+       +'se pintaba, y el freno de reenvíos que solo hablaba por la consola. Además, la copia abierta por doble clic o por IP de la '
+       +'red local podía marcar la versión en la nube y tapar a todas las oficinas con "Actualizar".',
+ correr:W=>{ const r=E(W,
+     'const loc=(h,pr)=>({hostname:h, protocol:pr||"http:"});'
+   +'const local=[_esEntornoLocal(loc("localhost")), _esEntornoLocal(loc("127.0.0.1")), _esEntornoLocal(loc("","file:")), _esEntornoLocal(loc("192.168.1.20")), _esEntornoLocal(loc("10.0.0.5")), _esEntornoLocal(loc("172.20.3.4"))];'
+   +'const publica=[_esEntornoLocal(loc("proyectovisionsas-bit.github.io","https:")), _esEntornoLocal(loc("172.32.0.1")), _esEntornoLocal(loc("1921.168.1.1"))];'
+   +'const viejo=window._avisoSinSincMs; window._avisoSinSincMs=0; const a1=_avisarSinSincronizar("prueba"); const a2=_avisarSinSincronizar("prueba otra vez"); window._avisoSinSincMs=viejo; try{ mostrarSaveOverlay("done"); }catch(e){}'
+   +'const sr=_saveReal.toString(), pa=procesarArchivos.toString(), pr=_protegerLocalesEnSnapshot.toString();'
+   +'return { local, publica, a1, a2, parcial:/Guardado parcial/.test(sr) && /_guardadoParcial/.test(sr), adjunto:/_cargaCompletaPorOficina\\[oid\\]===false/.test(pa) && /NO se guardar/.test(pa), drive:/fallidos\\.push/.test(pa) && /No se pudo subir a Drive/.test(pa), reintento:!/mostrarSaveOverlay.{2}guardando/.test(sr) && /mostrarSaveOverlay.{2}saving.{3}Firebase ocupado/.test(sr), freno:/_avisarSinSincronizar/.test(pr), guardia:/_esEntornoLocal\\(\\)/.test(sr) };');
+   const bien = JSON.stringify(r.local)==='[true,true,true,true,true,true]' && JSON.stringify(r.publica)==='[false,false,false]'
+     && r.a1===true && r.a2===false && r.parcial && r.adjunto && r.drive && r.reintento && r.freno && r.guardia;
+   return {ok:bien, detalle: bien
+     ? 'localhost, 127.0.0.1, archivo abierto con doble clic y las IP privadas (192.168.x, 10.x, 172.16-31.x) cuentan como copia local; la publicada en GitHub no ✓'
+      +'\nEl guardado usa ese único criterio antes de marcar la versión en la nube ✓'
+      +'\nEl aviso de "cambios sin sincronizar" sale una vez y no vuelve a molestar en 10 minutos ✓'
+      +'\nUn guardado con una oficina sin cargar termina en "Guardado parcial" (rojo), no en "¡Guardado!"; adjuntar un comprobante en esa situación se frena con aviso ✓'
+      +'\nSi Drive rechaza un comprobante, se avisa con el nombre del archivo antes de guardar ✓'
+      +'\nEl reintento por Firebase ocupado usa el estado saving, que sí se pinta; el freno de reenvíos avisa en pantalla ✓'
+     : JSON.stringify(r)};}},
+{app:'ofi', titulo:'El registro de auditoría no se borra al sincronizar ni se escribe vacío',
+ porque:'Encontrado el 12/9/2026: en la nube logs_auditoria estaba con CERO registros aunque se escribía a cada rato. '
+       +'Los registros viven en un documento aparte y el documento principal los trae vacíos; el oyente de cambios '
+       +'copiaba esa lista vacía a la memoria (clientes, movimientos, historial y barrido sí se restauraban, los logs '
+       +'no) y el siguiente guardado escribía el documento de auditoría vacío. La auditoría se perdía una y otra vez.',
+ correr:W=>{ const r=E(W,
+     'const cp=x=>JSON.parse(JSON.stringify(x)); const sembrado=!(DB.logsAuditoria||[]).length;'
+   +'if(sembrado) DB.logsAuditoria=[{id:"prueba1", fecha:"2026-09-12", usuario:"prueba", rol:"admin", accion:"PRUEBA", detalles:{}}];'
+   +'const n0=DB.logsAuditoria.length; const primero=DB.logsAuditoria[0].id;'
+   +'const c0=(DB.oficinas||[]).reduce((t,o)=>t+(o.clientes||[]).length,0); const m0=(DB.oficinas||[]).reduce((t,o)=>t+(o.movimientos||[]).length,0);'
+   +'const fake=cp(DB); fake.logsAuditoria=[]; fake.facturasHistorial={}; fake.gapsFacturas={};'
+   +'fake.oficinas=(fake.oficinas||[]).map(o=>Object.assign({}, o, {clientes:[], movimientos:[]}));'
+   +'const se=window._ultimosSellos||{c:"0",f:"0",m:"0"}; fake._selloClientes=se.c; fake._selloFacturas=se.f; fake._selloMovs=se.m;'
+   +'_aplicarSnapshotRemoto(fake);'
+   +'const n1=(DB.logsAuditoria||[]).length; const sigue=(DB.logsAuditoria||[]).some(x=>x.id===primero);'
+   +'const c1=(DB.oficinas||[]).reduce((t,o)=>t+(o.clientes||[]).length,0); const m1=(DB.oficinas||[]).reduce((t,o)=>t+(o.movimientos||[]).length,0);'
+   +'if(sembrado) DB.logsAuditoria=[];'
+   +'const src=_saveReal.toString(); const guardia=/if\\(logs\\.length\\) opsEscritura\\.push/.test(src);'
+   +'return { n0, n1, sigue, c0, c1, m0, m1, guardia, sembrado };');
+   const bien = r.n0>0 && r.n1===r.n0 && r.sigue===true && r.c1===r.c0 && r.m1===r.m0 && r.guardia===true;
+   return {ok:bien, detalle: bien
+     ? 'Llega un snapshot con la auditoría vacía (como la trae el documento principal) y los '+r.n0+' registros siguen en memoria ✓'
+      +'\nLos clientes ('+r.c0+') y movimientos ('+r.m0+') tampoco se pierden, como antes ✓'
+      +'\nSi la lista quedara vacía, el guardado ya no escribe logs_auditoria: una lista vacía nunca borra lo que otra sesión guardó ✓'
+     : JSON.stringify(r)};}},
 {app:'ofi', titulo:'Un guardado sin clientes cargados no los esconde',
  porque:'Pasó de verdad el 31/8/2026 a las 9:44. Los clientes viven en documentos aparte y un '
        +'índice dice cuántos bloques tiene cada oficina. El índice se armaba con lo que hubiera '

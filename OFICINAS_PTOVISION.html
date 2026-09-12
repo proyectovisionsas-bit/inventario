@@ -948,7 +948,7 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION = 302; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 303; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -969,7 +969,7 @@ const APP_VERSION = 302; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '12 Sep 2026 (v302: SG-SST completo en seis fases. Matriz de 60 estandares, personas con hoja de vida, capacitaciones con firma desde el celular, dotacion y EPP con acta, accidentes e indicadores, comites y documentos, panel con alertas. Nueva pagina FIRMA_SST.html. El historial de cambios vive en git y en docs/07-sgsst.md)';
+const APP_VERSION_FECHA = '12 Sep 2026 (v303: el registro de auditoria ya no se borra al sincronizar ni se escribe vacio. v302: SG-SST completo en seis fases, con firma desde el celular en FIRMA_SST.html. Historial en git y en docs/07-sgsst.md)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -1050,6 +1050,11 @@ let _saveEnCola = null; // promesa del guardado encolado (si hay)
    pedido a mano y se ve: más vale una cortina de sobra que un cambio que
    el usuario cree guardado sin estarlo.
    ════════════════════════════════════════════════════════════════════ */
+// v303: ¿esta copia corre en el computador de pruebas? (localhost, archivo abierto con doble clic o IP de la red local).
+// Solo una copia publicada puede marcar la versión en la nube; si no, una prueba en casa bloquea a todas las oficinas.
+function _esEntornoLocal(loc){ loc=loc||location; const h=String(loc.hostname||''); return loc.protocol==='file:' || !h || /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[::1\])/.test(h); }
+// v303: cuando la nube no acepta un cambio de este equipo, se dice en pantalla (antes solo en la consola). Como mucho una vez cada 10 minutos.
+function _avisarSinSincronizar(que){ const ahora=Date.now(); if(ahora-(window._avisoSinSincMs||0)<600000) return false; window._avisoSinSincMs=ahora; try{ showSync('err','Sin sincronizar'); }catch(e){} try{ mostrarSaveOverlay('error','Cambios sin sincronizar', que+'. Lo que ves sigue en pantalla, pero la nube no lo tiene: recarga (F5) y revisa que siga.'); }catch(e){} return true; }
 function save(opts){
     const silencioso = !!(opts && opts.silencioso);
     if(_saveInProgress){
@@ -1469,6 +1474,7 @@ function _protegerLocalesEnSnapshot(datos){
         datos[col]=entrante;
     });
     if(_enVueloAtascados.length) console.warn(`⚠️ ${_enVueloAtascados.length} registro(s) de este equipo que la nube nunca recibe (ya se reenviaron 2 veces; quedan en pantalla sin reenviar): ${_enVueloAtascados.slice(0,6).join(', ')}`);
+    if(_enVueloAtascados.length) _avisarSinSincronizar(_enVueloAtascados.length+' registro(s) de este equipo que la nube no recibe');   // v303
     if(preservados>0){
         console.log(`🛡️ Snapshot: ${preservados} registro(s) creados en este equipo (aún en vuelo) preservados; se reenviarán solos.`);
         // Reenviar en breve para que queden en la nube (una sola vez, coalescido por la cola)
@@ -1479,6 +1485,7 @@ function _protegerLocalesEnSnapshot(datos){
         window._reenviosColab=(window._reenviosColab||[]).filter(t=>_ahoraR-t<600000);
         if(window._reenviosColab.length>=3){
             console.warn(`⛔ Reenvío frenado: ya van ${window._reenviosColab.length} en 10 minutos (${preservados} registro(s) en conflicto). Lo local sigue en pantalla y saldrá con el próximo guardado real.`);
+            _avisarSinSincronizar(preservados+' registro(s) de este equipo en conflicto con la nube (reenvío frenado)');   // v303
         } else if(!window._reenvioProgramado){
             window._reenviosColab.push(_ahoraR);
             window._reenvioProgramado=true;
@@ -1702,7 +1709,7 @@ async function _saveReal(_opts){
     // 📢 Publicar la versión: cualquier cliente con versión vieja verá la pantalla de actualizar
     // v297: desde localhost NO se marca (una prueba local con versión nueva bloqueaba a
     // todas las oficinas con "hay versión nueva" sin haber publicado nada).
-    try{ if(!DB.config) DB.config={}; const _esLocal=/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname); if(!_esLocal && (parseInt(DB.config.appVersionPublicada||0,10)||0) < APP_VERSION) DB.config.appVersionPublicada=APP_VERSION; }catch(e){}
+    try{ if(!DB.config) DB.config={}; const _esLocal=_esEntornoLocal(); if(!_esLocal && (parseInt(DB.config.appVersionPublicada||0,10)||0) < APP_VERSION) DB.config.appVersionPublicada=APP_VERSION; }catch(e){}
     showSync('saving','Guardando...');
     if(!_silencioso) mostrarSaveOverlay('saving');
     _saveInProgress = true;
@@ -1934,7 +1941,7 @@ async function _saveReal(_opts){
                     console.warn(`⏳ Firebase saturado (${etiqueta}) — reintento ${intento+1}/${MAX} en ${Math.round(espera/1000)}s: ${String((e&&(e.message||e.code))||'').substring(0,90)}`);
                     // Un guardado de fondo tampoco avisa al reintentar; si acaba fallando,
                     // el aviso de error sí sale, y ese conviene verlo siempre.
-                    try{ if(!window._saveSilencioso) mostrarSaveOverlay('guardando','Firebase ocupado', `Reintentando (${intento+1}/${MAX})… no cierres la ventana`); }catch(_e){}
+                    try{ if(!window._saveSilencioso) mostrarSaveOverlay('saving','Firebase ocupado', `Reintentando (${intento+1}/${MAX})… no cierres la ventana`); }catch(_e){}
                     await new Promise(r=>setTimeout(r, espera));
                 }
             }
@@ -2046,6 +2053,7 @@ async function _saveReal(_opts){
                 data: { porOficina: movsChunkInfo, actualizado: Date.now() }
             });
             // Aviso si se preservó alguna oficina por carga incompleta
+            window._guardadoParcial=_ofiPreservada;   // v303: el final del guardado lo muestra como error, no como éxito
             if(_ofiPreservada && !window._avisoMovsBloqueado){
                 window._avisoMovsBloqueado = true;
                 setTimeout(()=>{ try{ alert('🛡️ Aviso de seguridad\n\nUna o más oficinas no se habían cargado completas, así que sus movimientos NO se reescribieron, para proteger tus datos en la nube.\n\n👉 Recarga la página (Ctrl+F5) para cargar todo bien. No se borró nada.'); }catch(_){} }, 100);
@@ -2056,7 +2064,8 @@ async function _saveReal(_opts){
         // v168: va dentro del LOTE batch (antes era un viaje de red aparte, en fila).
         try {
             const logs = (DB.logsAuditoria||[]).slice(-500);
-            opsEscritura.push({
+            // v303: una lista vacía nunca se escribe (borraría en la nube lo que otra sesión ya guardó)
+            if(logs.length) opsEscritura.push({
                 ref: db.collection('oficinas_sistema').doc('logs_auditoria'),
                 data: { logs: sanitizarFirebase(logs), actualizado: Date.now() }
             });
@@ -2337,8 +2346,13 @@ async function _saveReal(_opts){
         DB.facturasHistorial = histGuardar; // la memoria ya está correcta (no se reescribe completa)
         console.log(`   📄 Historial facturas: ${Object.keys(DB.facturasHistorial||{}).length} servicios`);
 
-        showSync('ok','Guardado ✓');
-        mostrarSaveOverlay('done');
+        if(window._guardadoParcial){   // v303: antes decía "¡Guardado!" aunque los movimientos de una oficina no hubieran salido
+            showSync('err','Guardado parcial');
+            mostrarSaveOverlay('error','Guardado parcial','Una oficina no cargó completa: sus movimientos y comprobantes NO se enviaron. Recarga (F5), espera a que cargue y repite.');
+        } else {
+            showSync('ok','Guardado ✓');
+            mostrarSaveOverlay('done');
+        }
         console.log('✅ save() exitoso');
         console.log(`   ⏱️ Fusión con ${window._origenFresco||'—'} (${window._tFrescoMs||0}ms) · guardado total: ${((Date.now()-(window._tSaveIni||Date.now()))/1000).toFixed(1)}s`);
         console.log('💾 ═══════════════════════════════════════════');
@@ -2457,7 +2471,7 @@ async function registrarVersion(){
         // publicacion. Si anuncia su version, las oficinas ven el aviso de version
         // nueva y al recargar siguen recibiendo la anterior, porque en el servidor
         // todavia no existe. Paso de verdad al probar la v254 antes de publicarla.
-        const esPrueba = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) || location.protocol==='file:';
+        const esPrueba = _esEntornoLocal();
         if(esPrueba){ console.log('🧪 Copia de prueba: no se anuncia la version', APP_VERSION); return; }
         // Si mi versión es más nueva que la registrada, la actualizo (yo publiqué la nueva)
         if(APP_VERSION > versionRemota){
@@ -2588,6 +2602,7 @@ function _aplicarSnapshotRemoto(datosRaw){
             (DB.oficinas||[]).forEach(o=>{ clientesMem[o.id] = o.clientes||[]; movsMem[o.id] = o.movimientos||[]; });
             const histMem = DB.facturasHistorial || {};
             const gapsMem = DB.gapsFacturas || {};
+            const logsMem = DB.logsAuditoria || [];   // v303: los logs viven en logs_auditoria; el doc principal los trae vacíos
 
             // Actualizar DB con los datos confirmados del servidor
             Object.keys(datos).forEach(k=>{
@@ -2613,6 +2628,11 @@ function _aplicarSnapshotRemoto(datosRaw){
             // Restaurar caché del barrido (el doc principal la trae vacía)
             if((!DB.gapsFacturas || Object.keys(DB.gapsFacturas).length===0) && Object.keys(gapsMem).length>0){
                 DB.gapsFacturas = gapsMem;
+            }
+            // v303: restaurar el registro de auditoría. Sin esto cada snapshot lo vaciaba en memoria y el
+            // siguiente guardado escribía logs_auditoria vacío: la auditoría se perdía una y otra vez.
+            if((!DB.logsAuditoria || DB.logsAuditoria.length===0) && logsMem.length>0){
+                DB.logsAuditoria = logsMem;
             }
             // ⛔ Aplicar BORRADOS PERMANENTES: si otra sesión (con datos viejos) revivió
             // registros que el admin borró, aquí se quitan de nuevo en cada carga.
@@ -21696,12 +21716,18 @@ async function procesarArchivos(files, oid, mid){
     if(!files||!files.length) return;
     const m=getMovimiento(oid,mid);
     if(!m){ alert('Error: movimiento no encontrado'); return; }
+    // v303: si esta oficina no terminó de cargar sus movimientos, el guardado NO los reescribe (protección) y el comprobante se perdería
+    if(window._cargaMovsIncompleta===true || (window._cargaCompletaPorOficina && window._cargaCompletaPorOficina[oid]===false)){
+        alert('⚠️ Esta oficina no terminó de cargar sus movimientos en esta sesión (suele ser un bache de internet), así que el comprobante NO se guardaría.\n\nRecarga la página (F5), espera a que cargue completo y vuelve a adjuntarlo.');
+        return;
+    }
     if(!m.comprobantes) m.comprobantes=[];
     const progEl=document.getElementById('prog_'+mid);
     if(progEl) progEl.style.display='';
 
     const imageFiles=[...files].filter(f=>f.type.startsWith('image/'));
     const otherFiles=[...files].filter(f=>!f.type.startsWith('image/'));
+    const fallidos=[];   // v303: lo que Drive no recibió se dice con un aviso, no solo en la consola
 
     // Step 1: Save originals as base64 in memory for IA, then convert to PDF for storage
     if(imageFiles.length>0){
@@ -21762,6 +21788,7 @@ async function procesarArchivos(files, oid, mid){
             _movDestino(oid, mid, m).comprobantes.push(Object.assign({ url:res.url, verUrl:res.verUrl||res.url, fileId:res.fileId||null, nombre:pdfFile.name, tipo:'pdf', fecha:new Date().toISOString(), imagenes:imageFiles.length, hashesImagenes:hashesImagenes }, (_lecturaIA&&_lecturaIA.campos)||{}));   // v296
             if(progEl) progEl.innerHTML=_progHTML(`✅ PDF subido con ${imageFiles.length} imagen(es)`, 100, true);
         }catch(e){
+            fallidos.push('Las '+imageFiles.length+' imagen(es) (PDF): '+(e.message||e));
             if(progEl) progEl.innerHTML=`<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px;font-size:0.82rem;color:#ef4444;">⚠️ Error: ${e.message}</div>`;
         }
     }
@@ -21771,9 +21798,10 @@ async function procesarArchivos(files, oid, mid){
         try{
             const res=await subirArchivoDrive(file, oid, mid);
             _movDestino(oid, mid, m).comprobantes.push({url:res.url, nombre:file.name, tipo:'pdf', fecha:new Date().toISOString()});   // v296
-        }catch(e){ console.error('Error subiendo',file.name,e); }
+        }catch(e){ console.error('Error subiendo',file.name,e); fallidos.push(file.name+': '+(e.message||e)); }
     }
 
+    if(fallidos.length) alert('⚠️ No se pudo subir a Drive:\n\n• '+fallidos.join('\n• ')+'\n\nEsos comprobantes NO quedaron guardados. Revisa la conexión (o la clave de Drive en Configuración) y vuelve a adjuntarlos.');   // v303
     await save().then(()=>renderRegistro());
     setTimeout(()=>modalComprobantes(oid, mid), 500);
 }
