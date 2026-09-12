@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="robots" content="noindex">
+<title>Firma SG-SST · PROYECTOVISION</title>
+<!-- ════════════════════════════════════════════════════════════════════════
+     FIRMA_SST.html — página pública y liviana para firmar desde el celular.
+     Lee UN solo documento de la nube (oficinas_sistema/sgsst_firma_<token>) y
+     escribe en ese mismo documento la firma. Nunca carga oficinas_sistema/main,
+     no pide usuario ni clave, no muestra datos de otras personas.
+     Base legal: Ley 527 de 1999 (firma electrónica). Se guarda el trazo, la
+     fecha y hora del servidor, el dispositivo y un hash SHA-256 del contenido.
+     Con ?prueba=1 no escribe nada (para PRUEBAS.html).
+     ════════════════════════════════════════════════════════════════════════ -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<style>
+  :root{ --bg:#f1f5f9; --card:#fff; --txt:#0f172a; --muted:#64748b; --line:#cbd5e1; --azul:#2563eb; --verde:#16a34a; --rojo:#dc2626; --ambar:#d97706; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--txt); font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; font-size:16px; line-height:1.45; }
+  .wrap{ max-width:640px; margin:0 auto; padding:14px 12px 40px; }
+  .card{ background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:12px; }
+  h1{ font-size:1.15rem; margin:0 0 2px; }
+  .muted{ color:var(--muted); font-size:0.86rem; }
+  .pre{ white-space:pre-line; }
+  .btn{ display:inline-block; border:1px solid var(--line); background:#fff; color:var(--txt); border-radius:10px; padding:11px 14px; font-size:1rem; cursor:pointer; margin:4px 4px 0 0; }
+  .btn.p{ background:var(--azul); color:#fff; border-color:var(--azul); font-weight:700; }
+  .btn.g{ background:var(--verde); color:#fff; border-color:var(--verde); font-weight:700; width:100%; padding:14px; font-size:1.05rem; }
+  .btn:disabled{ opacity:0.5; cursor:default; }
+  canvas{ width:100%; height:auto; border:2px dashed #94a3b8; border-radius:12px; background:#fff; touch-action:none; display:block; }
+  input[type=text],input[type=tel]{ font-size:1.1rem; padding:10px; border:1px solid var(--line); border-radius:10px; width:100%; }
+  label.op{ display:block; padding:8px 10px; border:1px solid var(--line); border-radius:10px; margin:6px 0; font-size:0.95rem; }
+  label.op input{ margin-right:8px; transform:scale(1.2); }
+  .ok{ color:var(--verde); } .mal{ color:var(--rojo); } .amb{ color:var(--ambar); }
+  .lista button{ display:block; width:100%; text-align:left; margin:6px 0; }
+  .decl{ background:#f8fafc; border:1px solid var(--line); border-radius:10px; padding:10px; font-size:0.9rem; }
+  .pie{ font-size:0.74rem; color:var(--muted); margin-top:10px; }
+  #aviso{ position:fixed; top:0; left:0; right:0; background:#fde68a; color:#78350f; font-size:0.78rem; text-align:center; padding:4px; z-index:9; display:none; }
+</style>
+</head>
+<body>
+<div id="aviso">🧪 MODO PRUEBA: aquí no se guarda nada.</div>
+<div class="wrap">
+  <div class="card" id="cab"><h1 id="empresa">Firma SG-SST</h1><div class="muted" id="sub">Cargando…</div></div>
+  <div id="cuerpo"></div>
+</div>
+<script>
+// ─── Mismas utilidades que OFICINAS (v299). Si cambian allá, cambian aquí. ───
+const MODO_PRUEBA=(()=>{ try{ return new URLSearchParams(location.search).get('prueba')==='1'; }catch(e){ return false; } })();
+window._escriturasBloqueadas=[];
+function _sgSha256JS(str){
+    const K=[0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+    const b=new TextEncoder().encode(str); const l=b.length; const L=((l+9+63)>>6)<<6; const m=new Uint8Array(L); m.set(b); m[l]=0x80;
+    const dv=new DataView(m.buffer); dv.setUint32(L-4, (l*8)>>>0); dv.setUint32(L-8, Math.floor(l*8/4294967296));
+    let H=[0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19]; const w=new Uint32Array(64);
+    const rr=(x,n)=>(x>>>n)|(x<<(32-n));
+    for(let i=0;i<L;i+=64){
+        for(let t=0;t<16;t++) w[t]=dv.getUint32(i+t*4);
+        for(let t=16;t<64;t++){ const s0=rr(w[t-15],7)^rr(w[t-15],18)^(w[t-15]>>>3); const s1=rr(w[t-2],17)^rr(w[t-2],19)^(w[t-2]>>>10); w[t]=(w[t-16]+s0+w[t-7]+s1)>>>0; }
+        let [a,b2,c,d,e,f,g,h]=H;
+        for(let t=0;t<64;t++){ const S1=rr(e,6)^rr(e,11)^rr(e,25); const ch=(e&f)^(~e&g); const t1=(h+S1+ch+K[t]+w[t])>>>0; const S0=rr(a,2)^rr(a,13)^rr(a,22); const mj=(a&b2)^(a&c)^(b2&c); const t2=(S0+mj)>>>0; h=g; g=f; f=e; e=(d+t1)>>>0; d=c; c=b2; b2=a; a=(t1+t2)>>>0; }
+        H=[(H[0]+a)>>>0,(H[1]+b2)>>>0,(H[2]+c)>>>0,(H[3]+d)>>>0,(H[4]+e)>>>0,(H[5]+f)>>>0,(H[6]+g)>>>0,(H[7]+h)>>>0];
+    }
+    return H.map(x=>x.toString(16).padStart(8,'0')).join('');
+}
+async function _sgHash(texto){
+    texto=String(texto==null?'':texto);
+    try{ if(crypto&&crypto.subtle){ const b=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(texto)); return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join(''); } }catch(e){}
+    return _sgSha256JS(texto);
+}
+function _sgTextoFirmado(d, trazo){ return [d.token, d.personaNombre, d.titulo, d.fecha, d.declaracion, trazo].map(x=>String(x==null?'':x)).join('|'); }
+function _sgSimplificarTrazo(trazos, eps){
+    eps=eps||1.2;
+    const dist=(p,a,b)=>{ const dx=b[0]-a[0], dy=b[1]-a[1]; if(!dx&&!dy) return Math.hypot(p[0]-a[0],p[1]-a[1]); const t=Math.max(0,Math.min(1,((p[0]-a[0])*dx+(p[1]-a[1])*dy)/(dx*dx+dy*dy))); return Math.hypot(p[0]-(a[0]+t*dx), p[1]-(a[1]+t*dy)); };
+    const rdp=(pts)=>{ if(pts.length<3) return pts; let im=0, dm=0; for(let i=1;i<pts.length-1;i++){ const d=dist(pts[i],pts[0],pts[pts.length-1]); if(d>dm){ dm=d; im=i; } } if(dm>eps){ const a=rdp(pts.slice(0,im+1)), b=rdp(pts.slice(im)); return a.slice(0,-1).concat(b); } return [pts[0], pts[pts.length-1]]; };
+    return (trazos||[]).map(t=>rdp((t||[]).map(p=>[Math.round(p[0]),Math.round(p[1])]))).filter(t=>t.length);
+}
+function _sgTrazoATexto(trazos){ return (trazos||[]).map(t=>t.map(p=>p[0]+','+p[1]).join(' ')).join(';'); }
+function _sgTrazoCompacto(trazos, maxKB){ maxKB=maxKB||20; let eps=1.2, s=_sgTrazoATexto(_sgSimplificarTrazo(trazos, eps)); while(s.length>maxKB*1024 && eps<40){ eps*=1.6; s=_sgTrazoATexto(_sgSimplificarTrazo(trazos, eps)); } return s; }
+function _sgDibujarTrazo(ctx, trazos, escala, color){
+    escala=escala||1; ctx.strokeStyle=color||'#1e293b'; ctx.lineWidth=2.2*escala; ctx.lineCap='round'; ctx.lineJoin='round';
+    (trazos||[]).forEach(t=>{ if(!t.length) return; ctx.beginPath(); ctx.moveTo(t[0][0]*escala, t[0][1]*escala); if(t.length===1) ctx.lineTo(t[0][0]*escala+0.5, t[0][1]*escala); t.slice(1).forEach(p=>ctx.lineTo(p[0]*escala, p[1]*escala)); ctx.stroke(); });
+}
+function _sgMsDe(x){ if(!x) return 0; if(typeof x==='number') return x; if(x.toMillis) return x.toMillis(); if(x.seconds) return x.seconds*1000; const t=Date.parse(x); return isNaN(t)?0:t; }
+function _sgHoraCO(ms){ if(!ms) return '—'; try{ return new Date(ms).toLocaleString('es-CO',{dateStyle:'short', timeStyle:'short'}); }catch(e){ return String(ms); } }
+function _sgPuedeFirmar(d, ahora){
+    ahora=ahora||Date.now(); if(!d) return {ok:false, motivo:'Este enlace no existe o fue retirado.'};
+    if(d.estado==='firmado') return {ok:false, motivo:'Este documento ya fue firmado el '+_sgHoraCO(_sgMsDe(d.firmadoEn)||d.firmadoEnLocal)+'. No se puede firmar dos veces.'};
+    if(d.estado==='rechazado') return {ok:false, motivo:'Este enlace fue rechazado por la persona.'};
+    if(d.estado==='reemplazado') return {ok:false, motivo:'Este enlace fue reemplazado por uno nuevo. Pide el enlace vigente.'};
+    if(d.estado!=='pendiente') return {ok:false, motivo:'Este enlace no está disponible para firmar.'};
+    if(d.venceEn && ahora>_sgMsDe(d.venceEn)) return {ok:false, motivo:'Este enlace venció el '+_sgHoraCO(_sgMsDe(d.venceEn))+'. Pide uno nuevo a la persona de SG-SST.'};
+    return {ok:true, motivo:''};
+}
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fechaCO=iso=>{ if(!iso) return ''; const [a,m,d]=String(iso).slice(0,10).split('-'); return (d&&m&&a)?`${d}/${m}/${a}`:iso; };
+
+// ─── Nube ───────────────────────────────────────────────────────────────────
+const firebaseConfig={ apiKey:"AIzaSyDxDOjSzmsSNnULxmzyH2JM80u8AMFpO9w", authDomain:"inventario-88a28.firebaseapp.com", projectId:"inventario-88a28", storageBucket:"inventario-88a28.firebasestorage.app", messagingSenderId:"981251888141", appId:"1:981251888141:web:85e27f09ec4350c27c7144" };
+let db=null;
+try{ firebase.initializeApp(firebaseConfig); db=firebase.firestore(); }catch(e){ console.warn('firebase:', e); }
+const docRef=t=>db.collection('oficinas_sistema').doc('sgsst_firma_'+String(t||'').replace(/[^\w\-]/g,''));
+async function leer(t){ const s=await docRef(t).get(); return s.exists?s.data():null; }
+async function escribir(t, cambios){ if(MODO_PRUEBA){ window._escriturasBloqueadas.push({que:'update', cuando:Date.now()}); return; } await docRef(t).update(cambios); }
+
+// ─── Pantallas ──────────────────────────────────────────────────────────────
+const $=id=>document.getElementById(id);
+function pantalla(html){ $('cuerpo').innerHTML=html; window.scrollTo(0,0); }
+function mensaje(titulo, texto, clase){ pantalla(`<div class="card"><h1 class="${clase||''}">${esc(titulo)}</h1><div class="muted pre">${esc(texto)}</div></div>`); }
+let DOC=null, TOKEN='', LIENZO=null;
+function lienzo(c){
+    const ctx=c.getContext('2d'); const trazos=[]; let actual=null;
+    const fondo=()=>{ ctx.fillStyle='#fff'; ctx.fillRect(0,0,c.width,c.height); ctx.strokeStyle='#cbd5e1'; ctx.lineWidth=1; ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(30,c.height-40); ctx.lineTo(c.width-30,c.height-40); ctx.stroke(); ctx.setLineDash([]); };
+    const repintar=()=>{ fondo(); _sgDibujarTrazo(ctx, trazos, c.width/600); };
+    const pos=e=>{ const r=c.getBoundingClientRect(); return [Math.max(0,Math.min(600,(e.clientX-r.left)*(600/r.width))), Math.max(0,Math.min(220,(e.clientY-r.top)*(220/r.height)))]; };
+    c.onpointerdown=e=>{ e.preventDefault(); try{ c.setPointerCapture(e.pointerId); }catch(x){} actual=[pos(e)]; trazos.push(actual); repintar(); };
+    c.onpointermove=e=>{ if(!actual) return; e.preventDefault(); actual.push(pos(e)); repintar(); };
+    c.onpointerup=c.onpointercancel=()=>{ actual=null; };
+    repintar();
+    return { trazos, limpiar:()=>{ trazos.length=0; repintar(); }, vacio:()=>!trazos.some(t=>t.length>1), texto:()=>_sgTrazoCompacto(trazos, 20) };
+}
+function pantallaFirma(d){
+    DOC=d; $('empresa').textContent=(d.empresa&&d.empresa.razonSocial)||'PROYECTOVISION'; $('sub').textContent='Firma electrónica · Seguridad y Salud en el Trabajo';
+    const preguntas=d.preguntas||[];
+    pantalla(`
+      <div class="card"><div class="muted">Hola, <b>${esc(d.personaNombre)}</b>. Vas a firmar:</div>
+        <h1 style="margin-top:6px;">${esc(d.titulo)}</h1><div class="muted">📅 ${fechaCO(d.fecha)}</div><div class="muted pre" style="margin-top:6px;">${esc(d.resumen)}</div></div>
+      ${preguntas.length?`<div class="card"><b>Responde antes de firmar</b><div class="muted">Evaluación de conocimiento (${preguntas.length} pregunta${preguntas.length>1?'s':''})</div>${preguntas.map((q,i)=>`<div style="margin-top:10px;"><div><b>${i+1}.</b> ${esc(q.texto)}</div>${(q.opciones||[]).map((o,j)=>`<label class="op"><input type="radio" name="q_${esc(q.id)}" value="${j}">${esc(o)}</label>`).join('')}</div>`).join('')}</div>`:''}
+      <div class="card"><div class="decl">${esc(d.declaracion)}</div>
+        <div class="muted" style="margin:10px 0 6px;">Firma con el dedo dentro del recuadro:</div>
+        <canvas id="cv" width="600" height="220"></canvas>
+        <button class="btn" type="button" onclick="LIENZO&&LIENZO.limpiar()">🧹 Borrar y repetir</button>
+        ${d.personaDocUltimos4?`<div style="margin-top:12px;"><label>Confirma los <b>4 últimos dígitos de tu cédula</b>:</label><input id="ult4" type="tel" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="off"></div>`:''}
+        <div style="margin-top:12px;"><button class="btn g" id="btnFirmar" type="button" onclick="firmar()">✅ Firmar</button></div>
+        <div style="margin-top:8px;text-align:center;"><button class="btn" type="button" style="font-size:0.85rem;" onclick="rechazar()">No soy yo / no asistí</button></div>
+        <div class="pie">Tu firma queda registrada con fecha, hora y dispositivo como constancia electrónica (Ley 527 de 1999). Este enlace es personal: no lo compartas.</div>
+      </div>`);
+    LIENZO=lienzo($('cv'));
+}
+async function firmar(){
+    const d=DOC; if(!d||!LIENZO) return;
+    if(LIENZO.vacio()) return alert('Falta tu firma en el recuadro.');
+    if(d.personaDocUltimos4){ const u=(($('ult4')||{}).value||'').replace(/\D/g,''); if(u!==d.personaDocUltimos4) return alert('Los 4 últimos dígitos de la cédula no coinciden. Revisa y vuelve a intentar.'); }
+    const respuestas={}; (d.preguntas||[]).forEach(q=>{ const r=document.querySelector(`input[name="q_${q.id}"]:checked`); if(r) respuestas[q.id]=parseInt(r.value,10); });
+    if((d.preguntas||[]).length && Object.keys(respuestas).length<(d.preguntas||[]).length) return alert('Responde todas las preguntas antes de firmar.');
+    const btn=$('btnFirmar'); btn.disabled=true; btn.textContent='Guardando…';
+    try{
+        const actual=await leer(d.token); const puede=_sgPuedeFirmar(actual);   // por si venció o ya se firmó desde otro lado
+        if(!puede.ok){ mensaje('No se pudo firmar', puede.motivo, 'mal'); return; }
+        const trazo=LIENZO.texto(); const hash=await _sgHash(_sgTextoFirmado(d, trazo));
+        await escribir(d.token, { estado:'firmado', firma:{ trazo, ancho:600, alto:220 }, firmadoEn:firebase.firestore.FieldValue.serverTimestamp(), firmadoEnLocal:Date.now(), userAgent:String(navigator.userAgent||'').slice(0,200), respuestas, hash, modo:d._modo||'celular' });
+        $('sub').textContent='Listo';
+        pantalla(`<div class="card"><h1 class="ok">✅ Firma registrada</h1><div class="muted">Gracias, <b>${esc(d.personaNombre)}</b>. Tu asistencia a <b>${esc(d.titulo)}</b> quedó firmada el ${_sgHoraCO(Date.now())}.</div><div class="pie">Constancia electrónica: ${esc(hash.slice(0,16))}… (Ley 527 de 1999). Ya puedes cerrar esta página.</div>${MODO_PRUEBA?'<div class="amb">Modo prueba: no se guardó nada.</div>':''}</div>`);
+    }catch(e){ console.error(e); btn.disabled=false; btn.textContent='✅ Firmar'; alert('No se pudo guardar la firma. Revisa tu conexión e inténtalo de nuevo.\n'+String((e&&e.message)||e).slice(0,120)); }
+}
+async function rechazar(){
+    const d=DOC; if(!d) return;
+    const motivo=prompt('¿Por qué no firmas? (por ejemplo: "no asistí" o "no soy esa persona")'); if(motivo===null) return;
+    try{ await escribir(d.token, { estado:'rechazado', motivo:String(motivo||'').slice(0,200), rechazadoEn:Date.now(), userAgent:String(navigator.userAgent||'').slice(0,200) }); mensaje('Enlace rechazado', 'Se le avisará a la persona de SG-SST. Gracias.', 'amb'); }
+    catch(e){ alert('No se pudo enviar. Revisa tu conexión.'); }
+}
+function pantallaSesion(d){
+    $('empresa').textContent=(d.empresa&&d.empresa.razonSocial)||'PROYECTOVISION'; $('sub').textContent='Elige tu nombre para firmar';
+    pantalla(`<div class="card"><h1>${esc(d.titulo)}</h1><div class="muted">📅 ${fechaCO(d.fecha)}</div><div class="muted pre" style="margin-top:6px;">${esc(d.resumen)}</div></div>
+      <div class="card lista"><b>¿Quién eres?</b><div class="muted" style="margin-bottom:6px;">Toca tu nombre. Luego confirmas con los 4 últimos dígitos de tu cédula.</div>${(d.personas||[]).map(p=>`<button class="btn" type="button" onclick="abrir('${esc(p.token)}','qr')">👤 ${esc(p.nombre)}</button>`).join('')||'<div class="muted">No hay personas pendientes.</div>'}</div>`);
+}
+async function abrir(t, modo){
+    TOKEN=t; $('sub').textContent='Leyendo…';
+    let d=null; try{ d=await leer(t); }catch(e){ console.error(e); return mensaje('Sin conexión', 'No se pudo leer el documento. Revisa tu internet y vuelve a abrir el enlace.', 'mal'); }
+    if(!d) return mensaje('Enlace no válido', 'Este enlace no existe o fue retirado. Pide uno nuevo a la persona de SG-SST.', 'mal');
+    if(d.tipo==='sesion'){ const p=_sgPuedeFirmar(d); if(!p.ok) return mensaje('QR no disponible', p.motivo, 'amb'); return pantallaSesion(d); }
+    const p=_sgPuedeFirmar(d); if(!p.ok){ $('sub').textContent=''; return mensaje(d.estado==='firmado'?'Ya firmado':'No disponible', p.motivo, d.estado==='firmado'?'ok':'amb'); }
+    d._modo=modo||'celular'; pantallaFirma(d);
+}
+(function inicio(){
+    if(MODO_PRUEBA) $('aviso').style.display='block';
+    const t=new URLSearchParams(location.search).get('t')||'';
+    window.FIRMA_LISTA=true;
+    if(!t){ $('sub').textContent=''; return mensaje('Falta el enlace', 'Abre esta página desde el enlace que te enviaron por WhatsApp o correo, o escanea el QR de la sesión.', 'amb'); }
+    if(!db) return mensaje('Sin conexión', 'No se pudo conectar con la nube.', 'mal');
+    abrir(t, 'celular');
+})();
+</script>
+</body>
+</html>

@@ -121,6 +121,8 @@ header b{color:var(--text);}
 // ════════════════════════════════════════════════════════════════════════════
 
 const APPS = {
+  firma: {nombre:'✍️ Firma SST (página del celular)', archivo:'FIRMA_SST.html',
+        listo:W=>{ try{ return W.eval('window.FIRMA_LISTA===true'); }catch(e){ return false; } }},
   inv: {nombre:'📦 Inventario', archivo:'INVENTARIO_PTOVISION.html',
         // No basta con las bodegas: el historial y los clientes llegan en
         // documentos aparte, y sin ellos las cuentas dan cero.
@@ -1032,6 +1034,243 @@ const PRUEBAS = [
       +'\nEl resumen del reporte suma solo lo aprobado ✓'
      : JSON.stringify(r)};}},
 
+{app:'ofi', titulo:'SG-SST: los datos del módulo viejo solo salen de main si el archivo los tiene todos, y después nadie los resucita',
+ porque:'Fase 6 del plan SG-SST (12 sep 2026) y regla 5 de CLAUDE.md: nunca borrar sin archivar, releer y confirmar. El botón de '
+       +'limpieza debe negarse si falta el archivo sgsst_archivo_v1 o si está incompleto, y una vez limpiado main, las funciones '
+       +'viejas no deben volver a crear la lista de 21 ítems (antes _sgItems() la creaba y llamaba a save()).',
+ correr:W=>{ const r=E(W,
+     'const items=[{id:"sg1", nombre:"a"},{id:"sg2", nombre:"b"}], fichas=[{id:"e1", eps:"X"}];'
+   +'const sin=_sgPuedeLimpiarMain(null, items, fichas); const inc=_sgPuedeLimpiarMain({sgsst_items:[{id:"sg1"}], sgsst_fichas:[{id:"e1"}]}, items, fichas); const otroId=_sgPuedeLimpiarMain({sgsst_items:[{id:"sg1"},{id:"sg9"}], sgsst_fichas:[{id:"e1"}]}, items, fichas);'
+   +'const ok=_sgPuedeLimpiarMain({sgsst_items:[{id:"sg1"},{id:"sg2"},{id:"sg3"}], sgsst_fichas:[{id:"e1"}]}, items, fichas); const nada=_sgPuedeLimpiarMain({sgsst_items:[]}, [], []);'
+   +'DB.config=DB.config||{}; const flagViejo=DB.config.sgsstLimpiado; const itemsViejos=DB.sgsst_items; const fichasViejas=DB.sgsst_fichas;'
+   +'DB.config.sgsstLimpiado=123; const conFlag=[_sgItems().length, _sgFichas().length, Array.isArray(DB.sgsst_items)?DB.sgsst_items.length:-1];'
+   +'if(flagViejo===undefined) delete DB.config.sgsstLimpiado; else DB.config.sgsstLimpiado=flagViejo; DB.sgsst_items=itemsViejos; DB.sgsst_fichas=fichasViejas;'
+   +'return { sin:sin.ok, sinM:sin.motivo, inc:inc.ok, incM:inc.motivo, otro:otroId.ok, otroM:otroId.motivo, ok:ok.ok, okN:[ok.items, ok.fichas], nada:nada.ok, nadaN:!!nada.nada, conFlag, colab:COLS_COLABORATIVAS.includes("sgsst_items")||COLS_COLABORATIVAS.includes("sgsst_fichas"), fechaCorta:APP_VERSION_FECHA.length };');
+   const bien = r.sin===false && /sgsst_archivo_v1/.test(r.sinM) && r.inc===false && /incompleto/.test(r.incM) && r.otro===false && /por id/.test(r.otroM)
+     && r.ok===true && JSON.stringify(r.okN)==='[2,1]' && r.nada===false && r.nadaN===true
+     && JSON.stringify(r.conFlag)==='[0,0,'+(Array.isArray(r.conFlag)&&r.conFlag[2]===-1?'-1':String(r.conFlag[2]))+']' && r.conFlag[0]===0 && r.conFlag[1]===0
+     && r.colab===false && r.fechaCorta<400;
+   return {ok:bien, detalle: bien
+     ? 'Sin archivo no limpia; con el archivo incompleto (1 de 2 ítems) no limpia; con un ítem de otro id no limpia; con el archivo completo sí, y si main ya está vacío lo dice ✓'
+      +'\nCon la marca de limpieza puesta, _sgItems() y _sgFichas() devuelven listas vacías y no vuelven a crear los 21 ítems en main ✓'
+      +'\nsgsst_items y sgsst_fichas ya no son colecciones colaborativas y la nota de versión quedó en una línea corta ✓'
+     : JSON.stringify(r)};}},
+{app:'ofi', titulo:'SG-SST: los indicadores del art. 30 calculan con la fórmula, los plazos legales cuentan bien y las alertas aparecen y se apagan',
+ porque:'Fase 5 del plan SG-SST (12 sep 2026). Frecuencia y severidad son mensuales sobre el número de trabajadores; mortalidad, '
+       +'prevalencia e incidencia son anuales; el ausentismo compara días de ausencia con días programados. El FURAT vence a los 2 '
+       +'días hábiles (saltando fin de semana y festivos), la investigación a los 15 días, la queja de convivencia a los 65 días. '
+       +'Con 24 trabajadores toca COPASST 1+1 y Convivencia 2+2. Y cada alerta del Panel debe aparecer con el problema y '
+       +'desaparecer al resolverlo.',
+ correr:W=>{ const r=E(W,
+     'const ev=[{id:"a1", tipo:"accidente", gravedad:"leve", fecha:"2026-09-03", diasIncapacidad:5, diasCargados:0},{id:"a2", tipo:"accidente", gravedad:"mortal", fecha:"2026-09-20", diasIncapacidad:0, diasCargados:6000},{id:"a3", tipo:"accidente", gravedad:"leve", fecha:"2026-03-10", diasIncapacidad:2},{id:"e1", tipo:"enfermedad", fecha:"2026-02-01", casoNuevo:true},{id:"e2", tipo:"enfermedad", fecha:"2026-05-01", casoNuevo:false},{id:"i1", tipo:"incidente", fecha:"2026-09-10"}];'
+   +'const aus=[{id:"u1", fechaInicio:"2026-09-15", dias:3, origen:"comun"},{id:"u2", fechaInicio:"2026-08-02", dias:10, origen:"comun"}];'
+   +'const x=_sgIndicadores("2026", 9, { trabajadores:20, promedioTrabajadores:20, eventos:ev, ausencias:aus, horasMes:200, diasSemana:6 });'
+   +'const dl=_sgDiasLaborablesMes("2026", 9, 6); const dl5=_sgDiasLaborablesMes("2026", 9, 5);'
+   +'const pz=_sgPlazosEvento({tipo:"accidente", gravedad:"grave", fecha:"2026-09-11"}, "2026-09-16"); const pzOk=_sgPlazosEvento({tipo:"accidente", gravedad:"leve", fecha:"2026-09-11", fechaFurat:"2026-09-14", investigacion:{fecha:"2026-09-20"}}, "2026-10-30"); const pzInc=_sgPlazosEvento({tipo:"incidente", fecha:"2026-09-01"}, "2026-09-20"); const pzEL=_sgPlazosEvento({tipo:"enfermedad", fecha:"2026-09-11"}, "2026-09-12");'
+   +'const q1=_sgDiasQueja({fechaRadicacion:"2026-07-01", etapa:"reunion"}, "2026-09-12"); const q2=_sgDiasQueja({fechaRadicacion:"2026-08-01", etapa:"seguimiento"}, "2026-09-12"); const q3=_sgDiasQueja({fechaRadicacion:"2026-01-01", etapa:"cerrada", fechaCierre:"2026-02-15"}, "2026-09-12");'
+   +'const c24=_sgSugerirComites(24), c8=_sgSugerirComites(8), c60=_sgSugerirComites(60); const ec=_sgEstadoComite({vence:"2026-10-20"}, "2026-09-12"); const ecV=_sgEstadoComite({vence:"2026-09-01"}, "2026-09-12"); const sinActa=_sgMesesSinActa([{fecha:"2026-01-15"},{fecha:"2026-03-02"}], "2026", 4);'
+   +'window._sg.pt=window._sg.pt||{}; const ptViejo=window._sg.pt["2026"]; window._sg.pt["2026"]={anio:"2026", actividades:{ a:{id:"a", etapa:"HACER", actividad:"Reuniones", meses:[1,2,3,4,5,6,7,8,9,10,11,12], ejecutados:[1,2,3,4,5,6,7,8]}, b:{id:"b", etapa:"PLANEAR", actividad:"Plan", meses:[1], ejecutados:[1]}, c:{id:"c", etapa:"VERIFICAR", actividad:"Auditoría", meses:[11], ejecutados:[]} }}; const cp=_sgCumplimientoPT("2026", 9); if(ptViejo) window._sg.pt["2026"]=ptViejo; else delete window._sg.pt["2026"];'
+   +'const ipv=_sgIpevrDesdeFilas([["MATRIZ"],[],["Proceso","Cargo","Zona/Lugar","Actividades","Tareas","Rutinario SI/NO","Peligro","","","Efecto posible"],["","","","","","","Identificación","Descripción","Clasificación"],["ADMIN","GERENTE","OFICINA","Supervisar","Verificar","SI","Contacto con virus","VIRUS","BIOLOGICO","Gripe","No existe","Limpieza","Vacuna","2","2","4","Bajo","60","240","II","ACEPTABLE","1","Muerte","Res 350","NO APLICA","NO APLICA","NO APLICA","Protocolo","Tapabocas"],["","","","","","","Ruido","RUIDO","FISICO","Estrés"]]);'
+   +'return { ind:{ f:x.frecuencia, s:x.severidad, m:x.mortalidad, p:x.prevalencia, i:x.incidencia, a:x.ausentismo, at:x.atMes, atAnio:x.atAnio, dias:x.diasIncapacidadAT, aus:x.diasAusencia, prog:x.diasProgramados, hht:x.hht, IF:x.ft30.IF, IS:x.ft30.IS }, dl, dl5,'
+   +' pz:{ furat:pz.furat.limite, furatV:pz.furat.vencido, inv:pz.inv.limite, invV:pz.inv.vencida, min:pz.ministerio, okF:pzOk.furat.estado, okI:pzOk.inv.estado, incF:pzInc.furat.aplica, incI:pzInc.inv.estado, elF:pzEL.furat.aplica, elI:pzEL.inv.aplica },'
+   +' q:[q1.dias+":"+q1.estado, q2.dias+":"+q2.estado, q3.dias+":"+q3.estado], c24:[c24.copasst.principales, c24.convivencia.principales], c8:c8.copasst.tipo, c60:c60.copasst.principales, ec:ec.estado, ecV:ecV.estado, sinActa, cp:{pct:cp.pct, e:cp.ejecutadasALaFecha, p:cp.programadasALaFecha, pa:cp.programadasAnio}, ipv:{n:ipv.filas.length, cargo2:ipv.filas[1]&&ipv.filas[1].cargo, pel:ipv.filas[0]&&ipv.filas[0].peligro, nr:ipv.filas[0]&&ipv.filas[0].nr, epp:ipv.filas[0]&&ipv.filas[0].epp}, formulas:Object.keys(SGSST_FORMULAS).length };');
+   const bien = r.ind.at===2 && r.ind.atAnio===3 && r.ind.dias===6005 && r.ind.f===10 && r.ind.s===30025 && r.ind.m===33.33 && r.ind.p===10000 && r.ind.i===5000
+     && r.dl===26 && r.dl5===22 && r.ind.prog===520 && r.ind.aus===8 && r.ind.a===1.54 && r.ind.hht===4000 && r.ind.IF===120 && r.ind.IS===360300
+     && r.pz.furat==='2026-09-15' && r.pz.furatV===true && r.pz.inv==='2026-09-26' && r.pz.invV===false && r.pz.min===true && r.pz.okF==='ok' && r.pz.okI==='ok' && r.pz.incF===false && r.pz.incI==='vencido' && r.pz.elF===true && r.pz.elI===false
+     && JSON.stringify(r.q)==='["73:vencido","42:ok","45:ok"]' && JSON.stringify(r.c24)==='[2,4]' && r.c8==='vigia' && r.c60===4 && r.ec==='pronto' && r.ecV==='vencido' && JSON.stringify(r.sinActa)==='[2,4]'
+     && r.cp.pct===90 && r.cp.e===9 && r.cp.p===10 && r.cp.pa===14
+     && r.ipv.n===2 && r.ipv.cargo2==='GERENTE' && /VIRUS/.test(r.ipv.pel) && r.ipv.nr==='240' && r.ipv.epp==='Tapabocas' && r.formulas===6;
+   return {ok:bien, detalle: bien
+     ? 'Septiembre con 20 trabajadores, 2 AT (uno mortal con 6.000 días cargados) y 5 días de incapacidad: frecuencia 10 %, severidad 30.025 %; en el año 1 mortal de 3 = 33,33 %; 2 casos de EL (1 nuevo) sobre 20 → prevalencia 10.000 e incidencia 5.000 por 100.000 ✓'
+      +'\nSeptiembre 2026 tiene 26 días laborables de lunes a sábado (22 de lunes a viernes): 520 días programados, 8 de ausencia → 1,54 %; con 200 h por persona HHT = 4.000, IF 120 e IS 360.300 ✓'
+      +'\nAT del viernes 11/09: FURAT hasta el martes 15/09 (2 días hábiles), vencido el 16; investigación hasta el 26/09; grave → reporte al Ministerio. Un incidente no lleva FURAT pero sí investigación; una enfermedad laboral lleva FURAT pero no investigación ✓'
+      +'\nQueja del 1/07 lleva 73 días: vencida; del 1/08 lleva 42: en plazo; cerrada a los 45 días: bien ✓'
+      +'\n24 trabajadores → COPASST 1+1 y Convivencia 2+2; 8 → Vigía; 60 → COPASST 2+2. Un período que vence en 38 días avisa; uno vencido lo dice. Faltan las actas de febrero y abril ✓'
+      +'\nPlan de trabajo: 9 de 10 actividades programadas a septiembre = 90 %; 14 en el año ✓'
+      +'\nLa matriz IPEVR de la empresa se lee desde su encabezado, arrastra el cargo a las filas combinadas y trae NR y EPP ✓'
+     : JSON.stringify(r)};}},
+{app:'ofi', titulo:'SG-SST: la dotación de ley sabe a quién le toca (3 meses, 2 SMMLV), en qué período y cuándo reponer cada EPP',
+ porque:'Fase 4 del plan SG-SST (12 sep 2026). Art. 230 del CST: dotación tres veces al año para quien lleve MÁS de 3 meses '
+       +'y gane HASTA 2 SMMLV; el rol SG-SST solo debe recibir sí/no, nunca el salario. Los períodos son 30 de abril, 31 de '
+       +'agosto y 20 de diciembre. Cada EPP se repone al cumplir la vida útil de la matriz por perfil. Y en ninguna parte '
+       +'puede aparecer la opción de compensar la dotación en dinero (art. 234).',
+ correr:W=>{ const r=E(W,
+     'const cfg=_sgMezclar(SGSST_CONFIG_DEF, {}); const emp=(o)=>Object.assign({pid:"zz1", id:"zz1", nombre:"Z", cargo:"TECNICO", vinculacion:"empleado", fechaIngreso:"2026-06-11", activo:true, oficinas:[]}, o||{});'
+   +'const el=(o,fecha,ficha,tope)=>_sgElegibleDotacion(emp(o), fecha, cfg, ficha||null, tope===undefined?"si":tope);'
+   +'const e3=el({}, "2026-09-11"); const e3b=el({}, "2026-09-12"); const eNo=el({}, "2026-09-12", null, "no"); const eSin=el({}, "2026-09-12", null, "sin");'
+   +'const eCon=el({vinculacion:"contratista"}, "2026-09-12"); const eRet=el({activo:false}, "2026-09-12"); const eF1=el({}, "2026-07-01", {dotacion:{forzar:true, nota:"salario viejo"}}, "no"); const eF0=el({}, "2026-09-12", {dotacion:{forzar:false, nota:"x"}});'
+   +'DB.rrhh_empleados=DB.rrhh_empleados||[]; const n0=DB.rrhh_empleados.length; DB.rrhh_empleados.push({id:"zzs1", salario:"3.501.810"},{id:"zzs2", salario:3501811},{id:"zzs3", salario:""});'
+   +'const tope=[_sgSalarioHasta2Smmlv("zzs1","2026",cfg), _sgSalarioHasta2Smmlv("zzs2","2026",cfg), _sgSalarioHasta2Smmlv("zzs3","2026",cfg), _sgSalarioHasta2Smmlv("nadie","2026",cfg)]; DB.rrhh_empleados.length=n0;'
+   +'const per=[_sgPeriodoDe("2026-01-01"), _sgPeriodoDe("2026-05-31"), _sgPeriodoDe("2026-06-01"), _sgPeriodoDe("2026-09-30"), _sgPeriodoDe("2026-10-01"), _sgPeriodoDe("2026-12-31")]; const fp=[_sgFechaPeriodo("2026","abr"), _sgFechaPeriodo("2026","ago"), _sgFechaPeriodo("2026","dic")];'
+   +'window._sg.dot=window._sg.dot||{}; const viejos=Object.assign({}, window._sg.dot); Object.keys(window._sg.dot).forEach(k=>delete window._sg.dot[k]);'
+   +'window._sg.dot["2099"]={anio:"2099", inspecciones:{}, entregas:{ d1:{id:"d1", pid:"zz1", nombre:"Z", tipo:"ambos", periodo:"abr", fecha:"2099-01-01", estado:"firmada", elementos:[{elemento:"casco tipo a con barbuquejo", cantidad:1, vidaUtilMeses:24},{elemento:"Camisa / camisa tipo polo", cantidad:1}], firma:{token:"t", estado:"firmado", firmadoEn:1}},'
+   +' d2:{id:"d2", pid:"zz2", nombre:"Y", tipo:"dotacion", periodo:"abr", fecha:"2099-04-30", estado:"pendiente_firma", elementos:[{elemento:"Pantalón", cantidad:1}], firma:{token:"u", estado:"pendiente", creadoEn:1, venceEn:9e15}} } };'
+   +'const personas=[emp({}), emp({pid:"zz2", id:"zz2", nombre:"Y"}), emp({pid:"zz3", id:"zz3", nombre:"X", cargo:"CONTADORA"})];'
+   +'window._sg.fichas=window._sg.fichas||{}; window._sg.fichas.zz3={dotacion:{forzar:true, nota:"prueba"}};'
+   +'const rep=_sgReposiciones(personas, cfg, "2099-12-15"); const casco=rep.find(x=>x.persona.pid==="zz1" && /casco/i.test(x.elemento)); const rep2=_sgReposiciones(personas, cfg, "2101-01-02"); const casco2=rep2.find(x=>x.persona.pid==="zz1" && /casco/i.test(x.elemento)); const gafas=rep.find(x=>x.persona.pid==="zz1" && /gafas/i.test(x.elemento));'
+   +'const pend=_sgDotacionPeriodo("2099", "abr", personas, cfg).map(x=>x.persona.pid+":"+x.estado); const pendAgo=_sgDotacionPeriodo("2099", "ago", personas, cfg).map(x=>x.persona.pid+":"+x.estado);'
+   +'delete window._sg.fichas.zz3; delete window._sg.dot["2099"]; Object.assign(window._sg.dot, viejos);'
+   +'const fuente=modalEntregaSG.toString()+_sgCuerpoPeriodoDot.toString()+JSON.stringify(SGSST_ENTREGA_TIPOS); const datos=_sgDatosFirmaEntrega({tipo:"ambos", fecha:"2026-09-12", elementos:[{elemento:"Casco", cantidad:1, talla:""}], compromiso:"Me comprometo…"}, cfg);'
+   +'return { e3:e3.aplica, e3m:e3.motivo, e3b:e3b.aplica, eNo:eNo.aplica, eNoM:eNo.motivo, eSin:eSin.aplica, eSinM:eSin.motivo, eCon:eCon.aplica, eRet:eRet.aplica, eF1:{a:eF1.aplica, f:eF1.forzado, m:eF1.motivo}, eF0:eF0.aplica, tope, per, fp,'
+   +' casco:{estado:casco&&casco.estado, ultima:casco&&casco.ultima, vence:casco&&casco.vence, vida:casco&&casco.vidaUtilMeses}, casco2:casco2&&casco2.estado, gafas:gafas&&gafas.estado, nPerfil:rep.filter(x=>x.persona.pid==="zz1").length, nMatriz:(cfg.matrizEpp["Técnico de campo"]||[]).length, pend, pendAgo,'
+   +' dinero:/dinero/i.test(fuente.replace(/compensa(r|ci[oó]n)? en dinero[^.]*\\./gi,"")), tipos:Object.keys(SGSST_ENTREGA_TIPOS).join(","), decl:datos.declaracion, resumen:datos.resumen, titulo:datos.titulo };');
+   const bien = r.e3===false && /3 meses o menos/.test(r.e3m) && r.e3b===true && r.eNo===false && /2 SMMLV/.test(r.eNoM) && r.eSin===false && /RRHH/.test(r.eSinM) && r.eCon===false && r.eRet===false
+     && r.eF1.a===true && r.eF1.f===true && /salario viejo/.test(r.eF1.m) && r.eF0===false
+     && JSON.stringify(r.tope)==='["si","no","sin","sin"]'
+     && JSON.stringify(r.per)==='["abr","abr","ago","ago","dic","dic"]' && JSON.stringify(r.fp)==='["2026-04-30","2026-08-31","2026-12-20"]'
+     && r.casco.estado==='ok' && r.casco.ultima==='2099-01-01' && r.casco.vence==='2101-01-01' && r.casco.vida===24 && r.casco2==='vencido' && r.gafas==='sin' && r.nPerfil===r.nMatriz && r.nMatriz>=5
+     && JSON.stringify(r.pend)==='["zz3:pendiente","zz2:pendiente_firma","zz1:entregada"]' && JSON.stringify(r.pendAgo)==='["zz3:pendiente","zz2:no_aplica","zz1:no_aplica"]'
+     && r.dinero===false && r.tipos==='dotacion,epp,ambos' && /Me comprometo…/.test(r.decl) && /Ley 9 de 1979/.test(r.decl) && /1 Casco/.test(r.resumen) && /Dotación y EPP/.test(r.titulo);
+   return {ok:bien, detalle: bien
+     ? 'Quien ingresó el 11/06 no aplica el 11/09 (3 meses justos) y sí el 12/09; con más de 2 SMMLV no; sin salario en RRHH no, y lo dice; contratistas y retirados no ✓'
+      +'\nEl administrador puede forzar sí o no con nota, y el motivo la muestra ✓'
+      +'\nEl salario se compara con 2 SMMLV sin salir de la función: $3.501.810 aplica, $3.501.811 no, vacío o desconocido = "sin" ✓'
+      +'\nPeríodos: enero-mayo → 30 de abril, junio-septiembre → 31 de agosto, octubre-diciembre → 20 de diciembre ✓'
+      +'\nUn casco entregado el 01/01/2099 con 24 meses de vida útil se repone el 01/01/2101: al día antes, vencido después; las gafas nunca entregadas salen como "sin"; la lista sigue la matriz del perfil ✓'
+      +'\nPeríodo de abril: la forzada pendiente, la entregada sin firma y la entregada y firmada, en ese orden; en agosto la forzada queda pendiente y las otras dos se ven como «no aplica: RRHH sin salario», no desaparecen ✓'
+      +'\nNo existe ninguna opción de compensar en dinero; el acta que se firma lleva el compromiso y la normatividad del SST-FT-63 ✓'
+     : JSON.stringify(r)};}},
+{app:'ofi', titulo:'SG-SST: la firma electrónica tiene token único, hash que delata cambios, vence a los 7 días y no se firma dos veces',
+ porque:'Fase 3 del plan SG-SST (12 sep 2026). Con las reglas de la nube abiertas, el enlace (token) es la única barrera, '
+       +'así que debe ser largo y distinto cada vez. El hash SHA-256 es la constancia de que lo firmado no cambió (Ley 527/1999): '
+       +'el mismo contenido da el mismo hash y cualquier cambio da otro. Un documento firmado, vencido o reemplazado no se '
+       +'puede volver a firmar; el trazo se guarda simplificado por debajo de 20 KB; la nota de la evaluación se calcula en '
+       +'oficina; y la cobertura del plan (SST-FT-28) cuenta solo a quien firmó.',
+ correr:async W=>{ const r=E(W,
+     'const toks=[]; for(let i=0;i<50;i++) toks.push(_sgToken(32));'
+   +'const d={token:"tokenPrueba", personaNombre:"Ana", titulo:"EPP", fecha:"2026-09-12", declaracion:"Declaro"};'
+   +'const ahora=Date.parse("2026-09-12T10:00:00"); const dia=86400000;'
+   +'const base={estado:"pendiente", creadoEn:ahora, venceEn:ahora+7*dia};'
+   +'const pf=(x,t)=>_sgPuedeFirmar(Object.assign({},base,x), t||ahora);'
+   +'let ruido=[]; for(let i=0;i<4000;i++) ruido.push([i%600, 100+Math.sin(i/7)*50+Math.random()*3]); const trazo=_sgTrazoCompacto([ruido, [[1,1]], [[10,10],[10.4,10.2],[11,11]]], 20);'
+   +'const trazos=_sgTrazoDeTexto(trazo); const cal=_sgCalificarRespuestas([{id:"a",texto:"1",opciones:["x","y"],correcta:1},{id:"b",texto:"2",opciones:["x","y"],correcta:0},{id:"c",texto:"3",opciones:["x","y"],correcta:0}], {a:1, b:1, c:0});'
+   +'const cfg=_sgMezclar(SGSST_CONFIG_DEF,{}); const per=[{pid:"t1",nombre:"T1",cargo:"TECNICO",activo:true,oficinas:[]},{pid:"t2",nombre:"T2",cargo:"TECNICO",activo:true,oficinas:[]},{pid:"a1",nombre:"A1",cargo:"CONTADORA",activo:true,oficinas:[]}];'
+   +'window._sg.cap=window._sg.cap||{}; window._sg.cap["2099"]={anio:"2099", plan:{p1:{id:"p1",mes:3,tema:"Alturas",dirigidoA:{modo:"tecnicos"},horas:8,obligatoria:true}, p2:{id:"p2",mes:5,tema:"EPP",dirigidoA:{modo:"todos"},horas:1}},'
+   +' sesiones:{s1:{id:"s1",planId:"p1",tema:"Alturas",fecha:"2099-03-10",estado:"realizada",horaInicio:"08:00",horaFin:"12:30",asistentes:[{pid:"t1",nombre:"T1",firma:{token:"x",estado:"firmado",creadoEn:1,firmadoEn:2}},{pid:"t2",nombre:"T2",firma:{token:"y",estado:"pendiente",creadoEn:ahora-5*dia,venceEn:ahora+2*dia}},{pid:"a1",nombre:"A1",firma:{token:"z",estado:"firmado",creadoEn:1,firmadoEn:2}}]}}};'
+   +'const cob=_sgCobertura("2099", per, cfg); const atras=_sgFirmasAtrasadas("2099", 3, ahora); const horas=_sgHorasPorPersona("2099", per); const obl=_sgObligatoriasPendientes("2099", per, cfg);'
+   +'delete window._sg.cap["2099"];'
+   +'return { toksMuestra:toks.slice(0,2), tokOk:toks.every(t=>t.length>=24 && /^[A-Za-z0-9]+$/.test(t)), unicos:new Set(toks).size, texto:_sgTextoFirmado(d,"1,1 2,2"), textoCambiado:_sgTextoFirmado(Object.assign({},d,{titulo:"EPP."}),"1,1 2,2"),'
+   +' puede:{ok:pf({}).ok, firmado:pf({estado:"firmado", firmadoEn:ahora}), vencido:pf({}, ahora+8*dia), reemplazado:pf({estado:"reemplazado"}).ok, rechazado:pf({estado:"rechazado"}).ok, nulo:_sgPuedeFirmar(null).ok, aunFirmable:pf({}, ahora+6*dia).ok},'
+   +' trazo:{kb:Math.round(trazo.length/1024*10)/10, lineas:trazos.length, puntosPrimera:trazos[0].length, punto:trazos[1], ida:_sgTrazoATexto(trazos)===trazo}, cal, sha:_sgSha256JS("abc"),'
+   +' cob:{alturas:cob.porTema[0], epp:cob.porTema[1], total:cob.total, marzo:cob.porMes[2]}, atras:atras.map(x=>x.asistente.pid+":"+x.dias), horas:horas.map(h=>h.persona.pid+":"+h.horas+":"+h.sesiones), obl:obl.map(x=>x.persona.pid+":"+x.faltan.join(",")), vence:_sgFirmaVenceDias() };');
+   const h1=await W._sgHash(r.texto), h2=await W._sgHash(r.texto), h3=await W._sgHash(r.textoCambiado);
+   const bien = r.tokOk && r.unicos===50
+     && /^[0-9a-f]{64}$/.test(h1) && h1===h2 && h1!==h3 && h1===W._sgSha256JS(r.texto) && r.sha==='ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
+     && r.puede.ok===true && r.puede.firmado.ok===false && /ya fue firmado/.test(r.puede.firmado.motivo) && r.puede.vencido.ok===false && /venció/.test(r.puede.vencido.motivo) && r.puede.aunFirmable===true && r.puede.reemplazado===false && r.puede.rechazado===false && r.puede.nulo===false
+     && r.trazo.kb<=20 && r.trazo.lineas===3 && r.trazo.puntosPrimera>=2 && r.trazo.puntosPrimera<4000 && JSON.stringify(r.trazo.punto)==='[[1,1]]' && r.trazo.ida===true
+     && r.cal.nota===67 && r.cal.correctas===2 && r.cal.total===3
+     && r.cob.alturas.pp===2 && r.cob.alturas.pc===1 && r.cob.alturas.pct===50 && r.cob.alturas.extra===1 && r.cob.epp.pp===3 && r.cob.epp.pc===0 && r.cob.epp.sesiones===0 && r.cob.total.pp===5 && r.cob.total.pc===1 && r.cob.marzo.pp===3 && r.cob.marzo.pc===2
+     && JSON.stringify(r.atras)==='["t2:5"]' && JSON.stringify(r.horas)==='["a1:4.5:1","t1:4.5:1","t2:0:0"]' && JSON.stringify(r.obl)==='["t2:Alturas"]' && r.vence===7;
+   return {ok:bien, detalle: bien
+     ? '50 tokens de 32 letras y números, todos distintos ✓'
+      +'\nEl hash SHA-256 del contenido firmado es estable y cambia con un solo punto de más en el título; la copia en JS puro da lo mismo que el navegador ✓'
+      +'\nSe firma solo si está pendiente y no ha vencido (7 días): ya firmado, vencido, reemplazado, rechazado o inexistente lo rechazan con un motivo claro ✓'
+      +'\nUn garabato de 4.000 puntos queda por debajo de 20 KB, conserva las 3 líneas (incluido un punto suelto) y se lee de vuelta igual ✓'
+      +'\nEvaluación: 2 de 3 correctas = nota 67 (la respuesta correcta solo la conoce OFICINAS) ✓'
+      +'\nCobertura SST-FT-28: alturas 1 de 2 técnicos (50 %), la contadora que firmó no cuenta porque no va dirigida; EPP sin sesión; marzo 2 de 3 firmas ✓'
+      +'\nUna firma pendiente de 5 días aparece como atrasada; 4,5 horas por persona firmada; al técnico sin firma le falta la obligatoria de alturas ✓'
+     : JSON.stringify(r)+' h1='+h1+' h3='+h3};}},
+{app:'firma', titulo:'FIRMA_SST.html: la página del celular carga liviana, calcula igual que OFICINAS y sin enlace no hace nada',
+ porque:'Es una página pública sin usuario ni clave: debe leer un solo documento por token, decir con claridad cuando el '
+       +'enlace no sirve, y usar exactamente las mismas funciones de hash, trazo y "¿se puede firmar?" que OFICINAS. '
+       +'Con ?prueba=1 no escribe nada en la nube.',
+ correr:async W=>{ const r=E(W,
+     'const d={token:"tokenPrueba", personaNombre:"Ana", titulo:"EPP", fecha:"2026-09-12", declaracion:"Declaro"};'
+   +'return { prueba:MODO_PRUEBA, texto:_sgTextoFirmado(d,"1,1 2,2"), sha:_sgSha256JS("abc"), trazo:_sgTrazoCompacto([[[0,0],[1,0.4],[2,0],[3,0.4],[4,0]]],20), firmado:_sgPuedeFirmar({estado:"firmado", firmadoEn:1}).ok, pendiente:_sgPuedeFirmar({estado:"pendiente", venceEn:Date.now()+1000}).ok,'
+   +' pantalla:document.body.innerText, bloqueadas:window._escriturasBloqueadas.length, main:typeof DB==="undefined", scripts:document.scripts.length };');
+   const h=await W._sgHash(r.texto);
+   const bien = r.prueba===true && r.main===true && r.bloqueadas===0 && r.scripts<=3
+     && r.sha==='ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad' && h===W._sgSha256JS(r.texto) && r.texto==='tokenPrueba|Ana|EPP|2026-09-12|Declaro|1,1 2,2'
+     && r.trazo==='0,0 4,0' && r.firmado===false && r.pendiente===true && /Falta el enlace/.test(r.pantalla);
+   return {ok:bien, detalle: bien
+     ? 'Sin ?t= dice "Falta el enlace" y no toca la nube; no carga el documento principal (DB no existe) ni más de 3 scripts ✓'
+      +'\nEl texto firmado, el SHA-256 y la simplificación del trazo dan exactamente lo mismo que en OFICINAS ✓'
+      +'\nUn documento ya firmado no se puede volver a firmar; uno pendiente y vigente sí ✓'
+     : JSON.stringify(r).slice(0,600)+' h='+h};}},
+{app:'ofi', titulo:'SG-SST: la hoja de vida sabe qué vence, a quién le aplica alturas y cuándo toca el examen de retiro',
+ porque:'Fase 2 del plan SG-SST (11 sep 2026). El semáforo por persona sale de la periodicidad del cargo (técnicos 12 '
+       +'meses, administrativos 24, máximo legal 36), del reentrenamiento de alturas (12 meses), de la reinducción anual y '
+       +'del examen de retiro dentro de 5 días hábiles (Res. 1843/2025), contando festivos de Colombia. Y el rol SG-SST '
+       +'nunca debe recibir el salario de RRHH.',
+ correr:W=>{ const r=E(W,
+     'const cfg=_sgMezclar(SGSST_CONFIG_DEF, {}); const hoy="2026-09-11"; const cp=x=>JSON.parse(JSON.stringify(x));'
+   +'const tec={pid:"t1", id:"t1", nombre:"T", cargo:"TECNICO", vinculacion:"empleado", fechaIngreso:"2024-01-15", activo:true, oficinas:[]};'
+   +'const adm={pid:"a1", id:"a1", nombre:"A", cargo:"CONTADORA", vinculacion:"empleado", fechaIngreso:"2020-01-15", activo:true, oficinas:[]};'
+   +'const base={examenes:[{id:"e1", tipo:"periodico", fecha:"2025-08-11", concepto:"apto"}], afiliaciones:{eps:"X", arl:"Positiva", afp:"P"}, induccion:[{id:"i1", tipo:"induccion", fecha:"2026-01-10"}], alturas:{certificado:{numero:"C1", fecha:"2025-09-01"}, reentrenamientos:[{id:"r1", fecha:"2025-10-01"}], aptitud:[{id:"q1", fecha:"2026-06-01", concepto:"apto"}]}};'
+   +'const r13=_sgResumenPersona(tec, cp(base), cfg, hoy);'
+   +'const b11=cp(base); b11.examenes[0].fecha="2025-10-25"; const rOk=_sgResumenPersona(tec, b11, cfg, hoy);'
+   +'const bP=cp(base); bP.examenes[0].fecha="2025-09-25"; const rPronto=_sgResumenPersona(tec, bP, cfg, hoy);'
+   +'const rAdm=_sgResumenPersona(adm, cp(base), cfg, hoy);'
+   +'const nuevo={pid:"n1", id:"n1", nombre:"N", cargo:"AUXILIAR ADMINISTRATIVA", vinculacion:"empleado", fechaIngreso:"2026-09-01", activo:true, oficinas:[]};'
+   +'const rNuevo=_sgResumenPersona(nuevo, {}, cfg, hoy);'
+   +'const ret={pid:"x1", id:"x1", nombre:"X", cargo:"TECNICO", vinculacion:"empleado", fechaIngreso:"2022-01-01", fechaRetiro:"2026-10-09", activo:false, oficinas:[]};'
+   +'const rRet=_sgResumenPersona(ret, cp(base), cfg, "2026-10-10"); const rRetVenc=_sgResumenPersona(ret, cp(base), cfg, "2026-10-20");'
+   +'const bRet=cp(base); bRet.examenes.push({id:"e9", tipo:"retiro", fecha:"2026-10-13", concepto:"apto"}); const rRetOk=_sgResumenPersona(ret, bRet, cfg, "2026-10-20");'
+   +'const rrhh=_sgPersonasRRHH(); const claves=new Set(); rrhh.forEach(x=>Object.keys(x).forEach(k=>claves.add(k)));'
+   +'return { ex13:r13.examen.estado, ex13Vence:r13.examen.vence, exOk:rOk.examen.estado, exPronto:rPronto.examen.estado, exAdm:{estado:rAdm.examen.estado, vence:rAdm.examen.vence, meses:rAdm.examen.meses}, alt:{aplica:r13.alturas.aplica, estado:r13.alturas.estado, vence:r13.alturas.vence, apt:r13.aptitudAlturas.estado, admAplica:rAdm.alturas.aplica}, ind:{tec:r13.induccion.estado, nuevo:rNuevo.induccion.estado, nuevoPend:rNuevo.pendientes.some(x=>/Inducci\u00f3n pendiente/.test(x))}, afi:{tec:r13.afiliaciones.estado, nuevo:rNuevo.afiliaciones.estado, faltan:rNuevo.afiliaciones.faltan}, ret:{limite:rRet.retiro.limite, estado:rRet.retiro.estado, vencido:rRetVenc.retiro.estado, ok:rRetOk.retiro.estado, nivel13:r13.nivel}, habiles:[_sgSumarDiasHabiles("2026-09-11",5), _sgSumarDiasHabiles("2026-10-09",5)], meses:_sgSumarMeses("2026-01-31",1), per:[_sgPeriodicidadExamen("TECNICO EN REDES",cfg), _sgPeriodicidadExamen("contadora",cfg), _sgPeriodicidadExamen("X",_sgMezclar(cfg,{periodicidades:{examenDefectoMeses:48}}))], alturas:[_sgAplicaAlturas("tecnico",cfg), _sgAplicaAlturas("GERENTE",cfg)], perfil:[_sgPerfilDe("TECNICO",cfg), _sgPerfilDe("CONTADORA",cfg), _sgPerfilDe("GERENTE",cfg)], rrhh:{n:rrhh.length, total:(DB.rrhh_empleados||[]).length, sinSalario:!claves.has("salario")&&!claves.has("tecnicoPass")&&!claves.has("auxTrans")} };');
+   const bien = r.ex13==='vencido' && r.ex13Vence==='2026-08-11' && r.exOk==='ok' && r.exPronto==='pronto'
+     && r.exAdm.estado==='ok' && r.exAdm.vence==='2027-08-11' && r.exAdm.meses===24
+     && r.alt.aplica===true && r.alt.estado==='pronto' && r.alt.vence==='2026-10-01' && r.alt.apt==='ok' && r.alt.admAplica===false
+     && r.ind.tec==='ok' && r.ind.nuevo==='pronto' && r.ind.nuevoPend===true
+     && r.afi.tec==='ok' && r.afi.nuevo==='sin' && JSON.stringify(r.afi.faltan)==='["EPS","ARL","AFP"]'
+     && r.ret.limite==='2026-10-19' && r.ret.estado==='pronto' && r.ret.vencido==='vencido' && r.ret.ok==='ok' && r.ret.nivel13==='vencido'
+     && JSON.stringify(r.habiles)==='["2026-09-18","2026-10-19"]' && r.meses==='2026-02-28'
+     && JSON.stringify(r.per)==='[12,24,36]' && JSON.stringify(r.alturas)==='[true,false]'
+     && JSON.stringify(r.perfil)==='["Técnico de campo","Auxiliar de oficina","Administrativo"]'
+     && r.rrhh.n===r.rrhh.total && r.rrhh.sinSalario===true;
+   return {ok:bien, detalle: bien
+     ? 'Un técnico con examen de hace 13 meses sale en rojo (venció el 11/08/2026); con 11 meses está al día; a 14 días de vencer sale en ámbar ✓'
+      +'\nA la contadora el mismo examen le vale 24 meses (vence en 2027); un valor por defecto de 48 se recorta al máximo legal de 36 ✓'
+      +'\nAl técnico le aplica alturas (reentrenamiento vence el 01/10/2026: ámbar; aptitud al día); a la contadora no ✓'
+      +'\nInducción: el técnico está al día; quien ingresó hace 10 días sin inducción sale como pendiente ✓'
+      +'\nAfiliaciones: completas al día; sin registrar → faltan EPS, ARL y AFP ✓'
+      +'\nRetiro el viernes 9/10/2026: el examen de retiro vence el lunes 19/10 (5 días hábiles, saltando el festivo del 12); pendiente antes, vencido después, y hecho si se registró ✓'
+      +'\n5 días hábiles desde el 11/09 = 18/09; sumar un mes al 31/01 da 28/02 ✓'
+      +'\nPerfiles de EPP por cargo y cargos de alturas se resuelven sin distinguir mayúsculas ✓'
+      +'\nLa lista de RRHH que ve el rol SG-SST trae a todos los empleados y ninguno lleva salario, auxilio ni contraseña ✓'
+     : JSON.stringify(r)};}},
+{app:'ofi', titulo:'SG-SST: la matriz de 60 estándares calcula como la tabla oficial del Ministerio',
+ porque:'Fase 1 del plan SG-SST (11 sep 2026). La empresa tiene técnicos en riesgo V, así que le aplican los 60 '
+       +'estándares del art. 16 de la Res. 0312/2019, no los 21 con los que nació el módulo. Aquí se comprueba la '
+       +'matriz (60 ítems, 100 puntos, ciclos 25/60/5/10), la calificación del art. 27 (no aplica sin justificación '
+       +'vale 0, parcial no suma), los rangos del art. 28 en los bordes, el mapeo de los 21 ítems viejos sin perder '
+       +'adjuntos, la lectura del Excel oficial, las columnas del exporte y los avisos del registro en SGRL.',
+ correr:W=>{ const r=E(W,
+     'const M=SGSST_MATRIZ_60; const suma=Math.round(M.reduce((s,d)=>s+d.v,0)*100)/100;'
+   +'const codigos=new Set(M.map(d=>d.k)); const porCiclo={}; M.forEach(d=>{ porCiclo[d.c]=Math.round(((porCiclo[d.c]||0)+d.v)*100)/100; });'
+   +'const todo=(cal)=>{ const o=_sgItemsVacios(); Object.keys(o).forEach(k=>{ o[k].calificacion=cal; if(cal==="no_aplica") o[k].justificacion="porque si"; }); return o; };'
+   +'const c100=_sgCalcular(todo("cumple")); const c0=_sgCalcular(todo("no_cumple")); const cNA=_sgCalcular(todo("no_aplica"));'
+   +'const sinJ=todo("no_aplica"); Object.values(sinJ).forEach(i=>{ i.justificacion=""; }); const cSinJ=_sgCalcular(sinJ);'
+   +'const par=todo("cumple"); par[_sgKey("4.1.1")]={calificacion:"no_cumple", trabajo:"parcial"}; par[_sgKey("4.1.4")]={calificacion:"no_cumple"}; const cPar=_sgCalcular(par);'
+   +'const rangos=[59.99,60,85,85.01].map(p=>_sgRango(p).texto);'
+   +'const viejos=[{id:"sg4", numero:4, nombre:"Conformación y funcionamiento del COPASST", estado:"cumple", responsable:"Ana", adjuntos:[{id:"ad1", nombre:"acta.pdf", docId:"df1"}]},{id:"sg12", numero:12, nombre:"Evaluaciones médicas ocupacionales", estado:"parcial"},{id:"sgX", numero:22, nombre:"Mi ítem propio", estado:"no_cumple"}];'
+   +'const m=_sgMapearV1(viejos);'
+   +'const filas=[["Razón social: X"],["Vigencia: 2023"],[],["CICLO","ESTÁNDAR","","ÍTEM","VALOR","PESO","CUMPLE","NO CUMPLE","NO APLICA"],["PLANEAR","1 RECURSOS (10%)","Recursos...","1.1.1. Responsable del SG-SST","0.5","4","X","",""],["","","","1.1.2 Responsabilidades","0.5","","","","X"],["","","","1.1.3 Asignación","0.5","","","X",""],["","","","9.9.9 No existe","1","","X","",""]];'
+   +'const imp=_sgParsearFilasOficial(filas);'
+   +'const of=_sgFilasOficiales({items:todo("cumple")});'
+   +'const F={plazoCircular:"2026-07-31", cierrePlataforma:"2026-10-20"};'
+   +'const sgrl=[_sgEstadoRegistroSGRL(F, 2025, "2026-09-11").estado, _sgEstadoRegistroSGRL(F, 2025, "2026-11-01").estado, _sgEstadoRegistroSGRL(F, 2025, "2026-05-01").estado, _sgEstadoRegistroSGRL({plazoCircular:"2026-07-31", registradaEn:"2026-06-10"}, 2025, "2026-09-11").estado, _sgEstadoRegistroSGRL({}, 2026, "2026-09-11").estado];'
+   +'return { n:M.length, suma, unicos:codigos.size, porCiclo, c100:{t:c100.total, p:c100.porCiclo.PLANEAR.obtenido, h:c100.porCiclo.HACER.obtenido, v:c100.porCiclo.VERIFICAR.obtenido, a:c100.porCiclo.ACTUAR.obtenido, r:c100.texto}, c0:c0.total, cNA:cNA.total, cSinJ:{t:cSinJ.total, sj:cSinJ.sinJustificar}, cPar:{t:cPar.total, h:cPar.porCiclo.HACER.obtenido, par:cPar.parciales}, rangos, mapa:{copasst6:m.items[_sgKey("1.1.6")].calificacion, copasst7:m.items[_sgKey("1.1.7")].calificacion, adj7:(m.items[_sgKey("1.1.7")].adjuntos||[]).length, resp:m.items[_sgKey("1.1.6")].responsable, ex:m.items[_sgKey("3.1.4")].calificacion, exTrabajo:m.items[_sgKey("3.1.4")].trabajo, adicionales:m.adicionales.length, mapeados:m.mapeados}, imp:{vig:imp.vigencia, n:imp.n, c111:imp.calificaciones["1.1.1"], c112:imp.calificaciones["1.1.2"], c113:imp.calificaciones["1.1.3"], fantasma:imp.calificaciones["9.9.9"]||null}, of:{n:of.length, f0:of[0].slice(0,6), f1:of[1].slice(0,6)}, sgrl };');
+   const bien = r.n===60 && r.suma===100 && r.unicos===60 && r.porCiclo.PLANEAR===25 && r.porCiclo.HACER===60 && r.porCiclo.VERIFICAR===5 && r.porCiclo.ACTUAR===10
+     && r.c100.t===100 && r.c100.p===25 && r.c100.h===60 && r.c100.v===5 && r.c100.a===10 && r.c100.r==='ACEPTABLE'
+     && r.c0===0 && r.cNA===100 && r.cSinJ.t===0 && r.cSinJ.sj===60
+     && r.cPar.t===92 && r.cPar.h===52 && r.cPar.par===1
+     && JSON.stringify(r.rangos)==='["CRÍTICO","MODERADAMENTE ACEPTABLE","MODERADAMENTE ACEPTABLE","ACEPTABLE"]'
+     && r.mapa.copasst6==='cumple' && r.mapa.copasst7==='cumple' && r.mapa.adj7===1 && r.mapa.resp==='Ana' && r.mapa.ex==='no_cumple' && r.mapa.exTrabajo==='parcial' && r.mapa.adicionales===1 && r.mapa.mapeados===2
+     && r.imp.vig===2023 && r.imp.n===3 && r.imp.c111==='cumple' && r.imp.c112==='no_aplica' && r.imp.c113==='no_cumple' && r.imp.fantasma===null
+     && r.of.n===60 && JSON.stringify(r.of.f0)==='["PLANEAR","1 RECURSOS (10%)","Recursos financieros, técnicos humanos y de otra índole requeridos para coordinar y desarrollar el Sistema de Gestión de la Seguridad y Salud en el Trabajo (SG-SST). (4%)","1.1.1 Responsable del Sistema de Gestión de Seguridad y Salud en el Trabajo SG-SST.",0.5,4]'
+     && JSON.stringify(r.of.f1)==='["","","","1.1.2 Responsabilidades en el Sistema de Gestión de Seguridad y Salud en el Trabajo – SG-SST",0.5,""]'
+     && JSON.stringify(r.sgrl)==='["vencido_plataforma_abierta","cerrado","pendiente","registrada","sin_fechas"]';
+   return {ok:bien, detalle: bien
+     ? '60 ítems, 100 puntos, ciclos Planear 25 · Hacer 60 · Verificar 5 · Actuar 10, sin códigos repetidos ✓'
+      +'\nTodo cumple = 100 (aceptable); todo no cumple = 0; no aplica suma solo con justificación (sin ella, 0) ✓'
+      +'\nDos ítems de 4 puntos sin cumplir dejan 92, y el ciclo Hacer en 52; la marca "va en parte" no suma ✓'
+      +'\nRangos del art. 28 en los bordes: 59,99 crítico · 60 y 85 moderadamente aceptable · 85,01 aceptable ✓'
+      +'\nLos 21 ítems viejos pasan a su equivalente: el COPASST llena 1.1.6 y 1.1.7 con su responsable y sus adjuntos; parcial queda como no cumple con marca; un ítem propio queda como adicional ✓'
+      +'\nEl Excel oficial se lee por las X de cumple / no cumple / no aplica y toma la vigencia del encabezado; un código que no existe se ignora ✓'
+      +'\nEl exporte tiene las 60 filas con las mismas columnas de la tabla oficial (ciclo, estándar, sub-estándar, ítem, valor, peso) ✓'
+      +'\nAvisos de SGRL: vencido el plazo con plataforma abierta, plataforma cerrada, pendiente, registrada y sin fechas ✓'
+     : JSON.stringify(r)};}},
 {app:'ofi', titulo:'Un comprobante recién adjuntado no desaparece al recargar los movimientos',
  porque:'Elkin (11 sep 2026): los comprobantes se ven un momento y desaparecen. Los movimientos de cada oficina viven '
        +'en bloques aparte y se cargaban REEMPLAZANDO la lista local entera: si otra sesión guardaba mientras se subía '
