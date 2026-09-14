@@ -948,7 +948,7 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION = 303; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 304; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -969,7 +969,7 @@ const APP_VERSION = 303; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '12 Sep 2026 (v303: el registro de auditoria ya no se borra al sincronizar ni se escribe vacio. v302: SG-SST completo en seis fases, con firma desde el celular en FIRMA_SST.html. Historial en git y en docs/07-sgsst.md)';
+const APP_VERSION_FECHA = '14 Sep 2026 (v304: el guardado reenvia solo los bloques de movimientos que cambiaron, reintenta solo si Firebase no responde, registra el motivo de cada fallo y lo explica en pantalla. v303: auditoria. v302: SG-SST completo. Historial en git y en docs/01-firestore-limites.md)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -1052,6 +1052,110 @@ let _saveEnCola = null; // promesa del guardado encolado (si hay)
    ════════════════════════════════════════════════════════════════════ */
 // v303: ¿esta copia corre en el computador de pruebas? (localhost, archivo abierto con doble clic o IP de la red local).
 // Solo una copia publicada puede marcar la versión en la nube; si no, una prueba en casa bloquea a todas las oficinas.
+// ════════════════════════════════════════════════════════════════════
+// v304 (14 sep 2026) — "NO SE PUDO GUARDAR EN LA NUBE" al adjuntar comprobantes.
+// Cuatro piezas, todas en funciones sueltas para poder probarlas en PRUEBAS.html:
+//  1) Solo se reenvían los bloques de movimientos que cambiaron. Antes cualquier
+//     cambio en una oficina reenviaba TODOS sus bloques (hasta 15 × 300 KB ≈ 4 MB)
+//     aunque solo se hubiera adjuntado un comprobante; con internet lento se caía.
+//  2) Un texto de comprobante que traiga una imagen pegada (data:image...) o más de
+//     1.500 caracteres se recorta: encontrado el 14/9 en un comprobante del 22/8
+//     (70 KB de imagen dentro de la descripción). Uno grande dejaría el bloque
+//     por encima de 1 MB y ningún guardado de esa oficina volvería a pasar.
+//  3) Un solo traductor de errores a español, con lo que hay que hacer.
+//  4) El motivo de cada fallo queda en la nube (errores_guardado) y en este equipo,
+//     y si el motivo es pasajero la app vuelve a intentar sola (20 s, 45 s, 90 s).
+// ════════════════════════════════════════════════════════════════════
+// JSON con las claves ordenadas: la misma información da siempre el mismo texto,
+// venga de la nube (que devuelve las claves en cualquier orden) o de la memoria.
+function _jsonEstable(v){
+    if(v===undefined || typeof v==='function') return 'null';
+    if(v===null || typeof v!=='object') return JSON.stringify(v);
+    if(Array.isArray(v)) return '['+v.map(_jsonEstable).join(',')+']';
+    const ks=Object.keys(v).filter(k=>v[k]!==undefined && typeof v[k]!=='function').sort();
+    return '{'+ks.map(k=>JSON.stringify(k)+':'+_jsonEstable(v[k])).join(',')+'}';
+}
+// Firma de un bloque de movimientos TAL COMO SE GUARDA (ya sanitizado, o tal como llegó de la nube).
+function _firmaBloqueMovs(parte){ parte=parte||[]; return parte.length+':'+_hashStr(_jsonEstable(parte)); }
+// Al cargar un bloque de la nube se anota su firma: es "lo que la nube tiene" para esta sesión.
+function _anotarFirmaBloqueMovs(oid, i, movsGuardados){
+    try{ if(!Array.isArray(movsGuardados)) return; if(!window._sigMovsBloque) window._sigMovsBloque={};
+         if(!window._sigMovsBloque[oid]) window._sigMovsBloque[oid]=[]; window._sigMovsBloque[oid][i]=_firmaBloqueMovs(movsGuardados); }catch(e){}
+}
+// Decide qué bloques de una oficina hay que reenviar. Si cambió la cantidad de bloques
+// (respecto al índice de la nube) o no hay firmas previas, se reenvían todos: cada bloque
+// lleva totalPartes y debe quedar consistente. Si no, solo los que tienen otra firma.
+function _bloquesQueCambian(oid, partes, remoto){
+    const firmas=(partes||[]).map(_firmaBloqueMovs);
+    const previas=(window._sigMovsBloque && window._sigMovsBloque[oid]) || null;
+    const todas=firmas.map((_,i)=>i);
+    if(!previas || firmas.length!==(parseInt(remoto,10)||0)) return { indices:todas, firmas, saltados:0 };
+    const indices=todas.filter(i=>previas[i]!==firmas[i]);
+    return { indices, firmas, saltados:firmas.length-indices.length };
+}
+// Recorta textos que no deberían estar ahí: una imagen pegada dentro de un campo de texto
+// o un texto de más de 1.500 caracteres en un comprobante (5.000 en el movimiento).
+// Devuelve cuántos recortó. Los enlaces a Drive (url, verUrl) son cortos y no se tocan.
+function _recortarTextosLargos(movs, etiqueta){
+    let n=0; const DEJAR=200;
+    const esImagen=v=>/^data:[a-z]+\/[a-z0-9.+-]+;base64,/i.test(v) || (v.length>300 && v.indexOf('data:image/')>=0);
+    const podar=(o, tope)=>{ for(const k of Object.keys(o)){ const v=o[k]; if(typeof v!=='string') continue;
+        if(v.length>tope || esImagen(v)){ o[k]=v.slice(0,DEJAR)+' …[recortado v304: traía '+v.length+' caracteres]'; n++; } } };
+    (movs||[]).forEach(m=>{ if(!m || typeof m!=='object') return;
+        podar(m, 5000);
+        (m.comprobantes||[]).forEach(c=>{ if(c && typeof c==='object') podar(c, 1500); }); });
+    if(n) console.warn(`✂️ ${etiqueta||''}: ${n} texto(s) recortado(s) en comprobantes (traían una imagen pegada o eran demasiado largos)`);
+    return n;
+}
+// Un solo traductor del error de guardado: título, qué pasó, qué hacer y si vale la pena reintentar solo.
+function _traducirErrorGuardado(m){
+    m=String(m||'');
+    const R=(titulo,explica,quehacer,reintentar)=>({titulo,explica,quehacer,reintentar:!!reintentar});
+    if(/modo prueba/i.test(m)) return R('🧪 COPIA DE PRUEBA','Esta copia se abrió con "?prueba=1": aquí no se guarda nada, a propósito.','Para trabajar de verdad, abre la dirección sin "?prueba=1".',false);
+    if(/payload size exceeds|request payload/i.test(m)) return R('📦 EL PAQUETE DE DATOS ERA DEMASIADO GRANDE','Firebase acepta como máximo 11 MB por envío, y esta vez se juntó más de eso en una sola tanda.\n\nNo es culpa de tu plan de Firebase: es un límite técnico igual para todos.','La app ya reparte los datos en tandas más pequeñas. Vuelve a intentar el guardado; si se repite, avísale a soporte con este mensaje.',false);
+    if(/invalid data|unsupported field value|nested arrays|invalid nested entity|is longer than/i.test(m)) return R('🧩 UN DATO TIENE UN FORMATO QUE FIREBASE NO ACEPTA','Uno de los registros trae un valor con un formato inválido; el detalle de abajo dice cuál es el campo.','Avísale a soporte con el detalle de abajo. Si acabas de adjuntar un comprobante, no lo vuelvas a subir: el archivo ya quedó en Drive.',false);
+    if(/maximum.*size|document.*too large|invalid-argument|l[ií]mite de 1 MB|no cupieron|1048576/i.test(m)){
+        const _s=(window._saludBaseOfi&&window._saludBaseOfi.top)||[];
+        return R('📦 UN BLOQUE DE DATOS SUPERÓ EL LÍMITE','Firebase no acepta bloques de más de 1 MB.'+(_s.length?`\n\nLo que más pesa: ${_s.slice(0,4).map(x=>x.k+' ('+x.kb+' KB)').join(', ')}.`:''),'Avísale a soporte con este dato para partir ese bloque.',false);
+    }
+    if(/permission|insufficient|unauthenticated/i.test(m)) return R('🔒 FIREBASE NO AUTORIZÓ LA ESCRITURA','Las reglas de la base de datos rechazaron este guardado. No es algo de esta oficina.','Avísale a soporte de inmediato: es configuración de la nube.',false);
+    if(/resource-exhausted|quota|exhausted|bandwidth|aborted|contention|deadline|too many|429|503|unavailable/i.test(m)) return R('⏳ FIREBASE OCUPADO O CONEXIÓN LENTA','La nube no alcanzó a recibir el paquete: Firebase está saturado o el internet de esta oficina está lento en este momento.','La app vuelve a intentar sola en un momento; deja la página abierta. Si en cinco minutos sigue saliendo este aviso, avísale a soporte.',true);
+    if(/network|offline|failed to fetch|webchannel|transport|timed? ?out|ERR_|ECONN/i.test(m)) return R('📡 SIN CONEXIÓN CON LA NUBE','No se pudo llegar a Firebase.','Revisa el internet. La app vuelve a intentar sola; deja la página abierta.',true);
+    if(/internal assertion|unexpected state/i.test(m)) return R('🧯 FALLO INTERNO DEL NAVEGADOR','El navegador perdió el hilo con Firebase (pasa a veces con la pestaña abierta muchas horas).','Anota lo que acabas de cambiar y recarga la página (F5).',false);
+    return R('⚠️ NO SE PUDO GUARDAR EN LA NUBE','Firebase rechazó el guardado por un motivo que la app no reconoce.','La app vuelve a intentar sola. Si se repite, avísale a soporte con el detalle de abajo (ya quedó registrado).',true);
+}
+// El motivo de cada fallo queda en este equipo (últimos 20) y en la nube (errores_guardado, últimos 150),
+// para que soporte lo pueda leer sin pedirle a nadie que copie la consola. Nunca bloquea ni lanza error.
+async function _registrarFalloGuardado(e, extra){
+    const item={ fecha:new Date().toISOString(), ms:Date.now(), version:APP_VERSION,
+        quien:String((USER&&(USER.nombre||USER.role))||''), rol:String((USER&&USER.role)||''),
+        mensaje:String((e&&e.message)||e||'').slice(0,600), codigo:String((e&&e.code)||'').slice(0,60),
+        enLinea:(typeof navigator!=='undefined' && navigator.onLine)!==false,
+        navegador:String((typeof navigator!=='undefined' && navigator.userAgent)||'').slice(0,140) };
+    Object.assign(item, extra||{});
+    try{ const l=JSON.parse(localStorage.getItem('fallosGuardadoOfi')||'[]'); l.push(item); localStorage.setItem('fallosGuardadoOfi', JSON.stringify(l.slice(-20))); }catch(_){}
+    try{
+        if(!db || MODO_PRUEBA) return item;
+        const ref=db.collection('oficinas_sistema').doc('errores_guardado');
+        let items=[]; try{ const s=await ref.get(); if(s.exists) items=(s.data().items||[]); }catch(_){}
+        items.push(item);
+        await ref.set({ items: items.slice(-150), actualizado: Date.now() });
+    }catch(e2){ console.warn('No se pudo registrar el fallo de guardado (no crítico):', e2); }
+    return item;
+}
+// Reintento automático tras un fallo pasajero: 20 s, 45 s y 90 s. Devuelve los segundos
+// programados, o 0 si ya se agotaron. El contador vuelve a cero con cada guardado exitoso.
+function _programarReintentoGuardado(motivo){
+    const n=window._reintentosAutoGuardado||0, ESPERAS=[20,45,90];
+    if(n>=ESPERAS.length) return 0;
+    window._reintentosAutoGuardado=n+1;
+    const seg=ESPERAS[n];
+    if(window._tmrReintentoGuardado) clearTimeout(window._tmrReintentoGuardado);
+    window._tmrReintentoGuardado=setTimeout(()=>{ window._tmrReintentoGuardado=null; if(_saveInProgress) return;
+        console.log(`🔁 Reintento automático de guardado ${n+1}/${ESPERAS.length} (${motivo})`); try{ save(); }catch(_){} }, seg*1000);
+    try{ showSync('err', `Reintenta en ${seg} s`); }catch(_){}
+    return seg;
+}
 function _esEntornoLocal(loc){ loc=loc||location; const h=String(loc.hostname||''); return loc.protocol==='file:' || !h || /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[::1\])/.test(h); }
 // v303: cuando la nube no acepta un cambio de este equipo, se dice en pantalla (antes solo en la consola). Como mucho una vez cada 10 minutos.
 function _avisarSinSincronizar(que){ const ahora=Date.now(); if(ahora-(window._avisoSinSincMs||0)<600000) return false; window._avisoSinSincMs=ahora; try{ showSync('err','Sin sincronizar'); }catch(e){} try{ mostrarSaveOverlay('error','Cambios sin sincronizar', que+'. Lo que ves sigue en pantalla, pero la nube no lo tiene: recarga (F5) y revisa que siga.'); }catch(e){} return true; }
@@ -2014,6 +2118,7 @@ async function _saveReal(_opts){
             }catch(eS){ console.warn('sello de movimientos fresco (no crítico):', eS); }
             for(const o of (DB.oficinas||[])){
                 const lista = o.movimientos || [];
+                _recortarTextosLargos(lista, o.nombre);   // v304: una imagen pegada en un texto dejaría el bloque sobre 1 MB
                 const numChunks = Math.ceil(lista.length / MOVS_CHUNK);
                 const remoto = _idxRemoto[o.id] || 0;
                 const cargoOk = !(window._cargaCompletaPorOficina && window._cargaCompletaPorOficina[o.id] === false);
@@ -2039,11 +2144,16 @@ async function _saveReal(_opts){
                 // creía que no había cambios y no volvía a intentar.
                 _movsPendientesConfirmar[o.id] = { sig, lista: JSON.parse(JSON.stringify(lista)) };
                 _nMovsEscritos++; // v168: esta oficina SÍ reescribe movimientos → los demás PCs deben recargar
-                for(let i=0;i<numChunks;i++){
-                    const parte = sanitizarFirebase(lista.slice(i*MOVS_CHUNK, (i+1)*MOVS_CHUNK));
+                // v304: solo se reenvían los bloques cuya firma cambió (ver _bloquesQueCambian). Un comprobante
+                // adjuntado toca UN bloque: antes se reenviaban los 7 a 15 de la oficina (2 a 4 MB) cada vez.
+                const _partes=[]; for(let i=0;i<numChunks;i++) _partes.push(sanitizarFirebase(lista.slice(i*MOVS_CHUNK, (i+1)*MOVS_CHUNK)));
+                const _plan=_bloquesQueCambian(o.id, _partes, remoto);
+                _movsPendientesConfirmar[o.id].firmasBloques=_plan.firmas;   // se confirman tras el éxito, como la firma de la oficina
+                if(_plan.saltados) console.log(`   ✂️ ${o.nombre}: cambiaron ${_plan.indices.length} de ${numChunks} bloque(s) de movimientos; los otros ${_plan.saltados} no se reenvían`);
+                for(const i of _plan.indices){
                     opsEscritura.push({
                         ref: db.collection('oficinas_sistema').doc(`movs_${o.id}_${i}`),
-                        data: { movimientos: parte, oficinaId: o.id, parte: i, totalPartes: numChunks, actualizado: Date.now() }
+                        data: { movimientos: _partes[i], oficinaId: o.id, parte: i, totalPartes: numChunks, actualizado: Date.now() }
                     });
                 }
             }
@@ -2280,6 +2390,7 @@ async function _saveReal(_opts){
             if(actual.length) lotes.push(actual);
 
             const _mbTotal=(opsEscritura.reduce((s,op)=>s+_peso(op),0)/1048576).toFixed(2);
+            window._ultimoPesoGuardadoKB=Math.round(parseFloat(_mbTotal)*1024);   // v304: queda en el registro si falla
             console.log(`   ⏳ Subiendo ${opsEscritura.length} documento(s) · ${_mbTotal} MB en ${lotes.length} lote(s)...`);
 
             for(let li=0; li<lotes.length; li++){
@@ -2316,7 +2427,7 @@ async function _saveReal(_opts){
         _sigClientes = sigClientesNuevas;
         _sigIdxClientes = idxClientesSig;
         // v296: firmas y bases de movimientos, solo tras el éxito (lo escrito ES la nube ahora)
-        try{ if(!window._sigMovs) window._sigMovs={}; Object.keys(_movsPendientesConfirmar).forEach(oid=>{ const p=_movsPendientesConfirmar[oid]; window._sigMovs[oid]=p.sig; _guardarBaseMovs(oid, p.lista); }); }catch(eM){ console.warn('base movs tras guardar:', eM); }
+        try{ if(!window._sigMovs) window._sigMovs={}; Object.keys(_movsPendientesConfirmar).forEach(oid=>{ const p=_movsPendientesConfirmar[oid]; window._sigMovs[oid]=p.sig; _guardarBaseMovs(oid, p.lista); if(p.firmasBloques){ if(!window._sigMovsBloque) window._sigMovsBloque={}; window._sigMovsBloque[oid]=p.firmasBloques; } }); }catch(eM){ console.warn('base movs tras guardar:', eM); }
         if(_gsigNueva) window._sigGaps = _gsigNueva; // v168: firma de gaps confirmada tras el lote
         // ════════════════════════════════════════════════════════════════
         // SELLO DE CHUNKS (v168 — CORRECCIÓN DE RAÍZ del problema de solicitudes
@@ -2346,6 +2457,7 @@ async function _saveReal(_opts){
         DB.facturasHistorial = histGuardar; // la memoria ya está correcta (no se reescribe completa)
         console.log(`   📄 Historial facturas: ${Object.keys(DB.facturasHistorial||{}).length} servicios`);
 
+        window._reintentosAutoGuardado=0; if(window._tmrReintentoGuardado){ clearTimeout(window._tmrReintentoGuardado); window._tmrReintentoGuardado=null; }   // v304
         if(window._guardadoParcial){   // v303: antes decía "¡Guardado!" aunque los movimientos de una oficina no hubieran salido
             showSync('err','Guardado parcial');
             mostrarSaveOverlay('error','Guardado parcial','Una oficina no cargó completa: sus movimientos y comprobantes NO se enviaron. Recarga (F5), espera a que cargue y repite.');
@@ -2419,35 +2531,19 @@ async function _saveReal(_opts){
         }
 
         mostrarSaveOverlay('error','Error al guardar', e.message.substring(0,40));
-        // 🗣️ v206 — EL ERROR EXPLICADO EN CRISTIANO.
-        // Antes salía el mensaje técnico de Firebase tal cual ("Request payload size
-        // exceeds the limit: 11534336 bytes"), que no le dice nada a nadie y da susto.
-        // Ahora se traduce a qué pasó, qué NO se guardó y qué hacer.
+        // 🗣️ v206 — EL ERROR EXPLICADO EN CRISTIANO. v304: un solo traductor (_traducirErrorGuardado),
+        // el motivo queda registrado (errores_guardado) y, si es pasajero, se reintenta solo.
         try{
             const _m=String(e&&e.message||e);
-            let _titulo='⚠️ NO SE PUDO GUARDAR EN LA NUBE', _explica='', _quehacer='';
-            if(/payload size exceeds|request payload/i.test(_m)){
-                _titulo='📦 EL PAQUETE DE DATOS ERA DEMASIADO GRANDE';
-                _explica='Firebase acepta como máximo 11 MB por envío, y esta vez se juntó más de eso en una sola tanda.\n\nNo es culpa de tu plan de Firebase: es un límite técnico igual para todos.';
-                _quehacer='La app ya reparte los datos en tandas más pequeñas. Vuelve a intentar el guardado; si se repite, avísale a soporte con este mensaje.';
-            } else if(/maximum.*size|document.*too large|invalid-argument/i.test(_m)){
-                _titulo='📦 UN BLOQUE DE DATOS SUPERÓ EL LÍMITE';
-                const _s=(window._saludBaseOfi&&window._saludBaseOfi.top)||[];
-                _explica='Firebase no acepta bloques de más de 1 MB.'+(_s.length?`\n\nLo que más pesa: ${_s.slice(0,4).map(x=>x.k+' ('+x.kb+' KB)').join(', ')}.`:'');
-                _quehacer='Avísale a soporte con este dato para partir ese bloque.';
-            } else if(/resource-exhausted|quota|exhausted/i.test(_m)){
-                _titulo='⏳ FIREBASE ESTÁ SATURADO EN ESTE MOMENTO';
-                _explica='Se hicieron muchas escrituras seguidas y Firebase está pidiendo un respiro.';
-                _quehacer='Espera un minuto y vuelve a guardar. Los datos siguen en tu pantalla, no se han perdido.';
-            } else if(/network|offline|unavailable|failed to fetch/i.test(_m)){
-                _titulo='📡 SIN CONEXIÓN CON LA NUBE';
-                _explica='No se pudo llegar a Firebase.';
-                _quehacer='Revisa tu internet y vuelve a intentar.';
+            const _t=_traducirErrorGuardado(_m);
+            const _nRe=window._reintentosAutoGuardado||0;
+            const _seg=_t.reintentar ? _programarReintentoGuardado(_t.titulo) : 0;
+            _registrarFalloGuardado(e, { reintento:_nRe, oficina:String((USER&&USER.role==='oficina'&&USER.nombre)||''), kb:(window._ultimoPesoGuardadoKB||0), titulo:_t.titulo });
+            if(_nRe===0 || !_seg){   // primer fallo o fallo definitivo: aviso completo. Los reintentos intermedios solo cambian la cortina.
+                alert(`${_t.titulo}\n\n${_t.explica}\n\n⛔ LOS ÚLTIMOS CAMBIOS NO QUEDARON GUARDADOS. Siguen en tu pantalla: no cierres la página${_seg?` (la app reintenta sola en ${_seg} s)`:' hasta volver a intentar'}.\n\n✅ QUÉ HACER: ${_t.quehacer}\n\n— — —\nDetalle técnico (ya quedó registrado para soporte): ${_m.substring(0,200)}`);
             } else {
-                _explica='Firebase rechazó el guardado.';
-                _quehacer='Vuelve a intentar. Si se repite, avísale a soporte con el detalle de abajo.';
+                mostrarSaveOverlay('error', _t.titulo.replace(/^\S+\s/,''), `Reintento automático en ${_seg} s`);
             }
-            alert(`${_titulo}\n\n${_explica}\n\n⛔ LOS ÚLTIMOS CAMBIOS NO QUEDARON GUARDADOS. Siguen en tu pantalla: no cierres la página hasta volver a intentar.\n\n✅ QUÉ HACER: ${_quehacer}\n\n— — —\nDetalle técnico: ${_m.substring(0,160)}`);
         }catch(eA){ alert('⚠️ ERROR DE GUARDADO: ' + e.message); }
     }
 }
@@ -3243,6 +3339,7 @@ async function _cargarMovimientosChunks(){
                 try{
                     const c = await db.collection('oficinas_sistema').doc(`movs_${ofiId}_${i}`).get();
                     if(c.exists){
+                        _anotarFirmaBloqueMovs(ofiId, i, c.data().movimientos);   // v304: firma de lo que la nube tiene
                         const arr = Array.isArray(c.data().movimientos) ? reconvertirArrays(c.data().movimientos) : [];
                         return {leido:true, existe:true, movs:arr};
                     }
@@ -24003,7 +24100,7 @@ function _renderListaComprobantes(){
                     ${c.analizando?'<div style="font-size:0.78rem;color:#f59e0b;">⏳ Analizando con IA...</div>':
                     c.error?`<div style="font-size:0.74rem;color:#ef4444;">❌ ${c.error.substring(0,60)}</div>`:
                     `<input type="number" value="${c.valor}" onchange="_comprobantesPendientes[${i}].valor=parseFloat(this.value||0);_actualizarTotalCompros();_actualizarSumaCombo(${i})" placeholder="Valor total" class="form-control" style="font-size:0.85rem;font-weight:700;color:#10b981;padding:4px 8px;margin-bottom:3px;">
-                    <input type="text" value="${(c.descripcion||'').replace(/"/g,'&quot;')}" onchange="_comprobantesPendientes[${i}].descripcion=this.value" placeholder="Descripción" class="form-control" style="font-size:0.74rem;padding:3px 8px;">
+                    <input type="text" value="${(c.descripcion||'').replace(/"/g,'&quot;')}" onchange="_comprobantesPendientes[${i}].descripcion=this.value" placeholder="Descripción" maxlength="150" class="form-control" style="font-size:0.74rem;padding:3px 8px;">
                     ${c.splits ? _editorComboHTML(c,i) : `<button onclick="_activarCombinado(${i})" style="margin-top:5px;font-size:0.68rem;background:none;border:1px dashed var(--border);color:var(--muted);border-radius:6px;padding:3px 8px;cursor:pointer;">✂️ Pago combinado (1 transferencia, varias facturas)</button>`}
                     ${(c.cuentaCheck && c.cuentaCheck.estado!=='ok') ? `<div style="margin-top:5px;background:${c.cuentaCheck.estado==='alerta'?'rgba(239,68,68,0.1)':'rgba(245,158,11,0.1)'};border:1px solid ${c.cuentaCheck.estado==='alerta'?'rgba(239,68,68,0.45)':'rgba(245,158,11,0.45)'};border-radius:6px;padding:5px 8px;font-size:0.7rem;color:${c.cuentaCheck.estado==='alerta'?'#ef4444':'#f59e0b'};font-weight:600;">${c.cuentaCheck.estado==='alerta'?('🚨 Esta transferencia NO va a la cuenta de PROYECTOVISION (detectado: '+((c.cuentaCheck.destLeido||c.cuentaCheck.cuentaLeida)||'otra cuenta')+'). Se notificará al administrador.'):'⚠️ No se pudo verificar la cuenta destino. Revisa que vaya a la cuenta de PROYECTOVISION.'}</div>` : ''}
                     ${(()=>{ const _d=(c.referencia&&c.analizado)?_buscarReferenciaDuplicada(null,c.referencia,c.valor):null; return _d?`<div style="margin-top:5px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.5);border-radius:6px;padding:5px 8px;font-size:0.7rem;color:#ef4444;font-weight:700;">🚫 Comprobante YA REGISTRADO (ref ${_normRef(c.referencia)}, ${fmtShort(c.valor)})${_d.oficinaOrigen?' en '+_d.oficinaOrigen:''}. No se podrá guardar.</div>`:''; })()}`}
@@ -24062,7 +24159,7 @@ function _editorComboHTML(c,i){
         </div>
         ${c.splits.map((p,k)=>`<div style="display:flex;gap:5px;margin-bottom:4px;">
             <input type="number" value="${p.valor||''}" onchange="_comprobantesPendientes[${i}].splits[${k}].valor=parseFloat(this.value||0);_actualizarSumaCombo(${i})" placeholder="Valor" class="form-control" style="font-size:0.76rem;padding:3px 6px;width:92px;flex-shrink:0;">
-            <input type="text" value="${(p.descripcion||'').replace(/"/g,'&quot;')}" onchange="_comprobantesPendientes[${i}].splits[${k}].descripcion=this.value" placeholder="Cliente / factura" class="form-control" style="font-size:0.72rem;padding:3px 6px;flex:1;min-width:0;">
+            <input type="text" value="${(p.descripcion||'').replace(/"/g,'&quot;')}" onchange="_comprobantesPendientes[${i}].splits[${k}].descripcion=this.value" placeholder="Cliente / factura" maxlength="150" class="form-control" style="font-size:0.72rem;padding:3px 6px;flex:1;min-width:0;">
             ${c.splits.length>1?`<button onclick="_quitarParteCombo(${i},${k})" style="background:none;border:none;color:#ef4444;cursor:pointer;flex-shrink:0;padding:0 4px;">✕</button>`:''}
         </div>`).join('')}
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:5px;flex-wrap:wrap;gap:6px;">

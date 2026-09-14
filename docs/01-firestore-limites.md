@@ -68,3 +68,43 @@ nada**. Verificado con ambos fallos simulados.
 
 El botón manual sigue existiendo y ahora comparte el mismo núcleo
 (`_archivarInv`) en lugar de duplicar la lógica.
+
+## Guardado de movimientos por bloques (OFICINAS v304, 14 Sep 2026)
+
+Los movimientos de cada oficina viven en bloques de 400 (`movs_<ofi>_<i>`),
+de 170 a 335 KB cada uno (medido el 14 Sep 2026: NATALIA 15 bloques,
+ESNEIDER 9, YESCENIA 7, THOMAS 7, MONTAÑITA 1). Hasta la v303, **cualquier
+cambio en una oficina reenviaba todos sus bloques** — adjuntar un comprobante
+en NATALIA subía 3,6 MB. Con internet lento el lote se caía y salía
+"NO SE PUDO GUARDAR EN LA NUBE — Firebase rechazó el guardado".
+
+Desde la v304 cada bloque tiene una **firma** (`_firmaBloqueMovs`: cantidad +
+hash del JSON con claves ordenadas, porque la nube devuelve las claves en
+cualquier orden). Se anota al cargar cada bloque (`_anotarFirmaBloqueMovs`) y
+se confirma tras cada guardado exitoso. `_bloquesQueCambian` decide qué
+reenviar: solo los bloques cuya firma cambió, salvo que cambie la cantidad de
+bloques respecto al índice (entonces van todos, porque cada bloque lleva
+`totalPartes`). Un comprobante nuevo toca un solo bloque (~300 KB).
+
+Otras tres piezas de la misma versión:
+
+- `_recortarTextosLargos`: un texto de comprobante con una imagen pegada
+  (`data:image/...`) o de más de 1.500 caracteres se recorta a 200. Se
+  encontró uno del 22 Ago 2026 con 70 KB de imagen dentro de `descripcionIA`
+  (alguien pegó la "dirección de imagen" en el campo de descripción). Uno
+  grande dejaría el bloque sobre 1 MB y esa oficina no volvería a guardar.
+- `_traducirErrorGuardado`: un solo traductor de errores a español. Antes
+  "bloque sobre 1 MB", "dato con formato inválido", "reglas de Firebase",
+  "Firebase ocupado" y "copia de prueba" caían en el aviso genérico.
+- `_registrarFalloGuardado` + `_programarReintentoGuardado`: el motivo de cada
+  fallo queda en `oficinas_sistema/errores_guardado` (últimos 150) y en
+  `localStorage.fallosGuardadoOfi` (últimos 20), con oficina, versión, peso del
+  lote y mensaje. Si el motivo es pasajero, la app reintenta sola a los 20, 45
+  y 90 segundos; el aviso completo sale en el primer fallo y en el definitivo.
+
+Para saber por qué falló un guardado en una oficina, leer `errores_guardado`
+por REST (la colección es pública) en vez de pedir la consola:
+
+```bash
+curl -s "https://firestore.googleapis.com/v1/projects/inventario-88a28/databases/(default)/documents/oficinas_sistema/errores_guardado"
+```

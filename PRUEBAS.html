@@ -773,6 +773,44 @@ const PRUEBAS = [
        +'\ncon reloj corrido: '+r.c2+' (finalizada) · conserva material: '+r.c2mat+' (true)'
        +'\nreagenda: '+r.c3+' (aceptada) · ids finales: '+r.c4ids+' (a,nueva)'};}},
 
+{app:'ofi', titulo:'El guardado reenvía solo los bloques de movimientos que cambiaron; un fallo se explica, queda registrado y se reintenta solo',
+ porque:'14/9/2026: "NO SE PUDO GUARDAR EN LA NUBE — Firebase rechazó el guardado" al adjuntar comprobantes. Cada guardado reenviaba TODOS los '
+       +'bloques de la oficina (hasta 15 × 300 KB ≈ 4 MB) aunque solo cambiara un comprobante; con internet lento eso se cae. El motivo '
+       +'solo quedaba en la consola de esa oficina, y varios motivos (Firebase ocupado, dato con formato inválido, bloque sobre 1 MB, reglas) '
+       +'caían en el aviso genérico. Además, un comprobante del 22/8 tenía una imagen pegada dentro de la descripción (70 KB): una grande '
+       +'dejaría el bloque sobre 1 MB y esa oficina no volvería a guardar.',
+ correr:W=>{ const r=E(W,
+     'const a={b:1,a:[{y:2,x:1}],c:"ñ"}, b={c:"ñ",a:[{x:1,y:2}],b:1};'
+   +'const estable=_jsonEstable(a)===_jsonEstable(b) && _jsonEstable(a)!==_jsonEstable({b:1,a:[{y:2,x:1}],c:"n"});'
+   +'const partes=[[{id:1,v:1}],[{id:2,v:2}],[{id:3,v:3}]]; const f=partes.map(_firmaBloqueMovs);'
+   +'const viejo=window._sigMovsBloque; window._sigMovsBloque={prueba:f.slice()};'
+   +'const p1=_bloquesQueCambian("prueba", partes, 3);'
+   +'const partes2=[partes[0],[{id:2,v:99}],partes[2]]; const p2=_bloquesQueCambian("prueba", partes2, 3);'
+   +'const p3=_bloquesQueCambian("prueba", partes2, 2);'
+   +'window._sigMovsBloque={}; const p4=_bloquesQueCambian("prueba", partes, 3);'
+   +'window._sigMovsBloque=viejo;'
+   +'const movs=[{id:"m1", descripcion:"normal", comprobantes:[{nombre:"a.jpg", url:"https://drive.google.com/x", descripcionIA:"PEPITO"+"data:image/jpeg;base64,"+"A".repeat(3000)}, {nombre:"b.jpg", descripcionIA:"corto"}]}];'
+   +'const n=_recortarTextosLargos(movs,"prueba"); const c0=movs[0].comprobantes[0], c1=movs[0].comprobantes[1];'
+   +'const recorte = n===1 && c0.descripcionIA.length<300 && c0.url==="https://drive.google.com/x" && c1.descripcionIA==="corto" && movs[0].descripcion==="normal";'
+   +'const t=m=>_traducirErrorGuardado(m); const T=[t("Hay 1 bloque(s) de datos que pasan el límite de 1 MB de Firebase: movs_x (1200 KB)").titulo, t("Function WriteBatch.set() called with invalid data. Unsupported field value: undefined").titulo, t("Missing or insufficient permissions.").titulo, t("Bandwidth exhausted").titulo, t("Failed to fetch").titulo, t("cualquier cosa rara").titulo, t("🧪 Modo prueba: no se escribe.").titulo];'
+   +'const traduce = /LÍMITE/.test(T[0]) && /FORMATO/.test(T[1]) && /AUTORIZ/.test(T[2]) && /OCUPADO/.test(T[3]) && /SIN CONEXIÓN/.test(T[4]) && /NO SE PUDO GUARDAR/.test(T[5]) && /PRUEBA/.test(T[6]) && t("Bandwidth exhausted").reintentar===true && t("Missing or insufficient permissions.").reintentar===false && t("cualquier cosa rara").reintentar===true;'
+   +'const src=_saveReal.toString(); const usa=/_bloquesQueCambian.o.id, _partes, remoto/.test(src) && /_recortarTextosLargos.lista, o.nombre/.test(src) && /_registrarFalloGuardado.e,/.test(src) && /_programarReintentoGuardado/.test(src) && /firmasBloques/.test(src) && /_reintentosAutoGuardado=0/.test(src);'
+   +'const lee=_cargarMovimientosChunks.toString(); const anota=/_anotarFirmaBloqueMovs.ofiId, i, c.data/.test(lee);'
+   +'const vt=window._tmrReintentoGuardado, vn=window._reintentosAutoGuardado; window._reintentosAutoGuardado=0;'
+   +'const s1=_programarReintentoGuardado("prueba"), s2=_programarReintentoGuardado("prueba"), s3=_programarReintentoGuardado("prueba"), s4=_programarReintentoGuardado("prueba");'
+   +'if(window._tmrReintentoGuardado) clearTimeout(window._tmrReintentoGuardado); window._tmrReintentoGuardado=vt||null; window._reintentosAutoGuardado=vn||0; try{ showSync("ok","Conectado ✓"); }catch(e){}'
+   +'return { estable, p1:p1.indices, p2:p2.indices, p3:p3.indices, p4:p4.indices, salt:p2.saltados, recorte, traduce, usa, anota, esperas:[s1,s2,s3,s4] };');
+   const bien = r.estable===true && JSON.stringify(r.p1)==='[]' && JSON.stringify(r.p2)==='[1]' && JSON.stringify(r.p3)==='[0,1,2]' && JSON.stringify(r.p4)==='[0,1,2]'
+     && r.salt===2 && r.recorte===true && r.traduce===true && r.usa===true && r.anota===true && JSON.stringify(r.esperas)==='[20,45,90,0]';
+   return {ok:bien, detalle: bien
+     ? 'La firma de un bloque no depende del orden de las claves (la nube las devuelve en cualquier orden) ✓'
+      +'\nCon tres bloques y un solo comprobante nuevo en el segundo, se reenvía únicamente ese bloque; sin cambios, ninguno ✓'
+      +'\nSi cambia la cantidad de bloques (o no hay firmas previas), se reenvían todos, para que totalPartes quede consistente ✓'
+      +'\nAl cargar, cada bloque anota su firma; al guardar con éxito, las firmas se confirman ✓'
+      +'\nUna imagen pegada dentro de un texto de comprobante se recorta a 200 caracteres; el enlace a Drive y los textos normales no se tocan ✓'
+      +'\nBloque sobre 1 MB, dato con formato inválido, reglas de Firebase, Firebase ocupado, sin conexión y copia de prueba tienen cada uno su aviso; solo los pasajeros se reintentan ✓'
+      +'\nEl reintento automático espera 20, 45 y 90 segundos y luego se rinde; el guardado exitoso lo pone en cero; el motivo queda registrado ✓'
+     : JSON.stringify(r)};}},
 {app:'ofi', titulo:'Cuando algo no se guarda, se dice en pantalla; y una copia de prueba nunca bloquea a las oficinas',
  porque:'Revisión del 12/9/2026 ("parece que no se guarda"): había cuatro caminos en que el sistema decía "Guardado" o no decía nada '
        +'mientras la nube no recibía el dato: un comprobante que Drive rechazaba, un guardado con una oficina sin cargar (sus '
