@@ -905,6 +905,8 @@ p { margin:4px 0; font-size:8px; text-align:justify; line-height:1.35; }
             throw new Error('Respuesta inválida del Drive. Revisa que la dirección del script termine en /exec y esté bien publicada.');
         }
         if (!res || !res.ok) throw new Error((res && res.error) || 'Error subiendo el contrato a Drive.');
+        // 15 sep 2026: una respuesta "ok" sin archivo no es una subida (el script respondía ok:true desde su doGet de prueba).
+        if (!res.fileId || !res.url) throw new Error('Drive respondió sin el archivo: el contrato NO se subió. Vuelve a intentarlo en un momento.');
         return {
             url: res.url,
             verUrl: res.verUrl || res.url,

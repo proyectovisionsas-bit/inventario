@@ -9,7 +9,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
 <!-- Contrato de servicio: código compartido con TECNICOS. Editar contrato.js, no copiarlo aquí. -->
-<script src="contrato.js?v=5"></script>
+<script src="contrato.js?v=6"></script>
 <!-- IA: una sola forma de hablar con Groq para las tres apps. Editar ia.js. -->
 <script src="ia.js?v=5"></script>
     <!-- ░░ PWA: instalable en celulares (sin archivos extra) ░░ -->
@@ -342,6 +342,26 @@
         .ai-typing span:nth-child(3) { animation-delay:0.4s; }
         @keyframes aitype { 0%,80%,100%{opacity:0.3;transform:translateY(0)} 40%{opacity:1;transform:translateY(-3px)} }
         @media (max-width:500px){ .ai-panel { width:calc(100vw - 24px); right:12px; bottom:80px; height:75vh; } .ai-fab { bottom:14px; right:14px; } }
+        /* v308 (15 sep 2026) — CELULAR: NADA MÁS ANCHO QUE LA PANTALLA.
+           Medido a 375 px (un celular común): las 21 secciones se salían, de 48 px (el encabezado) a 887 px
+           (Energía y SG-SST). La causa de fondo: #app es una columna flex y .container se centra con
+           margin:auto; así el contenedor no toma el ancho de la pantalla sino el de su contenido. Con
+           width:100% y min-width:0 el contenido se acomoda solo: las cuadrículas auto-fit bajan a 1 o 2
+           columnas. Lo demás son los casos que quedaban: filas flex que no saltan de línea, tablas,
+           las barras del panel y textos largos sin espacios. Solo por debajo de 900 px de ancho. */
+        @media (max-width:900px){
+            #appContent.container { width:100%; min-width:0; box-sizing:border-box; padding-left:10px; padding-right:10px; }
+            .header { flex-wrap:wrap; gap:6px; }
+            .header-right { flex-wrap:wrap; justify-content:flex-end; gap:6px; min-width:0; }
+            #appContent table { display:block; max-width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+            #appContent img, #appContent video, #appContent canvas, #appContent iframe { max-width:100%; }
+            #appContent input, #appContent select, #appContent textarea { max-width:100%; }
+            #appContent [style*="display:grid"] > *, #appContent [style*="display: grid"] > *, #appContent .two-cols > * { min-width:0; }
+            #appContent [style*="display:flex"]:not([style*="flex-direction:column"]), #appContent [style*="display: flex"]:not([style*="flex-direction: column"]) { flex-wrap:wrap; }
+            .bar-label { width:38%; min-width:0; flex-shrink:1; }
+            .bar-val { width:auto; min-width:64px; }
+            #appContent p, #appContent h1, #appContent h2, #appContent h3, #appContent h4, #appContent li, #appContent a, #appContent td { overflow-wrap:anywhere; }
+        }
 
         /* ── CALCULADORA ──────────────────────────────────────────────── */
         .calc-display { background:rgba(0,0,0,0.3); border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin-bottom:10px; text-align:right; }
@@ -648,7 +668,7 @@
         <!-- ENERGÍA SOLAR: menú propio; cada oficina ve y registra SU sistema -->
         <button class="nav-btn" data-tab="energia">⚡ Energía Solar</button>
         <!-- ANTENAS STARLINK: cada oficina ve las suyas; el admin ve todas -->
-        <button class="nav-btn" data-tab="antenas">U0001f4e1 Antenas Starlink</button>
+        <button class="nav-btn" data-tab="antenas">📡 Antenas Starlink</button>
         <!-- PROVEEDORES: contratos y costos, solo el admin -->
         <button class="nav-btn admin-only" data-tab="proveedores">🔌 Proveedores</button>
         <!-- SG-SST: lo ven el admin y la persona encargada (rol propio) -->
@@ -948,7 +968,7 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION = 307; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 308; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -969,7 +989,7 @@ const APP_VERSION = 307; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '15 Sep 2026 (v307: un comprobante bloqueado por duplicado se puede subir escribiendo por que no es el mismo; queda marcado para revision del administrador. v306: un dato vacio ya no tumba el guardado. Historial en git y en docs/01-firestore-limites.md)';
+const APP_VERSION_FECHA = '15 Sep 2026 (v308: en el celular nada se sale de la pantalla; un comprobante que Drive no recibio ya no se da por subido; el registro de auditoria ya no se pisa entre sesiones. v307: duplicado con motivo. Historial en git y en docs/01-firestore-limites.md)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -1351,6 +1371,114 @@ function _alertaDuplicadoAceptado(oid, pago, marca, archivo){
         registrarLog('COMPROBANTE_DUPLICADO_ACEPTADO',{oid:String(oid||''), movId:String(pago.id||''), tipo:marca.tipo, motivo:marca.motivo, movimientoAnterior:marca.movimientoAnterior, archivo:String(archivo||'')});
     }catch(e){ console.warn('alerta de duplicado aceptado:', e); }
 }
+/* ════════════════════════════════════════════════════════════════════
+   v308 (15 sep 2026) — COMPROBANTES "SUBIDOS" QUE NUNCA LLEGARON A DRIVE.
+   Hoy había 9 comprobantes guardados sin enlace y sin id de archivo. El script de
+   Drive tenía un doGet de prueba que respondía {ok:true, mensaje:'…activo'}: cuando
+   un envío llegaba al script como GET en vez de POST, la app veía ok:true y daba el
+   comprobante por subido. El archivo nunca se guardó. Tres cosas:
+    1) subirArchivoDrive solo acepta la subida si trae fileId y url (reintenta una vez).
+    2) Un comprobante sin url, fileId ni verUrl no bloquea como duplicado (ni por huella
+       ni por referencia), la ventana del pago lo marca "No llegó a Drive" y, cuando la
+       oficina sube otro a ese pago, el roto se quita solo (queda anotado en
+       m.comprobantesSinArchivo). NO se toca nada al guardar: el guardado no decide por
+       la oficina, y así no pelea con la fusión ni con otras sesiones. Tampoco cuenta
+       para el bloqueo por comprobantes: nadie queda bloqueado de golpe al publicar.
+    3) El registro de auditoría ya no se reescribe completo desde cada sesión (ganaba la
+       última y se perdían los registros de las demás): se agregan solo los nuevos con
+       arrayUnion, en una escritura aparte DESPUÉS del lote (si ese documento fallara, no
+       tumba el guardado de movimientos), y pasado 700 se recorta a 500 en una transacción.
+   ════════════════════════════════════════════════════════════════════ */
+function _esComprobanteSinArchivo(c){ return !!c && typeof c==='object' && !c.url && !c.fileId && !c.verUrl && (c.tipo==='imagen' || c.tipo==='pdf'); }
+function _claveCompSinArchivo(c){ return String((c&&c.nombre)||'')+'|'+String((c&&c.fecha)||''); }
+// Quita de UN pago los comprobantes sin archivo. Solo se llama cuando la persona acaba de subir otro a ese
+// pago (es su edición). Quedan anotados en m.comprobantesSinArchivo, sin repetir. Devuelve cuántos quitó.
+function _quitarComprobantesSinArchivo(m){
+    if(!m || !Array.isArray(m.comprobantes) || !m.comprobantes.some(_esComprobanteSinArchivo)) return 0;
+    const rotos=m.comprobantes.filter(_esComprobanteSinArchivo);
+    const previos=Array.isArray(m.comprobantesSinArchivo)?m.comprobantesSinArchivo:[];
+    const ya=new Set(previos.map(_claveCompSinArchivo));
+    const ahora=new Date();
+    m.comprobantesSinArchivo=previos.concat(rotos.filter(c=>!ya.has(_claveCompSinArchivo(c))).map(c=>Object.assign({}, c, {
+        motivoSinArchivo:'Drive no recibió el archivo; se quitó al subir otro comprobante', quitadoFecha:ahora.toISOString(), quitadoMs:ahora.getTime() })));
+    m.comprobantes=m.comprobantes.filter(c=>!_esComprobanteSinArchivo(c));
+    return rotos.length;
+}
+// Contador del botón 📎: los que sí están, y un ! rojo si alguno no llegó a Drive
+function _insigniaComprobantes(m, estilo){
+    const cs=(m&&m.comprobantes)||[]; const ok=cs.filter(c=>!_esComprobanteSinArchivo(c)).length; const rotos=cs.length-ok;
+    return (ok>0?`<span style="background:#10b981;color:#fff;border-radius:8px;padding:0 4px;${estilo||''}">${ok}</span>`:'')
+         +(rotos>0?`<span style="background:#ef4444;color:#fff;border-radius:8px;padding:0 4px;${estilo||''}" title="Un comprobante no llegó a Drive: hay que volver a subirlo">!</span>`:'');
+}
+// Aviso en la ventana de comprobantes de un pago
+function _avisoSinArchivoHTML(m){
+    const rotos=((m&&m.comprobantes)||[]).filter(_esComprobanteSinArchivo);
+    if(!rotos.length) return '';
+    const esc=s=>String(s==null?'':s).replace(/[&<>"]/g, ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+    return `<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.4);border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:0.8rem;">
+        <b style="color:#ef4444;">⚠️ ${rotos.length===1?'1 comprobante no llegó':rotos.length+' comprobantes no llegaron'} a Drive</b><br>
+        La app lo dio por subido, pero el archivo no quedó guardado. Súbelo otra vez aquí abajo: al subirlo, el que no llegó se quita solo.
+        <div style="margin-top:6px;color:var(--muted);font-size:0.74rem;">${rotos.map(c=>esc(c.nombre||'comprobante')+' · '+esc(String(c.fecha||'').slice(0,10))).join('<br>')}</div>
+    </div>`;
+}
+// Une registros de auditoría por id, en orden de fecha, con los últimos `max`
+function _unirLogsAuditoria(a, b, max){
+    const porId=new Map();
+    [].concat(a||[], b||[]).forEach(l=>{ if(l && l.id!=null && !porId.has(l.id)) porId.set(l.id, l); });
+    const sinId=[].concat(a||[], b||[]).filter(l=>l && l.id==null);
+    return [...porId.values(), ...sinId].sort((x,y)=>String(x.fecha||'').localeCompare(String(y.fecha||''))).slice(-(max||500));
+}
+// Mismo criterio que sanitizarFirebase del guardado (que vive dentro de _saveReal): quita undefined y funciones
+// y convierte un array dentro de otro array en objeto {0:…, 1:…}. Firebase rechaza cualquiera de las dos cosas.
+function _limpiarLogsFirebase(obj){
+    if(obj===null || obj===undefined || typeof obj==='function') return null;
+    if(Array.isArray(obj)) return obj.map(it=>{ if(Array.isArray(it)){ const o={}; it.forEach((v,k)=>{ o[k]=_limpiarLogsFirebase(v); }); return o; } return _limpiarLogsFirebase(it); });
+    if(typeof obj==='object'){ const r={}; Object.keys(obj).forEach(k=>{ if(obj[k]!==undefined && typeof obj[k]!=='function') r[k]=_limpiarLogsFirebase(obj[k]); }); return r; }
+    return obj;
+}
+// Escribe los registros de auditoría nuevos de esta sesión, aparte del lote de movimientos. `limpiar` es opcional
+// (el guardado pasa su sanitizarFirebase para anotar campos vacíos). Los ids se
+// anotan como "en la nube" solo cuando Firebase confirma; si falla, salen en el próximo guardado.
+function _enviarLogsAuditoria(limpiar){
+    if(!db) return null;
+    if(typeof limpiar!=='function') limpiar=_limpiarLogsFirebase;
+    if(!window._logsEnNube) window._logsEnNube=new Set();
+    const nuevos=(DB.logsAuditoria||[]).slice(-500).filter(l=>l && l.id!=null && !window._logsEnNube.has(l.id));
+    if(!nuevos.length) return null;
+    const ids=nuevos.map(l=>l.id);
+    return db.collection('oficinas_sistema').doc('logs_auditoria')
+        .set({ logs: firebase.firestore.FieldValue.arrayUnion(...limpiar(nuevos)), actualizado: Date.now() }, { merge:true })
+        .then(()=>{
+            ids.forEach(id=>window._logsEnNube.add(id));
+            window._logsAgregados=(window._logsAgregados||0)+ids.length;
+            if((window._logsEnDoc||0)+window._logsAgregados>700) setTimeout(()=>{ try{ _compactarLogsAuditoria(); }catch(_){} }, 3000+Math.floor(Math.random()*20000));
+            return ids.length;
+        })
+        .catch(e=>{
+            console.warn('Registro de auditoría no guardado (sale en el próximo guardado):', e);
+            if(/size|maximum|too large|exceed/i.test(String((e&&(e.message||e.code))||''))) try{ _compactarLogsAuditoria(); }catch(_){}
+            return 0;
+        });
+}
+// Recorta logs_auditoria a 500 dentro de una transacción (no pierde lo que otra sesión agregue en medio)
+async function _compactarLogsAuditoria(){
+    if(MODO_PRUEBA || !db || window._compactandoLogs) return false;
+    window._compactandoLogs=true;
+    try{
+        const ref=db.collection('oficinas_sistema').doc('logs_auditoria');
+        let recortados=0, quedan=0;
+        await db.runTransaction(async tx=>{
+            const s=await tx.get(ref); const logs=(s.exists && Array.isArray(s.data().logs)) ? s.data().logs : [];
+            if(logs.length<=700){ recortados=0; quedan=logs.length; return; }
+            const lista=_unirLogsAuditoria(logs, [], 500); recortados=logs.length-lista.length; quedan=lista.length;
+            tx.set(ref, { logs: lista, actualizado: Date.now() });
+        });
+        window._logsEnDoc=quedan; window._logsAgregados=0;
+        if(recortados) console.log(`🧾 Registro de auditoría recortado a 500 (${recortados} registros viejos fuera)`);
+        return recortados>0;
+    }catch(e){ console.warn('compactar logs (no crítico):', e); return false; }
+    finally{ window._compactandoLogs=false; }
+}
 function _avisarCamposVacios(lista){
     try{
         console.warn('🧩 Campos vacíos (undefined) quitados antes de guardar:', lista.join(', '));
@@ -1574,6 +1702,14 @@ function _fusionarMovsAlCargar(oid, local, nube){
         if(!_movTocado(oid, loc)) return rem;                      // no lo toqué → manda la nube
         const antes=(loc.comprobantes||[]).length;                 // lo edité aquí → gana lo mío…
         loc.comprobantes=_unirComprobantes(loc.comprobantes, rem.comprobantes); // …sin perder comprobantes ajenos
+        {   // v308: el que no llegó a Drive y ya se reemplazó (aquí o en otra sesión) no revive, y la anotación no se pierde
+            const _anot=[].concat(Array.isArray(loc.comprobantesSinArchivo)?loc.comprobantesSinArchivo:[], Array.isArray(rem.comprobantesSinArchivo)?rem.comprobantesSinArchivo:[]);
+            if(_anot.length){
+                const _q=new Set(_anot.map(_claveCompSinArchivo));
+                loc.comprobantes=loc.comprobantes.filter(c=>!(_esComprobanteSinArchivo(c) && _q.has(_claveCompSinArchivo(c))));
+                const _v=new Set(); loc.comprobantesSinArchivo=_anot.filter(c=>{ const k=_claveCompSinArchivo(c); if(_v.has(k)) return false; _v.add(k); return true; });
+            }
+        }
         if(loc.comprobantes.length!==antes) unidos++;
         preservados++;
         return loc;
@@ -2446,10 +2582,9 @@ async function _saveReal(_opts){
         try {
             const logs = (DB.logsAuditoria||[]).slice(-500);
             // v303: una lista vacía nunca se escribe (borraría en la nube lo que otra sesión ya guardó)
-            if(logs.length) opsEscritura.push({
-                ref: db.collection('oficinas_sistema').doc('logs_auditoria'),
-                data: { logs: sanitizarFirebase(logs), actualizado: Date.now() }
-            });
+            // v308: ya no va en este lote ni reescribe la lista completa (ganaba la última sesión en guardar y se perdían
+            // los registros de las demás: medido el 15/9/2026, 9 s después ya no estaban los 87 bloqueos y 45 enlaces del día).
+            // _enviarLogsAuditoria agrega solo los nuevos con arrayUnion, en una escritura aparte, después del lote.
         } catch(eLog){ console.warn('No se pudieron preparar logs de auditoría:', eLog); }
 
         // ─── OPTIMIZACIÓN: subir SOLO lo que cambió, y en PARALELO ───
@@ -2710,6 +2845,7 @@ async function _saveReal(_opts){
         }
 
         // Confirmar firmas SOLO después del éxito (si falla, se reintenta todo en el próximo guardado)
+        try{ _enviarLogsAuditoria(sanitizarFirebase); }catch(eLg){ console.warn('registro de auditoría:', eLg); }   // v308: aparte y después del lote
         _sigClientes = sigClientesNuevas;
         _sigIdxClientes = idxClientesSig;
         // v296: firmas y bases de movimientos, solo tras el éxito (lo escrito ES la nube ahora)
@@ -2792,6 +2928,7 @@ async function _saveReal(_opts){
             }, 400);
         }
     }catch(e){
+        try{ _enviarLogsAuditoria(); }catch(_){}   // v308: los registros (bloqueos, duplicados aceptados) no esperan a que entren los movimientos
         showSync('err','Error al guardar: '+e.message);
         console.error('❌ save() ERROR DETALLADO:', e);
         console.error('   Mensaje:', e.message);
@@ -3324,7 +3461,10 @@ async function load(){
                 // Logs de auditoría (documento aparte)
                 (async()=>{ try {
                     const logSnap = await db.collection('oficinas_sistema').doc('logs_auditoria').get();
-                    if(logSnap.exists && Array.isArray(logSnap.data().logs)){ DB.logsAuditoria = reconvertirArrays(logSnap.data().logs); }
+                    if(logSnap.exists && Array.isArray(logSnap.data().logs)){ DB.logsAuditoria = reconvertirArrays(logSnap.data().logs);
+                        window._logsEnNube = new Set((DB.logsAuditoria||[]).map(l=>l&&l.id).filter(x=>x!=null));   // v308: estos ya están en la nube
+                        window._logsEnDoc = logSnap.data().logs.length; window._logsAgregados = 0;
+                        if(logSnap.data().logs.length>700) setTimeout(()=>{ try{ _compactarLogsAuditoria(); }catch(_){} }, 20000+Math.floor(Math.random()*40000)); }
                 } catch(eLog){ console.warn('No se pudieron cargar logs de auditoría:', eLog); } })(),
                 // Caché del barrido (gapsFacturas, documento aparte)
                 (async()=>{ try {
@@ -9859,7 +9999,7 @@ function _comprobantesFaltantes(o, mesStr){
     const desde=_compObligDesde();
     const falta=m=>{
         if(!m || m.anulado) return false;
-        if((m.comprobantes||[]).length) return false;
+        if((m.comprobantes||[]).some(c=>!_esComprobanteSinArchivo(c))) return false;   // v308: uno que no llegó a Drive no cuenta
         if(m.esPagoAdmin) return false;              // lo registró el admin
         const d=(m.fecha||'').slice(0,10);
         if(!d || d < desde) return false;            // antes del corte no cuenta
@@ -11389,7 +11529,7 @@ function renderRegistro(){
                         </div>
                         <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
                             <button class="btn btn-outline btn-sm" onclick="modalComprobantes('${oid}','${m.id}')" style="padding:3px 8px;font-size:0.72rem;" title="Ver/subir comprobantes">
-                                📎${(m.comprobantes||[]).length>0?` <span style="background:#10b981;color:#fff;border-radius:8px;padding:0 4px;font-size:0.62rem;">${(m.comprobantes||[]).length}</span>`:''}
+                                📎${_insigniaComprobantes(m, 'font-size:0.62rem;margin-left:3px;')}
                             </button>
                             <span class="tag ${m.forma==='Efectivo'?'tag-ef':m.forma==='Efecty'?'tag-efty':'tag-banc'}" style="font-size:0.65rem;">${m.forma}</span>
                             <span class="money ${m.tipo==='ingreso'?'pos':'neg'}" style="font-weight:800;">${m.tipo==='ingreso'?'+':'-'}${fmtShort(m.valor)}</span>
@@ -11413,7 +11553,7 @@ function renderRegistro(){
                     <td class="money ${m.tipo==='ingreso'?'pos':'neg'}">${m.tipo==='ingreso'?'+':'-'}${fmtShort(m.valor)}</td>
                     <td style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
                         <button class="btn btn-outline btn-sm" onclick="modalComprobantes('${oid}','${m.id}')" title="Ver/subir comprobantes" style="padding:3px 7px;">
-                            📎${(m.comprobantes||[]).length>0?`<span style="background:#10b981;color:#fff;border-radius:8px;padding:0 4px;font-size:0.6rem;margin-left:2px;">${(m.comprobantes||[]).length}</span>`:''}
+                            📎${_insigniaComprobantes(m, 'font-size:0.6rem;margin-left:2px;')}
                         </button>
                         ${m.esPagoAdmin
                             ? (USER.role==='admin'?`<button class="btn btn-danger btn-sm" onclick="eliminarMovimiento('${oid}','${m.id}')">🗑️</button>`:'<span style="font-size:0.72rem;color:var(--muted);">👑 Admin</span>')
@@ -21883,7 +22023,7 @@ async function subirArchivoCloudinary(file, movId){
 // Sube el comprobante a TU Google Drive (carpeta por oficina) vía el Apps Script.
 // Devuelve {url} (miniatura para mostrar) y {verUrl} (para abrir completo), igual de
 // compatible que Cloudinary para que el resto del código funcione sin cambios.
-async function subirArchivoDrive(file, oid, movId){
+async function subirArchivoDrive(file, oid, movId, _intento){
     const url=compsDriveUrl(), clave=compsDriveClave();
     if(!url) throw new Error('Falta la URL del Drive de comprobantes (configúrala en el panel de administrador).');
     if(!clave) throw new Error('Falta la clave del Drive de comprobantes. Pídele al administrador que la configure.');
@@ -21903,6 +22043,13 @@ async function subirArchivoDrive(file, oid, movId){
     let data;
     try{ data=await r.json(); }catch(e){ throw new Error('Respuesta inválida del Drive. Revisa que la URL del script termine en /exec y esté bien publicada.'); }
     if(!data || !data.ok) throw new Error((data&&data.error)||'Error subiendo a Drive');
+    // v308: una respuesta "ok" SIN archivo no es una subida. El 15/9/2026 el script respondió con su doGet de prueba
+    // ({ok:true, mensaje:'…activo'}) y la app guardó 9 comprobantes sin enlace: el archivo nunca llegó a Drive.
+    if(!data.fileId || !data.url){
+        console.warn('⚠️ Drive respondió sin archivo:', JSON.stringify(data).slice(0,160));
+        if(!_intento){ await new Promise(r=>setTimeout(r,1500)); return subirArchivoDrive(file, oid, movId, 1); }
+        throw new Error('Drive respondió sin el archivo, así que NO quedó guardado. Vuelve a intentarlo en un momento.');
+    }
     return { url:data.url, secure_url:data.url, verUrl:data.verUrl||data.url, fileId:data.fileId||null, formato:'drive' };
 }
 
@@ -22071,7 +22218,7 @@ function modalComprobantes(oid, mid){
                     ${c.referencia?`<div style="font-size:0.62rem;color:#a78bfa;background:rgba(167,139,250,0.1);border:1px solid rgba(167,139,250,0.3);border-radius:4px;padding:2px 5px;margin-top:3px;display:flex;align-items:center;justify-content:space-between;gap:4px;"><span style="overflow:hidden;text-overflow:ellipsis;" title="Referencia guardada (la usa el control anti-duplicados)">🔖 Ref: ${_normRef(c.referencia)}</span>${(USER&&USER.role==='admin')?`<button onclick="_limpiarRefComp('${oid}','${mid}',${i})" title="Quitar esta referencia (si quedó mal leída por la IA)" style="background:none;border:none;cursor:pointer;font-size:0.7rem;padding:0;">🧹</button>`:''}</div>`:''}
                 </div>
                 <div style="display:flex;gap:4px;padding:0 6px 6px;">
-                    <a href="${c.verUrl||c.url}" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm" style="flex:1;text-align:center;font-size:0.68rem;padding:3px;">👁️ Ver</a>
+                    ${_esComprobanteSinArchivo(c)?`<span style="flex:1;text-align:center;font-size:0.62rem;color:#ef4444;font-weight:700;padding:3px;" title="El archivo no quedó en Drive. Súbelo otra vez.">⚠️ No llegó a Drive</span>`:`<a href="${c.verUrl||c.url}" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm" style="flex:1;text-align:center;font-size:0.68rem;padding:3px;">👁️ Ver</a>`}
                     <button class="btn btn-danger btn-sm" style="font-size:0.68rem;padding:3px 6px;" onclick="eliminarComp('${oid}','${mid}',${i})">🗑️</button>
                 </div>
             </div>`).join('')}
@@ -22095,7 +22242,7 @@ function modalComprobantes(oid, mid){
         <div id="ia_verif_result"></div>
     </div>`:'';
 
-    openModal('📎 Comprobantes ('+comps.length+')', efectyHTML+infoHTML+verPanel+zonaSubida+listaHTML,
+    openModal('📎 Comprobantes ('+comps.length+')', efectyHTML+_avisoSinArchivoHTML(m)+infoHTML+verPanel+zonaSubida+listaHTML,   // v308: aviso de los que no llegaron a Drive
         `<button class="btn btn-outline" onclick="closeModal()">Cerrar</button>`);
 }
 
@@ -22180,6 +22327,7 @@ async function procesarArchivos(files, oid, mid){
     const otherFiles=[...files].filter(f=>!f.type.startsWith('image/'));
     const fallidos=[];   // v303: lo que Drive no recibió se dice con un aviso, no solo en la consola
     const _dupAceptados=[];   // v307: huellas repetidas que la persona decidió subir con un motivo
+    let _subidosOk=0;   // v308: si entra alguno con archivo, se quitan los que Drive no recibió
 
     // Step 1: Save originals as base64 in memory for IA, then convert to PDF for storage
     if(imageFiles.length>0){
@@ -22250,7 +22398,7 @@ async function procesarArchivos(files, oid, mid){
             const _compNuevo=Object.assign({ url:res.url, verUrl:res.verUrl||res.url, fileId:res.fileId||null, nombre:pdfFile.name, tipo:'pdf', fecha:new Date().toISOString(), imagenes:imageFiles.length, hashesImagenes:hashesImagenes }, (_lecturaIA&&_lecturaIA.campos)||{});   // v296
             { const _marcas=[..._dupAceptados, ...(Array.isArray(_compNuevo.duplicadoAceptado)?_compNuevo.duplicadoAceptado:[])];   // v307: huella y referencia aceptadas
               if(_marcas.length){ _compNuevo.duplicadoAceptado=_marcas; _marcas.forEach(mk=>_alertaDuplicadoAceptado(oid, m, mk, pdfFile.name)); } else delete _compNuevo.duplicadoAceptado; }
-            _movDestino(oid, mid, m).comprobantes.push(_compNuevo);
+            _movDestino(oid, mid, m).comprobantes.push(_compNuevo); _subidosOk++;
             if(progEl) progEl.innerHTML=_progHTML(`✅ PDF subido con ${imageFiles.length} imagen(es)`, 100, true);
         }catch(e){
             fallidos.push('Las '+imageFiles.length+' imagen(es) (PDF): '+(e.message||e));
@@ -22278,9 +22426,11 @@ async function procesarArchivos(files, oid, mid){
             const _marcaPdf=_dA && _dA.marcaAceptada;
             _movDestino(oid, mid, m).comprobantes.push({url:res.url, nombre:file.name, tipo:'pdf', fecha:new Date().toISOString(), hashArchivo:_hArch||null, ...(_marcaPdf?{duplicadoAceptado:[_marcaPdf]}:{})});   // v296 · v305: huella · v307: marca
             if(_marcaPdf) _alertaDuplicadoAceptado(oid, m, _marcaPdf, file.name);
+            _subidosOk++;
         }catch(e){ console.error('Error subiendo',file.name,e); fallidos.push(file.name+': '+(e.message||e)); }
     }
 
+    if(_subidosOk){ const _q=_quitarComprobantesSinArchivo(_movDestino(oid, mid, m)); if(_q) registrarLog('COMPROBANTE_SIN_ARCHIVO_REEMPLAZADO',{oid, mid, quitados:_q}); }   // v308
     if(fallidos.length) alert('⚠️ No se pudo subir a Drive:\n\n• '+fallidos.join('\n• ')+'\n\nEsos comprobantes NO quedaron guardados. Revisa la conexión (o la clave de Drive en Configuración) y vuelve a adjuntarlos.');   // v303
     await save().then(()=>renderRegistro());
     setTimeout(()=>modalComprobantes(oid, mid), 500);
@@ -23286,7 +23436,7 @@ function _buscarPosibleDuplicado(oid, valor, fechaStr, forma){
 function _buscarHashDuplicadoGlobal(hash, oidActual){
     if(!hash) return null;
     // v305: también la huella de PDF y archivos sueltos (hashArchivo)
-    const _tiene=c=>!!c && (c.hashImagen===hash || c.hashArchivo===hash || (Array.isArray(c.hashesImagenes) && c.hashesImagenes.includes(hash)));
+    const _tiene=c=>!!c && !_esComprobanteSinArchivo(c) && (c.hashImagen===hash || c.hashArchivo===hash || (Array.isArray(c.hashesImagenes) && c.hashesImagenes.includes(hash)));
     for(const ofi of (DB.oficinas||[])){
         for(const m of (ofi.movimientos||[])){
             for(const c of (m.comprobantes||[])){
@@ -23391,7 +23541,7 @@ function _buscarReferenciaDuplicada(oidActual, referencia, valor){
     for(const ofi of (DB.oficinas||[])){
         for(const m of (ofi.movimientos||[])){
             for(const c of (m.comprobantes||[])){
-                if(!c || !c.referencia) continue;
+                if(!c || !c.referencia || _esComprobanteSinArchivo(c)) continue;   // v308: el que no llegó a Drive no cuenta
                 if(_normRef(c.referencia)!==ref) continue;
                 _apariciones++;
                 _clientes.add(String(m.clienteWisphub||m.descripcion||m.id||'').trim().toLowerCase());
@@ -24813,7 +24963,7 @@ async function guardarComprobantesRegistrados(oid){
     // (Única excepción: para COMBINADOS, los de la factura exacta que el usuario escribió.)
     const _disponiblesEnlace=(o.movimientos||[]).filter(m=>{
         if(m.tipo!=='ingreso') return false;
-        if((m.comprobantes||[]).length>0) return false; // ya tiene comprobante
+        if((m.comprobantes||[]).some(c=>!_esComprobanteSinArchivo(c))) return false; // ya tiene comprobante (v308: uno que no llegó a Drive no cuenta)
         const mFecha=(m.fecha||'').slice(0,10);
         if(!mFecha) return false;
         if(m.facturaWisphub && _facturasMencionadas.has(String(m.facturaWisphub))) return true; // combinado: por factura
@@ -25082,6 +25232,7 @@ async function guardarComprobantesRegistrados(oid){
                     if(mov){
                         if(!mov.comprobantes) mov.comprobantes=[];
                         mov.comprobantes.push(...compCopia);
+                        if(compCopia.length) _quitarComprobantesSinArchivo(mov);   // v308
                         if(mov.requiereSoporte) mov.estadoSoporte='completo';
                         mov.verificadoIA=true; mov.esPagoCombinado=true;
                         enlazados++;
@@ -25103,6 +25254,7 @@ async function guardarComprobantesRegistrados(oid){
             if(mov){
                 if(!mov.comprobantes) mov.comprobantes=[];
                 mov.comprobantes.push(...comprobantesArr);
+                if(comprobantesArr.length) _quitarComprobantesSinArchivo(mov);   // v308
                 if(mov.requiereSoporte) mov.estadoSoporte='completo';
                 mov.verificadoIA=true;
                 enlazados++;
@@ -25143,6 +25295,18 @@ async function guardarComprobantesRegistrados(oid){
 
 // CONTROL 4: Modal de visualización de logs de auditoría
 function modalLogsAuditoria(){
+    // v308: cada sesión tiene sus registros y los que había al cargar; al abrir se traen los de todas las sesiones
+    if(typeof db!=='undefined' && db && (!window._logsRefrescadoMs || Date.now()-window._logsRefrescadoMs>30000)){
+        window._logsRefrescadoMs=Date.now();
+        db.collection('oficinas_sistema').doc('logs_auditoria').get().then(sn=>{
+            const remotos=(sn.exists && Array.isArray(sn.data().logs)) ? reconvertirArrays(sn.data().logs) : [];
+            if(!window._logsEnNube) window._logsEnNube=new Set(); remotos.forEach(l=>{ if(l && l.id!=null) window._logsEnNube.add(l.id); });
+            DB.logsAuditoria=_unirLogsAuditoria(DB.logsAuditoria, remotos, 500);
+            if(sn.exists && Array.isArray(sn.data().logs)){ window._logsEnDoc=sn.data().logs.length; window._logsAgregados=0; }
+            const _mo=document.getElementById('modal');
+            if(_mo && _mo.classList.contains('show') && document.getElementById('log_filtro')) try{ modalLogsAuditoria(); }catch(_){}   // si la cerró o abrió otra, no se toca
+        }).catch(e=>console.warn('refrescar registros de auditoría:', e));
+    }
     const logs=(DB.logsAuditoria||[]).slice().reverse(); // últimos primero
     const filtro=window._logFiltro||'';
     const filtroAccion=window._logFiltroAccion||'';

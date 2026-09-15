@@ -254,6 +254,85 @@ una transferencia que pagó dos facturas. Si el pago quedó registrado dos
 veces (como la factura #103566 del 14 Sep 2026), lo correcto es borrar el
 repetido, no subir el comprobante dos veces. La ventana lo dice.
 
+## Comprobantes que Drive nunca recibió (OFICINAS v308, 15 Sep 2026)
+
+El 15 Sep 2026 había 9 comprobantes guardados sin `url`, sin `fileId` y sin
+`verUrl` (7 de YESCENIA y 2 de NATALIA). El archivo no estaba en Drive.
+
+Causa: el script receptor "Comprobantes PVISION" tenía un `doGet` de prueba
+que respondía `{ok:true, mensaje:"…activo"}`. Cuando un envío llegaba al
+script como GET en vez de POST, la app veía `ok:true` y daba el comprobante
+por subido. Su huella quedaba registrada, así que volver a subirlo decía
+"duplicado".
+
+Qué cambió:
+
+- `subirArchivoDrive` solo acepta la respuesta si trae `fileId` y `url`.
+  Si no, reintenta una vez a los 1,5 s y luego falla con un mensaje claro.
+  `contrato.js` (v6) hace la misma comprobación para los contratos.
+- El `doGet` del script ahora responde `ok:false`. Hay que publicarlo como
+  versión nueva de la implementación existente (Implementar → Gestionar
+  implementaciones → editar → Versión nueva) para no cambiar la URL.
+- El guardado NO toca esos comprobantes. Una primera versión los apartaba al
+  guardar, y el revisor encontró tres problemas: la fusión con la nube los
+  devolvía y quedaban repetidos, el pago contaba como editado y pisaba
+  cambios de otra sesión, y con el bloqueo por comprobantes activo las
+  oficinas quedaban bloqueadas de golpe.
+- `_esComprobanteSinArchivo(c)`: imagen o PDF sin `url`, `fileId` ni `verUrl`.
+  No bloquea como duplicado, ni por huella (`_buscarHashDuplicadoGlobal`) ni
+  por referencia (`_buscarReferenciaDuplicada`). El cargue por lotes y el
+  informe de faltantes (`_comprobantesFaltantes`, que solo informa) tratan
+  el pago como sin comprobante. El botón 📎 de las listas muestra un ! rojo
+  (`_insigniaComprobantes`). La ventana del pago muestra un aviso y marca el
+  comprobante con "No llegó a Drive". Sigue contando para el bloqueo por
+  comprobantes, así que nadie queda bloqueado al publicar.
+- Cuando la oficina sube otro comprobante a ese pago (📎 o cargue por
+  lotes), `_quitarComprobantesSinArchivo(m)` quita el roto. Queda anotado en
+  `m.comprobantesSinArchivo`, sin repetirse y con `quitadoFecha` y
+  `quitadoMs`. `_fusionarMovsAlCargar` junta esa anotación de los dos lados
+  (esta sesión y la nube): así no revive un roto que se reemplazó en otra
+  sesión, y la anotación no se pierde.
+
+## El registro de auditoría se pisaba entre sesiones (OFICINAS v308)
+
+Cada sesión escribía `logs_auditoria` completo con su propia lista. Ganaba
+la última en guardar y se perdían los registros de las demás. Medido el
+15 Sep 2026: 9 s después, los 87 bloqueos y 45 enlaces del día ya no estaban.
+
+Ahora `_enviarLogsAuditoria()` agrega solo los registros nuevos de la sesión
+con `FieldValue.arrayUnion` y `merge:true`. Es una escritura aparte que se
+hace después de que el lote de movimientos se confirma, y también en el
+`catch` del guardado. Así, si ese documento fallara (por ejemplo, por pasar
+de 1 MiB), no tumba el guardado. Y si fallan los movimientos, los registros
+(bloqueos, duplicados aceptados) igual llegan. Usa su propio sanitizador,
+`_limpiarLogsFirebase`, porque el `sanitizarFirebase` del guardado vive
+dentro de `_saveReal`; el guardado pasa el suyo para anotar los campos
+vacíos.
+
+`window._logsEnNube` guarda los ids que ya están en la nube. Un id se anota
+solo cuando Firebase confirma su escritura; si falla, sale en el próximo
+guardado. Dos envíos del mismo registro no lo repiten, porque `arrayUnion`
+compara el objeto completo.
+
+`_compactarLogsAuditoria` recorta el documento a los 500 registros más
+recientes dentro de una transacción, y no corre en modo prueba. Se dispara
+en tres casos: al cargar, si hay más de 700; cuando la cuenta de la sesión
+(`_logsEnDoc` + `_logsAgregados`) pasa de 700; y si Firebase rechaza la
+escritura por tamaño.
+
+La ventana de auditoría trae los registros de la nube al abrirse (como
+mucho cada 30 s). Solo se vuelve a pintar si sigue abierta.
+
+## En el celular nada se sale de la pantalla (OFICINAS v308, INVENTARIO v110, TECNICOS v95)
+
+Las apps usan muchos estilos en línea (`style="display:grid;..."`). Un bloque
+`@media (max-width:900px)` en cada app los corrige con selectores de
+atributo: el contenedor ocupa el 100 % con `min-width:0`, los hijos de grid
+y flex pueden encogerse, las filas flex bajan de línea, las tablas se
+desplazan dentro de su propio recuadro (`display:block; overflow-x:auto`) y
+los textos largos se parten. PRUEBAS mide cada sección con el marco a
+375 px: ninguna puede ser más ancha que la pantalla.
+
 ## Leer los fallos de guardado
 
 Para saber por qué falló un guardado en una oficina, leer `errores_guardado`

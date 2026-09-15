@@ -25,13 +25,13 @@ sin proceso de compilación: se editan directamente y se publican tal cual.
 | Archivo | Para quién | Versión | Tamaño |
 |---|---|---|---|
 | `index.html` | Portal de entrada, solo enlaces | — | 170 líneas |
-| `OFICINAS_PTOVISION.html` | Oficina: caja, cartera, facturas, clientes, RRHH, SG-SST | `APP_VERSION = 307` | 33.996 líneas · 2,4 MB |
-| `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 107` | 11.161 líneas · 786 KB |
+| `OFICINAS_PTOVISION.html` | Oficina: caja, cartera, facturas, clientes, RRHH, SG-SST | `APP_VERSION = 308` | 34.160 líneas · 2,5 MB |
+| `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 110` | 11.238 líneas · 775 KB |
 | `RED_PTOVISION.html` | Red y nodos | `APP_VERSION_RED = 40` | 9.322 líneas · 579 KB |
-| `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 94` | 3.123 líneas · 202 KB |
-| `PRUEBAS.html` | Banco de pruebas (95 pruebas) | — | 3.616 líneas |
+| `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 95` | 3.127 líneas · 198 KB |
+| `PRUEBAS.html` | Banco de pruebas (98 pruebas) | — | 3.727 líneas |
 | `FIRMA_SST.html` | Firma desde el celular (SG-SST): página pública, sin login, lee un solo documento por token | — | 187 líneas |
-| `contrato.js` | Contrato de servicio: **compartido** OFICINAS ↔ TECNICOS | `?v=5` | 954 líneas |
+| `contrato.js` | Contrato de servicio: **compartido** OFICINAS ↔ TECNICOS | `?v=6` | 956 líneas |
 | `ia.js` | Llamadas a Groq: compartido por OFICINAS, INVENTARIO y TECNICOS | `?v=5` | 388 líneas |
 | `wisphub-explorador.html` | Herramienta aparte para explorar la API de WispHub | — | 391 líneas |
 

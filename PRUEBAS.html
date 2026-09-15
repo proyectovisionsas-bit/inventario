@@ -997,13 +997,13 @@ const PRUEBAS = [
    +'const n1=(DB.logsAuditoria||[]).length; const sigue=(DB.logsAuditoria||[]).some(x=>x.id===primero);'
    +'const c1=(DB.oficinas||[]).reduce((t,o)=>t+(o.clientes||[]).length,0); const m1=(DB.oficinas||[]).reduce((t,o)=>t+(o.movimientos||[]).length,0);'
    +'if(sembrado) DB.logsAuditoria=[];'
-   +'const src=_saveReal.toString(); const guardia=/if\\(logs\\.length\\) opsEscritura\\.push/.test(src);'
+   +'const src=_enviarLogsAuditoria.toString(); const guardia=src.indexOf("if(!nuevos.length) return null;")>=0 && src.indexOf("arrayUnion")>=0 && _saveReal.toString().indexOf("_enviarLogsAuditoria(sanitizarFirebase)")>=0;'
    +'return { n0, n1, sigue, c0, c1, m0, m1, guardia, sembrado };');
    const bien = r.n0>0 && r.n1===r.n0 && r.sigue===true && r.c1===r.c0 && r.m1===r.m0 && r.guardia===true;
    return {ok:bien, detalle: bien
      ? 'Llega un snapshot con la auditoría vacía (como la trae el documento principal) y los '+r.n0+' registros siguen en memoria ✓'
       +'\nLos clientes ('+r.c0+') y movimientos ('+r.m0+') tampoco se pierden, como antes ✓'
-      +'\nSi la lista quedara vacía, el guardado ya no escribe logs_auditoria: una lista vacía nunca borra lo que otra sesión guardó ✓'
+      +'\nEl guardado solo agrega a logs_auditoria los registros nuevos: nunca escribe una lista vacía ni reemplaza la de otra sesión ✓'
      : JSON.stringify(r)};}},
 {app:'ofi', titulo:'Un guardado sin clientes cargados no los esconde',
  porque:'Pasó de verdad el 31/8/2026 a las 9:44. Los clientes viven en documentos aparte y un '
@@ -3410,6 +3410,117 @@ const PRUEBAS = [
        +(noStandalone.length?'No abren en ventana propia: '+noStandalone.join(', '):'')};
  }},
 
+{app:'ofi', titulo:'Un comprobante que Drive no recibió ya no se da por subido, y el registro de auditoría ya no se pisa entre sesiones',
+ porque:'15/9/2026: 9 comprobantes quedaron guardados sin enlace ni id de archivo. El script de Drive tenía un doGet de prueba que '
+       +'respondía ok:true; cuando un envío llegaba como GET, la app lo daba por subido y el archivo nunca se guardó (y su huella '
+       +'bloqueaba volver a subirlo). Ese mismo día, el registro de auditoría perdió en 9 segundos los 87 bloqueos y 45 enlaces del '
+       +'día: cada sesión reescribía la lista completa y ganaba la última en guardar.',
+ correr:async W=>{
+   let r=null;
+   try{
+     r=await W.eval('(async function(){'
+       +'const sinArch={nombre:"a.jpg", tipo:"imagen", fecha:"2026-09-15T15:16:00Z", hashImagen:"h1", fileId:null};'
+       +'const bueno={nombre:"b.jpg", tipo:"imagen", url:"https://drive.google.com/x", fileId:"F1", hashImagen:"h2"};'
+       +'const detecta=_esComprobanteSinArchivo(sinArch)===true && _esComprobanteSinArchivo(bueno)===false && _esComprobanteSinArchivo({tipo:"pdf", url:"u"})===false;'
+       +'const m1q={id:"m1", requiereSoporte:true, estadoSoporte:"completo", comprobantes:[sinArch, bueno]};'
+       +'const n1=_quitarComprobantesSinArchivo(m1q); const n2=_quitarComprobantesSinArchivo(m1q); m1q.comprobantes.push(Object.assign({}, sinArch)); const n3=_quitarComprobantesSinArchivo(m1q);'
+       +'const quita=n1===1 && n2===0 && n3===1 && m1q.comprobantes.length===1 && m1q.comprobantes[0]===bueno && m1q.comprobantesSinArchivo.length===1 && typeof m1q.comprobantesSinArchivo[0].quitadoMs==="number" && m1q.estadoSoporte==="completo";'
+       +'const oidP="prueba_fusion_v308"; _baseMovs[oidP]={}; const rotoF={nombre:"r.jpg", tipo:"imagen", fecha:"2026-09-15T15:16:00.123Z"}; const G={nombre:"g.pdf", tipo:"pdf", url:"https://x/g", fileId:"G1", fecha:"2026-09-16T10:00:00.000Z"};'
+       +'const r1=_fusionarMovsAlCargar(oidP, [{id:"M", comprobantes:[G], comprobantesSinArchivo:[Object.assign({},rotoF)]}], [{id:"M", comprobantes:[Object.assign({},rotoF)]}]);'
+       +'const r2=_fusionarMovsAlCargar(oidP, [{id:"M", comprobantes:[Object.assign({},rotoF)], nota:"admin"}], [{id:"M", comprobantes:[G], comprobantesSinArchivo:[Object.assign({},rotoF)]}]);'
+       +'const r3=_fusionarMovsAlCargar(oidP, [{id:"M", comprobantes:[Object.assign({},rotoF), G], comprobantesSinArchivo:[]}], [{id:"M", comprobantes:[Object.assign({},rotoF)]}]);'
+       +'delete _baseMovs[oidP]; const f1=r1.lista[0], f2=r2.lista[0], f3=r3.lista[0];'
+       +'const fusion=f1.comprobantes.length===1 && f1.comprobantes[0].fileId==="G1" && f2.comprobantes.length===1 && f2.comprobantes[0].fileId==="G1" && (f2.comprobantesSinArchivo||[]).length===1 && f2.nota==="admin" && f3.comprobantes.length===2;'
+       +'const aviso=_avisoSinArchivoHTML({comprobantes:[sinArch, bueno]}).indexOf("no llegó a Drive")>=0 && _avisoSinArchivoHTML({comprobantes:[bueno], comprobantesSinArchivo:[sinArch]})==="";'
+       +'const H="e".repeat(64); const o1=(DB.oficinas||[]).find(o=>(o.movimientos||[]).length); const m1=o1.movimientos[0]; const tenia=Array.isArray(m1.comprobantes); if(!tenia) m1.comprobantes=[]; const roto={nombre:"r.jpg", tipo:"imagen", hashImagen:H}; m1.comprobantes.push(roto); const dupRoto=_buscarHashDuplicadoGlobal(H, o1.id); roto.url="https://x"; roto.fileId="F"; const dupBueno=_buscarHashDuplicadoGlobal(H, o1.id); m1.comprobantes.splice(m1.comprobantes.indexOf(roto),1); if(!tenia) delete m1.comprobantes;'
+       +'const huella=dupRoto===null && !!dupBueno;'
+       +'const fOrig=window.fetch; let llamadas=0; let respuesta={ok:true, mensaje:"Receptor activo"};'
+       +'window.fetch=async(u,op)=>{ if(String(u)!==compsDriveUrl()) return fOrig(u,op); llamadas++; return { json: async()=>respuesta }; };'
+       +'const cfgU=DB.config&&DB.config.compsDriveUrl, cfgC=DB.config&&DB.config.compsDriveClave; if(!DB.config) DB.config={}; if(!cfgU) DB.config.compsDriveUrl="https://script.google.com/prueba/exec"; if(!cfgC) DB.config.compsDriveClave="prueba";'
+       +'const archivo=new File([new Uint8Array([1,2,3])], "p.jpg", {type:"image/jpeg"});'
+       +'let errorSinArchivo=null; try{ await subirArchivoDrive(archivo, o1.id, "m"); }catch(e){ errorSinArchivo=String(e.message); } const llamadasSinArchivo=llamadas;'
+       +'llamadas=0; respuesta={ok:true, fileId:"F9", url:"https://drive.google.com/thumbnail", verUrl:"https://drive.google.com/file/d/F9/view"}; const conArchivo=await subirArchivoDrive(archivo, o1.id, "m");'
+       +'window.fetch=fOrig; if(!cfgU) delete DB.config.compsDriveUrl; if(!cfgC) delete DB.config.compsDriveClave;'
+       +'const drive=/NO quedó guardado/.test(errorSinArchivo||"") && llamadasSinArchivo===2 && conArchivo.fileId==="F9" && llamadas===1;'
+       +'let contrato=null; try{ const t=await (await fetch("contrato.js?v=6",{cache:"no-store"})).text(); contrato=t.indexOf("!res.fileId || !res.url")>=0; }catch(e){ contrato="no se pudo leer"; }'
+       +'const scriptV=(document.querySelector("script[src^=contrato]")||{}).getAttribute ? document.querySelector("script[src^=contrato]").getAttribute("src") : "";'
+       +'const a=[{id:"1", fecha:"2026-09-15T10:00"},{id:"2", fecha:"2026-09-15T10:05"}], b=[{id:"2", fecha:"2026-09-15T10:05"},{id:"3", fecha:"2026-09-15T09:59"}];'
+       +'const u=_unirLogsAuditoria(a,b,500); const u2=_unirLogsAuditoria(a,b,2); const logsUnion=u.map(x=>x.id).join()==="3,1,2" && u2.map(x=>x.id).join()==="1,2";'
+       +'const sr=_saveReal.toString(); const escritura=sr.indexOf("_enviarLogsAuditoria(sanitizarFirebase)")>=0 && sr.indexOf("FieldValue.arrayUnion")<0 && sr.indexOf("_apartarComprobantesSinArchivo")<0 && typeof window._apartarComprobantesSinArchivo==="undefined";'
+       +'const idLg="prueba_v308_"+Date.now(); DB.logsAuditoria=DB.logsAuditoria||[]; DB.logsAuditoria.push({id:idLg, fecha:new Date().toISOString(), usuario:"prueba", rol:"admin", accion:"PRUEBA", detalles:{x:undefined}}); const bl0=(window._escriturasBloqueadas||[]).length; const ag0=window._logsAgregados;'
+       +'const lf=JSON.stringify(_limpiarLogsFirebase([{a:undefined, b:[[1,2]], c:"x", f:function(){}}])); const limpia=undefined; const env1=await _enviarLogsAuditoria(limpia); const bl1=(window._escriturasBloqueadas||[]).length; const anotado=window._logsEnNube.has(idLg); const env2=_enviarLogsAuditoria(limpia);'
+       +'DB.logsAuditoria=DB.logsAuditoria.filter(l=>l.id!==idLg); window._logsEnNube.delete(idLg); window._logsAgregados=ag0; if(window._escriturasBloqueadas) window._escriturasBloqueadas.length=bl0;'
+       +'const envio=lf===\'[{"b":[{"0":1,"1":2}],"c":"x"}]\' && env1>=1 && bl1===bl0+1 && anotado && env2===null && sr.indexOf("try{ _enviarLogsAuditoria(); }catch(_){}")>=0;'
+       +'const ins=_insigniaComprobantes({comprobantes:[sinArch, bueno]}, ""); const insignia=ins.indexOf(">1</span>")>=0 && ins.indexOf(">!</span>")>=0 && _insigniaComprobantes({comprobantes:[]}, "")==="";'
+       +'const faltantes=_comprobantesFaltantes.toString().indexOf("some(c=>!_esComprobanteSinArchivo(c))) return false;")>=0;'
+       +'const t=await (await fetch("OFICINAS_PTOVISION.html",{cache:"no-store"})).text();'
+       +'const subida=procesarArchivos.toString().split("_subidosOk++").length===3 && procesarArchivos.toString().indexOf("_quitarComprobantesSinArchivo(_movDestino(oid, mid, m))")>=0 && t.indexOf("⚠️ No llegó a Drive</span>")>=0;'
+       +'const refLote=_buscarReferenciaDuplicada.toString().indexOf("_esComprobanteSinArchivo(c)) continue;")>=0 && t.indexOf("(m.comprobantes||[]).some(c=>!_esComprobanteSinArchivo(c))) return false;")>=0 && t.split("_quitarComprobantesSinArchivo(mov);").length===3 && t.split("_insigniaComprobantes(m, \'").length===3 && t.indexOf("📎${(m.comprobantes||[]).length>0?")<0;'
+       +'const srM=modalLogsAuditoria.toString(); const modal=srM.indexOf("_unirLogsAuditoria(DB.logsAuditoria, remotos, 500)")>=0 && srM.indexOf("document.getElementById(\'log_filtro\')")>=0; const compacta=_compactarLogsAuditoria.toString().indexOf("runTransaction")>=0 && /MODO_PRUEBA/.test(_compactarLogsAuditoria.toString());'
+       +'return { detecta, quita, fusion, aviso, huella, drive, errorSinArchivo, llamadasSinArchivo, contrato, scriptV, logsUnion, escritura, envio, insignia, faltantes, subida, refLote, modal, compacta };'
+       +'})()');
+   }catch(e){ r={error:String(e&&e.message||e)}; }
+   const bien = r && !r.error && r.detecta && r.quita && r.fusion && r.aviso && r.huella && r.drive && r.contrato===true && r.scriptV==='contrato.js?v=6' && r.logsUnion && r.escritura && r.envio && r.insignia && r.faltantes && r.subida && r.refLote && r.modal && r.compacta;
+   return {ok:bien, detalle: bien
+     ? 'Si Drive responde "ok" sin archivo, la app reintenta una vez y luego avisa que NO quedó guardado; con archivo, acepta la subida ✓'
+      +'\nLa subida de contratos (contrato.js v6) tampoco acepta una respuesta sin archivo ✓'
+      +'\nUn comprobante sin enlace ni id no bloquea como duplicado (ni por huella ni por referencia), el cargue por lotes y el informe de faltantes lo tratan como pago sin comprobante, el botón 📎 muestra un ! rojo y la ventana del pago lo marca "No llegó a Drive" ✓'
+      +'\nEl guardado no toca nada: el roto se quita solo cuando la oficina sube otro a ese pago (queda anotado aparte, sin repetirse) y la fusión con la nube no lo revive, venga la anotación de esta sesión o de otra ✓'
+      +'\nEl registro de auditoría va en una escritura aparte (después del lote, y también si el guardado falla): agrega solo los registros nuevos (arrayUnion, sin campos vacíos ni arrays anidados), los anota cuando Firebase confirma y no repite; se une por id, se recorta en una transacción y la ventana solo se repinta si sigue abierta ✓'
+     : JSON.stringify(r)};}},
+{app:'ofi', titulo:'En el celular (375 px) ninguna sección de Oficinas se sale de la pantalla, y el encabezado de Técnicos tampoco',
+ porque:'15/9/2026: "se presentan dimensiones fuera del tamaño de la pantalla de los celulares". Medido a 375 px, las 21 secciones de '
+       +'Oficinas se salían, de 48 px (el encabezado) a 887 px (Energía y SG-SST). La causa de fondo: el contenedor de cada pantalla '
+       +'está en una columna flex y se centra con margin:auto, así que tomaba el ancho de su contenido y no el de la pantalla. '
+       +'En Técnicos, el nombre y los botones iban en una sola fila de 428 px. Esta prueba achica el marco de la app a 375 px y recorre '
+       +'las secciones que más se salían.',
+ correr:async W=>{
+   for(let k=0;k<90;k++){ if(E(W,'return window._cargaMovsIncompleta===false && (DB.oficinas||[]).some(o=>(o.movimientos||[]).length>0);')) break; await new Promise(r=>setTimeout(r,1000)); }
+   const fr=W.frameElement; const antes={w:fr.style.width, h:fr.style.height}; fr.style.width='375px'; fr.style.height='812px';
+   let r=null;
+   try{
+     r=await W.eval('(async function(){'
+       +'const app=document.getElementById("app"), ls=document.getElementById("login-screen"); const oculta=app.classList.contains("hidden"); const lsPrev=ls?ls.style.display:""; const uPrev=USER;'
+       +'if(!USER||!USER.role) USER={role:"admin"}; app.classList.remove("hidden"); if(ls) ls.style.display="none"; await new Promise(x=>setTimeout(x,300));'
+       +'const res={};'
+       +'for(const v of ["dash","registro","energia","sgsst","rrhh","ventas","proveedores","prestamos","reportes","incentivos"]){ try{ navigate(v); }catch(e){ res[v]="error: "+e.message; continue; } await new Promise(x=>setTimeout(x,450)); res[v]=document.documentElement.scrollWidth-document.documentElement.clientWidth; }'
+       +'const ancho=document.documentElement.clientWidth;'
+       +'if(oculta) app.classList.add("hidden"); if(ls) ls.style.display=lsPrev; USER=uPrev;'
+       +'let tec=null; try{ const t=await (await fetch("TECNICOS_PTOVISION.html",{cache:"no-store"})).text(); tec=/@media \\(max-width:900px\\)\\{ #app > header\\{ flex-wrap:wrap/.test(t); }catch(e){ tec="no se pudo leer"; }'
+       +'const menu=!!document.querySelector(".nav-btn[data-tab=antenas]") && document.querySelector(".nav-btn[data-tab=antenas]").textContent.indexOf("U0001f4e1")<0;'
+       +'return {ancho, res, tec, menu};'
+       +'})()');
+   }catch(e){ r={error:String(e&&e.message||e)}; }
+   finally{ fr.style.width=antes.w; fr.style.height=antes.h; }
+   const bien = r && !r.error && r.ancho>=340 && r.ancho<=380 && Object.values(r.res).every(x=>typeof x==='number' && x<=2) && r.tec===true && r.menu;
+   return {ok:bien, detalle: bien
+     ? 'Con el marco a '+r.ancho+' px, ninguna de estas secciones se sale: '+Object.keys(r.res).join(', ')+' ✓'
+      +'\nEl encabezado de Técnicos deja bajar los botones de línea en pantallas angostas ✓'
+      +'\nEl menú muestra 📡 Antenas Starlink (antes decía U0001f4e1) ✓'
+     : JSON.stringify(r)};}},
+{app:'inv', titulo:'En el celular (375 px) ninguna pestaña de Inventario se sale de la pantalla',
+ porque:'15/9/2026. Medido a 375 px se salían el panel (210 px), Entregas (1.396), Cuartos (667), Recuperados (437) y Clientes (476): '
+       +'cuadrículas en línea de dos columnas o con minmax fijo, tablas fuera de .table-wrap, el dibujo del rack de 340 px y textos '
+       +'largos sin espacios. Esta prueba achica el marco de la app a 375 px y recorre esas pestañas.',
+ correr:async W=>{
+   const fr=W.frameElement; const antes={w:fr.style.width, h:fr.style.height}; fr.style.width='375px'; fr.style.height='812px';
+   let r=null;
+   try{
+     r=await W.eval('(async function(){'
+       +'const app=document.getElementById("app"), ls=document.getElementById("login-screen"); const oculta=app.classList.contains("hidden"); const lsPrev=ls?ls.style.display:""; const uPrev=USER;'
+       +'if(!USER||!USER.role) USER={role:"admin"}; app.classList.remove("hidden"); if(ls) ls.style.display="none"; await new Promise(x=>setTimeout(x,300));'
+       +'const res={};'
+       +'for(const t of ["dash","entregas","cuartos","recuperados","clientes","bodegas","consumos"]){ try{ navigate(t); }catch(e){ res[t]="error: "+e.message; continue; } await new Promise(x=>setTimeout(x,500)); res[t]=document.documentElement.scrollWidth-document.documentElement.clientWidth; }'
+       +'const ancho=document.documentElement.clientWidth;'
+       +'if(oculta) app.classList.add("hidden"); if(ls) ls.style.display=lsPrev; USER=uPrev;'
+       +'return {ancho, res};'
+       +'})()');
+   }catch(e){ r={error:String(e&&e.message||e)}; }
+   finally{ fr.style.width=antes.w; fr.style.height=antes.h; }
+   const bien = r && !r.error && r.ancho>=340 && r.ancho<=380 && Object.values(r.res).every(x=>typeof x==='number' && x<=2);
+   return {ok:bien, detalle: bien
+     ? 'Con el marco a '+r.ancho+' px, ninguna de estas pestañas se sale: '+Object.keys(r.res).join(', ')+' ✓'
+     : JSON.stringify(r)};}},
 {app:'ofi', titulo:'Un comprobante bloqueado por duplicado se puede subir escribiendo por qué no es el mismo, y queda marcado para el administrador',
  porque:'Pedido de Elkin del 15/9/2026: cuando la app dice que un comprobante está repetido, poder subirlo igual con un comentario '
        +'que explique por qué no es el mismo. Antes solo había un aviso y no se podía seguir. El motivo es obligatorio, queda en el '
