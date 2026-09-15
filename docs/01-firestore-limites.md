@@ -204,6 +204,24 @@ con un bloque cambiado, 1 bajado y 39 de la copia, con los movimientos
 idénticos. La consola de cada sesión lo resume en la línea
 "📦 Bloques de movimientos".
 
+## Un campo `undefined` tumba el lote entero (OFICINAS v306, 15 Sep 2026)
+
+Firebase rechaza un `WriteBatch` completo si cualquier campo de cualquier
+documento vale `undefined` ("Unsupported field value: undefined"). El 15 Sep
+2026 eso dejó a NATALIA y ESNEIDER sin poder guardar desde las 8:54, y
+`errores_guardado` lo registró. El documento principal no fallaba porque se
+arma con `JSON.parse(JSON.stringify(...))`, que quita los `undefined`; los
+bloques pasaban por `sanitizarFirebase`, que no los quitaba.
+
+Desde la v306 `sanitizarFirebase` omite los campos `undefined` o de tipo
+función y anota dónde estaban. La lista sale en la consola y en
+`errores_guardado`, con el título "Campos vacíos quitados", una vez cada 30
+minutos. Un origen encontrado: `_aplicarPagosWisphubEnMemoria` copiaba
+`f.tipo` sin revisar.
+
+**Al crear un registro nuevo, nunca asignar un valor que pueda ser
+`undefined`**: usar `null` o `''`.
+
 ## Leer los fallos de guardado
 
 Para saber por qué falló un guardado en una oficina, leer `errores_guardado`

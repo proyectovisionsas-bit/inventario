@@ -3410,6 +3410,34 @@ const PRUEBAS = [
        +(noStandalone.length?'No abren en ventana propia: '+noStandalone.join(', '):'')};
  }},
 
+{app:'ofi', titulo:'Un dato vacío en un movimiento ya no tumba el guardado',
+ porque:'15/9/2026: errores_guardado anotó 10 fallos en NATALIA y ESNEIDER con "Unsupported field value: undefined". Firebase '
+       +'rechaza el lote ENTERO si un campo vale undefined, así que ningún guardado de esas oficinas entraba y los comprobantes se '
+       +'quedaban solo en pantalla. Un origen: la sincronización en memoria de WispHub copiaba el tipo de factura sin revisar. '
+       +'Esta prueba mete un campo vacío en un movimiento y en un comprobante, y hace un guardado real (en modo prueba no llega a la nube).',
+ correr:async W=>{
+   for(let k=0;k<90;k++){ if(E(W,'return window._cargaMovsIncompleta===false && (DB.oficinas||[]).some(o=>(o.movimientos||[]).length>0);')) break; await new Promise(r=>setTimeout(r,1000)); }
+   let r=null;
+   try{
+     r=await W.eval('(async function(){'
+       +'const sr=_saveReal.toString(); const fuente=sr.indexOf("if(obj[k]===undefined || typeof obj[k]===")>=0 && sr.indexOf("_avisarCamposVacios([..._camposVacios])")>=0 && sr.indexOf("if(obj===undefined || typeof obj===")>=0;'
+       +'const origen=_aplicarPagosWisphubEnMemoria.toString().indexOf("tipoFacturaWisphub:(f.tipo!=null?f.tipo:null)")>=0;'
+       +'const nBloq=(window._escriturasBloqueadas||[]).length; const _b0=db.batch.bind(db); let conjuntos=0; const rechazos=[];'
+       +'db.batch=function(){ const b=_b0(); const setO=b.set.bind(b); b.set=function(ref,data,op){ conjuntos++; try{ return setO(ref,data,op); }catch(e){ rechazos.push(String(e&&e.message||e).slice(0,140)); throw e; } }; return b; };'
+       +'const o=(DB.oficinas||[]).find(x=>(x.movimientos||[]).length); const m=o.movimientos[o.movimientos.length-1]; m.campoVacioPrueba=undefined; const tenia=Array.isArray(m.comprobantes); if(!tenia) m.comprobantes=[]; const cP={nombre:"prueba_vacio.pdf", referencia:undefined}; m.comprobantes.push(cP);'
+       +'const alertaOriginal=window.alert; const alertas=[]; window.alert=t=>alertas.push(String(t).slice(0,80));'
+       +'let ok=null, err=null; try{ await _saveReal({silencioso:true}); ok=window._ultimoGuardadoOk; }catch(e){ err=String(e&&e.message||e); }'
+       +'window.alert=alertaOriginal; db.batch=_b0; delete m.campoVacioPrueba; m.comprobantes.splice(m.comprobantes.indexOf(cP),1); if(!tenia) delete m.comprobantes;'
+       +'if(window._escriturasBloqueadas) window._escriturasBloqueadas.length=nBloq;'
+       +'return { fuente, origen, ok, err, conjuntos, rechazos, alertas };'
+       +'})()');
+   }catch(e){ r={error:String(e&&e.message||e)}; }
+   const bien = r && !r.error && r.fuente && r.origen && r.ok===true && !r.err && r.conjuntos>0 && r.rechazos.length===0 && r.alertas.length===0;
+   return {ok:bien, detalle: bien
+     ? 'Con un campo vacío en un movimiento y otro en un comprobante, el guardado armó '+r.conjuntos+' escritura(s) y Firebase no rechazó ninguna: los campos vacíos se quitan antes de enviar ✓'
+      +'\nLa lista de campos vacíos queda anotada en la consola y en errores_guardado (una vez cada 30 minutos) para encontrar el origen ✓'
+      +'\nLa sincronización de WispHub en memoria ya no deja el tipo de factura vacío ✓'
+     : JSON.stringify(r)};}},
 {app:'red', titulo:'Nada se escribió durante las pruebas',
  porque:'Las pruebas corren sobre los datos de verdad. Si alguna escribiera, dañaría justo lo que '
        +'está revisando.',

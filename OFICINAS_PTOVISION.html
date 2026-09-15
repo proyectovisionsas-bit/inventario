@@ -948,7 +948,7 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION = 305; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 306; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -969,7 +969,7 @@ const APP_VERSION = 305; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '14 Sep 2026 (v305: cada sesion baja solo los bloques de movimientos que cambiaron; las referencias debiles ya no bloquean como duplicado; abonos y PDF con huella; el cargue por lotes ya no pierde comprobantes. v304: guardado por bloques. Historial en git y en docs/01-firestore-limites.md)';
+const APP_VERSION_FECHA = '15 Sep 2026 (v306: un dato vacio en un movimiento ya no tumba el guardado; se quita y queda anotado. v305: duplicados, cargue por lotes y recarga por firmas. Historial en git y en docs/01-firestore-limites.md)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -1277,6 +1277,19 @@ function _programarReintentoGuardado(motivo){
         console.log(`🔁 Reintento automático de guardado ${n+1}/${ESPERAS.length} (${motivo})`); try{ save(); }catch(_){} }, seg*1000);
     try{ showSync('err', `Reintenta en ${seg} s`); }catch(_){}
     return seg;
+}
+// v306: un campo undefined hace que Firebase rechace TODO el lote. El guardado ahora lo quita; esto deja dicho
+// cuáles eran (en la consola y en errores_guardado) para corregir el origen. Una vez cada 30 minutos por lista.
+function _avisarCamposVacios(lista){
+    try{
+        console.warn('🧩 Campos vacíos (undefined) quitados antes de guardar:', lista.join(', '));
+        if(MODO_PRUEBA) return false;
+        const clave=lista.slice().sort().join('|'); const ahora=Date.now();
+        if(window._avisoCamposVacios && window._avisoCamposVacios.clave===clave && ahora-window._avisoCamposVacios.ms<1800000) return false;
+        window._avisoCamposVacios={clave, ms:ahora};
+        _registrarFalloGuardado({message:'Aviso, no es un fallo: se quitaron campos vacíos antes de guardar: '+lista.slice(0,20).join(', '), code:'aviso-campos-vacios'}, {titulo:'🧩 Campos vacíos quitados', aviso:true});
+        return true;
+    }catch(e){ return false; }
 }
 function _esEntornoLocal(loc){ loc=loc||location; const h=String(loc.hostname||''); return loc.protocol==='file:' || !h || /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[::1\])/.test(h); }
 // v303: cuando la nube no acepta un cambio de este equipo, se dice en pantalla (antes solo en la consola). Como mucho una vez cada 10 minutos.
@@ -1978,8 +1991,14 @@ async function _saveReal(_opts){
     try{
         // ⚠️ CRÍTICO: Firebase NO acepta arrays anidados. Sanitizar TODOS los arrays anidados
         // convirtiéndolos en objetos {0:x, 1:y, ...}
+        // v306 (15 sep 2026): Firebase rechaza un lote ENTERO si un campo vale undefined ("Unsupported field value:
+        // undefined"). Pasó en NATALIA y ESNEIDER: ningún guardado entraba y los comprobantes se quedaban en pantalla.
+        // Ahora se quitan antes de enviar, y la lista de campos queda anotada para encontrar el origen.
+        const _camposVacios=new Set();
+        function _anotarCampoVacio(r){ if(_camposVacios.size<30) _camposVacios.add(String(r||'(raíz)').replace(/\[\d+\]/g,'[]')); }
         function sanitizarFirebase(obj, ruta=''){
-            if(obj===null||obj===undefined) return obj;
+            if(obj===null) return obj;
+            if(obj===undefined || typeof obj==='function'){ _anotarCampoVacio(ruta); return null; }   // v306
             if(Array.isArray(obj)){
                 return obj.map((item,i)=>{
                     if(Array.isArray(item)){
@@ -1995,6 +2014,7 @@ async function _saveReal(_opts){
             if(typeof obj==='object'){
                 const r={};
                 for(const k of Object.keys(obj)){
+                    if(obj[k]===undefined || typeof obj[k]==='function'){ _anotarCampoVacio(ruta?ruta+'.'+k:k); continue; }   // v306: el campo se omite
                     r[k]=sanitizarFirebase(obj[k], ruta?ruta+'.'+k:k);
                 }
                 return r;
@@ -2558,6 +2578,7 @@ async function _saveReal(_opts){
                 throw new Error(`Hay ${_gigantes.length} bloque(s) de datos que pasan el límite de 1 MB de Firebase: ${_lista}. Avísale a soporte con este dato para partirlos.`);
             }
 
+            if(_camposVacios.size) _avisarCamposVacios([..._camposVacios]);   // v306: deja dicho qué campos venían vacíos
             // 2) Armar los lotes cuidando el PESO
             const lotes=[]; let actual=[], pesoActual=0;
             opsEscritura.forEach(op=>{
@@ -31564,7 +31585,7 @@ function _aplicarPagosWisphubEnMemoria(o, facturas){
             valor:valor, fecha:fechaISO,
             facturaWisphub:numero, clienteWisphub:cliente, cedulaWisphub:cedula,
             cajeroWisphub:cajero, origen:'cierre_wisphub',
-            esOtroIngreso:esOtroIngreso, tipoFacturaWisphub:f.tipo,
+            esOtroIngreso:esOtroIngreso, tipoFacturaWisphub:(f.tipo!=null?f.tipo:null),   // v306: WispHub a veces no manda el tipo (quedaba undefined)
             requiereSoporte:requiereSoporte,
             estadoSoporte:requiereSoporte?'pendiente':'no_aplica',
             comprobantes:[]
