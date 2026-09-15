@@ -773,6 +773,152 @@ const PRUEBAS = [
        +'\ncon reloj corrido: '+r.c2+' (finalizada) · conserva material: '+r.c2mat+' (true)'
        +'\nreagenda: '+r.c3+' (aceptada) · ids finales: '+r.c4ids+' (a,nueva)'};}},
 
+{app:'ofi', titulo:'Un guardado no escribe con la memoria a medio cargar ni un bloque que no pudo verificar; las firmas que faltan se siembran',
+ porque:'Segunda revisión del 14/9/2026 sobre la recarga parcial. (1) Si un guardado ocurría mientras corría una recarga, la recarga '
+       +'aplicaba después la copia vieja y el guardado siguiente la escribía encima: el comprobante recién adjuntado desaparecía. (2) Un '
+       +'bloque que no se podía leer al verificar se daba por bueno, y si el índice no se podía leer se reescribía todo con cero bloques '
+       +'en la nube. (3) Escribiendo documento por documento, un bloque podía quedar nuevo con la firma vieja en el índice. (4) Los bloques '
+       +'que nadie reescribe nunca recibían firma, así que el ahorro casi no se daba. (5) Al registrar un abono enseguida de elegir el '
+       +'archivo, el archivo podía no alcanzar a entrar.',
+ correr:async W=>{
+   for(let k=0;k<90;k++){ if(E(W,'return window._cargaMovsIncompleta===false && (DB.oficinas||[]).some(o=>(o.movimientos||[]).length>0);')) break; await new Promise(r=>setTimeout(r,1000)); }
+   const a=E(W,
+     'const sb=window._sigMovsBloque||{}; const d1={}; _anotarFirmaBloqueMovs("zz_prueba1",0,[{id:1}],d1); const aparte=typeof (d1.zz_prueba1||[])[0]==="string" && !sb.zz_prueba1;'
+   +'if(window._cacheBloquesMovs) delete window._cacheBloquesMovs.zz_prueba1;'
+   +'window._cacheBloquesMovs=window._cacheBloquesMovs||{}; window._cacheBloquesMovs.zz_prueba2={n:1, completoMs:1, huerfanos:0, bloques:{0:{firma:"q", json:JSON.stringify([{id:"x"}])}}}; const d2={}; const rb=_bloqueDesdeCache("zz_prueba2",0,d2);'
+   +'const copiaAparte=!!rb && rb.movs[0].id==="x" && d2.zz_prueba2[0]==="q" && !(window._sigMovsBloque||{}).zz_prueba2; delete window._cacheBloquesMovs.zz_prueba2;'
+   +'_cacheConfirmarEscrituraMovs("zz_prueba3",2,[[0,[]],[1,[]]],["a","b"]); const noCompleta=window._cacheBloquesMovs.zz_prueba3 && window._cacheBloquesMovs.zz_prueba3.completoMs===0 && _planLecturaBloques("zz_prueba3",2,{0:"a",1:"b"}).parcial===false; delete window._cacheBloquesMovs.zz_prueba3;'
+   +'const sr=_saveReal.toString();'
+   +'const espera=sr.indexOf("_cargaMovsEnCurso.then")>=0 && sr.indexOf("_cargaMovsEnCurso.then") < sr.indexOf("Índice remoto: para NO encoger");'
+   +'const sinIndice=sr.indexOf("No se pudo leer índice remoto (protección):")>=0 && /índice remoto .protección.:., e.; _saltarMovs=true;/.test(sr) && /if.._saltarMovs. opsEscritura.push/.test(sr) && /GUARDA 0/.test(sr);'
+   +'const noVerificado=/x.firma===undefined. return true/.test(sr) && sr.indexOf("_idsCambiados.forEach(id=>_noEscribirOfis.add(id))")>=0 && sr.indexOf("_saltarMovs || _noEscribirOfis.has(o.id)")>=0;'
+   +'const unoPorUno=sr.indexOf("_b2.set(op.ref, op.data)")>=0 && sr.indexOf("_b2.set(_refIdxUno")>=0 && sr.indexOf("await _b2.commit()")>=0 && sr.indexOf("_quitarFirmasFallidas(op, new Set(lotes[li]")>=0;'
+   +'const esperaTodas=/while.window._cargaMovsEnCurso && ._saltarMovs./.test(sr) && /_parcialReintentable = _saltarMovs .. _noEscribirOfis.size>0/.test(sr) && /if.window._parcialReintentable./.test(sr) && sr.indexOf("movimientos sin verificar")>=0 && /_cargasMovsVivas.clear../.test(sr) && /_ofiPreservada && .window._parcialReintentable/.test(sr);'
+   +'const generacion=sr.indexOf("window._genConfirmMovs=(window._genConfirmMovs||0)+1")>=0;'
+   +'const lc=_cargarMovimientosChunks.toString(); const cargador=lc.indexOf("_genConfirmMovs||0)!==_genInicio")>=0 && lc.indexOf("window._sigMovsBloque[ofiId] = (_firmasCarga[ofiId]||[]).slice()")>=0 && /finally/.test(lc) && lc.indexOf("_sembrarFirmasMovs()")>=0 && lc.indexOf("_genInicio") < lc.indexOf("Aplicar resultados a la memoria");'
+   +'const sf=_sembrarFirmasMovs.toString(); const siembra=/MODO_PRUEBA/.test(sf) && /runTransaction/.test(sf) && /tx.get.refB./.test(sf) && sf.indexOf("_sigMovsBloque")<0;'
+   +'const abono=guardarAbonoEspecial.toString().indexOf("_esperandoHuellaAbono")>=0 && subirCompsAbonoExistente.toString().indexOf("_esperandoHuellaAbono")>=0 && /finally/.test(_handleAbonoCompFiles.toString()) && _handleAbonoCompFiles.toString().indexOf("_huellasAbonoPendientes")>=0;'
+   +'const secuencia=lc.indexOf("_seqCargaAplicada||0) > _seq")>=0 && lc.indexOf("_cargasMovsVivas")>=0 && lc.indexOf("_recargarVistaSilenciosa")>=0;'
+   +'return { aparte, copiaAparte, noCompleta, espera, esperaTodas, sinIndice, noVerificado, unoPorUno, generacion, cargador, secuencia, siembra, abono };');
+   let real=null;
+   try{
+     real=await W.eval('(async function(){'
+       +'const sembradasPrueba=await _sembrarFirmasMovs();'
+       +'await _cargarMovimientosChunks({completo:true});'
+       +'const firmas={}; Object.keys(window._cacheBloquesMovs||{}).forEach(oid=>{ const c=window._cacheBloquesMovs[oid]; if(!c||!c.n) return; firmas[oid]={}; for(let i=0;i<c.n;i++){ if(c.bloques[i]) firmas[oid][i]=c.bloques[i].firma; } });'
+       +'const antesD=window._ultimaCargaDescartada||0; const antesA=window._ultimaCargaAplicada||0;'
+       +'const pc=_cargarMovimientosChunks({_firmasPrueba:firmas}); const esperaba=!!window._cargaMovsEnCurso;'
+       +'window._genConfirmMovs=(window._genConfirmMovs||0)+1;'
+       +'await pc; const descartada=(window._ultimaCargaDescartada||0)>antesD; const noAplico=(window._ultimaCargaAplicada||0)===antesA;'
+       +'await new Promise(r=>setTimeout(r,3000));'
+       +'const reaplicada=(window._ultimaCargaAplicada||0)>antesA; const libre=!window._cargaMovsEnCurso;'
+       +'const antesD2=window._ultimaCargaDescartada||0; let l1Listo=false;'
+       +'const l1=_cargarMovimientosChunks({completo:true}).then(()=>{ l1Listo=true; }); const l2=_cargarMovimientosChunks({_firmasPrueba:firmas});'
+       +'await l2; const l2Primero=!l1Listo; const sigueEsperando=l2Primero ? !!window._cargaMovsEnCurso : true;'
+       +'await l1; const viejaDescartada=l2Primero ? (window._ultimaCargaDescartada||0)>antesD2 : true; const libre2=!window._cargaMovsEnCurso;'
+       +'return { sembradasPrueba, esperaba, descartada, noAplico, reaplicada, libre, l2Primero, sigueEsperando, viejaDescartada, libre2, incompleta:window._cargaMovsIncompleta };'
+       +'})()');
+   }catch(e){ real={error:String(e&&e.message||e)}; }
+   const realOk = real && !real.error && real.sembradasPrueba===0 && real.esperaba && real.descartada && real.noAplico && real.reaplicada && real.libre && real.sigueEsperando && real.viejaDescartada && real.libre2 && real.incompleta===false;
+   const bien = a.aparte && a.copiaAparte && a.noCompleta && a.espera && a.esperaTodas && a.sinIndice && a.noVerificado && a.unoPorUno && a.generacion && a.cargador && a.secuencia && a.siembra && a.abono && realOk;
+   return {ok:bien, detalle: bien
+     ? 'Con los datos reales: una carga en curso queda anunciada para que el guardado la espere; si un guardado confirma a mitad de la carga, lo leído no se aplica y la carga se repite sola ✓'
+      +'\nLas firmas de una carga llegan a la sesión junto con los movimientos, no antes; la copia que deja un guardado no cuenta como carga completa ✓'
+      +'\nUn bloque que no se pudo leer al verificar cuenta como cambiado; si la recarga no termina, esa oficina no se reescribe; sin índice legible no se escriben movimientos ni el índice ✓'
+      +'\nCon dos cargas a la vez, el guardado espera las dos'+(real.l2Primero?' y la más vieja, que terminó después, no se aplica':'')+'; si no se pudo verificar la nube, el guardado parcial se reintenta solo ✓'
+      +'\nEscribiendo documento por documento, cada bloque va con su firma en un lote de dos escrituras: entran los dos o ninguno ✓'
+      +'\nLas firmas que faltan se siembran leyendo cada bloque dentro de una transacción (en la copia de prueba no se siembra nada) ✓'
+      +'\nRegistrar un abono espera a que el archivo recién elegido termine de calcular su huella ✓'
+     : JSON.stringify({a, real})};}},
+{app:'ofi', titulo:'Cada sesión baja solo los bloques de movimientos que cambiaron, y nunca pisa un bloque que otra sesión cambió; abonos y PDF con huella',
+ porque:'Auditoría del 14/9/2026: los movimientos son 40 bloques y 8,5 MB, y cada guardado de CUALQUIER sesión hacía que TODAS las demás '
+       +'volvieran a bajar los 40. Con el internet de las oficinas eso deja "esta oficina no terminó de cargar" y guardados parciales. Ahora quien '
+       +'guarda escribe la firma de cada bloque en el mismo lote que el bloque, y quien recarga usa su copia de los bloques cuya firma no cambió. '
+       +'Además, los abonos de clientes especiales y los PDF sueltos no tenían huella: ningún control veía si se reutilizaban.',
+ correr:async W=>{
+   for(let k=0;k<90;k++){ if(E(W,'return window._cargaMovsIncompleta===false && (DB.oficinas||[]).some(o=>(o.movimientos||[]).length>0);')) break; await new Promise(r=>setTimeout(r,1000)); }
+   const a=E(W,
+     'const viejo=window._cacheBloquesMovs; const ahora=Date.now();'
+   +'window._cacheBloquesMovs={x:{n:3, completoMs:ahora, huerfanos:0, bloques:{0:{firma:"a",json:"[]"},1:{firma:"b",json:"[]"},2:{firma:"c",json:"[]"}}}, h:{n:2, completoMs:ahora, huerfanos:1, bloques:{}}, v:{n:2, completoMs:ahora-16*60000, huerfanos:0, bloques:{}}};'
+   +'const pl=(o,n,f,fz)=>{ const r=_planLecturaBloques(o,n,f,fz,ahora); return (r.parcial?"P:":"T:")+[...r.reusar].join(","); };'
+   +'const planes=[pl("x",3,{0:"a",1:"otra",2:"c"}), pl("x",3,{0:"a",1:"b",2:"c"}), pl("x",4,{0:"a"}), pl("x",3,null), pl("x",3,{0:"a"},true), pl("nadie",3,{0:"a"}), pl("h",2,{}), pl("v",2,{0:"a"})];'
+   +'_cacheConfirmarEscrituraMovs("x",3,[[1,[{id:"m"}]]],["a","nueva","c"]); const conf1=window._cacheBloquesMovs.x.bloques[1].firma==="nueva" && window._cacheBloquesMovs.x.bloques[1].json===JSON.stringify([{id:"m"}]) && window._cacheBloquesMovs.x.bloques[0].firma==="a";'
+   +'_cacheConfirmarEscrituraMovs("y",2,[[0,[]]],["p","q"]); _cacheConfirmarEscrituraMovs("z",2,[[0,[]],[1,[]]],["p","q"]); const conf2=!window._cacheBloquesMovs.y && window._cacheBloquesMovs.z && window._cacheBloquesMovs.z.n===2;'
+   +'_finCargaOficinaCache("x",3,false,false,0); const tira=!window._cacheBloquesMovs.x;'
+   +'window._cacheBloquesMovs=viejo;'
+   +'const lotes=[[{ref:"b0",data:{},_movFirma:{oid:"o",i:0,firma:"f0"}},{ref:"cli",data:{}}],[{ref:"b1",data:{},_movFirma:{oid:"o",i:1,firma:"f1"}},{ref:"idx",data:{porOficina:{o:2},actualizado:1},_esIdxMovs:true},{ref:"log",data:{}}]];'
+   +'_repartirFirmasMovsEnLotes(lotes,"IDX"); const r0=lotes[0].filter(op=>op.ref==="IDX"), r1=lotes[1].filter(op=>op.ref==="IDX");'
+   +'const reparto=r0.length===1 && r1.length===1 && r0[0].merge===true && r0[0].data.firmas.o["0"]==="f0" && !r0[0].data.porOficina && r1[0].data.firmas.o["1"]==="f1" && r1[0].data.porOficina.o===2 && !lotes.some(l=>l.some(op=>op._esIdxMovs));'
+   +'const solo=[[{ref:"cli",data:{}},{ref:"idx",data:{porOficina:{o:1}},_esIdxMovs:true}]]; _repartirFirmasMovsEnLotes(solo,"IDX"); const rs=solo[0].filter(op=>op.ref==="IDX"); const soloIdx=rs.length===1 && rs[0].merge===true && rs[0].data.porOficina.o===1 && !rs[0].data.firmas;'
+   +'const opF={data:{firmas:{o:{"0":"f0","1":"f1"}, p:{"0":"g"}}, porOficina:{}}}; _quitarFirmasFallidas(opF, new Set(["o|1","p|0"])); const quita=JSON.stringify(opF.data.firmas)===JSON.stringify({o:{"0":"f0"}});'
+   +'const sr=_saveReal.toString(); const escritor=/_repartirFirmasMovsEnLotes._copiaL/.test(sr) && /_movFirma: . oid:o.id, i, firma:_plan.firmas.i. ./.test(sr) && /_esIdxMovs: true/.test(sr) && /_quitarFirmasFallidas.op, new Set.lotes.li..filter/.test(sr) && /_cacheConfirmarEscrituraMovs.oid, p.numChunks/.test(sr) && /_cargarMovimientosChunks..completo:true../.test(sr) && sr.indexOf("La nube cambió después de cargar") < sr.indexOf("GUARDA 1");'
+   +'const lc=_cargarMovimientosChunks.toString(); const lector=/_planLecturaBloques.ofiId, nIdx, _idxFirmas.ofiId., _forzarCompleto./.test(lc) && /while.._plan.parcial/.test(lc) && /_finCargaOficinaCache.ofiId, nIdx, .huboError, _plan.parcial, huerfanos./.test(lc);'
+   +'const H="f".repeat(64); const abonos=DB.abonosEspeciales||(DB.abonosEspeciales=[]); const falso={id:"prueba_abono", clienteId:"x", valor:12345, fecha:"2026-09-14", comprobantes:[{nombre:"a.pdf", fecha:"2026-09-14T16:00:00", hashArchivo:H}]}; abonos.push(falso);'
+   +'const enAbono=_buscarHashDuplicadoGlobal(H, null); abonos.splice(abonos.indexOf(falso),1);'
+   +'const huellaAbono=!!enAbono && enAbono.esAbono===true && enAbono.movimiento.valor===12345 && enAbono.enNube===undefined && !_buscarHashDuplicadoGlobal(H, null);'
+   +'let huellaPdf=null; const o1=(DB.oficinas||[]).find(o=>(o.movimientos||[]).length); if(o1){ const m1=o1.movimientos[0]; const tenia=Array.isArray(m1.comprobantes); if(!tenia) m1.comprobantes=[]; const c1={nombre:"b.pdf", hashArchivo:H}; m1.comprobantes.push(c1); const d=_buscarHashDuplicadoGlobal(H, o1.id); m1.comprobantes.splice(m1.comprobantes.indexOf(c1),1); if(!tenia) delete m1.comprobantes; huellaPdf=!!d && d.movimiento.id===m1.id && d.enNube===false; }'
+   +'const ab=_handleAbonoCompFiles.toString(); const pa=procesarArchivos.toString(); const flujos=/_hashImagen.du./.test(ab) && /_buscarHashDuplicadoGlobal.hash, null./.test(ab) && /hashArchivo:_hArch/.test(pa) && /_dA.movimiento.id===mid/.test(pa) && /hashArchivo:c.hash/.test(subirCompsAbonoExistente.toString()) && /hashArchivo:c.hash/.test(guardarAbonoEspecial.toString());'
+   +'return { planes, conf1, conf2, tira, reparto, soloIdx, quita, escritor, lector, huellaAbono, huellaPdf, flujos };');
+   let real=null;
+   try{
+     real=await W.eval('(async function(){'
+       +'const foto=()=>(DB.oficinas||[]).map(o=>o.id+":"+(o.movimientos||[]).length+":"+_hashStr(_jsonEstable(o.movimientos||[]))).join("|");'   /* sin importar el orden de los campos: Firebase los entrega en otro orden en cada lectura */
+       +'await _cargarMovimientosChunks({completo:true}); const stC=Object.assign({}, window._statsCargaMovs); const antes=foto();'
+       +'const firmas={}; let bloques=0; Object.keys(window._cacheBloquesMovs||{}).forEach(oid=>{ const c=window._cacheBloquesMovs[oid]; if(!c||!c.n) return; firmas[oid]={}; for(let i=0;i<c.n;i++){ if(c.bloques[i]){ firmas[oid][i]=c.bloques[i].firma; bloques++; } } });'
+       +'await _cargarMovimientosChunks({_firmasPrueba:firmas}); const stP=Object.assign({}, window._statsCargaMovs); const igual=foto()===antes;'
+       +'const f2=JSON.parse(JSON.stringify(firmas)); const o0=Object.keys(f2).find(k=>f2[k]["0"]); if(o0) f2[o0]["0"]="distinta";'
+       +'await _cargarMovimientosChunks({_firmasPrueba:f2}); const stD=Object.assign({}, window._statsCargaMovs); const igual2=foto()===antes;'
+       +'return { bloques, stC, stP, stD, igual, igual2, incompleta:window._cargaMovsIncompleta };'
+       +'})()');
+   }catch(e){ real={error:String(e&&e.message||e)}; }
+   const planesOk = JSON.stringify(a.planes)===JSON.stringify(['P:0,2','P:0,1,2','T:','T:','T:','T:','T:','T:']);
+   const realOk = real && !real.error && real.bloques>0 && real.stC.leidos>=real.bloques && real.stC.reusados===0
+     && real.stP.leidos===0 && real.stP.reusados===real.bloques && real.igual && real.stD.leidos===1 && real.stD.reusados===real.bloques-1 && real.igual2 && real.incompleta===false;
+   const bien = planesOk && a.conf1 && a.conf2 && a.tira && a.reparto && a.soloIdx && a.quita && a.escritor && a.lector && a.huellaAbono && (a.huellaPdf===null || a.huellaPdf===true) && a.flujos && realOk;
+   return {ok:bien, detalle: bien
+     ? 'Con los datos reales: la carga completa bajó '+real.stC.leidos+' bloques; con las firmas iguales, la recarga bajó 0 y tomó '+real.stP.reusados+' de la copia, y los movimientos quedaron idénticos ✓'
+      +'\nSi cambia la firma de un solo bloque, se baja solo ese ('+real.stD.leidos+') y el resto sale de la copia ✓'
+      +'\nSe baja todo si: no hay copia, cambió la cantidad de bloques, el índice no trae firmas, hay bloques fuera del índice o pasaron 15 minutos ✓'
+      +'\nQuien guarda pone la firma de cada bloque en el mismo lote que el bloque, con merge; la cantidad de bloques va en el último lote; un bloque que falla no deja firma ✓'
+      +'\nAntes de escribir, quien guarda relee los bloques que va a reescribir; si otra sesión los cambió, recarga completo y fusiona antes de escribir ✓'
+      +'\nLos abonos de clientes especiales y los PDF sueltos tienen huella: el mismo archivo ya no se puede usar en dos pagos ✓'
+     : JSON.stringify({a, real})};}},
+{app:'ofi', titulo:'Un comprobante distinto ya no sale como duplicado por una referencia que se repite; el cargue por lotes no pierde comprobantes',
+ porque:'Auditoría del 14/9/2026 ("dice que hay comprobantes duplicados y al revisar no son los mismos"). En la nube, las 314 referencias de '
+       +'Bancolombia que lee la IA tienen la forma 0000XXXX00: solo hay 999 posibles y 55 ya se repetían entre clientes; con el mismo valor '
+       +'bloqueaban pagos distintos. Dos pagos de clientes distintos tenían M1234567890, el ejemplo del mensaje a la IA, y tres la cuenta de la '
+       +'empresa mal leída. Además, el cargue por lotes (1) seguía aunque la oficina no hubiera cargado completa y el guardado descartaba todo, '
+       +'(2) enlazaba sobre una copia vieja de la oficina si llegaba un cambio de otra sesión durante las subidas, (3) marcaba el pago con '
+       +'soporte completo aunque Drive no hubiera recibido la imagen y (4) decía Procesado aunque la nube rechazara el guardado; al reintentar, '
+       +'la huella que quedó en memoria salía como COMPROBANTE YA USADO sobre el mismo pago.',
+ correr:W=>{ const r=E(W,
+     'const d=(x,v)=>_refDebilParaBloquear(x,v||0);'
+   +'const debiles=[d("0000061200"), d("0000000300"), d("0000099900"), d("M1234567890"), d("46600004695"), d("46600004696"), d("3001234567"), d("20260914"), d("1250000",1250000), d("1111111"), d("")].map(x=>!!x);'
+   +'const fuertes=[d("M08720655"), d("APIU6182320963514955"), d("TRmtV0VrTsEC"), d("95436534989818162464972999873331435"), d("M139544460"), d("46600004123")].map(x=>!!x);'
+   +'const bloqueaDebil=_buscarReferenciaDuplicada(null,"0000061200",70000)===null && _buscarReferenciaDuplicada(null,"M1234567890",50000)===null;'
+   +'const brd=_buscarReferenciaDuplicada.toString(); const usaFiltro=/_refDebilParaBloquear.ref, valor/.test(brd);'
+   +'const cuenta={}; (DB.oficinas||[]).forEach(o=>(o.movimientos||[]).forEach(m=>(m.comprobantes||[]).forEach(c=>{ if(!c) return; if(c.hashImagen) cuenta[c.hashImagen]=(cuenta[c.hashImagen]||0)+1; (c.hashesImagenes||[]).forEach(h=>cuenta[h]=(cuenta[h]||0)+1); })));'
+   +'let huella=null; for(const o of (DB.oficinas||[])){ for(const m of (o.movimientos||[])){ const c=(m.comprobantes||[]).find(x=>x&&x.hashImagen&&cuenta[x.hashImagen]===1); if(c){ const h=_buscarHashDuplicadoGlobal(c.hashImagen, o.id); huella={mismo:!!h && h.movimiento.id===m.id, enNube:!!h && h.enNube===true}; break; } } if(huella) break; }'
+   +'const noEsta=_buscarHashDuplicadoGlobal("0".repeat(64), null)===null;'
+   +'const pa=procesarArchivos.toString(); const mismoPago=/dup.movimiento.id===mid/.test(pa) && /YA ESTÁ ADJUNTO A ESTE MISMO PAGO/.test(pa);'
+   +'const lote=guardarComprobantesRegistrados.toString();'
+   +'const guarda=lote.indexOf("_cargaCompletaPorOficina[oid]===false")>=0 && lote.indexOf("_cargaCompletaPorOficina[oid]===false") < lote.indexOf("subirArchivoDrive");'
+   +'const sinDrive=/if.!comprobantesArr.length. continue;/.test(lote);'
+   +'const memoriaActual=/_movDestino.oid, sp._enlazarA.id./.test(lote) && /_movDestino.oid, c._enlazarA.id./.test(lote) && !/o.movimientos.find.x=>x.id===(sp|c)._enlazarA.id./.test(lote);'
+   +'const avisoNube=/_ultimoGuardadoOk===true/.test(lote) && /NUBE TODAVÍA NO LOS RECIBIÓ/.test(lote);'
+   +'const sr=_saveReal.toString(); const marca=/_ultimoGuardadoOk = false/.test(sr) && /_ultimoGuardadoOk = !window._guardadoParcial/.test(sr);'
+   +'const fc=_fechaHoraCorta("2026-09-14T16:08:00"); const fcMala=_fechaHoraCorta(undefined);'
+   +'return { debiles, fuertes, bloqueaDebil, usaFiltro, huella, noEsta, mismoPago, guarda, sinDrive, memoriaActual, avisoNube, marca, fc, fcMala };');
+   const bien = r.debiles.every(x=>x===true) && r.fuertes.every(x=>x===false) && r.bloqueaDebil && r.usaFiltro
+     && (r.huella===null || (r.huella.mismo && r.huella.enNube)) && r.noEsta && r.mismoPago && r.guarda && r.sinDrive && r.memoriaActual
+     && r.avisoNube && r.marca && /14.9.2026 16:08/.test(r.fc) && /no quedó registrada/.test(r.fcMala);
+   return {ok:bien, detalle: bien
+     ? 'Referencias que NO sirven para bloquear: 0000XXXX00 de Bancolombia, el ejemplo M1234567890, la cuenta de la empresa (exacta o con un dígito mal leído), celulares, fechas, el propio valor y un carácter repetido ✓'
+      +'\nReferencias que SÍ identifican un pago siguen bloqueando: Nequi (M08720655), códigos largos de PSE y de Bre-B ✓'
+      +'\nLa huella de una imagen encuentra su propio pago y sabe si ya está guardada en la nube'+(r.huella?'':' (sin comprobantes con huella en esta carga: solo se revisó el código)')+' ✓'
+      +'\nAdjuntar con 📎 una imagen que ya está en ESE MISMO pago avisa que ya está adjunta, no que es un duplicado ✓'
+      +'\nEl cargue por lotes: no arranca si la oficina no cargó completa (antes de subir nada a Drive); si Drive falla, el pago queda pendiente; enlaza sobre la memoria actual; y si la nube no recibe el guardado, lo dice en vez de Procesado ✓'
+     : JSON.stringify(r)};}},
 {app:'ofi', titulo:'El guardado reenvía solo los bloques de movimientos que cambiaron; un fallo se explica, queda registrado y se reintenta solo',
  porque:'14/9/2026: "NO SE PUDO GUARDAR EN LA NUBE — Firebase rechazó el guardado" al adjuntar comprobantes. Cada guardado reenviaba TODOS los '
        +'bloques de la oficina (hasta 15 × 300 KB ≈ 4 MB) aunque solo cambiara un comprobante; con internet lento eso se cae. El motivo '

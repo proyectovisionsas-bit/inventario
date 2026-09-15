@@ -948,7 +948,7 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION = 304; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 305; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -969,7 +969,7 @@ const APP_VERSION = 304; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '14 Sep 2026 (v304: el guardado reenvia solo los bloques de movimientos que cambiaron, reintenta solo si Firebase no responde, registra el motivo de cada fallo y lo explica en pantalla. v303: auditoria. v302: SG-SST completo. Historial en git y en docs/01-firestore-limites.md)';
+const APP_VERSION_FECHA = '14 Sep 2026 (v305: cada sesion baja solo los bloques de movimientos que cambiaron; las referencias debiles ya no bloquean como duplicado; abonos y PDF con huella; el cargue por lotes ya no pierde comprobantes. v304: guardado por bloques. Historial en git y en docs/01-firestore-limites.md)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -1078,10 +1078,132 @@ function _jsonEstable(v){
 // Firma de un bloque de movimientos TAL COMO SE GUARDA (ya sanitizado, o tal como llegó de la nube).
 function _firmaBloqueMovs(parte){ parte=parte||[]; return parte.length+':'+_hashStr(_jsonEstable(parte)); }
 // Al cargar un bloque de la nube se anota su firma: es "lo que la nube tiene" para esta sesión.
-function _anotarFirmaBloqueMovs(oid, i, movsGuardados){
-    try{ if(!Array.isArray(movsGuardados)) return; if(!window._sigMovsBloque) window._sigMovsBloque={};
-         if(!window._sigMovsBloque[oid]) window._sigMovsBloque[oid]=[]; window._sigMovsBloque[oid][i]=_firmaBloqueMovs(movsGuardados); }catch(e){}
+function _anotarFirmaBloqueMovs(oid, i, movsGuardados, destino){
+    try{ if(!Array.isArray(movsGuardados)) return;
+         // v305: la carga pasa `destino` y las firmas llegan a _sigMovsBloque solo cuando aplica a memoria.
+         // Si se anotaran al leer, un guardado a mitad de carga compararía contra firmas de datos que aún no están en pantalla.
+         const d=destino || (window._sigMovsBloque=window._sigMovsBloque||{});
+         if(!d[oid]) d[oid]=[];
+         const firma=_firmaBloqueMovs(movsGuardados); d[oid][i]=firma;
+         _cacheBloqueMovs(oid).bloques[i]={ firma, json:JSON.stringify(movsGuardados) };   // v305: copia de lo que la nube tiene (la firma sale del contenido, nunca del índice)
+    }catch(e){}
 }
+/* ════════════════════════════════════════════════════════════════════
+   v305 — CADA SESIÓN BAJA SOLO LOS BLOQUES DE MOVIMIENTOS QUE CAMBIARON.
+   Medido el 14 sep 2026: los movimientos son 40 bloques y 8,5 MB. Cada vez que
+   CUALQUIER sesión guardaba un movimiento, TODAS las sesiones abiertas volvían a
+   bajar los 40 bloques. Con el internet de las oficinas eso es lo que dejaba
+   "esta oficina no terminó de cargar" y los guardados parciales.
+   Cómo funciona, en tres piezas:
+    1) Quien guarda escribe en movs_index la firma de cada bloque que reescribe,
+       EN EL MISMO LOTE que el bloque (_repartirFirmasMovsEnLotes): o quedan los
+       dos, o ninguno. Se escribe con merge, así las firmas de los otros bloques
+       se conservan. Una sesión vieja (v304 o antes) escribe el índice sin merge
+       y borra todas las firmas: entonces las demás bajan todo, como antes.
+    2) Quien recarga guarda una copia de cada bloque que baja, con su firma
+       calculada del contenido (nunca copiada del índice). Si la firma del índice
+       coincide con la de su copia, usa la copia (_planLecturaBloques). Cada
+       15 minutos, o si cambia la cantidad de bloques, baja todo igual.
+    3) Antes de reescribir un bloque, quien guarda lo vuelve a leer y confirma que
+       la nube lo tiene como él lo cargó. Si otra sesión lo cambió, recarga todo
+       y fusiona antes de escribir: una copia vieja nunca pisa un cambio ajeno.
+   ════════════════════════════════════════════════════════════════════ */
+const _MOVS_RECARGA_COMPLETA_MS = 15*60000;
+function _cacheBloqueMovs(oid){ const t=(window._cacheBloquesMovs=window._cacheBloquesMovs||{}); return t[oid]||(t[oid]={n:null, completoMs:0, huerfanos:0, bloques:{}}); }
+// ¿Qué bloques de esta oficina se pueden tomar de la copia? Devuelve {parcial, reusar:Set, motivo}.
+function _planLecturaBloques(oid, n, firmasIdx, forzar, ahora){
+    ahora=ahora||Date.now();
+    const todo=m=>({parcial:false, reusar:new Set(), motivo:m});
+    if(forzar) return todo('recarga completa pedida');
+    const c=window._cacheBloquesMovs && window._cacheBloquesMovs[oid];
+    if(!c || !c.completoMs) return todo('sin copia de esta oficina');
+    if(c.n!==n) return todo('cambió la cantidad de bloques');
+    if(c.huerfanos) return todo('hay bloques fuera del índice');
+    if(ahora-c.completoMs > _MOVS_RECARGA_COMPLETA_MS) return todo('pasaron 15 minutos desde la última carga completa');
+    if(!firmasIdx || typeof firmasIdx!=='object') return todo('el índice no trae firmas');
+    const reusar=new Set();
+    for(let i=0;i<n;i++){ const f=firmasIdx[i]; const b=c.bloques && c.bloques[i]; if(typeof f==='string' && f && b && b.firma===f) reusar.add(i); }
+    return {parcial:true, reusar, motivo:''};
+}
+// Un bloque tomado de la copia, con la misma forma que devuelve la lectura de la nube. null si no se pudo.
+function _bloqueDesdeCache(oid, i, destino){
+    try{ const c=window._cacheBloquesMovs && window._cacheBloquesMovs[oid]; const b=c && c.bloques[i]; if(!b) return null;
+         const arr=reconvertirArrays(JSON.parse(b.json));
+         const d=destino || (window._sigMovsBloque=window._sigMovsBloque||{}); if(!d[oid]) d[oid]=[]; d[oid][i]=b.firma;
+         if(window._statsCargaMovs) window._statsCargaMovs.reusados++;
+         return {leido:true, existe:true, movs:Array.isArray(arr)?arr:[], deCopia:true}; }catch(e){ return null; }
+}
+// Al terminar de cargar una oficina: si falló, se tira la copia (la próxima vez baja todo).
+function _finCargaOficinaCache(oid, n, completo, parcial, huerfanos){
+    const t=window._cacheBloquesMovs||{};
+    if(!completo){ delete t[oid]; return; }
+    const c=_cacheBloqueMovs(oid); c.n=n;
+    if(!parcial){ c.completoMs=Date.now(); c.huerfanos=huerfanos||0; }
+}
+// Tras un guardado exitoso, lo escrito ES la nube: se pone en la copia. Si no hay copia válida y no se
+// escribieron todos los bloques, se tira la copia (no se puede saber cómo quedaron los demás).
+function _cacheConfirmarEscrituraMovs(oid, n, escritos, firmas){
+    try{
+        const t=(window._cacheBloquesMovs=window._cacheBloquesMovs||{});
+        const c=t[oid]; const todos=(escritos||[]).length===n;
+        if(!c || c.n!==n){ if(!todos){ delete t[oid]; return; } t[oid]={n, completoMs:0, huerfanos:0, bloques:{}}; }   // v305: completoMs 0 → la próxima recarga es completa y busca bloques fuera del índice
+        (escritos||[]).forEach(([i, parte])=>{ t[oid].bloques[i]={ firma:firmas[i], json:JSON.stringify(parte) }; });
+    }catch(e){ try{ delete window._cacheBloquesMovs[oid]; }catch(_){} }
+}
+// Pone en cada lote la firma de los bloques que ese lote escribe (un solo documento movs_index por lote,
+// con merge), y la cantidad de bloques por oficina en el último lote que lleva bloques. Pura: recibe y devuelve lotes.
+function _repartirFirmasMovsEnLotes(lotes, refIdx){
+    let idxOp=null;
+    (lotes||[]).forEach(l=>{ const k=l.findIndex(op=>op && op._esIdxMovs); if(k>=0){ idxOp=l[k]; l.splice(k,1); } });
+    for(let li=lotes.length-1; li>=0; li--) if(!lotes[li].length) lotes.splice(li,1);
+    let ultimo=-1;
+    lotes.forEach((l,li)=>{
+        const f={}; l.forEach(op=>{ const m=op && op._movFirma; if(m){ (f[m.oid]=f[m.oid]||{})[String(m.i)]=m.firma; } });
+        if(Object.keys(f).length){ l.push({ref:refIdx, data:{firmas:f}, merge:true, _firmasDeLote:true}); ultimo=li; }
+    });
+    if(idxOp){
+        if(ultimo<0){ if(!lotes.length) lotes.push([]); ultimo=lotes.length-1; }
+        const l=lotes[ultimo]; const op=l.find(x=>x._firmasDeLote);
+        if(op) Object.assign(op.data, idxOp.data); else l.push({ref:refIdx, data:Object.assign({}, idxOp.data), merge:true, _firmasDeLote:true});
+    }
+    return lotes;
+}
+// Guardado documento por documento: la firma de un bloque que no se pudo escribir no se anota.
+function _quitarFirmasFallidas(op, sinFirma){
+    const f=op && op.data && op.data.firmas; if(!f || !sinFirma || !sinFirma.size) return;
+    sinFirma.forEach(k=>{ const p=String(k).split('|'); if(f[p[0]]){ delete f[p[0]][p[1]]; if(!Object.keys(f[p[0]]).length) delete f[p[0]]; } });
+    if(!Object.keys(f).length) delete op.data.firmas;
+}
+// Lee un archivo como data URL (para calcular su huella). null si no se pudo.
+/* v305: los bloques que nadie reescribe nunca tendrían firma en el índice, y sin firma las demás sesiones los
+   bajan siempre. Después de una carga completa se siembran las que faltan, una por una, cada una en una
+   transacción que LEE el bloque: si otra sesión lo cambia en medio, Firestore repite la transacción con lo nuevo.
+   La firma nunca se toma de la memoria. Escalonado para que no lo hagan todas las sesiones a la vez. */
+async function _sembrarFirmasMovs(){
+    if(MODO_PRUEBA || !db || window._sembrandoFirmasMovs) return 0;
+    window._sembrandoFirmasMovs=true; let sembradas=0; const saltar=new Set();
+    try{
+        await new Promise(r=>setTimeout(r, 5000+Math.floor(Math.random()*25000)));
+        const refIdx=db.collection('oficinas_sistema').doc('movs_index');
+        for(let vuelta=0; vuelta<200; vuelta++){
+            const sn=await refIdx.get(); const d=sn.exists?(sn.data()||{}):{}; const por=d.porOficina||{}, fir=d.firmas||{};
+            let falta=null;
+            for(const oid of Object.keys(por)){ const n=Math.min(parseInt(por[oid]||0,10)||0, 200);
+                for(let i=0;i<n;i++){ const f=fir[oid] && fir[oid][i]; if(!(typeof f==='string' && f) && !saltar.has(oid+'|'+i)){ falta=[oid,i]; break; } }
+                if(falta) break; }
+            if(!falta) break;
+            const oid=falta[0], i=falta[1]; saltar.add(oid+'|'+i);
+            const refB=db.collection('oficinas_sistema').doc(`movs_${oid}_${i}`);
+            await db.runTransaction(async tx=>{ const b=await tx.get(refB); if(!b.exists) return;
+                tx.set(refIdx, { firmas:{ [oid]:{ [String(i)]:_firmaBloqueMovs(b.data().movimientos||[]) } } }, {merge:true}); });
+            sembradas++;
+        }
+        if(sembradas) console.log(`🌱 Firmas de bloques de movimientos sembradas en el índice: ${sembradas}`);
+    }catch(e){ console.warn('sembrar firmas de bloques (no crítico):', e); }
+    finally{ window._sembrandoFirmasMovs=false; }
+    return sembradas;
+}
+function _leerComoDataURL(file){ return new Promise(res=>{ try{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=()=>res(null); r.readAsDataURL(file); }catch(e){ res(null); } }); }
 // Decide qué bloques de una oficina hay que reenviar. Si cambió la cantidad de bloques
 // (respecto al índice de la nube) o no hay firmas previas, se reenvían todos: cada bloque
 // lleva totalPartes y debe quedar consistente. Si no, solo los que tienen otra firma.
@@ -1808,6 +1930,8 @@ async function _saveReal(_opts){
     // sí sigue, para que quien quiera mirar sepa que la app está trabajando.
     const _silencioso = !!(_opts && _opts.silencioso);
     window._saveSilencioso = _silencioso;
+    window._ultimoGuardadoOk = false;   // v305: queda en true solo si este guardado llegó completo a la nube
+    window._parcialReintentable = false;   // v305: movimientos que no se escribieron por no poder verificar la nube a tiempo
     if(DB.config && DB.config.sgsstLimpiado){ delete DB.sgsst_items; delete DB.sgsst_fichas; }   // v302: ya viven en sgsst_archivo_v1
     if(!db){ showSync('err','Sin conexión Firebase'); console.error('❌ save() sin db'); mostrarSaveOverlay('error','Sin conexión','No hay conexión a Firebase'); return; }
     // 📢 Publicar la versión: cualquier cliente con versión vieja verá la pantalla de actualizar
@@ -2098,12 +2222,21 @@ async function _saveReal(_opts){
         try {
             const MOVS_CHUNK = 400;
             const movsChunkInfo = {};
+            // v305: si hay una carga de movimientos en curso (la lanzó el oyente antes de este guardado), se espera.
+            // Guardar con la memoria a medio actualizar deja volver la copia vieja y el guardado siguiente la escribe.
+            let _saltarMovs=false; const _noEscribirOfis=new Set();
+            { const _limite=Date.now()+60000;   // v305: todas las cargas vivas, también las que arranquen mientras se espera
+              while(window._cargaMovsEnCurso && !_saltarMovs){
+                const _resta=_limite-Date.now();
+                const _t=_resta>0 ? await Promise.race([window._cargaMovsEnCurso.then(()=>'ok'), new Promise(r=>setTimeout(()=>r('tarde'), _resta))]) : 'tarde';
+                if(_t==='tarde'){ _saltarMovs=true; try{ window._cargasMovsVivas.clear(); }catch(_){} window._cargaMovsEnCurso=null; console.warn('⏳ La carga de movimientos lleva más de un minuto: este guardado no reescribe movimientos (se conserva la nube). Se deja de esperar esa carga: si termina después, su número la descarta.'); }   // v305
+              } }
             // Índice remoto: para NO encoger por debajo de lo que ya hay guardado en la nube.
             let _idxRemoto = {};
             try{
                 const _idxSnap = await db.collection('oficinas_sistema').doc('movs_index').get();
                 if(_idxSnap.exists) _idxRemoto = _idxSnap.data().porOficina || {};
-            }catch(e){ console.warn('No se pudo leer índice remoto (protección):', e); }
+            }catch(e){ console.warn('No se pudo leer índice remoto (protección):', e); _saltarMovs=true; }   // v305: sin índice no se sabe cuántos bloques hay: no se reescriben movimientos ni el índice
             let _ofiPreservada = false;
             // v296: si la nube tiene un sello de movimientos que esta sesión no ha cargado,
             // primero se recargan (con fusión) para no pisar lo que otra sesión acaba de guardar.
@@ -2116,11 +2249,54 @@ async function _saveReal(_opts){
                     window._ultimosSellos.m=String(_selloNube||0);
                 }
             }catch(eS){ console.warn('sello de movimientos fresco (no crítico):', eS); }
+            // v305: antes de reescribir un bloque, confirmar que la nube lo tiene como esta sesión lo cargó.
+            // Si otra sesión lo cambió y esta no se enteró, se recarga completo y se fusiona ANTES de escribir.
+            // Un bloque que no se pudo leer cuenta como cambiado; un bloque que existe más allá del índice, también.
+            // Si la recarga falla, esas oficinas no se reescriben en este guardado.
+            if(!_saltarMovs) try{
+                const _cambiados=[]; const _idsCambiados=[];
+                for(const o of (DB.oficinas||[])){
+                    if(window._cargaCompletaPorOficina && window._cargaCompletaPorOficina[o.id]===false) continue;
+                    const lista=o.movimientos||[];
+                    _recortarTextosLargos(lista, o.nombre);
+                    const numChunks=Math.ceil(lista.length/MOVS_CHUNK), remoto=_idxRemoto[o.id]||0;
+                    if(numChunks<remoto) continue;
+                    const sig=lista.length+':'+_hashStr(JSON.stringify(lista));
+                    if(window._sigMovs && window._sigMovs[o.id]===sig) continue;
+                    const partes=[]; for(let i=0;i<numChunks;i++) partes.push(sanitizarFirebase(lista.slice(i*MOVS_CHUNK, (i+1)*MOVS_CHUNK)));
+                    const previas=(window._sigMovsBloque && window._sigMovsBloque[o.id]) || [];
+                    const plan=_bloquesQueCambian(o.id, partes, remoto);
+                    const leidas=await Promise.all(plan.indices.map(i=>db.collection('oficinas_sistema').doc(`movs_${o.id}_${i}`).get()
+                        .then(sn=>({i, firma: sn.exists ? _firmaBloqueMovs(sn.data().movimientos||[]) : null})).catch(()=>({i, firma:undefined}))));
+                    const distintos=leidas.filter(x=>{
+                        if(x.firma===undefined) return true;                                  // no se pudo leer: no se da por bueno
+                        if(typeof previas[x.i]==='string') return x.firma!==previas[x.i];   // cambió desde que se cargó
+                        return x.firma!==null && x.firma!==plan.firmas[x.i];                 // sin firma previa: existe en la nube y no es lo que se va a escribir
+                    }).map(x=>x.i);
+                    if(distintos.length){ _cambiados.push(`${o.nombre} (bloque ${distintos.join(', ')})`); _idsCambiados.push(o.id); }
+                }
+                window._ultimaVerificacionBloques={ ms:Date.now(), cambiados:_cambiados.slice() };
+                if(_cambiados.length){
+                    console.warn('🔎 La nube cambió después de cargar: '+_cambiados.join(' · ')+' → se recarga completo y se fusiona antes de escribir');
+                    await _cargarMovimientosChunks({completo:true});
+                    if(window._cargaMovsIncompleta===true){
+                        _idsCambiados.forEach(id=>_noEscribirOfis.add(id));
+                        console.warn('🛡️ La recarga no terminó: '+_cambiados.join(' · ')+' no se reescriben en este guardado (se conserva la nube)');
+                    }
+                }
+            }catch(eV){ console.error('verificación de bloques antes de escribir: por seguridad este guardado no reescribe movimientos', eV); _saltarMovs=true; }
             for(const o of (DB.oficinas||[])){
                 const lista = o.movimientos || [];
                 _recortarTextosLargos(lista, o.nombre);   // v304: una imagen pegada en un texto dejaría el bloque sobre 1 MB
                 const numChunks = Math.ceil(lista.length / MOVS_CHUNK);
                 const remoto = _idxRemoto[o.id] || 0;
+                // 🛡️ GUARDA 0 (v305): índice ilegible, carga que no terminó a tiempo o bloque cambiado que no se pudo recargar
+                if(_saltarMovs || _noEscribirOfis.has(o.id)){
+                    movsChunkInfo[o.id] = remoto;
+                    _ofiPreservada = true;
+                    console.warn(`🛡️ ${o.nombre}: sus movimientos no se reescriben en este guardado (se conserva la nube).`);
+                    continue;
+                }
                 const cargoOk = !(window._cargaCompletaPorOficina && window._cargaCompletaPorOficina[o.id] === false);
                 // 🛡️ GUARDA 1: si esta oficina NO se cargó completa esta sesión, NO la sobrescribimos.
                 if(!cargoOk){
@@ -2149,22 +2325,26 @@ async function _saveReal(_opts){
                 const _partes=[]; for(let i=0;i<numChunks;i++) _partes.push(sanitizarFirebase(lista.slice(i*MOVS_CHUNK, (i+1)*MOVS_CHUNK)));
                 const _plan=_bloquesQueCambian(o.id, _partes, remoto);
                 _movsPendientesConfirmar[o.id].firmasBloques=_plan.firmas;   // se confirman tras el éxito, como la firma de la oficina
+                _movsPendientesConfirmar[o.id].escritos=_plan.indices.map(i=>[i, _partes[i]]); _movsPendientesConfirmar[o.id].numChunks=numChunks;   // v305: van a la copia tras el éxito
                 if(_plan.saltados) console.log(`   ✂️ ${o.nombre}: cambiaron ${_plan.indices.length} de ${numChunks} bloque(s) de movimientos; los otros ${_plan.saltados} no se reenvían`);
                 for(const i of _plan.indices){
                     opsEscritura.push({
                         ref: db.collection('oficinas_sistema').doc(`movs_${o.id}_${i}`),
-                        data: { movimientos: _partes[i], oficinaId: o.id, parte: i, totalPartes: numChunks, actualizado: Date.now() }
+                        data: { movimientos: _partes[i], oficinaId: o.id, parte: i, totalPartes: numChunks, actualizado: Date.now() },
+                        _movFirma: { oid:o.id, i, firma:_plan.firmas[i] }   // v305: su firma viaja en el mismo lote (_repartirFirmasMovsEnLotes)
                     });
                 }
             }
             // Índice de movimientos
-            opsEscritura.push({
+            if(!_saltarMovs) opsEscritura.push({   // v305: sin índice leído, el índice no se escribe (quedaría en cero)
                 ref: db.collection('oficinas_sistema').doc('movs_index'),
-                data: { porOficina: movsChunkInfo, actualizado: Date.now() }
+                data: { porOficina: movsChunkInfo, actualizado: Date.now() },
+                _esIdxMovs: true   // v305: se reparte con merge en los lotes; si el reparto fallara, queda así (sin merge) y borra las firmas: las demás sesiones bajan todo
             });
             // Aviso si se preservó alguna oficina por carga incompleta
             window._guardadoParcial=_ofiPreservada;   // v303: el final del guardado lo muestra como error, no como éxito
-            if(_ofiPreservada && !window._avisoMovsBloqueado){
+            window._parcialReintentable = _saltarMovs || _noEscribirOfis.size>0;   // v305
+            if(_ofiPreservada && !window._parcialReintentable && !window._avisoMovsBloqueado){   // v305: si la app reintenta sola, no se pide recargar (se perdería lo que está solo en pantalla)
                 window._avisoMovsBloqueado = true;
                 setTimeout(()=>{ try{ alert('🛡️ Aviso de seguridad\n\nUna o más oficinas no se habían cargado completas, así que sus movimientos NO se reescribieron, para proteger tus datos en la nube.\n\n👉 Recarga la página (Ctrl+F5) para cargar todo bien. No se borró nada.'); }catch(_){} }, 100);
             }
@@ -2388,6 +2568,9 @@ async function _saveReal(_opts){
                 actual.push(op); pesoActual+=p;
             });
             if(actual.length) lotes.push(actual);
+            // v305: la firma de cada bloque, en el mismo lote que el bloque. Se arma sobre una copia: si algo falla, quedan los lotes de antes.
+            try{ const _copiaL=lotes.map(l=>l.slice()); _repartirFirmasMovsEnLotes(_copiaL, db.collection('oficinas_sistema').doc('movs_index')); lotes.splice(0, lotes.length, ..._copiaL); }
+            catch(eR){ console.warn('firmas de bloques en los lotes (no crítico: las demás sesiones bajarán todo):', eR); }
 
             const _mbTotal=(opsEscritura.reduce((s,op)=>s+_peso(op),0)/1048576).toFixed(2);
             window._ultimoPesoGuardadoKB=Math.round(parseFloat(_mbTotal)*1024);   // v304: queda en el registro si falla
@@ -2405,13 +2588,24 @@ async function _saveReal(_opts){
                     // Si aun así un lote es rechazado, mandar sus documentos UNO POR UNO:
                     // así se salva todo lo que sí cabe y se identifica el que falla.
                     console.warn(`   ⚠️ Lote ${li+1} rechazado (${eB.message||eB}) — reintentando documento por documento...`);
-                    let _okUno=0; const _fallidos=[];
+                    let _okUno=0; const _fallidos=[]; const _sinFirma=new Set();   // v305
+                    // v305: bloque por bloque, cada bloque va con su firma en un lote de dos escrituras: entran los dos o ninguno.
+                    // (Borrar la firma y escribir después dejaba un hueco en el que la siembra podía anotar la firma del bloque viejo.)
+                    const _refIdxUno=db.collection('oficinas_sistema').doc('movs_index');
                     for(const op of lotes[li]){
                         try{
-                            if(op.merge) await op.ref.set(op.data, {merge:true});
-                            else await op.ref.set(op.data);
+                            if(op._movFirma){
+                                const _m=op._movFirma; const _b2=db.batch();
+                                _b2.set(op.ref, op.data);
+                                _b2.set(_refIdxUno, { firmas:{ [_m.oid]:{ [String(_m.i)]:_m.firma } } }, {merge:true});
+                                await _b2.commit();
+                            } else {
+                                if(op._firmasDeLote) _quitarFirmasFallidas(op, new Set(lotes[li].filter(x=>x._movFirma).map(x=>x._movFirma.oid+'|'+x._movFirma.i)));   // v305: las firmas ya fueron con cada bloque; reescribirlas al final podría pisar la de otra sesión
+                                if(op.merge) await op.ref.set(op.data, {merge:true});
+                                else await op.ref.set(op.data);
+                            }
                             _okUno++;
-                        }catch(eU){ _fallidos.push(`${(op.ref&&op.ref.id)||'?'} (${Math.round(_peso(op)/1024)} KB) → ${(eU&&(eU.code||eU.message))||'error desconocido'}`); }
+                        }catch(eU){ if(op._movFirma) _sinFirma.add(op._movFirma.oid+'|'+op._movFirma.i); _fallidos.push(`${(op.ref&&op.ref.id)||'?'} (${Math.round(_peso(op)/1024)} KB) → ${(eU&&(eU.code||eU.message))||'error desconocido'}`); }
                     }
                     if(_fallidos.length){
                         console.error('🚨 No se pudieron guardar estos bloques:', _fallidos);
@@ -2427,7 +2621,7 @@ async function _saveReal(_opts){
         _sigClientes = sigClientesNuevas;
         _sigIdxClientes = idxClientesSig;
         // v296: firmas y bases de movimientos, solo tras el éxito (lo escrito ES la nube ahora)
-        try{ if(!window._sigMovs) window._sigMovs={}; Object.keys(_movsPendientesConfirmar).forEach(oid=>{ const p=_movsPendientesConfirmar[oid]; window._sigMovs[oid]=p.sig; _guardarBaseMovs(oid, p.lista); if(p.firmasBloques){ if(!window._sigMovsBloque) window._sigMovsBloque={}; window._sigMovsBloque[oid]=p.firmasBloques; } }); }catch(eM){ console.warn('base movs tras guardar:', eM); }
+        try{ if(Object.keys(_movsPendientesConfirmar).length) window._genConfirmMovs=(window._genConfirmMovs||0)+1;   /* v305: una carga que empezó antes ya es vieja */ if(!window._sigMovs) window._sigMovs={}; Object.keys(_movsPendientesConfirmar).forEach(oid=>{ const p=_movsPendientesConfirmar[oid]; window._sigMovs[oid]=p.sig; _guardarBaseMovs(oid, p.lista); if(p.firmasBloques){ if(!window._sigMovsBloque) window._sigMovsBloque={}; window._sigMovsBloque[oid]=p.firmasBloques; } if(p.escritos) _cacheConfirmarEscrituraMovs(oid, p.numChunks, p.escritos, p.firmasBloques||[]); }); }catch(eM){ console.warn('base movs tras guardar:', eM); }
         if(_gsigNueva) window._sigGaps = _gsigNueva; // v168: firma de gaps confirmada tras el lote
         // ════════════════════════════════════════════════════════════════
         // SELLO DE CHUNKS (v168 — CORRECCIÓN DE RAÍZ del problema de solicitudes
@@ -2457,6 +2651,10 @@ async function _saveReal(_opts){
         DB.facturasHistorial = histGuardar; // la memoria ya está correcta (no se reescribe completa)
         console.log(`   📄 Historial facturas: ${Object.keys(DB.facturasHistorial||{}).length} servicios`);
 
+        if(window._parcialReintentable){   // v305: movimientos sin escribir por no poder verificar la nube: se reintenta solo (antes el contador se ponía en cero y nadie reintentaba)
+            const _segP=_programarReintentoGuardado('movimientos sin verificar');
+            mostrarSaveOverlay('error', 'Movimientos sin guardar todavía', _segP ? `No se pudo confirmar la nube a tiempo. La app reintenta sola en ${_segP} s: deja la página abierta.` : 'Tras varios intentos no se pudo confirmar la nube. Recarga la página (F5) y revisa lo último que registraste.');
+        } else {
         window._reintentosAutoGuardado=0; if(window._tmrReintentoGuardado){ clearTimeout(window._tmrReintentoGuardado); window._tmrReintentoGuardado=null; }   // v304
         if(window._guardadoParcial){   // v303: antes decía "¡Guardado!" aunque los movimientos de una oficina no hubieran salido
             showSync('err','Guardado parcial');
@@ -2465,6 +2663,8 @@ async function _saveReal(_opts){
             showSync('ok','Guardado ✓');
             mostrarSaveOverlay('done');
         }
+        }
+        window._ultimoGuardadoOk = !window._guardadoParcial;   // v305
         console.log('✅ save() exitoso');
         console.log(`   ⏱️ Fusión con ${window._origenFresco||'—'} (${window._tFrescoMs||0}ms) · guardado total: ${((Date.now()-(window._tSaveIni||Date.now()))/1000).toFixed(1)}s`);
         console.log('💾 ═══════════════════════════════════════════');
@@ -3317,14 +3517,26 @@ window.restaurarMovimientos = async function(){
     console.log('✅ Guardado. Recarga la página para verificar.');
 };
 
-async function _cargarMovimientosChunks(){
+async function _cargarMovimientosChunks(opts){
+    // v305: el guardado espera a que termine una carga en curso (window._cargaMovsEnCurso); y si un guardado
+    // confirma mientras se carga (_genConfirmMovs cambia), lo cargado ya es viejo: no se aplica y se vuelve a cargar.
+    let _finCarga; const _cargaEsta=new Promise(r=>_finCarga=r);
+    const _seq=(window._seqCargaMovs=(window._seqCargaMovs||0)+1);   // v305: número de esta carga; una más vieja nunca pisa a una más nueva
+    if(!window._cargasMovsVivas) window._cargasMovsVivas=new Set();
+    window._cargasMovsVivas.add(_cargaEsta); window._cargaMovsEnCurso=Promise.all([...window._cargasMovsVivas]);   // el guardado espera TODAS
+    const _genInicio=window._genConfirmMovs||0;
+    const _firmasCarga={};
     try{
         // 🔁 RAÍZ DE LA SOLUCIÓN: en vez de confiar en el índice (que se podía dañar y "perder la
         // dirección" de los datos), ESCANEAMOS los bloques directamente: movs_{ofiId}_0, _1, _2...
         // hasta 3 ausencias seguidas. Así SIEMPRE cargamos todo lo que hay en la nube —incluso
         // bloques que el índice había dejado de apuntar— y recuperamos datos huérfanos solos.
         const idxSnap = await db.collection('oficinas_sistema').doc('movs_index').get();
-        const idxRemoto = idxSnap.exists ? (idxSnap.data().porOficina || {}) : {};
+        const _idxData = idxSnap.exists ? (idxSnap.data() || {}) : {};
+        const idxRemoto = _idxData.porOficina || {};
+        const _idxFirmas = (opts && opts._firmasPrueba) || _idxData.firmas || {};   // v305: firma de cada bloque (PRUEBAS.html puede simularlas)
+        const _forzarCompleto = !!(opts && opts.completo);
+        window._statsCargaMovs = { leidos:0, reusados:0, parciales:0, completas:0, ms:Date.now() };
         if(!window._cargaCompletaPorOficina) window._cargaCompletaPorOficina = {};
         let totalMovs = 0;
         let cargaIncompleta = false;
@@ -3339,7 +3551,8 @@ async function _cargarMovimientosChunks(){
                 try{
                     const c = await db.collection('oficinas_sistema').doc(`movs_${ofiId}_${i}`).get();
                     if(c.exists){
-                        _anotarFirmaBloqueMovs(ofiId, i, c.data().movimientos);   // v304: firma de lo que la nube tiene
+                        _anotarFirmaBloqueMovs(ofiId, i, c.data().movimientos, _firmasCarga);   // v304: firma de lo que la nube tiene · v305: aparte hasta aplicar
+                        if(window._statsCargaMovs) window._statsCargaMovs.leidos++;
                         const arr = Array.isArray(c.data().movimientos) ? reconvertirArrays(c.data().movimientos) : [];
                         return {leido:true, existe:true, movs:arr};
                     }
@@ -3361,30 +3574,50 @@ async function _cargarMovimientosChunks(){
             let movs = [];
             let huboError = false;
             const nIdx = Math.min(parseInt(idxRemoto[ofiId]||0,10)||0, 200);
+            // v305: con copia al día y firmas en el índice, los bloques que no cambiaron no se vuelven a bajar
+            const _plan = _planLecturaBloques(ofiId, nIdx, _idxFirmas[ofiId], _forzarCompleto);
+            if(_plan.parcial) window._statsCargaMovs.parciales++; else window._statsCargaMovs.completas++;
             if(nIdx > 0){
-                const resultados = await Promise.all(Array.from({length:nIdx}, (_,i)=>_leerBloqueMovs(ofiId, i)));
+                const resultados = await Promise.all(Array.from({length:nIdx}, (_,i)=>(_plan.reusar.has(i) && _bloqueDesdeCache(ofiId, i, _firmasCarga)) || _leerBloqueMovs(ofiId, i)));
                 for(const r of resultados){
                     if(!r.leido) huboError = true;               // error real → oficina incompleta
                     else if(r.existe && r.movs.length>0) movs = movs.concat(r.movs);
                 }
             }
-            // Escaneo de huérfanos: continuar desde el final del índice (o desde 0 si no había índice)
-            let fallosSeguidos = 0, i = nIdx;
-            while(fallosSeguidos < 3 && i < 200){
+            // Escaneo de huérfanos: continuar desde el final del índice (o desde 0 si no había índice).
+            // v305: solo en la carga completa (como mucho cada 15 minutos); la parcial confía en el índice.
+            let fallosSeguidos = 0, i = nIdx, huerfanos = 0;
+            while(!_plan.parcial && fallosSeguidos < 3 && i < 200){
                 const r = await _leerBloqueMovs(ofiId, i);
                 if(!r.leido){ huboError = true; fallosSeguidos++; } // error de lectura real
                 else if(r.existe){
                     fallosSeguidos = 0;                              // bloque encontrado → seguir
+                    huerfanos++;
                     if(r.movs.length>0) movs = movs.concat(r.movs);
                 }
                 else { fallosSeguidos++; }                           // bloque ausente → posible fin
                 i++;
             }
+            _finCargaOficinaCache(ofiId, nIdx, !huboError, _plan.parcial, huerfanos);
             return {ofiId, movs, completo: !huboError};
         }
 
         const _resultadosOfis = await Promise.all(Array.from(idsOficinas).map(id=>_cargarMovsDeOficina(id)));
 
+        // v305: si un guardado confirmó movimientos mientras se leía, esto ya es viejo: no se aplica y se vuelve a cargar
+        if((window._seqCargaAplicada||0) > _seq){   // v305: ya se aplicó una carga que empezó después: esta trae datos más viejos
+            window._ultimaCargaDescartada=Date.now();
+            console.warn('🔁 Ya se aplicó una carga de movimientos más nueva: esta, más vieja, no se aplica');
+            return;
+        }
+        if((window._genConfirmMovs||0)!==_genInicio){
+            const _n=(opts && opts._reintento)||0;
+            window._ultimaCargaDescartada=Date.now();
+            console.warn('🔁 Un guardado confirmó mientras se cargaban los movimientos: lo leído ya es viejo, no se aplica y se vuelve a cargar');
+            setTimeout(()=>{ _cargarMovimientosChunks(Object.assign({}, opts||{}, {_reintento:_n+1})).then(()=>{ try{ if(_rtActivo && USER && USER.role) _recargarVistaSilenciosa(); }catch(_){} }); }, Math.min(1000*Math.pow(2,_n), 15000));   // v305: y redibuja al terminar
+            return;
+        }
+        window._ultimaCargaAplicada=Date.now(); window._seqCargaAplicada=_seq;
         // Aplicar resultados a la memoria (fase síncrona, mismas reglas de seguridad de antes)
         for(const {ofiId, movs, completo} of _resultadosOfis){
             window._cargaCompletaPorOficina[ofiId] = completo;
@@ -3412,13 +3645,22 @@ async function _cargarMovimientosChunks(){
             if(completo){
                 if(!window._sigMovs) window._sigMovs = {};
                 window._sigMovs[ofiId] = movs.length + ':' + _hashStr(JSON.stringify(movs));
+                if(!window._sigMovsBloque) window._sigMovsBloque = {};
+                window._sigMovsBloque[ofiId] = (_firmasCarga[ofiId]||[]).slice();   // v305: las firmas llegan junto con la memoria
             }
         }
         window._cargaMovsIncompleta = cargaIncompleta; // global (solo para avisos)
+        try{ const _st=window._statsCargaMovs; if(_st) console.log(`   📦 Bloques de movimientos: ${_st.leidos} bajado(s) · ${_st.reusados} sin cambios, tomados de la copia · oficinas en carga parcial: ${_st.parciales}, completa: ${_st.completas}`); }catch(_){}   // v305
+        // v305: tras una carga completa sin fallas, se siembran las firmas que falten en el índice
+        try{ if(!cargaIncompleta && !(opts && opts._firmasPrueba) && window._statsCargaMovs && window._statsCargaMovs.completas>0){
+            const _faltan=Object.keys(idxRemoto).some(oid=>{ const n=Math.min(parseInt(idxRemoto[oid]||0,10)||0, 200); for(let k=0;k<n;k++){ const f=_idxFirmas[oid] && _idxFirmas[oid][k]; if(!(typeof f==='string' && f)) return true; } return false; });
+            if(_faltan) _sembrarFirmasMovs(); } }catch(_){}
         console.log(`💰 Movimientos cargados (escaneo directo): ${totalMovs} en ${idsOficinas.size} oficina(s)${cargaIncompleta?' ⚠️ (alguna oficina con carga incompleta — se conserva la nube)':''}`);
     }catch(e){
         console.error('Error cargando movimientos (escaneo):', e);
         window._cargaMovsIncompleta = true;
+    }finally{
+        _finCarga(); try{ window._cargasMovsVivas.delete(_cargaEsta); window._cargaMovsEnCurso = window._cargasMovsVivas.size ? Promise.all([...window._cargasMovsVivas]) : null; }catch(_){ window._cargaMovsEnCurso=null; }   // v305
     }
 }
 
@@ -21851,8 +22093,13 @@ async function procesarArchivos(files, oid, mid){
                 const dup=_buscarHashDuplicadoGlobal(h, oid);
                 if(dup){
                     if(progEl) progEl.innerHTML='';
+                    // v305: la huella está en ESTE MISMO pago: no es otro comprobante, es el que ya se adjuntó (quizá sin llegar a la nube)
+                    if(dup.movimiento.id===mid){
+                        alert(`ℹ️ ESTE COMPROBANTE YA ESTÁ ADJUNTO A ESTE MISMO PAGO\n\nSe adjuntó el ${_fechaHoraCorta(dup.comprobante&&dup.comprobante.fecha)}. No se vuelve a subir.\n\n${dup.enNube?'✅ Ya está guardado en la nube.':'⏳ Todavía no llega a la nube (el guardado anterior no pasó): la app lo reintenta sola. Deja la página abierta; no hace falta subirlo otra vez.'}`);
+                        return;
+                    }
                     const fechaAnterior=new Date(dup.movimiento.fecha).toLocaleDateString('es-CO');
-                    alert(`🚫 BLOQUEADO — COMPROBANTE YA USADO\n\nUna de las imágenes ya fue usada antes${dup.oficinaOrigen?' en '+dup.oficinaOrigen:''}:\n\n📋 ${dup.movimiento.concepto}\n💰 ${fmtShort(dup.movimiento.valor)}\n📅 ${fechaAnterior}\n📝 ${dup.movimiento.descripcion||''}\n\nNo se adjuntó nada. Si es un pago distinto, sube su comprobante real.`);
+                    alert(`🚫 BLOQUEADO — COMPROBANTE YA USADO EN OTRO PAGO\n\nUna de las imágenes es idéntica, byte por byte, a la que se adjuntó el ${_fechaHoraCorta(dup.comprobante&&dup.comprobante.fecha)} a este pago${dup.oficinaOrigen?' de '+dup.oficinaOrigen:''}:\n\n📋 ${dup.movimiento.concepto}\n💰 ${fmtShort(dup.movimiento.valor)}\n📅 ${fechaAnterior}\n📝 ${dup.movimiento.descripcion||''}\n\nDos fotos distintas nunca dan este aviso: es el mismo archivo. Si ese otro pago quedó con el comprobante equivocado, pídele al administrador que lo corrija.\n\nNo se adjuntó nada.`);   // v305
                     registrarLog('BLOQUEADO_COMPROBANTE_REUTILIZADO',{via:'movimiento', oid, mid, movimientoAnterior:dup.movimiento.id, oficinaOrigen:dup.oficinaOrigen||''});
                     return;
                 }
@@ -21893,8 +22140,17 @@ async function procesarArchivos(files, oid, mid){
     // Step 2: Upload any non-image files individually
     for(const file of otherFiles){
         try{
+            // v305: los PDF también llevan huella; antes ningún control los veía
+            const _du=(file.size>0)?await _leerComoDataURL(file):null; const _hArch=_du?await _hashImagen(_du):null;
+            const _dA=_hArch?_buscarHashDuplicadoGlobal(_hArch, oid):null;
+            if(_dA){
+                if(_dA.movimiento.id===mid){ alert(`ℹ️ "${file.name}" YA ESTÁ ADJUNTO A ESTE MISMO PAGO\n\nSe adjuntó el ${_fechaHoraCorta(_dA.comprobante&&_dA.comprobante.fecha)}. No se vuelve a subir.`); continue; }
+                alert(`🚫 BLOQUEADO — COMPROBANTE YA USADO EN OTRO PAGO\n\n"${file.name}" es idéntico, byte por byte, al que se subió el ${_fechaHoraCorta(_dA.comprobante&&_dA.comprobante.fecha)}${_dA.oficinaOrigen?' en '+_dA.oficinaOrigen:''} a:\n\n📋 ${_dA.movimiento.concepto}\n💰 ${fmtShort(_dA.movimiento.valor)}\n📅 ${String(_dA.movimiento.fecha||'').slice(0,10)}\n📝 ${_dA.movimiento.descripcion||''}\n\nNo se adjuntó.`);
+                registrarLog('BLOQUEADO_COMPROBANTE_REUTILIZADO',{via:'movimiento (pdf)', oid, mid, archivo:file.name, movimientoAnterior:_dA.movimiento.id, oficinaOrigen:_dA.oficinaOrigen||''});
+                continue;
+            }
             const res=await subirArchivoDrive(file, oid, mid);
-            _movDestino(oid, mid, m).comprobantes.push({url:res.url, nombre:file.name, tipo:'pdf', fecha:new Date().toISOString()});   // v296
+            _movDestino(oid, mid, m).comprobantes.push({url:res.url, nombre:file.name, tipo:'pdf', fecha:new Date().toISOString(), hashArchivo:_hArch||null});   // v296 · v305: huella
         }catch(e){ console.error('Error subiendo',file.name,e); fallidos.push(file.name+': '+(e.message||e)); }
     }
 
@@ -22902,13 +23158,24 @@ function _buscarPosibleDuplicado(oid, valor, fechaStr, forma){
 // (hashImagen = carga masiva con IA; hashesImagenes[] = adjuntar 📎 directo al movimiento).
 function _buscarHashDuplicadoGlobal(hash, oidActual){
     if(!hash) return null;
+    // v305: también la huella de PDF y archivos sueltos (hashArchivo)
+    const _tiene=c=>!!c && (c.hashImagen===hash || c.hashArchivo===hash || (Array.isArray(c.hashesImagenes) && c.hashesImagenes.includes(hash)));
     for(const ofi of (DB.oficinas||[])){
         for(const m of (ofi.movimientos||[])){
             for(const c of (m.comprobantes||[])){
-                if(!c) continue;
-                if(c.hashImagen===hash || (Array.isArray(c.hashesImagenes) && c.hashesImagenes.includes(hash))){
-                    return {movimiento:m, comprobante:c, oficinaOrigen:(ofi.id===oidActual?'':ofi.nombre)};
+                if(_tiene(c)){
+                    const _b=_baseMovs[ofi.id]; const _enNube=!!(_b && _b[m.id] && _b[m.id].indexOf(hash)>=0);   // v305: ¿ya llegó a la nube o solo está en esta pantalla?
+                    return {movimiento:m, comprobante:c, oficinaOrigen:(ofi.id===oidActual?'':ofi.nombre), enNube:_enNube};
                 }
+            }
+        }
+    }
+    // v305: y los abonos de clientes especiales, que viven aparte (antes ningún control los veía)
+    for(const a of (DB.abonosEspeciales||[])){
+        for(const c of (a.comprobantes||[])){
+            if(_tiene(c)){
+                const cli=(DB.clientesEspeciales||[]).find(x=>x.id===a.clienteId);
+                return {movimiento:{ id:a.id, concepto:'Abono de cliente especial', valor:a.valor, fecha:String(a.fecha||'').slice(0,10)+'T12:00:00', descripcion:(cli&&cli.nombre)||a.descripcion||'' }, comprobante:c, oficinaOrigen:'', enNube:undefined, esAbono:true};
             }
         }
     }
@@ -22918,6 +23185,31 @@ function _buscarHashDuplicadoGlobal(hash, oidActual){
 // CONTROL 7c: Buscar comprobante duplicado por CONTENIDO (número de referencia + valor),
 // en TODAS las oficinas. Detecta el mismo pago aunque sea otra foto/recorte (huella distinta).
 function _normRef(r){ return (r||'').toString().toUpperCase().replace(/[^A-Z0-9]/g,''); }
+/* v305 — ¿ESTA REFERENCIA IDENTIFICA UN PAGO, O ES UN NÚMERO QUE SE REPITE ENTRE CLIENTES?
+   Auditoría del 14/9/2026 sobre 1.846 referencias guardadas:
+   · Las de Bancolombia que lee la IA tienen la forma 0000XXXX00: las 314 terminan en 00 y van de 300 a
+     99.900, o sea que solo hay 999 posibles. 55 ya se repetían entre clientes distintos. Con el mismo valor
+     (49.900, 65.000, 70.000 son los de todos los días) bloqueaban pagos distintos como "ya registrado".
+   · "M1234567890" es el EJEMPLO del mensaje que se le manda a la IA: cuando no lee la referencia, lo copia.
+   · 46600004695 es la cuenta de la empresa (46600004696) mal leída por un dígito.
+   Devuelve el motivo si es débil (no sirve para bloquear) o '' si identifica un pago. */
+function _refDebilParaBloquear(referencia, valor){
+    const ref=_normRef(referencia); if(!ref) return 'vacía';
+    const sig=ref.replace(/^([A-Z]*)0+/, '$1');
+    if(sig.replace(/^[A-Z]+/,'').length<6 && !/[A-Z]{6,}/.test(sig)) return 'menos de 6 cifras significativas';
+    if(/^(.)\1+$/.test(ref)) return 'un solo carácter repetido';
+    if(/0123456|1234567|2345678|3456789|9876543/.test(ref)) return 'secuencia (el ejemplo que se le da a la IA)';
+    const dig=ref.replace(/\D/g,'');
+    if(/^3\d{9}$/.test(dig) && dig===ref) return 'número de celular';
+    if(/^(20\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])|(0[1-9]|[12]\d|3[01])(0[1-9]|1[0-2])20\d{2})$/.test(dig) && dig===ref) return 'fecha';
+    const v=String(Math.round(parseFloat(valor)||0)); if(v!=='0' && dig.replace(/^0+/,'')===v) return 'es el valor';
+    try{ for(const cta of CUENTAS_OFICIAL_PV){ const c=String(cta).replace(/\D/g,''); if(!c) continue;
+        if(dig===c || (dig.length>=7 && (c.includes(dig)||dig.includes(c)))) return 'cuenta de la empresa';
+        if(dig.length===c.length){ let d=0; for(let k=0;k<c.length;k++) if(dig[k]!==c[k]) d++; if(d<=1) return 'cuenta de la empresa mal leída'; } } }catch(e){}
+    return '';
+}
+// Fecha y hora cortas para los avisos ("14/9/2026 11:08"); si no hay fecha, lo dice.
+function _fechaHoraCorta(iso){ try{ const d=new Date(iso); if(isNaN(d)) return 'una fecha que no quedó registrada'; return d.toLocaleDateString('es-CO')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }catch(e){ return 'una fecha que no quedó registrada'; } }
 // Admin: limpiar la referencia guardada de un comprobante (cuando la IA la leyó/asignó mal).
 // NO borra la imagen ni el movimiento: solo quita el campo "referencia" para que el control
 // anti-duplicados no bloquee a otro comprobante por una referencia que no era de este.
@@ -22939,6 +23231,7 @@ function _limpiarRefComp(oid, mid, idx){
 function _buscarReferenciaDuplicada(oidActual, referencia, valor){
     const ref=_normRef(referencia);
     if(ref.length<6) return null; // referencia muy corta o no leída → no se usa este control
+    { const _deb=_refDebilParaBloquear(ref, valor); if(_deb){ console.warn('🎯 No se bloquea por referencia ('+_deb+'):', ref); return null; } }   // v305
     // ════════════════════════════════════════════════════════════════════
     // 🎯 v222 — ESTRICTO PERO RAZONABLE. Dos filtros para no bloquear pagos legítimos:
     //
@@ -23543,14 +23836,17 @@ async function _cargarComprobantesIA(files, oid){
             bloqueadosHistoricos++;
             const fechaAnterior=new Date(dupHistorico.movimiento.fecha).toLocaleDateString('es-CO');
             const oficinaOrigen=dupHistorico.oficinaOrigen?` (Oficina: ${dupHistorico.oficinaOrigen})`:'';
-            alert(`🚫 BLOQUEADO — COMPROBANTE YA USADO\n\n` +
-                `La imagen "${file.name}" ya fue usada antes${oficinaOrigen}:\n\n` +
+            alert(`🚫 BLOQUEADO — COMPROBANTE YA USADO\n\n` +   // v305: dice cuándo se subió y si ya está en la nube
+                `La imagen "${file.name}" es idéntica, byte por byte, a la que se subió el ${_fechaHoraCorta(dupHistorico.comprobante&&dupHistorico.comprobante.fecha)}${oficinaOrigen} a este pago:\n\n` +
                 `📋 Movimiento: ${dupHistorico.movimiento.concepto}\n` +
                 `💰 Valor: ${fmtShort(dupHistorico.movimiento.valor)}\n` +
-                `📅 Fecha: ${fechaAnterior}\n` +
+                `📅 Fecha del pago: ${fechaAnterior}\n` +
                 `📝 Descripción: ${dupHistorico.movimiento.descripcion}\n\n` +
-                `Es idéntica bit a bit a la usada antes, por eso NO se puede volver a subir.\n` +
-                `Si corresponde a un pago distinto, sube la foto del comprobante real de ese pago.`);
+                (dupHistorico.enNube===true
+                    ? `✅ Ya está guardada en la nube. Dos fotos distintas nunca dan este aviso: es el mismo archivo.\n`
+                    : dupHistorico.enNube===false ? `⏳ Se subió en esta sesión y todavía no llega a la nube: la app lo reintenta sola. No hace falta volver a subirla.\n`
+                    : `Dos fotos distintas nunca dan este aviso: es el mismo archivo.\n`) +
+                `Si ese pago quedó con el comprobante de otro cliente, pídele al administrador que lo corrija.`);
             registrarLog('BLOQUEADO_COMPROBANTE_REUTILIZADO',{
                 archivo:file.name, hash:hash, oid:oid,
                 movimientoAnterior:dupHistorico.movimiento.id,
@@ -24257,6 +24553,11 @@ window._elegirPagoParaComprobante=_elegirPagoParaComprobante;
 async function guardarComprobantesRegistrados(oid){
     const validos=_comprobantesPendientes.filter(c=>c.analizado&&c.valor>0);
     if(validos.length===0){ alert('No hay comprobantes válidos para registrar'); return; }
+    // v305: si esta oficina no terminó de cargar sus movimientos, el guardado NO los reescribe (protección) y todo el lote se perdería
+    if(window._cargaMovsIncompleta===true || (window._cargaCompletaPorOficina && window._cargaCompletaPorOficina[oid]===false)){
+        alert('⚠️ Esta oficina no terminó de cargar sus movimientos en esta sesión (suele ser un bache de internet), así que los comprobantes NO se guardarían.\n\nNo se subió nada. Recarga la página (F5), espera a que cargue completo y vuelve a registrarlos.');
+        return;
+    }
 
     // Los comprobantes se guardan en TU Google Drive. Si aún no está configurado, avisar claro.
     if(!compsDriveActivo()){
@@ -24620,6 +24921,7 @@ async function guardarComprobantesRegistrados(oid){
             console.error(`❌ Error subiendo comprobante ${i+1}:`,e);
             errores.push(`${i+1}: ${e.message}`);
         }
+        if(!comprobantesArr.length) continue;   // v305: Drive no recibió la imagen → el pago sigue pendiente de soporte (antes quedaba "completo" y "verificado" sin comprobante)
 
         // Anti-fraude: dejar ALERTA para el administrador si la transferencia NO va a la cuenta oficial
         if(c.cuentaCheck && c.cuentaCheck.estado==='alerta'){
@@ -24640,7 +24942,7 @@ async function guardarComprobantesRegistrados(oid){
             c.splits.forEach((sp,k)=>{
                 const compCopia=comprobantesArr.map(o2=>({...o2, valorIA:sp.valor, descripcionIA:sp.descripcion||'', esPagoCombinado:true, totalComprobante:c.valor, parteCombinado:`${k+1}/${c.splits.length}`}));
                 if(sp._enlazarA){
-                    const mov=o.movimientos.find(x=>x.id===sp._enlazarA.id);
+                    const mov=_movDestino(oid, sp._enlazarA.id);   // v305: la oficina de AHORA, no la copia de antes de las subidas
                     if(mov){
                         if(!mov.comprobantes) mov.comprobantes=[];
                         mov.comprobantes.push(...compCopia);
@@ -24661,7 +24963,7 @@ async function guardarComprobantesRegistrados(oid){
 
         // ─── ENLAZAR a pago existente (no duplicar) ───
         if(c._enlazarA){
-            const mov=o.movimientos.find(x=>x.id===c._enlazarA.id);
+            const mov=_movDestino(oid, c._enlazarA.id);   // v305: la oficina de AHORA, no la copia de antes de las subidas
             if(mov){
                 if(!mov.comprobantes) mov.comprobantes=[];
                 mov.comprobantes.push(...comprobantesArr);
@@ -24686,7 +24988,9 @@ async function guardarComprobantesRegistrados(oid){
     _comprobantesPendientes=[];
     closeModal();
 
-    let msg=`✅ Procesado:\n`;
+    const _okNube=window._ultimoGuardadoOk===true;   // v305: antes decía "Procesado" aunque la nube hubiera rechazado el guardado
+    let msg=_okNube ? `✅ Procesado:\n`
+        : `⚠️ LOS COMPROBANTES QUEDARON EN DRIVE Y EN PANTALLA, PERO LA NUBE TODAVÍA NO LOS RECIBIÓ\n\nLa app reintenta el guardado sola: deja la página abierta y NO los vuelvas a subir (saldrían como "ya usados"). Si en cinco minutos no aparece "Guardado ✓" arriba, avísale a soporte.\n`;
     if(enlazados>0) msg+=`\n🔗 ${enlazados} comprobante(s) enlazado(s) a su pago de WispHub`;
     if(subidos>0) msg+=`\n☁️ ${subidos} imagen(es) guardada(s) en tu Google Drive`;
     if(noEnlazados.length>0){
@@ -26212,6 +26516,7 @@ function modalAgregarCompAbono(abonoId, cliId){
 }
 
 async function subirCompsAbonoExistente(abonoId, cliId){
+    if(window._huellaAbonoEnCurso){ if(window._esperandoHuellaAbono) return; window._esperandoHuellaAbono=true; try{ await window._huellaAbonoEnCurso; }finally{ window._esperandoHuellaAbono=false; } }   // v305: espera la huella; un segundo clic mientras espera no hace nada
     if(_abonoComprobantesPendientes.length===0){
         return alert('⚠️ Selecciona al menos un archivo para subir');
     }
@@ -26233,7 +26538,7 @@ async function subirCompsAbonoExistente(abonoId, cliId){
                 a.comprobantes.push({
                     url:res.url, nombre:c.nombre, tipo:c.tipo,
                     fecha:new Date().toISOString(),
-                    agregadoDespues:true,
+                    hashArchivo:c.hash||null, agregadoDespues:true,   // v305: huella
                     agregadoPor:USER?.nombre||USER?.id
                 });
                 exitos++;
@@ -27049,28 +27354,49 @@ function _recalcularAplicaciones(){
 
 let _abonoComprobantesPendientes=[];
 
-function _handleAbonoCompFiles(files){
+async function _handleAbonoCompFiles(files){
     console.log('📎 _handleAbonoCompFiles llamado con', files?.length, 'archivos');
     if(!files||!files.length){ console.warn('Sin archivos'); return; }
-    let agregados=0;
-    for(const f of files){
+    const lista=[...files];   // v305: copia; la lista del selector se vacía si se vuelve a elegir mientras se calcula la huella
+    let _huellaLista; const _huellaEsta=new Promise(r=>_huellaLista=r);   // v305: registrar espera a que termine
+    window._huellasAbonoPendientes=(window._huellasAbonoPendientes||0)+1;
+    window._huellaAbonoEnCurso = window._huellaAbonoEnCurso ? Promise.all([window._huellaAbonoEnCurso, _huellaEsta]) : _huellaEsta;   // encadenada: espera también las selecciones anteriores
+    try{
+    let agregados=0, noAceptados=0;
+    for(const f of lista){
         console.log('   Archivo:', f.name, 'tipo:', f.type, 'tamaño:', f.size);
         if(!f.type.startsWith('image/')&&f.type!=='application/pdf'){
             console.warn('   ❌ Tipo no aceptado:', f.type);
+            noAceptados++;
             continue;
         }
         if(f.size > 10*1024*1024){
             alert('⚠️ El archivo "'+f.name+'" supera los 10MB');
             continue;
         }
-        _abonoComprobantesPendientes.push({file:f, nombre:f.name, tipo:f.type==='application/pdf'?'pdf':'imagen'});
+        // v305: huella del archivo, como en el registro diario. El mismo comprobante no se usa dos veces,
+        // ni entre abonos ni entre un abono y un pago de caja.
+        let hash=null;
+        if(f.size>0){ const du=await _leerComoDataURL(f); if(du) hash=await _hashImagen(du); }
+        if(hash){
+            const repetido=_abonoComprobantesPendientes.find(x=>x.hash===hash);
+            if(repetido){ alert(`🚫 "${f.name}" es el mismo archivo que "${repetido.nombre}", que ya seleccionaste.`); continue; }
+            const dup=_buscarHashDuplicadoGlobal(hash, null);
+            if(dup){
+                alert(`🚫 BLOQUEADO — COMPROBANTE YA USADO\n\n"${f.name}" es idéntico, byte por byte, al que se subió el ${_fechaHoraCorta(dup.comprobante&&dup.comprobante.fecha)} a:\n\n📋 ${dup.movimiento.concepto}${dup.oficinaOrigen?' ('+dup.oficinaOrigen+')':''}\n💰 ${fmtShort(dup.movimiento.valor)}\n📅 ${String(dup.movimiento.fecha||'').slice(0,10)}\n📝 ${dup.movimiento.descripcion||''}\n\nNo se agregó. Si es un pago distinto, sube su comprobante real.`);
+                registrarLog('BLOQUEADO_COMPROBANTE_REUTILIZADO',{via:'abono especial', archivo:f.name, hash, movimientoAnterior:dup.movimiento.id, oficinaOrigen:dup.oficinaOrigen||''});
+                continue;
+            }
+        }
+        _abonoComprobantesPendientes.push({file:f, nombre:f.name, tipo:f.type==='application/pdf'?'pdf':'imagen', hash});
         agregados++;
     }
     console.log('   ✅ Total agregados:', agregados, '— Total pendientes:', _abonoComprobantesPendientes.length);
     _renderAbonoComprobantesPreview();
-    if(agregados===0&&files.length>0){
+    if(agregados===0 && noAceptados>0 && noAceptados===lista.length){
         alert('⚠️ Ningún archivo fue aceptado. Solo se permiten imágenes (JPG, PNG, etc.) o PDF.');
     }
+    }finally{ _huellaLista(); window._huellasAbonoPendientes=Math.max(0,(window._huellasAbonoPendientes||1)-1); if(!window._huellasAbonoPendientes) window._huellaAbonoEnCurso=null; }
 }
 
 function _renderAbonoComprobantesPreview(){
@@ -27085,6 +27411,7 @@ function _renderAbonoComprobantesPreview(){
 }
 
 async function guardarAbonoEspecial(cliId){
+    if(window._huellaAbonoEnCurso){ if(window._esperandoHuellaAbono) return; window._esperandoHuellaAbono=true; try{ await window._huellaAbonoEnCurso; }finally{ window._esperandoHuellaAbono=false; } }   // v305: espera la huella; un segundo clic mientras espera no hace nada
     const valor=parseFloat(document.getElementById('ab_valor').value||0);
     const forma=document.getElementById('ab_forma').value;
     const fecha=document.getElementById('ab_fecha').value;
@@ -27117,7 +27444,7 @@ async function guardarAbonoEspecial(cliId){
                 if(res && res.url){
                     comprobantesArr.push({
                         url:res.url, nombre:c.nombre, tipo:c.tipo,
-                        fecha:new Date().toISOString()
+                        fecha:new Date().toISOString(), hashArchivo:c.hash||null   /* v305: huella */
                     });
                     console.log('   ✅ Subido:', c.nombre, '→', res.url);
                 } else {

@@ -102,6 +102,110 @@ Otras tres piezas de la misma versión:
   lote y mensaje. Si el motivo es pasajero, la app reintenta sola a los 20, 45
   y 90 segundos; el aviso completo sale en el primer fallo y en el definitivo.
 
+## Comprobantes "duplicados" que no lo son (OFICINAS v305, 14 Sep 2026)
+
+Hay dos controles y dan avisos distintos:
+
+| Aviso | Control | Qué compara |
+|---|---|---|
+| COMPROBANTE YA USADO | `_buscarHashDuplicadoGlobal` | SHA-256 de los bytes originales de la imagen |
+| COMPROBANTE YA REGISTRADO | `_buscarReferenciaDuplicada` | referencia leída por la IA + mismo valor |
+
+**La huella no da falsos positivos**: se calcula sobre el archivo original en
+los tres caminos (📎, cargue por lotes); la versión reducida solo viaja a la
+IA. Los cuatro bloqueos del 14 Sep en THOMAS eran imágenes ya subidas y
+guardadas el 12 Sep en los mismos pagos. Desde la v305 el aviso dice cuándo
+se subió y si ya está en la nube, y si la huella está en el mismo pago al que
+se adjunta, avisa que ya está adjunta en vez de bloquear.
+
+**La referencia sí daba falsos positivos.** Medido sobre 1.846 referencias:
+las de Bancolombia que lee la IA tienen la forma `0000XXXX00` (las 314
+terminan en 00, van de 300 a 99.900: solo 999 posibles, 55 ya repetidas entre
+clientes). Dos pagos de clientes distintos tenían `M1234567890`, que es el
+ejemplo del mensaje a la IA, y tres la cuenta de la empresa con un dígito mal
+leído. `_refDebilParaBloquear` descarta para bloquear: menos de 6 cifras
+significativas, secuencias, un solo carácter, celulares, fechas, el propio
+valor y la cuenta de la empresa exacta o a un dígito. Siguen bloqueando las
+de Nequi (`M` + 8 cifras) y los códigos largos de PSE y Bre-B.
+
+La misma versión corrige cuatro formas de perder un cargue por lotes
+(`guardarComprobantesRegistrados`): no arranca si la oficina no cargó
+completa; si Drive no recibe la imagen, el pago queda pendiente de soporte;
+enlaza con `_movDestino` sobre la memoria actual (un cambio de otra sesión
+durante las subidas dejaba los comprobantes en una copia vieja); y si la nube
+no recibe el guardado (`window._ultimoGuardadoOk`), no dice "Procesado".
+
+Los abonos de clientes especiales (`_handleAbonoCompFiles`) y los PDF sueltos
+del 📎 también calculan huella (`hashArchivo`), y `_buscarHashDuplicadoGlobal`
+recorre `DB.abonosEspeciales`: el mismo archivo no se usa en dos pagos, sea
+de caja o de abono.
+
+## Cada sesión baja solo los bloques que cambiaron (OFICINAS v305)
+
+Hasta la v304, cada guardado de movimientos de cualquier sesión cambiaba
+`_selloMovs` y todas las sesiones abiertas volvían a bajar los 40 bloques
+(8,5 MB). Con el internet de las oficinas eso dejaba cargas incompletas.
+
+1. **Quien guarda** escribe en `movs_index`, con `set(..., {merge:true})`,
+   `firmas.<oficina>.<i>` de cada bloque que reescribe, **en el mismo lote**
+   que el bloque (`_repartirFirmasMovsEnLotes`). Si el lote falla, no queda ni
+   el bloque ni la firma. En el modo documento por documento, la firma de un
+   bloque que falló se quita (`_quitarFirmasFallidas`).
+2. **Quien recarga** guarda copia de cada bloque que baja
+   (`window._cacheBloquesMovs`), con la firma calculada del contenido y nunca
+   copiada del índice. Reutiliza la copia si la firma del índice coincide
+   (`_planLecturaBloques`). Baja todo si no hay copia, cambió la cantidad de
+   bloques, hay bloques fuera del índice, el índice no trae firmas o pasaron
+   15 minutos desde la última carga completa.
+3. **Antes de reescribir un bloque**, quien guarda lo relee y lo compara con
+   lo que cargó. Si otra sesión lo cambió, recarga completo y fusiona antes
+   de escribir, así una copia vieja nunca pisa un cambio ajeno.
+
+Una sesión v304 o anterior escribe el índice sin merge y borra todas las
+firmas: las demás vuelven a bajar todo, como antes. Nada se rompe en la
+transición.
+
+Endurecido tras la revisión del agente `revisor`:
+
+- **Guardado durante una recarga.** La carga publica
+  `window._cargaMovsEnCurso` y el guardado la espera, hasta 60 s. Si no
+  termina, ese guardado no reescribe movimientos. Las firmas leídas pasan a
+  `_sigMovsBloque` solo cuando la carga aplica a memoria. Si un guardado
+  confirma a mitad de la carga (`_genConfirmMovs`), lo leído no se aplica y
+  la carga se repite.
+- **Lo que no se pudo verificar no se escribe.** Un bloque ilegible cuenta
+  como cambiado. Si la recarga no termina, esa oficina no se reescribe. Si
+  `movs_index` no se puede leer, no se escriben movimientos ni el índice,
+  que antes quedaba en cero.
+- **Varias cargas a la vez.** Cada carga lleva número (`_seqCargaMovs`) y
+  una más vieja nunca se aplica encima de una más nueva. El guardado espera
+  todas las cargas vivas (`_cargasMovsVivas`), también las que arranquen
+  mientras espera.
+- **Guardado parcial por no poder verificar** (índice ilegible, carga de más
+  de un minuto, recarga incompleta): se reintenta solo
+  (`_parcialReintentable`), como dice el aviso.
+- **Documento por documento**, cada bloque va con su firma en un lote de dos
+  escrituras: entran los dos o ninguno.
+- **Abonos.** Varias selecciones de archivos se encadenan, y un segundo clic
+  en registrar mientras se calcula la huella no hace nada.
+- **Siembra.** Tras una carga completa, `_sembrarFirmasMovs` pone las firmas
+  que faltan. Cada una sale de una transacción que lee el bloque, nunca de
+  la memoria.
+- La copia que deja un guardado no cuenta como carga completa; la siguiente
+  recarga busca bloques fuera del índice.
+
+Firebase entrega las claves de los mapas en otro orden en cada lectura. Por
+eso toda comparación de bloques usa `_jsonEstable` (claves ordenadas); un
+`JSON.stringify` directo da distinto aunque el contenido sea el mismo.
+
+Medido con los datos reales el 14 Sep 2026 en `PRUEBAS.html`: carga completa
+40 bloques bajados; recarga sin cambios 0 bajados y 40 tomados de la copia;
+con un bloque cambiado, 1 bajado y 39 de la copia, con los movimientos
+idénticos. La consola de cada sesión lo resume en la línea
+"📦 Bloques de movimientos".
+
+## Leer los fallos de guardado
+
 Para saber por qué falló un guardado en una oficina, leer `errores_guardado`
 por REST (la colección es pública) en vez de pedir la consola:
 
