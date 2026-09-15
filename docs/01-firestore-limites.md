@@ -222,6 +222,38 @@ minutos. Un origen encontrado: `_aplicarPagosWisphubEnMemoria` copiaba
 **Al crear un registro nuevo, nunca asignar un valor que pueda ser
 `undefined`**: usar `null` o `''`.
 
+## Subir un comprobante que la app ve repetido (OFICINAS v307, 15 Sep 2026)
+
+Pedido de Elkin. Donde antes había un aviso que solo bloqueaba, ahora sale
+la ventana `_pedirMotivoDuplicado`. Muestra el pago contra el que choca y
+pide escribir por qué no es el mismo comprobante (mínimo 15 letras). Las
+opciones son "No subir", "Subir de todas formas" y, en el cargue por lotes,
+"No subir ninguno de los repetidos".
+
+Lo que se sube así:
+
+- lleva `duplicadoAceptado: [{tipo, motivo, por, fecha, fechaMs,
+  movimientoAnterior, oficinaAnterior, pagoAnterior, ...}]` en el
+  comprobante, con `tipo` `huella` (mismo archivo) o `referencia` (misma
+  referencia y valor);
+- crea una alerta `tipo:'duplicado'` en `DB.alertasComprobantes`, que el
+  panel del administrador muestra en su propio recuadro morado;
+- queda en el registro de auditoría como `COMPROBANTE_DUPLICADO_ACEPTADO`;
+- en la lista de comprobantes del pago lleva la etiqueta "Subido aunque
+  parecía repetido", con el motivo al pasar el mouse.
+
+Cubre los cinco lugares donde había bloqueo: adjuntar imágenes o PDF
+(`procesarArchivos`), la referencia leída por la IA
+(`_leerComprobantesAlSubir`), el cargue por lotes al elegir
+(`_cargarComprobantesIA`) y al registrar (`guardarComprobantesRegistrados`),
+y los abonos de clientes especiales. Elegir dos veces el mismo archivo en la
+misma selección sigue bloqueado.
+
+Una huella repetida es el mismo archivo byte por byte. El caso legítimo es
+una transferencia que pagó dos facturas. Si el pago quedó registrado dos
+veces (como la factura #103566 del 14 Sep 2026), lo correcto es borrar el
+repetido, no subir el comprobante dos veces. La ventana lo dice.
+
 ## Leer los fallos de guardado
 
 Para saber por qué falló un guardado en una oficina, leer `errores_guardado`

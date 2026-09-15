@@ -948,7 +948,7 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION = 306; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 307; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -969,7 +969,7 @@ const APP_VERSION = 306; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '15 Sep 2026 (v306: un dato vacio en un movimiento ya no tumba el guardado; se quita y queda anotado. v305: duplicados, cargue por lotes y recarga por firmas. Historial en git y en docs/01-firestore-limites.md)';
+const APP_VERSION_FECHA = '15 Sep 2026 (v307: un comprobante bloqueado por duplicado se puede subir escribiendo por que no es el mismo; queda marcado para revision del administrador. v306: un dato vacio ya no tumba el guardado. Historial en git y en docs/01-firestore-limites.md)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -1280,6 +1280,77 @@ function _programarReintentoGuardado(motivo){
 }
 // v306: un campo undefined hace que Firebase rechace TODO el lote. El guardado ahora lo quita; esto deja dicho
 // cuáles eran (en la consola y en errores_guardado) para corregir el origen. Una vez cada 30 minutos por lista.
+/* ════════════════════════════════════════════════════════════════════
+   v307 (15 sep 2026) — COMPROBANTE BLOQUEADO POR DUPLICADO: SUBIRLO CON UNA EXPLICACIÓN.
+   Pedido de Elkin: cuando la app dice que un comprobante está repetido, poder subirlo
+   igual escribiendo por qué no es el mismo. Queda marcado en el comprobante
+   (duplicadoAceptado: [{tipo, motivo, por, fecha, pagoAnterior...}]), aparece como
+   alerta en el panel del administrador y queda en el registro de auditoría.
+   ════════════════════════════════════════════════════════════════════ */
+// Ventana que pide el motivo. Devuelve una promesa con {accion:'subir', motivo} | {accion:'omitir'} | {accion:'omitirTodos'}.
+function _pedirMotivoDuplicado(opc){
+    opc=opc||{};
+    return new Promise(resolve=>{
+        try{
+            const previo=document.getElementById('dupMotivoOverlay'); if(previo) previo.remove();
+            const esc=s=>String(s==null?'':s).replace(/[&<>"]/g, ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+            const nota = opc.tipo==='huella'
+                ? 'La app compara el archivo byte por byte: es <b>el mismo archivo</b> que ya está en ese pago. Súbelo solo si de verdad corresponde a otro pago, por ejemplo una sola transferencia que pagó dos facturas. Si ese pago quedó registrado dos veces, no lo subas: pídele al administrador que borre el repetido.'
+                : 'La referencia y el valor coinciden con otro comprobante ya registrado. Si es un pago distinto (por ejemplo, la IA leyó mal la referencia), explica por qué.';
+            const ov=document.createElement('div'); ov.id='dupMotivoOverlay';
+            ov.setAttribute('role','dialog'); ov.setAttribute('aria-modal','true'); ov.setAttribute('aria-labelledby','dupMotivoTitulo');
+            ov.style.cssText='position:fixed;inset:0;z-index:2147483600;background:rgba(0,0,0,0.62);display:flex;align-items:center;justify-content:center;padding:16px;';
+            ov.innerHTML=`<div style="background:var(--surface,#1b1f2a);color:var(--text,#e5e7eb);border:1px solid var(--border,#3b4252);border-radius:12px;max-width:560px;width:100%;max-height:90vh;overflow:auto;padding:18px 20px;box-shadow:0 20px 50px rgba(0,0,0,0.5);font-size:0.86rem;">
+                <div id="dupMotivoTitulo" style="font-weight:800;color:#ef4444;font-size:0.98rem;margin-bottom:10px;">🚫 ${esc(opc.titulo||'COMPROBANTE DUPLICADO')}</div>
+                <div style="white-space:pre-wrap;line-height:1.45;margin-bottom:12px;">${esc(opc.detalle||'')}</div>
+                <div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.35);border-radius:8px;padding:9px 12px;font-size:0.8rem;line-height:1.4;margin-bottom:12px;">${nota}</div>
+                <label for="dupMotivoTexto" style="font-weight:700;font-size:0.8rem;">¿Por qué no es el mismo comprobante?</label>
+                <textarea id="dupMotivoTexto" rows="3" maxlength="300" placeholder="Ejemplo: una sola transferencia pagó las facturas de agosto y septiembre" style="width:100%;box-sizing:border-box;margin:6px 0 4px;padding:8px;border-radius:8px;border:1px solid var(--border,#555);background:var(--surface2,#111);color:inherit;font:inherit;resize:vertical;"></textarea>
+                <div style="font-size:0.72rem;color:var(--muted,#9ca3af);margin-bottom:12px;">Escribe al menos 15 letras. Quedará marcado para revisión del administrador, con tu nombre y este motivo.</div>
+                <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
+                    ${opc.permitirOmitirTodos?'<button type="button" class="btn btn-outline" data-accion="omitirTodos">No subir ninguno de los repetidos</button>':''}
+                    <button type="button" class="btn btn-outline" data-accion="omitir">No subir</button>
+                    <button type="button" class="btn btn-primary" data-accion="subir" disabled style="opacity:0.5;">Subir de todas formas</button>
+                </div></div>`;
+            document.body.appendChild(ov);
+            const ta=ov.querySelector('#dupMotivoTexto'), bSubir=ov.querySelector('[data-accion="subir"]');
+            const limpio=()=>ta.value.trim().replace(/\s+/g,' ');
+            const valido=()=>limpio().length>=15;
+            ta.addEventListener('input', ()=>{ const ok=valido(); bSubir.disabled=!ok; bSubir.style.opacity=ok?'1':'0.5'; });
+            let cerrado=false;
+            const cerrar=r=>{ if(cerrado) return; cerrado=true; document.removeEventListener('keydown', tecla, true); ov.remove(); resolve(r); };
+            const tecla=e=>{ if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); cerrar({accion:'omitir'}); } };
+            document.addEventListener('keydown', tecla, true);
+            ov.addEventListener('click', e=>{ const b=e.target && e.target.closest ? e.target.closest('[data-accion]') : null; if(!b) return;
+                const ac=b.getAttribute('data-accion');
+                if(ac==='subir'){ if(!valido()) return; cerrar({accion:'subir', motivo:limpio().slice(0,300)}); }
+                else cerrar({accion:ac}); });
+            setTimeout(()=>{ try{ ta.focus(); }catch(_){} }, 50);
+        }catch(e){ console.warn('ventana de comprobante duplicado:', e); resolve({accion:'omitir'}); }
+    });
+}
+// La marca que queda en el comprobante. Sin campos vacíos (Firebase no los acepta).
+function _marcaDuplicadoAceptado(tipo, motivo, dup, extra){
+    const mov=(dup && dup.movimiento) || {};
+    const marca={ tipo:String(tipo||''), motivo:String(motivo||'').slice(0,300),
+        por:String((USER && (USER.nombre||USER.role))||''), fecha:new Date().toISOString(), fechaMs:Date.now(),
+        movimientoAnterior:String(mov.id||''), oficinaAnterior:String((dup && dup.oficinaOrigen)||''),
+        pagoAnterior:String(mov.descripcion||mov.concepto||'').slice(0,120) };
+    Object.keys(extra||{}).forEach(k=>{ if(extra[k]!=null) marca[k]=String(extra[k]).slice(0,120); });
+    return marca;
+}
+// Alerta para el administrador y registro de auditoría. `pago` es el pago al que se adjunta.
+function _alertaDuplicadoAceptado(oid, pago, marca, archivo){
+    try{
+        pago=pago||{};
+        if(!DB.alertasComprobantes) DB.alertasComprobantes=[];
+        DB.alertasComprobantes.push({ id:uid(), tipo:'duplicado', oid:String(oid||''), oficina:String(((oid && getOficina(oid))||{}).nombre||oid||''),
+            fechaMov:String(pago.fecha||'').slice(0,10), registradoEn:now(), valor:parseFloat(pago.valor)||0,
+            descripcion:String(pago.descripcion||pago.concepto||'').slice(0,120), tipoDuplicado:marca.tipo, motivo:marca.motivo,
+            pagoAnterior:marca.pagoAnterior, archivo:String(archivo||'').slice(0,80), comprobanteUrl:'', registradoPor:marca.por, resuelta:false });
+        registrarLog('COMPROBANTE_DUPLICADO_ACEPTADO',{oid:String(oid||''), movId:String(pago.id||''), tipo:marca.tipo, motivo:marca.motivo, movimientoAnterior:marca.movimientoAnterior, archivo:String(archivo||'')});
+    }catch(e){ console.warn('alerta de duplicado aceptado:', e); }
+}
 function _avisarCamposVacios(lista){
     try{
         console.warn('🧩 Campos vacíos (undefined) quitados antes de guardar:', lista.join(', '));
@@ -10674,7 +10745,7 @@ function renderDash(){
     </div>
 
     ${USER.role==='admin' ? (()=>{
-        const _al=(DB.alertasComprobantes||[]).filter(a=>!a.resuelta);
+        const _al=(DB.alertasComprobantes||[]).filter(a=>!a.resuelta && a.tipo!=='duplicado');   // v307: los duplicados aceptados van en su propio recuadro
         if(!_al.length) return '';
         return `<div style="background:rgba(239,68,68,0.1);border:1.5px solid rgba(239,68,68,0.45);border-radius:10px;padding:12px 16px;margin-bottom:18px;">
             <div style="font-weight:800;color:#ef4444;font-size:0.9rem;margin-bottom:6px;">🚨 ${_al.length} alerta(s): transferencias que NO llegaron a la cuenta de PROYECTOVISION</div>
@@ -10686,6 +10757,20 @@ function renderDash(){
                 </span>
             </div>`).join('')}
             ${_al.length>15?`<div style="font-size:0.72rem;color:var(--muted);margin-top:4px;">…y ${_al.length-15} más.</div>`:''}
+        </div>`;
+    })() : ''}
+
+    ${USER.role==='admin' ? (()=>{   /* v307: comprobantes que se subieron aunque la app los veía repetidos */
+        const _du=(DB.alertasComprobantes||[]).filter(a=>!a.resuelta && a.tipo==='duplicado');
+        if(!_du.length) return '';
+        const _e=x=>String(x==null?'':x).replace(/[&<>"]/g, ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+        return `<div style="background:rgba(168,85,247,0.1);border:1.5px solid rgba(168,85,247,0.45);border-radius:10px;padding:12px 16px;margin-bottom:18px;">
+            <div style="font-weight:800;color:#a855f7;font-size:0.9rem;margin-bottom:6px;">🔁 ${_du.length} comprobante(s) subidos aunque la app los veía repetidos: revisa el motivo</div>
+            ${_du.slice(0,15).map(a=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;border-top:1px solid rgba(168,85,247,0.2);padding:6px 0;font-size:0.78rem;">
+                <span>🏢 <b>${_e(a.oficina)}</b> · ${fmtShort(a.valor)} · ${_e((a.fechaMov||'').slice(0,10))} · ${_e(a.descripcion)} · <i>${a.tipoDuplicado==='referencia'?'misma referencia':'mismo archivo'}</i> que: ${_e(a.pagoAnterior)}<br>✍️ <b>${_e(a.registradoPor)}</b>: “${_e(a.motivo)}”</span>
+                <button class="btn btn-sm" onclick="_resolverAlertaComprobante('${a.id}')" style="font-size:0.68rem;padding:2px 8px;background:#10b981;color:#fff;border:none;flex-shrink:0;">✓ revisada</button>
+            </div>`).join('')}
+            ${_du.length>15?`<div style="font-size:0.72rem;color:var(--muted);margin-top:4px;">…y ${_du.length-15} más.</div>`:''}
         </div>`;
     })() : ''}
 
@@ -21982,6 +22067,7 @@ function modalComprobantes(oid, mid){
                     ${c.valorIA?`<div style="font-size:0.68rem;color:#f97316;background:rgba(249,115,22,0.12);border:1px solid rgba(249,115,22,0.25);border-radius:4px;padding:2px 5px;margin-top:3px;text-align:center;font-weight:700;">✨ IA: ${fmtShort(c.valorIA)}</div>`:''}
                     ${c.valorOriginalIA && c.valorOriginalIA!==c.valorIA ? `<div style="font-size:0.62rem;color:#ef4444;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);border-radius:4px;padding:2px 5px;margin-top:2px;text-align:center;font-weight:700;" title="Valor modificado">⚠️ IA Original: ${fmtShort(c.valorOriginalIA)}</div>${c.motivoCambio?`<div style="font-size:0.6rem;color:var(--muted);margin-top:2px;font-style:italic;" title="${c.motivoCambio.replace(/"/g,'&quot;')}">📝 ${c.motivoCambio.substring(0,40)}${c.motivoCambio.length>40?'...':''}</div>`:''}`:''}
                     ${c.descripcionIA?`<div style="font-size:0.62rem;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${c.descripcionIA.replace(/"/g,'&quot;')}">${c.descripcionIA}</div>`:''}
+                    ${Array.isArray(c.duplicadoAceptado)&&c.duplicadoAceptado.length?`<div style="font-size:0.6rem;color:#a855f7;background:rgba(168,85,247,0.12);border:1px solid rgba(168,85,247,0.3);border-radius:4px;padding:2px 5px;margin-top:3px;text-align:center;font-weight:700;" title="${c.duplicadoAceptado.map(mk=>(mk.por||'')+': '+(mk.motivo||'')).join(' | ').replace(/[&<>"]/g, ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]))}">🔁 Subido aunque parecía repetido</div>`:''}
                     ${c.referencia?`<div style="font-size:0.62rem;color:#a78bfa;background:rgba(167,139,250,0.1);border:1px solid rgba(167,139,250,0.3);border-radius:4px;padding:2px 5px;margin-top:3px;display:flex;align-items:center;justify-content:space-between;gap:4px;"><span style="overflow:hidden;text-overflow:ellipsis;" title="Referencia guardada (la usa el control anti-duplicados)">🔖 Ref: ${_normRef(c.referencia)}</span>${(USER&&USER.role==='admin')?`<button onclick="_limpiarRefComp('${oid}','${mid}',${i})" title="Quitar esta referencia (si quedó mal leída por la IA)" style="background:none;border:none;cursor:pointer;font-size:0.7rem;padding:0;">🧹</button>`:''}</div>`:''}
                 </div>
                 <div style="display:flex;gap:4px;padding:0 6px 6px;">
@@ -22036,13 +22122,18 @@ async function _leerComprobantesAlSubir(b64Originals, files, oid, m, progEl){
     const leidos=temp.filter(t=>t.analizado && t.valor>0);
     if(!leidos.length) return {campos:{lecturaIA:'sin lectura'}};
     const total=leidos.reduce((s2,t)=>s2+(parseFloat(t.valor)||0),0);
+    const _marcasRef=[];   // v307: referencias repetidas que la persona decidió subir con un motivo
     // 1) Mismo control anti-duplicado por REFERENCIA + valor que el cargue por lotes
     for(const t of leidos){
         const d=(typeof _buscarReferenciaDuplicada==='function')?_buscarReferenciaDuplicada(oid, t.referencia, t.valor):null;
         if(d){
-            alert(`🚫 BLOQUEADO — COMPROBANTE YA REGISTRADO\n\nLa IA leyó la referencia ${_normRef(t.referencia)} por ${fmtShort(t.valor)}, y ese mismo comprobante ya está en:\n${d.movimiento.descripcion||d.movimiento.concepto} · ${new Date(d.movimiento.fecha).toLocaleDateString('es-CO')}${d.oficinaOrigen?' ('+d.oficinaOrigen+')':''}\n\nNo se adjuntó nada. Si es un pago distinto, sube el comprobante real de ese pago.`);
-            registrarLog('BLOQUEADO_COMPROBANTE_REF_DUPLICADA',{via:'movimiento', oid, mid:m.id, referencia:_normRef(t.referencia), valor:t.valor, movimientoAnterior:d.movimiento.id, oficinaOrigen:d.oficinaOrigen||''});
-            return {bloqueado:true};
+            const _dec=await _pedirMotivoDuplicado({ tipo:'referencia', titulo:'COMPROBANTE YA REGISTRADO',   // v307
+                detalle:`La IA leyó la referencia ${_normRef(t.referencia)} por ${fmtShort(t.valor)}, y ese mismo comprobante ya está en:\n${d.movimiento.descripcion||d.movimiento.concepto} · ${new Date(d.movimiento.fecha).toLocaleDateString('es-CO')}${d.oficinaOrigen?' ('+d.oficinaOrigen+')':''}` });
+            if(_dec.accion!=='subir'){
+                registrarLog('BLOQUEADO_COMPROBANTE_REF_DUPLICADA',{via:'movimiento', oid, mid:m.id, referencia:_normRef(t.referencia), valor:t.valor, movimientoAnterior:d.movimiento.id, oficinaOrigen:d.oficinaOrigen||''});
+                return {bloqueado:true};
+            }
+            _marcasRef.push(_marcaDuplicadoAceptado('referencia', _dec.motivo, d, {referencia:_normRef(t.referencia)}));
         }
     }
     // 2) ¿Cuadra con el pago registrado? Si no, la persona decide y queda registrado.
@@ -22066,7 +22157,7 @@ async function _leerComprobantesAlSubir(b64Originals, files, oid, m, progEl){
     const refs=leidos.map(t=>t.referencia).filter(Boolean);
     return { valor:total, campos:{ valorIA:total, valorOriginalIA:total,
         descripcionIA:leidos.map(t=>t.descripcionOriginalIA||t.descripcion).filter(Boolean).join(' · ').slice(0,120),
-        referencia:refs[0]||null, referenciasIA:refs, fechaIA:(leidos[0].fechaTrans||'')||null, veredictoIA:veredicto, cuentaDestinoAlerta:!!alerta } };
+        referencia:refs[0]||null, referenciasIA:refs, fechaIA:(leidos[0].fechaTrans||'')||null, veredictoIA:veredicto, cuentaDestinoAlerta:!!alerta, ...(_marcasRef.length?{duplicadoAceptado:_marcasRef}:{}) } };   // v307
 }
 /* Tamaño de página del PDF: ninguna foto necesita más de 1.600 px de lado para leerse. */
 function _escalaParaPDF(w, h, max){ const M=max||1600; const e=Math.min(1, M/Math.max(w||1, h||1)); return {w:Math.max(1,Math.round((w||1)*e)), h:Math.max(1,Math.round((h||1)*e))}; }
@@ -22088,6 +22179,7 @@ async function procesarArchivos(files, oid, mid){
     const imageFiles=[...files].filter(f=>f.type.startsWith('image/'));
     const otherFiles=[...files].filter(f=>!f.type.startsWith('image/'));
     const fallidos=[];   // v303: lo que Drive no recibió se dice con un aviso, no solo en la consola
+    const _dupAceptados=[];   // v307: huellas repetidas que la persona decidió subir con un motivo
 
     // Step 1: Save originals as base64 in memory for IA, then convert to PDF for storage
     if(imageFiles.length>0){
@@ -22120,9 +22212,14 @@ async function procesarArchivos(files, oid, mid){
                         return;
                     }
                     const fechaAnterior=new Date(dup.movimiento.fecha).toLocaleDateString('es-CO');
-                    alert(`🚫 BLOQUEADO — COMPROBANTE YA USADO EN OTRO PAGO\n\nUna de las imágenes es idéntica, byte por byte, a la que se adjuntó el ${_fechaHoraCorta(dup.comprobante&&dup.comprobante.fecha)} a este pago${dup.oficinaOrigen?' de '+dup.oficinaOrigen:''}:\n\n📋 ${dup.movimiento.concepto}\n💰 ${fmtShort(dup.movimiento.valor)}\n📅 ${fechaAnterior}\n📝 ${dup.movimiento.descripcion||''}\n\nDos fotos distintas nunca dan este aviso: es el mismo archivo. Si ese otro pago quedó con el comprobante equivocado, pídele al administrador que lo corrija.\n\nNo se adjuntó nada.`);   // v305
-                    registrarLog('BLOQUEADO_COMPROBANTE_REUTILIZADO',{via:'movimiento', oid, mid, movimientoAnterior:dup.movimiento.id, oficinaOrigen:dup.oficinaOrigen||''});
-                    return;
+                    // v307: en vez de solo bloquear, se ofrece subirlo con un motivo (queda marcado para el administrador)
+                    const _dec=await _pedirMotivoDuplicado({ tipo:'huella', titulo:'COMPROBANTE YA USADO EN OTRO PAGO',
+                        detalle:`Una de las imágenes es idéntica, byte por byte, a la que se adjuntó el ${_fechaHoraCorta(dup.comprobante&&dup.comprobante.fecha)} a este pago${dup.oficinaOrigen?' de '+dup.oficinaOrigen:''}:\n\n📋 ${dup.movimiento.concepto}\n💰 ${fmtShort(dup.movimiento.valor)}\n📅 ${fechaAnterior}\n📝 ${dup.movimiento.descripcion||''}` });
+                    if(_dec.accion!=='subir'){
+                        registrarLog('BLOQUEADO_COMPROBANTE_REUTILIZADO',{via:'movimiento', oid, mid, movimientoAnterior:dup.movimiento.id, oficinaOrigen:dup.oficinaOrigen||''});
+                        return;
+                    }
+                    _dupAceptados.push(_marcaDuplicadoAceptado('huella', _dec.motivo, dup, {archivo:((imageFiles[b64Originals.indexOf(img)])||{}).name||''}));
                 }
                 hashesImagenes.push(h);
             }
@@ -22150,7 +22247,10 @@ async function procesarArchivos(files, oid, mid){
             const fechaStr=new Date().toLocaleDateString('es-CO').replace(/\//g,'-');
             const pdfFile=new File([pdfBlob],`comprobantes_${fechaStr}_${imageFiles.length}imgs.pdf`,{type:'application/pdf'});
             const res=await subirArchivoDrive(pdfFile, oid, mid);
-            _movDestino(oid, mid, m).comprobantes.push(Object.assign({ url:res.url, verUrl:res.verUrl||res.url, fileId:res.fileId||null, nombre:pdfFile.name, tipo:'pdf', fecha:new Date().toISOString(), imagenes:imageFiles.length, hashesImagenes:hashesImagenes }, (_lecturaIA&&_lecturaIA.campos)||{}));   // v296
+            const _compNuevo=Object.assign({ url:res.url, verUrl:res.verUrl||res.url, fileId:res.fileId||null, nombre:pdfFile.name, tipo:'pdf', fecha:new Date().toISOString(), imagenes:imageFiles.length, hashesImagenes:hashesImagenes }, (_lecturaIA&&_lecturaIA.campos)||{});   // v296
+            { const _marcas=[..._dupAceptados, ...(Array.isArray(_compNuevo.duplicadoAceptado)?_compNuevo.duplicadoAceptado:[])];   // v307: huella y referencia aceptadas
+              if(_marcas.length){ _compNuevo.duplicadoAceptado=_marcas; _marcas.forEach(mk=>_alertaDuplicadoAceptado(oid, m, mk, pdfFile.name)); } else delete _compNuevo.duplicadoAceptado; }
+            _movDestino(oid, mid, m).comprobantes.push(_compNuevo);
             if(progEl) progEl.innerHTML=_progHTML(`✅ PDF subido con ${imageFiles.length} imagen(es)`, 100, true);
         }catch(e){
             fallidos.push('Las '+imageFiles.length+' imagen(es) (PDF): '+(e.message||e));
@@ -22166,12 +22266,18 @@ async function procesarArchivos(files, oid, mid){
             const _dA=_hArch?_buscarHashDuplicadoGlobal(_hArch, oid):null;
             if(_dA){
                 if(_dA.movimiento.id===mid){ alert(`ℹ️ "${file.name}" YA ESTÁ ADJUNTO A ESTE MISMO PAGO\n\nSe adjuntó el ${_fechaHoraCorta(_dA.comprobante&&_dA.comprobante.fecha)}. No se vuelve a subir.`); continue; }
-                alert(`🚫 BLOQUEADO — COMPROBANTE YA USADO EN OTRO PAGO\n\n"${file.name}" es idéntico, byte por byte, al que se subió el ${_fechaHoraCorta(_dA.comprobante&&_dA.comprobante.fecha)}${_dA.oficinaOrigen?' en '+_dA.oficinaOrigen:''} a:\n\n📋 ${_dA.movimiento.concepto}\n💰 ${fmtShort(_dA.movimiento.valor)}\n📅 ${String(_dA.movimiento.fecha||'').slice(0,10)}\n📝 ${_dA.movimiento.descripcion||''}\n\nNo se adjuntó.`);
-                registrarLog('BLOQUEADO_COMPROBANTE_REUTILIZADO',{via:'movimiento (pdf)', oid, mid, archivo:file.name, movimientoAnterior:_dA.movimiento.id, oficinaOrigen:_dA.oficinaOrigen||''});
-                continue;
+                const _dec=await _pedirMotivoDuplicado({ tipo:'huella', titulo:'COMPROBANTE YA USADO EN OTRO PAGO',   // v307
+                    detalle:`"${file.name}" es idéntico, byte por byte, al que se subió el ${_fechaHoraCorta(_dA.comprobante&&_dA.comprobante.fecha)}${_dA.oficinaOrigen?' en '+_dA.oficinaOrigen:''} a:\n\n📋 ${_dA.movimiento.concepto}\n💰 ${fmtShort(_dA.movimiento.valor)}\n📅 ${String(_dA.movimiento.fecha||'').slice(0,10)}\n📝 ${_dA.movimiento.descripcion||''}` });
+                if(_dec.accion!=='subir'){
+                    registrarLog('BLOQUEADO_COMPROBANTE_REUTILIZADO',{via:'movimiento (pdf)', oid, mid, archivo:file.name, movimientoAnterior:_dA.movimiento.id, oficinaOrigen:_dA.oficinaOrigen||''});
+                    continue;
+                }
+                _dA.marcaAceptada=_marcaDuplicadoAceptado('huella', _dec.motivo, _dA, {archivo:file.name});
             }
             const res=await subirArchivoDrive(file, oid, mid);
-            _movDestino(oid, mid, m).comprobantes.push({url:res.url, nombre:file.name, tipo:'pdf', fecha:new Date().toISOString(), hashArchivo:_hArch||null});   // v296 · v305: huella
+            const _marcaPdf=_dA && _dA.marcaAceptada;
+            _movDestino(oid, mid, m).comprobantes.push({url:res.url, nombre:file.name, tipo:'pdf', fecha:new Date().toISOString(), hashArchivo:_hArch||null, ...(_marcaPdf?{duplicadoAceptado:[_marcaPdf]}:{})});   // v296 · v305: huella · v307: marca
+            if(_marcaPdf) _alertaDuplicadoAceptado(oid, m, _marcaPdf, file.name);
         }catch(e){ console.error('Error subiendo',file.name,e); fallidos.push(file.name+': '+(e.message||e)); }
     }
 
@@ -23818,6 +23924,7 @@ async function _cargarComprobantesIA(files, oid){
 
     // Agregar archivos a la lista — con hash anti-duplicados
     let bloqueadosSesion=0, bloqueadosHistoricos=0;
+    let _omitirRepetidosLote=false;   // v307: "no subir ninguno de los repetidos" vale para el resto de la selección
     for(let fIdx=0;fIdx<files.length;fIdx++){
         const file=files[fIdx];
         if(!file.type.startsWith('image/')) continue;
@@ -23853,27 +23960,29 @@ async function _cargarComprobantesIA(files, oid){
         // (incluye comprobantes adjuntados por la vía 📎, que guardan la huella en hashesImagenes[]).
         let dupHistorico=_buscarHashDuplicadoGlobal(hash, oid);
 
+        let _dupAcept=null;   // v307
         if(dupHistorico){
-            bloqueadosHistoricos++;
             const fechaAnterior=new Date(dupHistorico.movimiento.fecha).toLocaleDateString('es-CO');
             const oficinaOrigen=dupHistorico.oficinaOrigen?` (Oficina: ${dupHistorico.oficinaOrigen})`:'';
-            alert(`🚫 BLOQUEADO — COMPROBANTE YA USADO\n\n` +   // v305: dice cuándo se subió y si ya está en la nube
-                `La imagen "${file.name}" es idéntica, byte por byte, a la que se subió el ${_fechaHoraCorta(dupHistorico.comprobante&&dupHistorico.comprobante.fecha)}${oficinaOrigen} a este pago:\n\n` +
-                `📋 Movimiento: ${dupHistorico.movimiento.concepto}\n` +
-                `💰 Valor: ${fmtShort(dupHistorico.movimiento.valor)}\n` +
-                `📅 Fecha del pago: ${fechaAnterior}\n` +
-                `📝 Descripción: ${dupHistorico.movimiento.descripcion}\n\n` +
-                (dupHistorico.enNube===true
-                    ? `✅ Ya está guardada en la nube. Dos fotos distintas nunca dan este aviso: es el mismo archivo.\n`
-                    : dupHistorico.enNube===false ? `⏳ Se subió en esta sesión y todavía no llega a la nube: la app lo reintenta sola. No hace falta volver a subirla.\n`
-                    : `Dos fotos distintas nunca dan este aviso: es el mismo archivo.\n`) +
-                `Si ese pago quedó con el comprobante de otro cliente, pídele al administrador que lo corrija.`);
-            registrarLog('BLOQUEADO_COMPROBANTE_REUTILIZADO',{
-                archivo:file.name, hash:hash, oid:oid,
-                movimientoAnterior:dupHistorico.movimiento.id,
-                oficinaOrigen:dupHistorico.oficinaOrigen||''
-            });
-            continue; // bloqueo definitivo: no se permite reutilizar
+            // v307: en vez de solo bloquear, se ofrece subirlo con un motivo (queda marcado para el administrador)
+            let _dec={accion:'omitir'};
+            if(!_omitirRepetidosLote){
+                _dec=await _pedirMotivoDuplicado({ tipo:'huella', titulo:'COMPROBANTE YA USADO', permitirOmitirTodos:true,
+                    detalle:`La imagen "${file.name}" es idéntica, byte por byte, a la que se subió el ${_fechaHoraCorta(dupHistorico.comprobante&&dupHistorico.comprobante.fecha)}${oficinaOrigen} a este pago:\n\n` +
+                        `📋 Movimiento: ${dupHistorico.movimiento.concepto}\n💰 Valor: ${fmtShort(dupHistorico.movimiento.valor)}\n📅 Fecha del pago: ${fechaAnterior}\n📝 Descripción: ${dupHistorico.movimiento.descripcion||''}` +
+                        (dupHistorico.enNube===false ? `\n\n⏳ Se subió en esta sesión y todavía no llega a la nube: la app lo reintenta sola. No hace falta volver a subirla.` : '') });
+                if(_dec.accion==='omitirTodos') _omitirRepetidosLote=true;
+            }
+            if(_dec.accion!=='subir'){
+                bloqueadosHistoricos++;
+                registrarLog('BLOQUEADO_COMPROBANTE_REUTILIZADO',{
+                    archivo:file.name, hash:hash, oid:oid,
+                    movimientoAnterior:dupHistorico.movimiento.id,
+                    oficinaOrigen:dupHistorico.oficinaOrigen||''
+                });
+                continue;
+            }
+            _dupAcept=_marcaDuplicadoAceptado('huella', _dec.motivo, dupHistorico, {archivo:file.name});
         }
 
         // Limpiar nombre de archivo para usarlo como descripción inicial
@@ -23900,7 +24009,7 @@ async function _cargarComprobantesIA(files, oid){
             descripcion:nombreLimpio, fechaTrans:'',
             descripcionDeArchivo:nombreLimpio, // guardar referencia del nombre original
             analizado:false, analizando:true, error:null,
-            esReutilizado:!!dupHistorico
+            esReutilizado:!!dupHistorico, dupAceptado:_dupAcept   // v307
         });
     }
     if(bloqueadosSesion>0) console.warn(`Bloqueados por duplicado en sesión: ${bloqueadosSesion}`);
@@ -24607,9 +24716,13 @@ async function guardarComprobantesRegistrados(oid){
     }
     if(_dupRef.length>0){
         const det=_dupRef.map(({c,d})=>`• Ref ${_normRef(c.referencia)} · ${fmtShort(c.valor)}\n   ya registrado${d.oficinaOrigen?' en '+d.oficinaOrigen:''}: ${d.movimiento.descripcion||d.movimiento.concepto} · ${new Date(d.movimiento.fecha).toLocaleDateString('es-CO')}\n   (guardado en el archivo: "${(d.comprobante&&d.comprobante.nombre)||'comprobante'}")`).join('\n');
-        alert(`🚫 BLOQUEADO — COMPROBANTE(S) YA REGISTRADO(S)\n\nEstos tienen el MISMO número de referencia y el MISMO valor que pagos ya registrados antes (aunque la imagen sea distinta):\n\n${det}\n\nQuita esos comprobantes de la lista para continuar. Si fuera un pago distinto, sube el comprobante real de ese pago.\n\n💡 Si la referencia guardada quedó MAL (la IA la leyó/asignó a otro comprobante): el administrador puede abrir ese pago, ver sus comprobantes (📎) y quitarle la referencia con el botón 🧹.`);
-        _dupRef.forEach(({c,d})=>registrarLog('BLOQUEADO_COMPROBANTE_REF_DUPLICADA',{referencia:_normRef(c.referencia), valor:c.valor, oid, movimientoAnterior:d.movimiento.id, oficinaOrigen:d.oficinaOrigen||''}));
-        return;
+        const _dec=await _pedirMotivoDuplicado({ tipo:'referencia', titulo:'COMPROBANTE(S) YA REGISTRADO(S)',   // v307
+            detalle:`Estos tienen el MISMO número de referencia y el MISMO valor que pagos ya registrados antes (aunque la imagen sea distinta):\n\n${det}\n\n💡 Si la referencia guardada quedó mal (la IA la leyó mal), el administrador puede quitársela con el botón 🧹 en los comprobantes de ese pago.` });
+        if(_dec.accion!=='subir'){
+            _dupRef.forEach(({c,d})=>registrarLog('BLOQUEADO_COMPROBANTE_REF_DUPLICADA',{referencia:_normRef(c.referencia), valor:c.valor, oid, movimientoAnterior:d.movimiento.id, oficinaOrigen:d.oficinaOrigen||''}));
+            return;
+        }
+        _dupRef.forEach(({c,d})=>{ c.dupAceptadoRef=_marcaDuplicadoAceptado('referencia', _dec.motivo, d, {referencia:_normRef(c.referencia), archivo:c.nombre||''}); });
     }
 
     // Anti-fraude: avisar si hay comprobantes que NO van dirigidos a la cuenta oficial de PROYECTOVISION
@@ -24935,8 +25048,10 @@ async function guardarComprobantesRegistrados(oid){
                 referencia:(c.referencia||'').toString() || null,
                 valorComprobante:c.valor,
                 fueModificado:c.motivoCambioIA ? true : false,
-                motivoCambio:c.motivoCambioIA || null
+                motivoCambio:c.motivoCambioIA || null,
+                ...(()=>{ const mk=[c.dupAceptado, c.dupAceptadoRef].filter(Boolean); return mk.length?{duplicadoAceptado:mk}:{}; })()   // v307
             });
+            [c.dupAceptado, c.dupAceptadoRef].filter(Boolean).forEach(mk=>_alertaDuplicadoAceptado(oid, c._enlazarA || ((c.splits||[]).find(sp=>sp._enlazarA)||{})._enlazarA || {valor:c.valor}, mk, c.nombre));   // v307
             subidos++;
         }catch(e){
             console.error(`❌ Error subiendo comprobante ${i+1}:`,e);
@@ -26559,9 +26674,10 @@ async function subirCompsAbonoExistente(abonoId, cliId){
                 a.comprobantes.push({
                     url:res.url, nombre:c.nombre, tipo:c.tipo,
                     fecha:new Date().toISOString(),
-                    hashArchivo:c.hash||null, agregadoDespues:true,   // v305: huella
+                    hashArchivo:c.hash||null, ...(c.dupAceptado?{duplicadoAceptado:[c.dupAceptado]}:{}), agregadoDespues:true,   // v305: huella · v307: marca
                     agregadoPor:USER?.nombre||USER?.id
                 });
+                if(c.dupAceptado) _alertaDuplicadoAceptado('', {id:a.id, valor:a.valor, fecha:a.fecha, descripcion:'Abono de cliente especial'}, c.dupAceptado, c.nombre);   // v307
                 exitos++;
             } else { errores++; }
         }catch(e){
@@ -27397,19 +27513,23 @@ async function _handleAbonoCompFiles(files){
         }
         // v305: huella del archivo, como en el registro diario. El mismo comprobante no se usa dos veces,
         // ni entre abonos ni entre un abono y un pago de caja.
-        let hash=null;
+        let hash=null, dupAcept=null;   // v307
         if(f.size>0){ const du=await _leerComoDataURL(f); if(du) hash=await _hashImagen(du); }
         if(hash){
             const repetido=_abonoComprobantesPendientes.find(x=>x.hash===hash);
             if(repetido){ alert(`🚫 "${f.name}" es el mismo archivo que "${repetido.nombre}", que ya seleccionaste.`); continue; }
             const dup=_buscarHashDuplicadoGlobal(hash, null);
             if(dup){
-                alert(`🚫 BLOQUEADO — COMPROBANTE YA USADO\n\n"${f.name}" es idéntico, byte por byte, al que se subió el ${_fechaHoraCorta(dup.comprobante&&dup.comprobante.fecha)} a:\n\n📋 ${dup.movimiento.concepto}${dup.oficinaOrigen?' ('+dup.oficinaOrigen+')':''}\n💰 ${fmtShort(dup.movimiento.valor)}\n📅 ${String(dup.movimiento.fecha||'').slice(0,10)}\n📝 ${dup.movimiento.descripcion||''}\n\nNo se agregó. Si es un pago distinto, sube su comprobante real.`);
-                registrarLog('BLOQUEADO_COMPROBANTE_REUTILIZADO',{via:'abono especial', archivo:f.name, hash, movimientoAnterior:dup.movimiento.id, oficinaOrigen:dup.oficinaOrigen||''});
-                continue;
+                const _dec=await _pedirMotivoDuplicado({ tipo:'huella', titulo:'COMPROBANTE YA USADO',   // v307
+                    detalle:`"${f.name}" es idéntico, byte por byte, al que se subió el ${_fechaHoraCorta(dup.comprobante&&dup.comprobante.fecha)} a:\n\n📋 ${dup.movimiento.concepto}${dup.oficinaOrigen?' ('+dup.oficinaOrigen+')':''}\n💰 ${fmtShort(dup.movimiento.valor)}\n📅 ${String(dup.movimiento.fecha||'').slice(0,10)}\n📝 ${dup.movimiento.descripcion||''}` });
+                if(_dec.accion!=='subir'){
+                    registrarLog('BLOQUEADO_COMPROBANTE_REUTILIZADO',{via:'abono especial', archivo:f.name, hash, movimientoAnterior:dup.movimiento.id, oficinaOrigen:dup.oficinaOrigen||''});
+                    continue;
+                }
+                dupAcept=_marcaDuplicadoAceptado('huella', _dec.motivo, dup, {archivo:f.name});
             }
         }
-        _abonoComprobantesPendientes.push({file:f, nombre:f.name, tipo:f.type==='application/pdf'?'pdf':'imagen', hash});
+        _abonoComprobantesPendientes.push({file:f, nombre:f.name, tipo:f.type==='application/pdf'?'pdf':'imagen', hash, dupAceptado:dupAcept});   // v307: marca
         agregados++;
     }
     console.log('   ✅ Total agregados:', agregados, '— Total pendientes:', _abonoComprobantesPendientes.length);
@@ -27465,7 +27585,7 @@ async function guardarAbonoEspecial(cliId){
                 if(res && res.url){
                     comprobantesArr.push({
                         url:res.url, nombre:c.nombre, tipo:c.tipo,
-                        fecha:new Date().toISOString(), hashArchivo:c.hash||null   /* v305: huella */
+                        fecha:new Date().toISOString(), hashArchivo:c.hash||null   /* v305: huella */, ...(c.dupAceptado?{duplicadoAceptado:[c.dupAceptado]}:{})
                     });
                     console.log('   ✅ Subido:', c.nombre, '→', res.url);
                 } else {
@@ -27495,6 +27615,7 @@ async function guardarAbonoEspecial(cliId){
     };
     if(!DB.abonosEspeciales) DB.abonosEspeciales=[];
     DB.abonosEspeciales.push(abono);
+    (abono.comprobantes||[]).forEach(cp=>(cp.duplicadoAceptado||[]).forEach(mk=>_alertaDuplicadoAceptado('', {id:abono.id, valor:abono.valor, fecha:abono.fecha, descripcion:'Abono de cliente especial'}, mk, cp.nombre)));   // v307
     _abonoComprobantesPendientes=[];
 
     // ⭐ Los abonos de clientes especiales NO se reflejan en el registro diario.

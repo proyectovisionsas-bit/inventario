@@ -3410,6 +3410,55 @@ const PRUEBAS = [
        +(noStandalone.length?'No abren en ventana propia: '+noStandalone.join(', '):'')};
  }},
 
+{app:'ofi', titulo:'Un comprobante bloqueado por duplicado se puede subir escribiendo por qué no es el mismo, y queda marcado para el administrador',
+ porque:'Pedido de Elkin del 15/9/2026: cuando la app dice que un comprobante está repetido, poder subirlo igual con un comentario '
+       +'que explique por qué no es el mismo. Antes solo había un aviso y no se podía seguir. El motivo es obligatorio, queda en el '
+       +'comprobante con el nombre de quien lo subió, aparece en el panel del administrador y en el registro de auditoría.',
+ correr:async W=>{
+   let r=null;
+   try{
+     r=await W.eval('(async function(){'
+       +'const doc=document; const esperar=ms=>new Promise(x=>setTimeout(x,ms));'
+       +'const p1=_pedirMotivoDuplicado({tipo:"huella", titulo:"PRUEBA", detalle:"<b>detalle</b> de prueba", permitirOmitirTodos:true}); await esperar(80);'
+       +'const ov=doc.getElementById("dupMotivoOverlay"); const ta=doc.getElementById("dupMotivoTexto"); const bS=ov&&ov.querySelector("[data-accion=subir]");'
+       +'const escapaHTML=!!ov && ov.innerHTML.indexOf("&lt;b&gt;detalle")>=0; const tieneOmitirTodos=!!(ov&&ov.querySelector("[data-accion=omitirTodos]"));'
+       +'const alInicio=!!bS && bS.disabled===true;'
+       +'ta.value="corto"; ta.dispatchEvent(new Event("input")); const conCorto=bS.disabled===true; bS.click(); await esperar(30); const sigueAbierta=!!doc.getElementById("dupMotivoOverlay");'
+       +'ta.value="  una sola transferencia pagó   dos facturas  "; ta.dispatchEvent(new Event("input")); const conLargo=bS.disabled===false; bS.click();'
+       +'const d1=await p1; const cerrada=!doc.getElementById("dupMotivoOverlay");'
+       +'const p2=_pedirMotivoDuplicado({tipo:"referencia", titulo:"PRUEBA", detalle:"x"}); await esperar(60); doc.querySelector("#dupMotivoOverlay [data-accion=omitir]").click(); const d2=await p2;'
+       +'const p3=_pedirMotivoDuplicado({tipo:"huella", titulo:"PRUEBA", detalle:"x", permitirOmitirTodos:true}); await esperar(60); doc.querySelector("#dupMotivoOverlay [data-accion=omitirTodos]").click(); const d3=await p3;'
+       +'const p4=_pedirMotivoDuplicado({tipo:"huella", titulo:"PRUEBA", detalle:"x"}); await esperar(60); doc.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape", bubbles:true})); const d4=await p4;'
+       +'const sinOmitirTodos=true;'
+       +'const dup={movimiento:{id:"movAnt", descripcion:"CLIENTE ANTERIOR · CC 1", concepto:"Pago"}, oficinaOrigen:"THOMAS"};'
+       +'const mk=_marcaDuplicadoAceptado("huella", "una sola transferencia pagó dos facturas", dup, {archivo:"a.jpg", vacio:undefined});'
+       +'const sinVacios=Object.keys(mk).every(k=>mk[k]!==undefined) && !("vacio" in mk) && mk.movimientoAnterior==="movAnt" && mk.oficinaAnterior==="THOMAS" && mk.archivo==="a.jpg" && typeof mk.fechaMs==="number";'
+       +'const nAl=(DB.alertasComprobantes||[]).length, nLog=(DB.logsAuditoria||[]).length;'
+       +'_alertaDuplicadoAceptado("", {id:"movNuevo", valor:55000, fecha:"2026-09-14T08:30:00", descripcion:"CLIENTE NUEVO"}, mk, "a.jpg");'
+       +'const al=(DB.alertasComprobantes||[])[nAl]; const lg=(DB.logsAuditoria||[])[nLog];'
+       +'const alerta=!!al && al.tipo==="duplicado" && al.motivo===mk.motivo && al.valor===55000 && al.resuelta===false && Object.keys(al).every(k=>al[k]!==undefined) && !!lg && lg.accion==="COMPROBANTE_DUPLICADO_ACEPTADO";'
+       +'DB.alertasComprobantes.splice(nAl); if(DB.logsAuditoria) DB.logsAuditoria.splice(nLog);'
+       +'const pa=procesarArchivos.toString(), li=_leerComprobantesAlSubir.toString(), ca=_cargarComprobantesIA.toString(), gr=guardarComprobantesRegistrados.toString(), ab=_handleAbonoCompFiles.toString();'
+       +'const flujos=pa.indexOf("_pedirMotivoDuplicado({ tipo:\'huella\'")>=0 && pa.indexOf("_compNuevo.duplicadoAceptado=_marcas")>=0 && pa.indexOf("duplicadoAceptado:[_marcaPdf]")>=0'
+       +'  && li.indexOf("_pedirMotivoDuplicado({ tipo:\'referencia\'")>=0 && li.indexOf("duplicadoAceptado:_marcasRef")>=0'
+       +'  && ca.indexOf("permitirOmitirTodos:true")>=0 && ca.indexOf("_omitirRepetidosLote=true")>=0 && ca.indexOf("dupAceptado:_dupAcept")>=0'
+       +'  && gr.indexOf("_pedirMotivoDuplicado")>=0 && gr.indexOf("duplicadoAceptado:mk")>=0 && gr.indexOf("_alertaDuplicadoAceptado(oid")>=0'
+       +'  && ab.indexOf("_pedirMotivoDuplicado")>=0 && subirCompsAbonoExistente.toString().indexOf("duplicadoAceptado:[c.dupAceptado]")>=0 && guardarAbonoEspecial.toString().indexOf("duplicadoAceptado:[c.dupAceptado]")>=0;'
+       +'const panel=renderDash.toString().indexOf("a.tipo!==\'duplicado\'")>=0 && renderDash.toString().indexOf("subidos aunque la app los veía repetidos")>=0 && modalComprobantes.toString().indexOf("Subido aunque parecía repetido")>=0;'
+       +'return { escapaHTML, tieneOmitirTodos, alInicio, conCorto, sigueAbierta, conLargo, d1, cerrada, d2, d3, d4, sinVacios, alerta, flujos, panel };'
+       +'})()');
+   }catch(e){ r={error:String(e&&e.message||e)}; }
+   const bien = r && !r.error && r.escapaHTML && r.tieneOmitirTodos && r.alInicio && r.conCorto && r.sigueAbierta && r.conLargo
+     && r.d1 && r.d1.accion==='subir' && r.d1.motivo==='una sola transferencia pagó dos facturas' && r.cerrada
+     && r.d2 && r.d2.accion==='omitir' && r.d3 && r.d3.accion==='omitirTodos' && r.d4 && r.d4.accion==='omitir'
+     && r.sinVacios && r.alerta && r.flujos && r.panel;
+   return {ok:bien, detalle: bien
+     ? 'La ventana no deja subir sin un motivo de al menos 15 letras; con el motivo devuelve el texto limpio, y también se puede no subir, no subir ninguno de los repetidos o salir con Escape ✓'
+      +'\nEl detalle que muestra no interpreta HTML (se ve como texto) ✓'
+      +'\nLa marca guarda tipo, motivo, quién, cuándo y contra qué pago chocó, sin campos vacíos; la alerta del administrador y el registro de auditoría se crean ✓'
+      +'\nFunciona en los cinco lugares donde había bloqueo: adjuntar imágenes y PDF, la lectura de referencia con IA, el cargue por lotes (al elegir y al registrar) y los abonos de clientes especiales ✓'
+      +'\nEl panel del administrador los muestra en su propio recuadro, y el comprobante lleva la etiqueta "Subido aunque parecía repetido" ✓'
+     : JSON.stringify(r)};}},
 {app:'ofi', titulo:'Un dato vacío en un movimiento ya no tumba el guardado',
  porque:'15/9/2026: errores_guardado anotó 10 fallos en NATALIA y ESNEIDER con "Unsupported field value: undefined". Firebase '
        +'rechaza el lote ENTERO si un campo vale undefined, así que ningún guardado de esas oficinas entraba y los comprobantes se '
