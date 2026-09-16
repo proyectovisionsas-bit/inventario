@@ -3410,6 +3410,102 @@ const PRUEBAS = [
        +(noStandalone.length?'No abren en ventana propia: '+noStandalone.join(', '):'')};
  }},
 
+{app:'ofi', titulo:'El registro diario se puede ordenar (hora, nombre, valor) y filtrar (tipo, forma de pago, hora, texto) sin cambiar los totales',
+ porque:'Elkin (16 sep 2026): "en los registros diarios quiero poder filtrar, de la a-z o al contrario, también por tipo de pagos, '
+       +'por hora, que me sea más fácil organizar, sin afectar todo lo que está bien". La barra solo cambia el orden y qué filas se ven '
+       +'en las dos listas; las tarjetas de totales siguen sumando todo el día y, sin tocar nada, el orden es el de siempre.',
+ correr:async W=>{
+   for(let k=0;k<90;k++){ if(E(W,'return window._cargaMovsIncompleta===false && (DB.oficinas||[]).some(o=>(o.movimientos||[]).length>0);')) break; await new Promise(r=>setTimeout(r,1000)); }
+   let r=null;
+   try{
+     r=await W.eval('(async function(){'
+       +'const movs=[{id:"a",tipo:"ingreso",forma:"Efectivo",valor:50000,fecha:"2026-09-16T09:10:00",descripcion:"ZULMA RIOS"},{id:"b",tipo:"ingreso",forma:"Cta Bancolombia",valor:70000,fecha:"2026-09-16T08:05:00",descripcion:"ana perez"},{id:"c",tipo:"egreso",forma:"Efectivo",valor:12000,fecha:"2026-09-16T11:30:00",descripcion:"Papelería",concepto:"Gastos"},{id:"d",tipo:"ingreso",forma:"Efecty",valor:49900,fecha:"2026-09-16T10:00:00",descripcion:"Álvaro Díaz"}];'
+       +'const guardado={o:window._regOrden,t:window._regTipo,f:window._regForma,b:window._regBuscar,hd:window._regHoraDesde,hh:window._regHoraHasta};'
+       +'const pon=(o,t,f,b,hd,hh)=>{ window._regOrden=o||"reciente"; window._regTipo=t||""; window._regForma=f||""; window._regBuscar=b||""; window._regHoraDesde=hd||""; window._regHoraHasta=hh||""; };'
+       +'const ids=()=>_regOrdenarFiltrar(movs).map(m=>m.id).join("");'
+       +'pon(); const comoSiempre=ids()==="dcba"; pon("hora_asc"); const horaAsc=ids()==="badc"; pon("hora_desc"); const horaDesc=ids()==="cdab";'
+       +'pon("az"); const az=ids()==="dbca"; pon("za"); const za=ids()==="acbd"; pon("valor_desc"); const vDesc=ids()==="badc"; pon("valor_asc"); const vAsc=ids()==="cdab";'
+       +'pon("reciente","ingreso"); const soloIng=ids()==="dba"; pon("reciente","egreso","Efectivo"); const egrEf=ids()==="c"; pon("reciente","","Efecty"); const efty=ids()==="d";'
+       +'pon("reciente","","","","09:00","10:30"); const horas=ids()==="da"; pon("reciente","","","ríos"); const busca=ids()==="a"; pon("reciente","","","papel"); const busca2=ids()==="c";'
+       +'pon(); const sinFiltro=!_regHayFiltro(); pon("az"); const conFiltro=_regHayFiltro();'
+       +'pon(); const app=document.getElementById("app"), ls=document.getElementById("login-screen"); const oculta=app.classList.contains("hidden"); const lsPrev=ls?ls.style.display:""; const uPrev=USER; const selPrev=window._selOfiReg, fPrev=window._regFechaPreserve;'
+       +'if(!USER||!USER.role) USER={role:"admin"}; app.classList.remove("hidden"); if(ls) ls.style.display="none";'
+       +'const o=(DB.oficinas||[]).map(x=>({x, dias:[...new Set((x.movimientos||[]).filter(m=>_cuentaEnCaja(m)).map(m=>String(m.fecha||"").slice(0,10)))]})).find(x=>x.dias.length); window._selOfiReg=o.x.id; const dia=o.dias.sort().slice(-1)[0]; window._regFechaPreserve=dia;'
+       +'navigate("registro"); await new Promise(x=>setTimeout(x,300));'
+       +'const tb=document.getElementById("reg_toolbar"); const barra=!!tb && tb.querySelectorAll("select").length===3 && tb.querySelectorAll("input[type=time]").length===2 && !!document.getElementById("reg_buscar");'
+       +'const movsDia=(o.x.movimientos||[]).filter(m=>_cuentaEnCaja(m) && String(m.fecha||"").slice(0,10)===dia); const nTabla=document.querySelectorAll("#appContent table tbody tr[data-mov]").length; const tablaCompleta=nTabla===movsDia.length;'
+       +'const totalAntes=(document.querySelector("#appContent .card")||{}).innerText||""; const campo=document.getElementById("ing_valor"); if(campo) campo.value="45000"; const campoDesc=document.getElementById("ing_desc"); if(campoDesc) campoDesc.value="Prueba a medio llenar";'
+       +'_regSet("Orden","az"); await new Promise(x=>setTimeout(x,200)); const filas=[...document.querySelectorAll("#appContent table tbody tr[data-mov]")].map(tr=>tr.getAttribute("data-mov")); const esperado=_regOrdenarFiltrar(movsDia).map(m=>m.id); const ordenAZ=filas.join()===esperado.join() && filas.length===movsDia.length;'
+       +'const totalDespues=(document.querySelector("#appContent .card")||{}).innerText||""; const totalesIguales=totalAntes===totalDespues; const c2=document.getElementById("ing_valor"), d2=document.getElementById("ing_desc"); const formularioSigue=!!c2 && c2.value==="45000" && !!d2 && d2.value==="Prueba a medio llenar" && !!document.getElementById("reg_lista"); if(c2) c2.value=""; if(d2) d2.value="";'
+       +'const primeraForma=String((movsDia[0]||{}).forma||""); _regSet("Forma", primeraForma); await new Promise(x=>setTimeout(x,200)); const nFiltradas=document.querySelectorAll("#appContent table tbody tr[data-mov]").length; const filtraForma=nFiltradas===movsDia.filter(m=>String(m.forma||"")===primeraForma).length && !!document.querySelector("#reg_toolbar button");'
+       +'_regQuitarFiltros(); await new Promise(x=>setTimeout(x,200)); const vuelve=document.querySelectorAll("#appContent table tbody tr[data-mov]").length===movsDia.length && !document.querySelector("#reg_toolbar button");'
+       +'window._selOfiReg=selPrev; window._regFechaPreserve=fPrev; if(oculta) app.classList.add("hidden"); if(ls) ls.style.display=lsPrev; USER=uPrev; pon(guardado.o,guardado.t,guardado.f,guardado.b,guardado.hd,guardado.hh);'
+       +'return {comoSiempre,horaAsc,horaDesc,az,za,vDesc,vAsc,soloIng,egrEf,efty,horas,busca,busca2,sinFiltro,conFiltro,barra,tablaCompleta,ordenAZ,totalesIguales,formularioSigue,filtraForma,vuelve,n:movsDia.length};'
+       +'})()');
+   }catch(e){ r={error:String(e&&e.message||e)}; }
+   const claves=['comoSiempre','horaAsc','horaDesc','az','za','vDesc','vAsc','soloIng','egrEf','efty','horas','busca','busca2','sinFiltro','conFiltro','barra','tablaCompleta','ordenAZ','totalesIguales','formularioSigue','filtraForma','vuelve'];
+   const bien = r && !r.error && claves.every(k=>r[k]===true);
+   return {ok:bien, detalle: bien
+     ? 'Sin tocar nada, el orden es el de siempre (último registrado primero); ordena por hora en los dos sentidos, por nombre A→Z y Z→A (sin distinguir mayúsculas ni tildes) y por valor ✓'
+      +'\nFiltra por tipo (ingresos/egresos), por forma de pago, por rango de horas y por texto (nombre, concepto) ✓'
+      +'\nEn la pantalla real ('+r.n+' registros del día): la barra tiene sus tres listas, las dos horas y la búsqueda; al ordenar A→Z la tabla sigue ese orden, las tarjetas de totales no cambian y lo que había escrito en el formulario de ingreso sigue ahí (solo se repinta la lista); al filtrar por forma de pago quedan solo esas filas y "Quitar filtros" lo devuelve todo ✓'
+     : JSON.stringify(r)};}},
+{app:'ofi', titulo:'El administrador puede poner el sistema en mantenimiento: las oficinas ven el aviso y no pueden hacer nada; él no se bloquea',
+ porque:'Elkin (16 sep 2026): "quiero desde el admin poder activar una pantalla de mantenimiento, así cuando estemos haciendo mejoras '
+       +'les aparezca el aviso y no permita realizar nada hasta que publiquemos la última versión". Vive en oficinas_sistema/mantenimiento '
+       +'y lo escuchan OFICINAS, INVENTARIO, TECNICOS y RED. Primero una cuenta regresiva, luego la pantalla que tapa todo y bloquea el '
+       +'teclado; se quita sola al terminar o cuando la sesión ya es la versión nueva.',
+ correr:async W=>{
+   let r=null;
+   try{
+     r=await W.eval('(async function(){'
+       +'const uPrev=USER, mPrev=window._mantenimiento; const ahora=Date.now();'
+       +'const base={activo:true, mensaje:"Prueba <b>x</b>", apps:{oficinas:true, inventario:false, tecnicos:false, red:false}, avisoMin:0, desdeMs:ahora-60000, empiezaMs:ahora-60000, por:"Administrador", terminaAlPublicar:true, versionAlActivar:{oficinas:APP_VERSION, inventario:null, tecnicos:null, red:null}};'
+       +'const vig1=_mantVigente(base)===true, vig2=_mantVigente(Object.assign({},base,{activo:false}))===false, vig3=_mantVigente(Object.assign({},base,{apps:{oficinas:false}}))===false;'
+       +'const vig4=_mantVigente(Object.assign({},base,{versionAlActivar:{oficinas:APP_VERSION-1}}))===false, vig5=_mantVigente(Object.assign({},base,{terminaAlPublicar:false, versionAlActivar:{oficinas:APP_VERSION-1}}))===true, vig6=_mantVigente(null)===false;'
+       +'const vnPrev=window._mantVersionOficinasNube; window._mantVersionOficinasNube=APP_VERSION+1; const vig7=_mantVigente(Object.assign({},base,{apps:{oficinas:true}, versionAlActivar:{oficinas:APP_VERSION}}))===false; window._mantVersionOficinasNube=APP_VERSION; const vig8=_mantVigente(base)===true; window._mantVersionOficinasNube=vnPrev;'
+       +'USER={role:"oficina", id:"x", nombre:"Prueba"}; window._mantenimiento=base; const e1=_aplicarMantenimiento(); const ov=document.getElementById("mantOverlay");'
+       +'const bloqueo=e1==="bloqueo" && !!ov && ov.innerText.indexOf("Sistema en mantenimiento")>=0 && ov.innerText.indexOf("Prueba <b>x</b>")>=0 && !ov.querySelector("b") && parseInt(getComputedStyle(ov).zIndex,10)===99998 && window._mantBloqueando===true;'
+       +'let tecla=false; const ev=new KeyboardEvent("keydown",{key:"a",bubbles:true,cancelable:true}); document.body.addEventListener("keydown",()=>{ tecla=true; }, {once:true}); document.body.dispatchEvent(ev); const tecladoBloqueado=ev.defaultPrevented===true && tecla===false;'
+       +'window._mantenimiento=Object.assign({},base,{empiezaMs:ahora+90000}); const e2=_aplicarMantenimiento(); const bn=document.getElementById("mantBanner"); const cuenta=e2==="franja" && !document.getElementById("mantOverlay") && !!bn && /En 1:[23]\\d el sistema entra en mantenimiento/.test(bn.innerText) && window._mantBloqueando===false; if(window._mantTimer){ clearTimeout(window._mantTimer); window._mantTimer=null; }'
+       +'USER={role:"admin", nombre:"Administrador"}; window._mantenimiento=base; const e3=_aplicarMantenimiento(); const bn2=document.getElementById("mantBanner"); const admin=e3==="franja" && !document.getElementById("mantOverlay") && !!bn2 && bn2.innerText.indexOf("tú puedes seguir")>=0 && !!bn2.querySelector("button");'
+       +'USER=null; const e4=_aplicarMantenimiento(); const sinSesion=e4==="franja" && !document.getElementById("mantOverlay") && !!document.getElementById("mantBanner");'
+       +'USER={role:"oficina", id:"x"}; window._mantenimiento=base; _aplicarMantenimiento(); const bl0g=(window._escriturasBloqueadas||[]).length; const t0=Date.now(); await _saveReal({silencioso:true}); const pausa=window._mantBloqueando===true && window._mantGuardadoPendiente===true && window._ultimoGuardadoOk===false && (window._escriturasBloqueadas||[]).length===bl0g && Date.now()-t0<1500 && _enviarLogsAuditoria()===null;'
+       +'const sPrev=window.save; let reanudo=false; window.save=()=>{ reanudo=true; }; window._mantenimiento=Object.assign({},base,{activo:false}); const e5=_aplicarMantenimiento(); await new Promise(x=>setTimeout(x,1700)); window.save=sPrev; const quita=e5===false && !document.getElementById("mantOverlay") && !document.getElementById("mantBanner") && window._mantBloqueando===false && window._mantGuardadoPendiente===false && reanudo===true;'
+       +'const vb=document.getElementById("versionBanner"); const zOk=99998<99999 && (!vb || parseInt(getComputedStyle(vb).zIndex,10)>99998);'
+       +'USER={role:"admin", nombre:"Administrador"}; window._mantenimiento=null; const caja=document.createElement("div"); caja.innerHTML=_tarjetaMantenimientoHTML(); document.body.appendChild(caja);'
+       +'const form=!!document.getElementById("mant_msg") && document.getElementById("mant_app_oficinas").checked && !document.getElementById("mant_app_tecnicos").checked && document.getElementById("mant_aviso").value==="2" && document.getElementById("mant_publicar").checked;'
+       +'document.getElementById("mant_msg").value="  Volvemos a las 3  "; document.getElementById("mant_app_inventario").checked=true; const d=_docMantenimientoDesdeFormulario({oficinas:APP_VERSION, inventario:110, tecnicos:95, red:null});'
+       +'const docBien=d.activo===true && d.mensaje==="Volvemos a las 3" && d.apps.oficinas && d.apps.inventario && !d.apps.tecnicos && d.avisoMin===2 && d.empiezaMs-d.desdeMs===120000 && d.terminaAlPublicar===true && d.versionAlActivar.inventario===110 && d.por==="Administrador" && d.terminadoMs===null;'
+       +'const bl0=(window._escriturasBloqueadas||[]).length; const cPrev=window.confirm; window.confirm=()=>true; const nLog=(DB.logsAuditoria||[]).length; await _activarMantenimiento(); window.confirm=cPrev; const bl1=(window._escriturasBloqueadas||[]).length;'
+       +'const activa=bl1>=bl0+1 && window._mantenimiento && window._mantenimiento.activo===true && window._mantenimiento.apps.inventario===true && (DB.logsAuditoria||[]).some(l=>l.accion==="MANTENIMIENTO_ON") && !!document.getElementById("mantBanner") && caja.innerText.indexOf("Mantenimiento ACTIVO")>=0;'
+       +'DB.logsAuditoria=(DB.logsAuditoria||[]).filter(l=>l.accion!=="MANTENIMIENTO_ON"); if(window._escriturasBloqueadas) window._escriturasBloqueadas.length=bl0; caja.remove(); window._mantenimiento=mPrev; USER=uPrev; _aplicarMantenimiento();'
+       +'const limpio=!document.getElementById("mantOverlay") && !document.getElementById("mantBanner");'
+       +'const leer=async f=>{ try{ return await (await fetch(f,{cache:"no-store"})).text(); }catch(e){ return ""; } }; const inv=await leer("INVENTARIO_PTOVISION.html"), tec=await leer("TECNICOS_PTOVISION.html"), red=await leer("RED_PTOVISION.html");'
+       +'const otras={ inv: inv.indexOf("const APP_VERSION_INV = 111;")>=0 && inv.indexOf("const MANT_APP=\'inventario\';")>=0 && inv.indexOf("onSnapshot(doc(fsDB,\'oficinas_sistema/mantenimiento\')")>=0 && inv.indexOf("onSnapshot(doc(fsDB,\'oficinas_sistema/app_version\')")>=0 && inv.indexOf("return !!(typeof USER!==\'undefined\' && USER && USER.role===\'admin\')")>=0 && inv.indexOf("window.USER")<0 === false,'
+       +'  tec: tec.indexOf("const APP_VERSION_TEC = 96;")>=0 && tec.indexOf("const MANT_APP=\'tecnicos\';")>=0 && tec.indexOf("iniciarEscuchaVersionTec(); iniciarEscuchaMantenimiento();")>=0 && tec.indexOf("return false; }catch(e){ return false; } }")>=0 && tec.indexOf(".doc(\'app_version\').onSnapshot(")>=0,'
+       +'  red: red.indexOf("const APP_VERSION_RED = 41;")>=0 && red.indexOf("const MANT_APP=\'red\';")>=0 && red.indexOf("iniciarEscuchaMantenimiento(); }catch(e){ console.warn(\'mantenimiento red:\'")>=0 && red.indexOf(".doc(\'app_version\').onSnapshot(")>=0 };'
+       +'const escucha=_saveReal.toString().length>0 && typeof iniciarEscuchaMantenimiento==="function" && typeof window._unsubMant==="function";'
+       +'return {vig1,vig2,vig3,vig4,vig5,vig6,vig7,vig8,bloqueo,tecladoBloqueado,cuenta,admin,sinSesion,pausa,quita,zOk,form,docBien,activa,limpio,otras,escucha};'
+       +'})()');
+   }catch(e){ r={error:String(e&&e.message||e)}; }
+   const claves=['vig1','vig2','vig3','vig4','vig5','vig6','vig7','vig8','bloqueo','tecladoBloqueado','cuenta','admin','sinSesion','pausa','quita','zOk','form','docBien','activa','limpio','escucha'];
+   const bien = r && !r.error && claves.every(k=>r[k]===true) && r.otras && r.otras.inv && r.otras.tec && r.otras.red;
+   return {ok:bien, detalle: bien
+     ? 'Con el mantenimiento activo, una oficina ve la pantalla completa (el mensaje se muestra como texto, sin HTML) y el teclado queda bloqueado; antes de la hora de empezar ve la cuenta regresiva y puede trabajar; el administrador ve la franja con el botón de terminar; sin sesión solo se ve la franja; al terminar todo desaparece ✓'
+      +'\nDeja de aplicar cuando la sesión ya es una versión mayor que la que había al activar, o cuando la nube ya tiene una OFICINAS publicada mayor (así termina también en INVENTARIO, TECNICOS y RED); la pantalla de "hay versión nueva" queda por encima ✓'
+      +'\nMientras la sesión está bloqueada, sus guardados y su registro de auditoría quedan en pausa (no se intenta ninguna escritura) y al terminar el mantenimiento se reanudan solos ✓'
+      +'\nEl formulario del panel arma el documento (mensaje limpio, apps marcadas, aviso previo, versiones) y activar escribe en la nube (aquí quedó bloqueado por el modo prueba) y deja registro de auditoría ✓'
+      +'\nOFICINAS escucha el documento desde que entra; INVENTARIO v111 (reconoce la sesión por nombre, no por window.USER), TECNICOS v96 y RED v41 traen el mismo bloque, su escucha y la de la versión publicada de OFICINAS ✓'
+     : JSON.stringify(r)};}},
+{app:'ofi', titulo:'Subir un comprobante con el clip deja el pago con soporte completo (y borrar el último lo devuelve a pendiente)',
+ porque:'16 sep 2026: 14 pagos de YESCENIA y NATALIA tenían comprobante y seguían como "pendiente" porque solo el cargue por lotes '
+       +'marcaba estadoSoporte. Ese campo lo usan la sincronización y la revisión nocturna; ahora el clip también lo deja completo.',
+ correr:W=>{
+   const src=E(W,'return procesarArchivos.toString();'), src2=E(W,'return eliminarComp.toString();');
+   const sube=/_mf\.requiereSoporte && \(_mf\.comprobantes\|\|\[\]\)\.some\(c=>!_esComprobanteSinArchivo\(c\)\)\) _mf\.estadoSoporte='completo'/.test(src);
+   const borra=/m\.requiereSoporte && !\(m\.comprobantes\|\|\[\]\)\.some\(c=>!_esComprobanteSinArchivo\(c\)\)\) m\.estadoSoporte='pendiente'/.test(src2);
+   return {ok:sube&&borra, detalle:(sube&&borra)?'Después de subir por el clip, si el pago requiere soporte y le quedó al menos un comprobante con archivo, queda "completo"; si se borra el último, vuelve a "pendiente" ✓':JSON.stringify({sube,borra})};}},
 {app:'ofi', titulo:'Un comprobante que Drive no recibió ya no se da por subido, y el registro de auditoría ya no se pisa entre sesiones',
  porque:'15/9/2026: 9 comprobantes quedaron guardados sin enlace ni id de archivo. El script de Drive tenía un doGet de prueba que '
        +'respondía ok:true; cuando un envío llegaba como GET, la app lo daba por subido y el archivo nunca se guardó (y su huella '
@@ -3435,13 +3531,16 @@ const PRUEBAS = [
        +'const H="e".repeat(64); const o1=(DB.oficinas||[]).find(o=>(o.movimientos||[]).length); const m1=o1.movimientos[0]; const tenia=Array.isArray(m1.comprobantes); if(!tenia) m1.comprobantes=[]; const roto={nombre:"r.jpg", tipo:"imagen", hashImagen:H}; m1.comprobantes.push(roto); const dupRoto=_buscarHashDuplicadoGlobal(H, o1.id); roto.url="https://x"; roto.fileId="F"; const dupBueno=_buscarHashDuplicadoGlobal(H, o1.id); m1.comprobantes.splice(m1.comprobantes.indexOf(roto),1); if(!tenia) delete m1.comprobantes;'
        +'const huella=dupRoto===null && !!dupBueno;'
        +'const fOrig=window.fetch; let llamadas=0; let respuesta={ok:true, mensaje:"Receptor activo"};'
-       +'window.fetch=async(u,op)=>{ if(String(u)!==compsDriveUrl()) return fOrig(u,op); llamadas++; return { json: async()=>respuesta }; };'
+       +'window.fetch=async(u,op)=>{ if(String(u)!==compsDriveUrl()) return fOrig(u,op); llamadas++; return { json: async()=>(typeof respuesta==="function"?respuesta():respuesta) }; };'
        +'const cfgU=DB.config&&DB.config.compsDriveUrl, cfgC=DB.config&&DB.config.compsDriveClave; if(!DB.config) DB.config={}; if(!cfgU) DB.config.compsDriveUrl="https://script.google.com/prueba/exec"; if(!cfgC) DB.config.compsDriveClave="prueba";'
        +'const archivo=new File([new Uint8Array([1,2,3])], "p.jpg", {type:"image/jpeg"});'
        +'let errorSinArchivo=null; try{ await subirArchivoDrive(archivo, o1.id, "m"); }catch(e){ errorSinArchivo=String(e.message); } const llamadasSinArchivo=llamadas;'
-       +'llamadas=0; respuesta={ok:true, fileId:"F9", url:"https://drive.google.com/thumbnail", verUrl:"https://drive.google.com/file/d/F9/view"}; const conArchivo=await subirArchivoDrive(archivo, o1.id, "m");'
+       +'llamadas=0; respuesta={ok:true, fileId:"F9", url:"https://drive.google.com/thumbnail", verUrl:"https://drive.google.com/file/d/F9/view"}; const conArchivo=await subirArchivoDrive(archivo, o1.id, "m"); const llamadasConArchivo=llamadas;'
+       +'let nSec=0; respuesta=()=>{ nSec++; return nSec<3?{ok:false, error:"Exception: Error de servicio: Drive"}:{ok:true, fileId:"F10", url:"https://drive.google.com/thumbnail", verUrl:"https://drive.google.com/file/d/F10/view"}; }; llamadas=0; const trasTropiezo=await subirArchivoDrive(archivo, o1.id, "m"); const pasajero=trasTropiezo.fileId==="F10" && llamadas===3;'
+       +'llamadas=0; respuesta={ok:false, error:"Clave incorrecta"}; let eClave=null; try{ await subirArchivoDrive(archivo, o1.id, "m"); }catch(e){ eClave=String(e.message); } const definitivo=/Clave incorrecta/.test(eClave||"") && llamadas===1;'
+       +'llamadas=0; nSec=0; respuesta=()=>({ok:false, error:"Exception: Error de servicio: Drive"}); let eTres=null; try{ await subirArchivoDrive(archivo, o1.id, "m"); }catch(e){ eTres=String(e.message); } const tresVeces=/3 veces seguidas/.test(eTres||"") && llamadas===3;'
        +'window.fetch=fOrig; if(!cfgU) delete DB.config.compsDriveUrl; if(!cfgC) delete DB.config.compsDriveClave;'
-       +'const drive=/NO quedó guardado/.test(errorSinArchivo||"") && llamadasSinArchivo===2 && conArchivo.fileId==="F9" && llamadas===1;'
+       +'const drive=/NO quedó guardado/.test(errorSinArchivo||"") && llamadasSinArchivo===2 && conArchivo.fileId==="F9" && llamadasConArchivo===1;'
        +'let contrato=null; try{ const t=await (await fetch("contrato.js?v=6",{cache:"no-store"})).text(); contrato=t.indexOf("!res.fileId || !res.url")>=0; }catch(e){ contrato="no se pudo leer"; }'
        +'const scriptV=(document.querySelector("script[src^=contrato]")||{}).getAttribute ? document.querySelector("script[src^=contrato]").getAttribute("src") : "";'
        +'const a=[{id:"1", fecha:"2026-09-15T10:00"},{id:"2", fecha:"2026-09-15T10:05"}], b=[{id:"2", fecha:"2026-09-15T10:05"},{id:"3", fecha:"2026-09-15T09:59"}];'
@@ -3457,12 +3556,13 @@ const PRUEBAS = [
        +'const subida=procesarArchivos.toString().split("_subidosOk++").length===3 && procesarArchivos.toString().indexOf("_quitarComprobantesSinArchivo(_movDestino(oid, mid, m))")>=0 && t.indexOf("⚠️ No llegó a Drive</span>")>=0;'
        +'const refLote=_buscarReferenciaDuplicada.toString().indexOf("_esComprobanteSinArchivo(c)) continue;")>=0 && t.indexOf("(m.comprobantes||[]).some(c=>!_esComprobanteSinArchivo(c))) return false;")>=0 && t.split("_quitarComprobantesSinArchivo(mov);").length===3 && t.split("_insigniaComprobantes(m, \'").length===3 && t.indexOf("📎${(m.comprobantes||[]).length>0?")<0;'
        +'const srM=modalLogsAuditoria.toString(); const modal=srM.indexOf("_unirLogsAuditoria(DB.logsAuditoria, remotos, 500)")>=0 && srM.indexOf("document.getElementById(\'log_filtro\')")>=0; const compacta=_compactarLogsAuditoria.toString().indexOf("runTransaction")>=0 && /MODO_PRUEBA/.test(_compactarLogsAuditoria.toString());'
-       +'return { detecta, quita, fusion, aviso, huella, drive, errorSinArchivo, llamadasSinArchivo, contrato, scriptV, logsUnion, escritura, envio, insignia, faltantes, subida, refLote, modal, compacta };'
+       +'return { detecta, quita, fusion, aviso, huella, drive, pasajero, definitivo, tresVeces, errorSinArchivo, llamadasSinArchivo, contrato, scriptV, logsUnion, escritura, envio, insignia, faltantes, subida, refLote, modal, compacta };'
        +'})()');
    }catch(e){ r={error:String(e&&e.message||e)}; }
-   const bien = r && !r.error && r.detecta && r.quita && r.fusion && r.aviso && r.huella && r.drive && r.contrato===true && r.scriptV==='contrato.js?v=6' && r.logsUnion && r.escritura && r.envio && r.insignia && r.faltantes && r.subida && r.refLote && r.modal && r.compacta;
+   const bien = r && !r.error && r.detecta && r.quita && r.fusion && r.aviso && r.huella && r.drive && r.pasajero && r.definitivo && r.tresVeces && r.contrato===true && r.scriptV==='contrato.js?v=6' && r.logsUnion && r.escritura && r.envio && r.insignia && r.faltantes && r.subida && r.refLote && r.modal && r.compacta;
    return {ok:bien, detalle: bien
      ? 'Si Drive responde "ok" sin archivo, la app reintenta una vez y luego avisa que NO quedó guardado; con archivo, acepta la subida ✓'
+      +'\nSi Drive responde "Exception: Error de servicio: Drive" (tropiezo pasajero de Google), la app reintenta hasta 3 veces y entra a la tercera; una clave incorrecta no se reintenta; tres fallos seguidos lo dicen claro ✓'
       +'\nLa subida de contratos (contrato.js v6) tampoco acepta una respuesta sin archivo ✓'
       +'\nUn comprobante sin enlace ni id no bloquea como duplicado (ni por huella ni por referencia), el cargue por lotes y el informe de faltantes lo tratan como pago sin comprobante, el botón 📎 muestra un ! rojo y la ventana del pago lo marca "No llegó a Drive" ✓'
       +'\nEl guardado no toca nada: el roto se quita solo cuando la oficina sube otro a ese pago (queda anotado aparte, sin repetirse) y la fusión con la nube no lo revive, venga la anotación de esta sesión o de otra ✓'

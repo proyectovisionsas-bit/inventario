@@ -25,11 +25,11 @@ sin proceso de compilación: se editan directamente y se publican tal cual.
 | Archivo | Para quién | Versión | Tamaño |
 |---|---|---|---|
 | `index.html` | Portal de entrada, solo enlaces | — | 170 líneas |
-| `OFICINAS_PTOVISION.html` | Oficina: caja, cartera, facturas, clientes, RRHH, SG-SST | `APP_VERSION = 308` | 34.160 líneas · 2,5 MB |
-| `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 110` | 11.238 líneas · 775 KB |
-| `RED_PTOVISION.html` | Red y nodos | `APP_VERSION_RED = 40` | 9.322 líneas · 579 KB |
-| `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 95` | 3.127 líneas · 198 KB |
-| `PRUEBAS.html` | Banco de pruebas (98 pruebas) | — | 3.727 líneas |
+| `OFICINAS_PTOVISION.html` | Oficina: caja, cartera, facturas, clientes, RRHH, SG-SST | `APP_VERSION = 309` | 34.409 líneas · 2,5 MB |
+| `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 111` | 11.311 líneas · 782 KB |
+| `RED_PTOVISION.html` | Red y nodos | `APP_VERSION_RED = 41` | 9.404 líneas · 573 KB |
+| `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 96` | 3.208 líneas · 205 KB |
+| `PRUEBAS.html` | Banco de pruebas (101 pruebas) | — | 3.827 líneas |
 | `FIRMA_SST.html` | Firma desde el celular (SG-SST): página pública, sin login, lee un solo documento por token | — | 187 líneas |
 | `contrato.js` | Contrato de servicio: **compartido** OFICINAS ↔ TECNICOS | `?v=6` | 956 líneas |
 | `ia.js` | Llamadas a Groq: compartido por OFICINAS, INVENTARIO y TECNICOS | `?v=5` | 388 líneas |
@@ -83,6 +83,7 @@ cargan enteras: se leen cuando se toca ese tema.
 - @docs/05-ia-y-servicios.md — Groq, OCR y servicios externos
 - @docs/06-material-ordenes-y-limpiezas.md — bodega ↔ cuadrilla, estados de órdenes, limpiezas
 - @docs/07-sgsst.md — SG-SST: documentos `sgsst_*`, firma desde el celular (`FIRMA_SST.html`), cálculos legales
+- @docs/08-modo-mantenimiento.md — modo mantenimiento: documento `mantenimiento`, qué ve cada rol, cómo termina al publicar
 
 ## Pendientes conocidos
 

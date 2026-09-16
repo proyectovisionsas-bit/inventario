@@ -293,6 +293,25 @@ Qué cambió:
   (esta sesión y la nube): así no revive un roto que se reemplazó en otra
   sesión, y la anotación no se pierde.
 
+## "Exception: Error de servicio: Drive" (OFICINAS v309, 16 Sep 2026)
+
+NATALIA grabó un video: al subir un comprobante salía "No se pudo subir a
+Drive: … Exception: Error de servicio: Drive". Le pasó tres veces entre las
+9:09 y las 9:12 y a la cuarta entró. En las ejecuciones del script las tres
+aparecen "Completada" en ~1 s: el `doPost` atrapó la excepción de `DriveApp`
+y respondió `ok:false`. Es un tropiezo pasajero del lado de Google, no del
+archivo ni de la app.
+
+Desde la v309 `subirArchivoDrive` reintenta hasta 3 veces (1,5 s y 3 s de
+espera) cuando el mensaje es de ese tipo (`_esErrorPasajeroDrive`: error de
+servicio, too many requests, timeout, internal error…). Una clave incorrecta
+u otro error definitivo no se reintenta. Si falla las tres veces, el aviso lo
+dice: "Google Drive falló 3 veces seguidas; suele ser pasajero".
+
+Sigue sin explicación quién hace las llamadas `doGet` al script (dos el 16
+de septiembre, 9:29 y 9:36, cada una unos 16 s después de un `doPost`). Con
+la Versión 2 del script (`doGet` responde `ok:false`) ya no hacen daño.
+
 ## El registro de auditoría se pisaba entre sesiones (OFICINAS v308)
 
 Cada sesión escribía `logs_auditoria` completo con su propia lista. Ganaba

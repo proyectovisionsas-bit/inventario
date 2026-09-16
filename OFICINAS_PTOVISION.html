@@ -968,7 +968,7 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION = 308; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 309; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -989,7 +989,7 @@ const APP_VERSION = 308; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '15 Sep 2026 (v308: en el celular nada se sale de la pantalla; un comprobante que Drive no recibio ya no se da por subido; el registro de auditoria ya no se pisa entre sesiones. v307: duplicado con motivo. Historial en git y en docs/01-firestore-limites.md)';
+const APP_VERSION_FECHA = '16 Sep 2026 (v309: el registro diario se ordena y filtra por hora, nombre, valor, tipo y forma de pago; modo mantenimiento que activa el administrador y bloquea a las oficinas; un comprobante subido con el clip deja el pago con soporte completo. v308: celular, Drive sin archivo, auditoria. Historial en git y en docs/01-firestore-limites.md)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -1440,7 +1440,7 @@ function _limpiarLogsFirebase(obj){
 // (el guardado pasa su sanitizarFirebase para anotar campos vacíos). Los ids se
 // anotan como "en la nube" solo cuando Firebase confirma; si falla, salen en el próximo guardado.
 function _enviarLogsAuditoria(limpiar){
-    if(!db) return null;
+    if(!db || window._mantBloqueando) return null;
     if(typeof limpiar!=='function') limpiar=_limpiarLogsFirebase;
     if(!window._logsEnNube) window._logsEnNube=new Set();
     const nuevos=(DB.logsAuditoria||[]).slice(-500).filter(l=>l && l.id!=null && !window._logsEnNube.has(l.id));
@@ -1479,6 +1479,161 @@ async function _compactarLogsAuditoria(){
     }catch(e){ console.warn('compactar logs (no crítico):', e); return false; }
     finally{ window._compactandoLogs=false; }
 }
+/* ════════════════════════════════════════════════════════════════════
+   v309 (16 sep 2026) — MODO MANTENIMIENTO.
+   El administrador lo activa desde el panel de OFICINAS. Queda en el documento
+   oficinas_sistema/mantenimiento: {activo, mensaje, apps:{oficinas,inventario,tecnicos,red},
+   avisoMin, desdeMs, empiezaMs, por, terminaAlPublicar, versionAlActivar:{...}}.
+   Cada app lo escucha. Mientras esté activo para esta app:
+    - antes de empiezaMs: una franja abajo con la cuenta regresiva (se puede seguir trabajando);
+    - después: una pantalla que tapa todo y bloquea el teclado. El administrador no se bloquea
+      (ve la franja y, en OFICINAS, puede terminarlo). Sin sesión iniciada solo se ve la franja.
+    - si terminaAlPublicar y esta sesión ya es una versión MAYOR que la que había al activar,
+      el mantenimiento se da por terminado para ella: la versión nueva ya salió.
+   La pantalla de "hay versión nueva" queda por encima (z-index mayor), así que al publicar las
+   sesiones viejas ven el botón de actualizar aunque el mantenimiento siga activo.
+   ════════════════════════════════════════════════════════════════════ */
+const MANT_APP='oficinas';
+window._mantenimiento=null; window._mantTimer=null; window._mantBloqueando=false;
+function _mantMiVersion(){ return APP_VERSION; }
+function _mantEsAdmin(){ try{ return !!(typeof USER!=='undefined' && USER && USER.role==='admin'); }catch(e){ return false; } }
+function _mantSinSesion(){ try{ return (typeof USER==='undefined' || !USER); }catch(e){ return true; } }
+function _mantVigente(d){
+    if(!d || !d.activo || !d.apps || !d.apps[MANT_APP]) return false;
+    if(d.terminaAlPublicar){
+        const v=d.versionAlActivar||{};
+        if(v[MANT_APP]!=null && (parseInt(v[MANT_APP],10)||0) < _mantMiVersion()) return false;   // esta sesión ya es la versión nueva de su app
+        if(v.oficinas!=null && window._mantVersionOficinasNube!=null && (parseInt(v.oficinas,10)||0) < (parseInt(window._mantVersionOficinasNube,10)||0)) return false;   // ya se publicó una OFICINAS nueva: terminó para todas las apps
+    }
+    return true;
+}
+function _mantKeyBlock(e){ e.stopPropagation(); e.preventDefault(); }
+function _mantEsc(s){ return String(s==null?'':s).replace(/[&<>"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch])); }
+// Devuelve false (nada), 'franja' (aviso abajo, se puede trabajar) o 'bloqueo' (pantalla completa)
+function _aplicarMantenimiento(){
+    const d=window._mantenimiento; const vigente=_mantVigente(d);
+    let ov=document.getElementById('mantOverlay'), bn=document.getElementById('mantBanner');
+    if(window._mantTimer){ clearTimeout(window._mantTimer); window._mantTimer=null; }
+    const soltarTeclado=()=>{ if(window._mantBloqueando){ window._mantBloqueando=false; document.removeEventListener('keydown',_mantKeyBlock,true);
+        if(window._mantGuardadoPendiente){ window._mantGuardadoPendiente=false; const espera=(typeof MODO_PRUEBA!=='undefined'&&MODO_PRUEBA)?300:1500+Math.floor(Math.random()*8000); setTimeout(()=>{ try{ if(typeof save==='function') save({silencioso:true}); }catch(e){} }, espera); } } };   // lo que quedó en pausa sale ahora, cada sesión en un momento distinto para no escribir todas a la vez
+    if(!vigente){ if(ov) ov.remove(); if(bn) bn.remove(); soltarTeclado(); return false; }
+    if(!document.body) return false;
+    const ahora=Date.now(), empieza=d.empiezaMs||d.desdeMs||0;
+    const hora=ms=>{ try{ return new Date(ms).toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'}); }catch(e){ return ''; } };
+    if(_mantEsAdmin() || _mantSinSesion() || ahora<empieza){
+        if(ov) ov.remove(); soltarTeclado();
+        if(!bn){ bn=document.createElement('div'); bn.id='mantBanner';
+            bn.style.cssText='position:fixed;bottom:0;left:0;right:0;z-index:99997;background:#b45309;color:#fff;font:700 13px/1.45 "Segoe UI",system-ui,sans-serif;text-align:center;padding:8px 12px;box-shadow:0 2px 10px rgba(0,0,0,.35);';
+            document.body.appendChild(bn); }
+        let txt;
+        if(ahora<empieza){ const s=Math.max(0,Math.round((empieza-ahora)/1000));
+            txt='⏳ En '+Math.floor(s/60)+':'+String(s%60).padStart(2,'0')+' el sistema entra en mantenimiento. Termina y guarda lo que estés haciendo.';
+            window._mantTimer=setTimeout(_aplicarMantenimiento, 1000); }
+        else if(_mantEsAdmin()) txt='🛠️ Mantenimiento activo desde las '+hora(d.desdeMs)+'. Las demás sesiones están bloqueadas; tú puedes seguir. <button onclick="_terminarMantenimiento()" style="margin-left:10px;background:#fff;color:#b45309;border:none;border-radius:8px;padding:4px 12px;font-weight:800;cursor:pointer;">Terminar mantenimiento</button>';
+        else txt='🛠️ El sistema está en mantenimiento desde las '+hora(d.desdeMs)+'. '+_mantEsc(d.mensaje||'');
+        bn.innerHTML=txt; return 'franja';
+    }
+    if(bn) bn.remove();
+    if(!ov){ ov=document.createElement('div'); ov.id='mantOverlay';
+        ov.style.cssText='position:fixed;inset:0;z-index:99998;background:rgba(8,10,18,0.97);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:20px;';
+        document.body.appendChild(ov); }
+    ov.innerHTML='<div style="max-width:460px;width:100%;box-sizing:border-box;background:linear-gradient(135deg,#b45309,#f59e0b);border-radius:20px;padding:32px 30px;text-align:center;color:#fff;box-shadow:0 16px 50px rgba(180,83,9,0.45);font-family:\'Segoe UI\',system-ui,sans-serif;">'
+        +'<div style="font-size:3rem;">🛠️</div>'
+        +'<div style="font-weight:800;font-size:1.3rem;margin:10px 0 8px;">Sistema en mantenimiento</div>'
+        +'<div style="font-size:0.95rem;line-height:1.5;white-space:pre-line;">'+_mantEsc(d.mensaje||'Estamos haciendo mejoras. En unos minutos podrás seguir trabajando.')+'</div>'
+        +'<div style="font-size:0.8rem;opacity:.9;margin-top:14px;">Desde las '+hora(d.desdeMs)+' · '+_mantEsc(d.por||'Administrador')+'</div>'
+        +'<div style="font-size:0.78rem;opacity:.85;margin-top:6px;">Esta pantalla se quita sola cuando termine.'+(d.terminaAlPublicar?' Si sale una versión nueva, aparecerá el botón para actualizar.':'')+'</div>'
+        +'</div>';
+    if(!window._mantBloqueando){ window._mantBloqueando=true; try{ if(document.activeElement && document.activeElement.blur) document.activeElement.blur(); }catch(e){} try{ if(typeof closeModal==='function') closeModal(); }catch(e){} document.addEventListener('keydown',_mantKeyBlock,true); }
+    return 'bloqueo';
+}
+window._aplicarMantenimiento=_aplicarMantenimiento; window._mantVigente=_mantVigente;
+setInterval(function(){ try{ _aplicarMantenimiento(); }catch(e){} }, 5000);   // por si cambia la sesión (inicio de sesión) o llega la hora de empezar
+// ── Escucha del documento (la tarjeta del panel se repinta si está a la vista) ──
+function iniciarEscuchaMantenimiento(){
+    if(typeof db==='undefined' || !db) return;
+    try{ if(window._unsubMant) window._unsubMant(); }catch(e){}
+    try{
+        window._unsubMant=db.collection('oficinas_sistema').doc('mantenimiento').onSnapshot(s=>{
+            window._mantenimiento=(s.exists?s.data():null);
+            try{ _aplicarMantenimiento(); }catch(e){ console.warn('mantenimiento:', e); }
+            try{ const el=document.getElementById('mant_card'); if(el) el.outerHTML=_tarjetaMantenimientoHTML(); }catch(e){}
+        }, e=>console.warn('escucha mantenimiento:', e));
+    }catch(e){ console.warn('mantenimiento:', e); }
+}
+// ── Panel del administrador: activar / terminar ──
+const _MANT_APPS=[['oficinas','🏢 Oficinas'],['inventario','📦 Inventario'],['tecnicos','🔧 Técnicos'],['red','🗺️ Red']];
+const _MANT_MSG_DEFECTO='Estamos haciendo mejoras en el sistema. En unos minutos podrás seguir trabajando. No cierres esta ventana.';
+function _tarjetaMantenimientoHTML(){
+    const d=window._mantenimiento; const activo=!!(d && d.activo);
+    const esc=_mantEsc; const fh=ms=>{ try{ return new Date(ms).toLocaleString('es-CO',{dateStyle:'short',timeStyle:'short'}); }catch(e){ return ''; } };
+    if(activo){
+        const cuales=_MANT_APPS.filter(a=>d.apps&&d.apps[a[0]]).map(a=>a[1]).join(', ')||'ninguna app';
+        const empieza=(d.empiezaMs||0)>Date.now()?` · la cuenta regresiva termina a las ${esc(new Date(d.empiezaMs).toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'}))}`:'';
+        return `<div class="card" id="mant_card" style="margin-bottom:14px;border:2px solid #f59e0b;background:rgba(245,158,11,0.06);">
+            <div class="card-header"><h2>🛠️ Mantenimiento ACTIVO</h2></div>
+            <p style="font-size:0.9rem;font-weight:700;color:#f59e0b;margin-bottom:6px;">Desde ${esc(fh(d.desdeMs))} · ${esc(d.por||'Administrador')}</p>
+            <p style="font-size:0.84rem;color:var(--muted);margin-bottom:6px;">Bloqueando: ${cuales}${empieza}</p>
+            <p style="font-size:0.84rem;margin-bottom:10px;white-space:pre-line;">“${esc(d.mensaje||'')}”</p>
+            <p style="font-size:0.78rem;color:var(--muted);margin-bottom:10px;">${d.terminaAlPublicar?'Termina solo, en todas las apps, cuando se publique una OFICINAS mayor que la v'+esc(d.versionAlActivar&&d.versionAlActivar.oficinas)+' (o la propia app suba de versión); las sesiones viejas verán el botón de actualizar. También puedes terminarlo ahora.':'Solo termina cuando lo termines aquí.'}${(typeof MODO_PRUEBA!=='undefined'&&MODO_PRUEBA)?' <b>🧪 Modo prueba: esto no quedó en la nube.</b>':''}</p>
+            <button class="btn btn-primary" onclick="_terminarMantenimiento()">✅ Terminar mantenimiento ahora</button>
+        </div>`;
+    }
+    return `<div class="card" id="mant_card" style="margin-bottom:14px;border:2px solid var(--border);">
+        <div class="card-header"><h2>🛠️ Modo mantenimiento</h2></div>
+        <p style="font-size:0.84rem;color:var(--muted);margin-bottom:12px;line-height:1.5;">Cuando vayamos a hacer cambios, actívalo: las oficinas ven un aviso y no pueden hacer nada hasta que termine; en OFICINAS, además, sus guardados quedan en pausa (en las otras apps solo se bloquea la pantalla). Antes sale una cuenta regresiva para que terminen lo que estén haciendo. Tú no te bloqueas.</p>
+        <label style="font-size:0.78rem;color:var(--muted);">Mensaje que verán</label>
+        <textarea id="mant_msg" class="form-control" rows="2" style="margin:4px 0 10px;">${esc(_MANT_MSG_DEFECTO)}</textarea>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:0.82rem;">
+            <span style="color:var(--muted);">Bloquear:</span>
+            ${_MANT_APPS.map(a=>`<label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="mant_app_${a[0]}" ${a[0]==='oficinas'?'checked':''}> ${a[1]}</label>`).join('')}
+        </div>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:12px;font-size:0.82rem;">
+            <label style="display:flex;align-items:center;gap:6px;">Aviso previo <select id="mant_aviso" class="form-control" style="width:auto;padding:4px 8px;"><option value="0">sin aviso</option><option value="1">1 min</option><option value="2" selected>2 min</option><option value="5">5 min</option><option value="10">10 min</option></select></label>
+            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="mant_publicar" checked> Terminar solo cuando se publique la versión nueva</label>
+        </div>
+        <button class="btn btn-warning" onclick="_activarMantenimiento()">🛠️ Activar mantenimiento</button>
+    </div>`;
+}
+// Arma el documento a partir del formulario. Se separa para poder probarlo sin tocar la nube.
+function _docMantenimientoDesdeFormulario(versiones){
+    const v=id=>document.getElementById(id);
+    const apps={}; _MANT_APPS.forEach(a=>{ apps[a[0]]=!!((v('mant_app_'+a[0])||{}).checked); });
+    const avisoMin=Math.max(0, parseInt((v('mant_aviso')||{}).value||'0',10)||0);
+    const mensaje=String((v('mant_msg')||{}).value||'').trim()||_MANT_MSG_DEFECTO;
+    const terminaAlPublicar=!!((v('mant_publicar')||{}).checked);
+    const ahora=Date.now();
+    return { activo:true, mensaje, apps, avisoMin, desdeMs:ahora, desde:new Date(ahora).toISOString(), empiezaMs:ahora+avisoMin*60000,
+             por:String((typeof USER!=='undefined' && USER && USER.nombre)||'Administrador'), terminaAlPublicar, versionAlActivar:versiones||{}, terminadoMs:null, terminadoPor:null };
+}
+async function _activarMantenimiento(){
+    if(typeof USER==='undefined' || !USER || USER.role!=='admin'){ alert('Solo el administrador puede activar el mantenimiento.'); return; }
+    // Versiones publicadas ahora: con ellas cada app sabe si "ya salió la versión nueva"
+    const versiones={ oficinas:Math.max(APP_VERSION, parseInt((DB.config&&DB.config.appVersionPublicada)||0,10)||0), inventario:null, tecnicos:null, red:null };
+    try{ const s=await db.collection('inventario').doc('app_version').get(); if(s.exists) versiones.inventario=parseInt(s.data().version,10)||null; }catch(e){ console.warn('versión de INVENTARIO no leída (terminará al publicar OFICINAS):', e); }
+    try{ const s=await db.collection('oficinas_sistema').doc('app_version_tecnicos').get(); if(s.exists) versiones.tecnicos=parseInt(s.data().version,10)||null; }catch(e){ console.warn('versión de TECNICOS no leída (terminará al publicar OFICINAS):', e); }
+    const docM=_docMantenimientoDesdeFormulario(versiones);
+    const lista=_MANT_APPS.filter(a=>docM.apps[a[0]]).map(a=>a[1]).join(', ');
+    if(!lista){ alert('Marca al menos una app para bloquear.'); return; }
+    if(!confirm(`¿Activar el mantenimiento para ${lista}?\n\n${docM.avisoMin?'Verán una cuenta regresiva de '+docM.avisoMin+' minuto(s) y luego':'De inmediato'} quedarán bloqueados hasta que ${docM.terminaAlPublicar?'se publique la versión nueva o lo termines aquí':'lo termines aquí'}.`)) return;
+    try{
+        await db.collection('oficinas_sistema').doc('mantenimiento').set(docM);
+        window._mantenimiento=docM; _aplicarMantenimiento();
+        registrarLog('MANTENIMIENTO_ON',{apps:lista, avisoMin:docM.avisoMin, terminaAlPublicar:docM.terminaAlPublicar, versionAlActivar:versiones}); try{ _enviarLogsAuditoria(); }catch(_){}
+        const el=document.getElementById('mant_card'); if(el) el.outerHTML=_tarjetaMantenimientoHTML();
+    }catch(e){ alert('No se pudo activar el mantenimiento: '+(e.message||e)); }
+}
+async function _terminarMantenimiento(){
+    if(typeof USER==='undefined' || !USER || USER.role!=='admin'){ alert('Solo el administrador puede terminar el mantenimiento.'); return; }
+    if(!confirm('¿Terminar el mantenimiento? Las oficinas podrán seguir trabajando de inmediato.')) return;
+    try{
+        await db.collection('oficinas_sistema').doc('mantenimiento').set({ activo:false, terminadoMs:Date.now(), terminadoPor:String(USER.nombre||'Administrador') }, {merge:true});
+        window._mantenimiento=Object.assign({}, window._mantenimiento||{}, {activo:false}); _aplicarMantenimiento();
+        registrarLog('MANTENIMIENTO_OFF',{}); try{ _enviarLogsAuditoria(); }catch(_){}
+        const el=document.getElementById('mant_card'); if(el) el.outerHTML=_tarjetaMantenimientoHTML();
+    }catch(e){ alert('No se pudo terminar el mantenimiento: '+(e.message||e)); }
+}
+window._activarMantenimiento=_activarMantenimiento; window._terminarMantenimiento=_terminarMantenimiento; window._tarjetaMantenimientoHTML=_tarjetaMantenimientoHTML; window._docMantenimientoDesdeFormulario=_docMantenimientoDesdeFormulario;
 function _avisarCamposVacios(lista){
     try{
         console.warn('🧩 Campos vacíos (undefined) quitados antes de guardar:', lista.join(', '));
@@ -2146,6 +2301,8 @@ async function _aligerarOrdenes(){
 }
 
 async function _saveReal(_opts){
+    // v309: con la pantalla de mantenimiento puesta, esta sesión no escribe; lo pendiente sale solo cuando termine
+    if(window._mantBloqueando){ window._mantGuardadoPendiente=true; window._ultimoGuardadoOk=false; window._parcialReintentable=false; try{ showSync('err','Mantenimiento: el guardado espera'); }catch(_){} console.warn('🛠️ Mantenimiento: el guardado queda en pausa hasta que termine.'); return; }   // las banderas en falso: nadie debe creer que este guardado llegó
     // Un guardado de fondo no pone la cortina; el indicador chiquito de arriba
     // sí sigue, para que quien quiera mirar sepa que la app está trabajando.
     const _silencioso = !!(_opts && _opts.silencioso);
@@ -3013,6 +3170,7 @@ function iniciarEscuchaVersion(){
         .onSnapshot(snap=>{
             if(!snap.exists) return;
             const versionRemota = snap.data().version || 0;
+            window._mantVersionOficinasNube = versionRemota; try{ _aplicarMantenimiento(); }catch(e){}   // v309: al publicar termina el mantenimiento
             // Si la versión en la nube es MAYOR que la mía, mi pestaña está desactualizada
             if(versionRemota > APP_VERSION && !_bannerVersionMostrado){
                 _bannerVersionMostrado = true;
@@ -9822,7 +9980,7 @@ function enterApp(){
     setTimeout(applyStoredTheme,50);
     setTimeout(iniciarMonitorRecordatorios,1000);
     setTimeout(()=>{ _rtActivo=true; iniciarEscuchaRealtime(); }, 500);
-    setTimeout(()=>{ registrarVersion(); iniciarEscuchaVersion(); }, 700);
+    setTimeout(()=>{ registrarVersion(); iniciarEscuchaVersion(); iniciarEscuchaMantenimiento(); }, 700);
     setTimeout(showAIFab, 800);
     setTimeout(()=>{ try{ verificarRespaldoDrive(); }catch(e){ console.warn('verificarRespaldoDrive:',e); } }, 1800);
     const _nombreSaludo = USER.role==='admin' ? 'Administrador' : (USER.nombre||'');
@@ -10701,6 +10859,7 @@ function _irAlMovimiento(oid, mid){
     window._regFechaPreserve = String(m.fecha||'').slice(0,10);
     navigate('registro');
     setTimeout(()=>{
+        if(_regHayFiltro() && !document.querySelector('[data-mov="'+mid+'"]')) _regQuitarFiltros();   // v309: si un filtro lo esconde, se quitan
         const filas = document.querySelectorAll('[data-mov="'+mid+'"]');
         if(!filas.length){ modalComprobantes(oid, mid); return; }
         filas.forEach(el=>el.classList.add('mov-resaltado'));
@@ -11255,6 +11414,140 @@ function renderDashCharts(oficinas){
 }
 
 // ─── REGISTRO DIARIO ─────────────────────────────────────────────────────────
+/* ════════════════════════════════════════════════════════════════════
+   v309 (16 sep 2026) — ORDEN Y FILTROS DEL REGISTRO DIARIO.
+   Elkin: "en los registros diarios quiero poder filtrar, de la a - z o al contrario, también
+   por tipo de pagos, por hora, que me sea más fácil organizar, sin afectar todo lo que está bien".
+   Solo cambia el orden y qué filas se muestran en las dos listas (tarjetas y tabla). Los totales
+   de arriba siguen sumando TODO el día. Por defecto todo queda como siempre (último registrado
+   primero, sin filtros). La elección dura mientras la pestaña esté abierta.
+   ════════════════════════════════════════════════════════════════════ */
+window._regOrden=window._regOrden||'reciente'; window._regTipo=window._regTipo||''; window._regForma=window._regForma||'';
+window._regBuscar=window._regBuscar||''; window._regHoraDesde=window._regHoraDesde||''; window._regHoraHasta=window._regHoraHasta||'';
+const _REG_ORDENES=[['reciente','Último registrado primero (como siempre)'],['hora_asc','Hora: de la mañana a la tarde'],['hora_desc','Hora: de la tarde a la mañana'],
+                    ['az','Nombre: A → Z'],['za','Nombre: Z → A'],['valor_desc','Valor: de mayor a menor'],['valor_asc','Valor: de menor a mayor']];
+function _regNombre(m){ return String((m&&(m.descripcion||m.clienteWisphub||m.concepto))||'').trim(); }
+function _regHora(m){ return String((m&&m.fecha)||'').slice(11,16); }
+function _regNorm(s){ return String(s==null?'':s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); }   // sin mayúsculas ni tildes
+function _regHayFiltro(){ return !!(window._regTipo||window._regForma||String(window._regBuscar||'').trim()||window._regHoraDesde||window._regHoraHasta) || (!!window._regOrden && window._regOrden!=='reciente'); }
+function _regOrdenarFiltrar(hoyMovs){
+    let lista=(hoyMovs||[]).map((m,i)=>({m,i}));
+    const tipo=window._regTipo, forma=window._regForma, q=_regNorm(window._regBuscar||'').trim(), hd=window._regHoraDesde, hh=window._regHoraHasta;
+    if(tipo) lista=lista.filter(x=>x.m.tipo===tipo);
+    if(forma) lista=lista.filter(x=>String(x.m.forma||'')===forma);
+    if(hd) lista=lista.filter(x=>_regHora(x.m)>=hd);
+    if(hh) lista=lista.filter(x=>_regHora(x.m)<=hh);
+    if(q) lista=lista.filter(x=>_regNorm(_regNombre(x.m)+' '+(x.m.concepto||'')+' '+(x.m.cajeroWisphub||'')+' '+(x.m.valor||'')).includes(q));
+    const cmpTxt=(a,b)=>_regNombre(a).localeCompare(_regNombre(b),'es',{sensitivity:'base'});
+    const cmpFecha=(a,b)=>String(a.fecha||'').localeCompare(String(b.fecha||''));
+    const val=m=>parseFloat(m.valor||0)||0;
+    switch(window._regOrden){
+        case 'hora_asc':   lista.sort((a,b)=>cmpFecha(a.m,b.m)||a.i-b.i); break;
+        case 'hora_desc':  lista.sort((a,b)=>cmpFecha(b.m,a.m)||b.i-a.i); break;
+        case 'az':         lista.sort((a,b)=>cmpTxt(a.m,b.m)||a.i-b.i); break;
+        case 'za':         lista.sort((a,b)=>cmpTxt(b.m,a.m)||a.i-b.i); break;
+        case 'valor_desc': lista.sort((a,b)=>val(b.m)-val(a.m)||a.i-b.i); break;
+        case 'valor_asc':  lista.sort((a,b)=>val(a.m)-val(b.m)||a.i-b.i); break;
+        default: lista.reverse();   // como siempre: el último registrado primero
+    }
+    return lista.map(x=>x.m);
+}
+function _regSet(campo, valor){ window['_reg'+campo]=valor; _regRefrescarLista(); }
+function _regBuscarInput(v){   // busca mientras escribe, sin perder el cursor
+    window._regBuscar=v; clearTimeout(window._regBuscarT);
+    window._regBuscarT=setTimeout(()=>{ _regRefrescarLista(); const i=document.getElementById('reg_buscar'); if(i){ i.focus(); try{ i.setSelectionRange(i.value.length,i.value.length); }catch(e){} } }, 350);
+}
+function _regQuitarFiltros(){ window._regOrden='reciente'; window._regTipo=''; window._regForma=''; window._regBuscar=''; window._regHoraDesde=''; window._regHoraHasta=''; _regRefrescarLista(); }
+function _regToolbarHTML(hoyMovs, lista){
+    const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+    const formas=[...new Set((hoyMovs||[]).map(m=>String(m.forma||'')).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es'));
+    const hay=_regHayFiltro();
+    const ing=lista.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+(parseFloat(m.valor||0)||0),0), egr=lista.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+(parseFloat(m.valor||0)||0),0);
+    const sel='class="form-control" style="width:auto;max-width:100%;padding:4px 8px;font-size:0.78rem;"';
+    return `<div id="reg_toolbar" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;font-size:0.78rem;">
+        <label style="display:flex;align-items:center;gap:4px;" title="Orden de la lista">🔃 <select ${sel} onchange="_regSet('Orden',this.value)">${_REG_ORDENES.map(o=>`<option value="${o[0]}" ${window._regOrden===o[0]?'selected':''}>${o[1]}</option>`).join('')}</select></label>
+        <select ${sel} onchange="_regSet('Tipo',this.value)" title="Tipo de movimiento"><option value="">Ingresos y egresos</option><option value="ingreso" ${window._regTipo==='ingreso'?'selected':''}>Solo ingresos</option><option value="egreso" ${window._regTipo==='egreso'?'selected':''}>Solo egresos</option></select>
+        <select ${sel} onchange="_regSet('Forma',this.value)" title="Forma de pago"><option value="">Todas las formas de pago</option>${formas.map(f=>`<option value="${esc(f)}" ${window._regForma===f?'selected':''}>${esc(f)}</option>`).join('')}</select>
+        <label style="display:flex;align-items:center;gap:4px;" title="Solo los registros entre estas horas">🕐 <input type="time" ${sel} value="${esc(window._regHoraDesde)}" onchange="_regSet('HoraDesde',this.value)"> a <input type="time" ${sel} value="${esc(window._regHoraHasta)}" onchange="_regSet('HoraHasta',this.value)"></label>
+        <input type="search" id="reg_buscar" ${sel.replace('width:auto','width:180px')} placeholder="🔍 Nombre, concepto, valor…" value="${esc(window._regBuscar)}" oninput="_regBuscarInput(this.value)">
+        <span style="color:var(--muted);margin-left:auto;">Mostrando <b>${lista.length}</b> de ${(hoyMovs||[]).length}${hay?` · <span style="color:#10b981;font-weight:700;">+${fmtShort(ing)}</span> / <span style="color:#ef4444;font-weight:700;">−${fmtShort(egr)}</span>`:''}</span>
+        ${hay?`<button class="btn btn-outline btn-sm" onclick="_regQuitarFiltros()" style="font-size:0.72rem;padding:3px 8px;">✕ Quitar filtros</button>`:''}
+    </div>`;
+}
+window._regOrdenarFiltrar=_regOrdenarFiltrar; window._regSet=_regSet; window._regQuitarFiltros=_regQuitarFiltros; window._regBuscarInput=_regBuscarInput;
+// v309: la lista (barra, tarjetas y tabla) vive aparte para poder repintarla sola, sin tocar el formulario de arriba
+function _regListaHTML(oid, hoyMovs, listaReg){
+    return hoyMovs.length===0
+            ? '<p style="color:var(--muted);text-align:center;padding:20px;">Sin movimientos registrados hoy.</p>'
+            : `
+            <!-- Desglose por descripción hoy -->
+            ${_regToolbarHTML(hoyMovs, listaReg)}
+            ${listaReg.length===0?'<p style="color:var(--muted);text-align:center;padding:12px;">Ningún registro coincide con los filtros.</p>':''}
+            <div style="margin-bottom:14px;">
+                <p style="font-size:0.78rem;font-weight:700;color:var(--accent);margin-bottom:8px;">📋 Detalle por registro — hoy</p>
+                <div style="display:flex;flex-direction:column;gap:5px;">
+                ${listaReg.map(m=>`
+                    <div data-mov="${m.id}" style="display:flex;justify-content:space-between;align-items:center;background:${m.tipo==='ingreso'?'rgba(16,185,129,0.06)':'rgba(239,68,68,0.05)'};border:1px solid ${m.tipo==='ingreso'?'rgba(16,185,129,0.15)':'rgba(239,68,68,0.12)'};border-radius:8px;padding:8px 12px;gap:8px;flex-wrap:wrap;">
+                        <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;">
+                            <span style="font-size:0.75rem;color:var(--muted);flex-shrink:0;">${new Date(m.fecha).toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})}</span>
+                            <span class="tag ${m.tipo==='ingreso'?'tag-ing':'tag-egr'}" style="flex-shrink:0;">${m.concepto}</span>
+                            ${m.esPagoAdmin?'<span class="tag tag-admin" style="flex-shrink:0;font-size:0.6rem;">👑</span>':''}
+                            <span style="font-size:0.82rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${m.descripcion||'<span style="color:var(--muted);font-style:italic;">Sin descripción</span>'}</span>
+                            ${m.verificadoIA?'<span style="font-size:0.62rem;background:rgba(249,115,22,0.15);color:#f97316;padding:1px 6px;border-radius:8px;flex-shrink:0;" title="Registrado con IA">✨ IA</span>':''}
+                            ${m.esReporteEfecty?`<span style="font-size:0.62rem;background:rgba(234,88,12,0.15);color:#ea580c;padding:1px 6px;border-radius:8px;flex-shrink:0;" title="Reporte Efecty con ${m.cantidadPagos||0} pagos">📄 Efecty (${m.cantidadPagos||0})</span>`:''}
+                            ${m.cajeroWisphub?`<span style="font-size:0.62rem;background:rgba(139,92,246,0.15);color:#a78bfa;padding:1px 6px;border-radius:8px;flex-shrink:0;" title="Cobrado por (WispHub)">👤 ${m.cajeroWisphub}</span>`:''}
+                            ${m.esOtroIngreso?`<span style="font-size:0.62rem;background:rgba(217,119,6,0.18);color:#d97706;padding:1px 6px;border-radius:8px;flex-shrink:0;font-weight:600;" title="Otro Ingreso de WispHub (no es mensualidad)">🏷️ Otro Ingreso</span>`:''}
+                        </div>
+                        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+                            <button class="btn btn-outline btn-sm" onclick="modalComprobantes('${oid}','${m.id}')" style="padding:3px 8px;font-size:0.72rem;" title="Ver/subir comprobantes">
+                                📎${_insigniaComprobantes(m, 'font-size:0.62rem;margin-left:3px;')}
+                            </button>
+                            <span class="tag ${m.forma==='Efectivo'?'tag-ef':m.forma==='Efecty'?'tag-efty':'tag-banc'}" style="font-size:0.65rem;">${m.forma}</span>
+                            <span class="money ${m.tipo==='ingreso'?'pos':'neg'}" style="font-weight:800;">${m.tipo==='ingreso'?'+':'-'}${fmtShort(m.valor)}</span>
+                        </div>
+                    </div>`).join('')}
+                </div>
+            </div>
+            <div class="table-wrap"><table>
+            <thead><tr><th>Hora</th><th>Tipo</th><th>Concepto</th><th>Descripción</th><th>Forma Pago</th><th>Cajero</th><th>Valor</th><th></th></tr></thead>
+            <tbody>
+                ${listaReg.map(m=>`<tr data-mov="${m.id}" style="${m.esPagoAdmin?'background:rgba(245,158,11,0.04);':''}">
+                    <td style="color:var(--muted);font-size:0.78rem;">${new Date(m.fecha).toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})}</td>
+                    <td>
+                        <span class="tag ${m.tipo==='ingreso'?'tag-ing':'tag-egr'}">${m.tipo==='ingreso'?'Ingreso':'Egreso'}</span>
+                        ${m.esPagoAdmin?'<span class="tag tag-admin" style="margin-left:4px;">👑 Admin</span>':''}
+                    </td>
+                    <td>${m.concepto}${m.esOtroIngreso?` <span style="font-size:0.6rem;background:rgba(217,119,6,0.18);color:#d97706;padding:1px 6px;border-radius:8px;font-weight:600;" title="Otro Ingreso (no es mensualidad)">🏷️ Otro Ingreso</span>`:''}</td>
+                    <td style="color:var(--muted);font-size:0.78rem;">${m.descripcion||'-'}${m.verificadoIA?' <span style="font-size:0.62rem;background:rgba(249,115,22,0.15);color:#f97316;padding:1px 6px;border-radius:8px;" title="Registrado con IA">✨</span>':''}${m.esReporteEfecty?` <span style="font-size:0.62rem;background:rgba(234,88,12,0.15);color:#ea580c;padding:1px 6px;border-radius:8px;" title="Reporte Efecty con ${m.cantidadPagos||0} pagos">📄${m.cantidadPagos||0}</span>`:''}</td>
+                    <td><span class="tag ${m.forma==='Efectivo'?'tag-ef':m.forma==='Efecty'?'tag-efty':'tag-banc'}">${m.forma}</span></td>
+                    <td style="color:var(--muted);font-size:0.74rem;">${m.cajeroWisphub?'👤 '+m.cajeroWisphub:'—'}</td>
+                    <td class="money ${m.tipo==='ingreso'?'pos':'neg'}">${m.tipo==='ingreso'?'+':'-'}${fmtShort(m.valor)}</td>
+                    <td style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
+                        <button class="btn btn-outline btn-sm" onclick="modalComprobantes('${oid}','${m.id}')" title="Ver/subir comprobantes" style="padding:3px 7px;">
+                            📎${_insigniaComprobantes(m, 'font-size:0.6rem;margin-left:2px;')}
+                        </button>
+                        ${m.esPagoAdmin
+                            ? (USER.role==='admin'?`<button class="btn btn-danger btn-sm" onclick="eliminarMovimiento('${oid}','${m.id}')">🗑️</button>`:'<span style="font-size:0.72rem;color:var(--muted);">👑 Admin</span>')
+                            : (USER.role==='admin'
+                                ?`<button class="btn btn-outline btn-sm" onclick="modalEditarMovimiento('${oid}','${m.id}')">✏️</button><button class="btn btn-danger btn-sm" onclick="eliminarMovimiento('${oid}','${m.id}')">🗑️</button>`
+                                :`<button class="btn btn-outline btn-sm" onclick="modalSolicitarEdicion('${oid}','${m.id}')">✏️ Solicitar</button><button class="btn btn-outline btn-sm" onclick="solicitarEliminar('${oid}','${m.id}')">🗑️ Solicitar</button>`
+                              )
+                        }
+                    </td>
+                </tr>`).join('')}
+            </tbody>
+        </table></div>`;
+}
+function _regRefrescarLista(){
+    try{
+        const cont=document.getElementById('reg_lista'); if(!cont){ renderRegistro(); return; }
+        const oficinas=currentOficinas(); const oid=USER.role==='admin'?(window._selOfiReg||(oficinas[0]||{}).id):USER.id; const o=getOficina(oid); if(!o){ renderRegistro(); return; }
+        const fechaVal=window._regFechaPreserve||document.getElementById('reg_fecha')?.value||hoyLocal();
+        const hoyMovs=(o.movimientos||[]).filter(m=>_cuentaEnCaja(m) && String(m.fecha||'').slice(0,10)===fechaVal);
+        cont.innerHTML=_regListaHTML(oid, hoyMovs, _regOrdenarFiltrar(hoyMovs));
+    }catch(e){ console.warn('lista del registro:', e); renderRegistro(); }
+}
+window._regRefrescarLista=_regRefrescarLista;
 function renderRegistro(){
     // _regFechaPreserve es la fuente de verdad para la fecha seleccionada
     // No leer del DOM porque el DOM se reconstruye en cada render
@@ -11278,6 +11571,7 @@ function renderRegistro(){
         const mFecha=m.fecha?m.fecha.slice(0,10):'';
         return mFecha===_regFechaVal;
     });
+    const listaReg=_regOrdenarFiltrar(hoyMovs);   // v309: el orden y los filtros elegidos arriba de la lista (los totales siguen con todo el día)
     const ingHoy=hoyMovs.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
     // 🏷️ De lo que entró hoy, cuánto fue Otros Ingresos (tipo≠1: traslados, saldos, reconexión)
     const ingOtrosHoy=hoyMovs.filter(m=>m.tipo==='ingreso' && _esOtroMovWH(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
@@ -11508,64 +11802,7 @@ function renderRegistro(){
                 ${USER.role==='admin'?`<button class="btn btn-warning btn-sm" onclick="modalGestionarMovimientos('${oid}')">🗑️ Gestionar todos</button>`:''}
             </div>
         </div>
-        ${hoyMovs.length===0
-            ? '<p style="color:var(--muted);text-align:center;padding:20px;">Sin movimientos registrados hoy.</p>'
-            : `
-            <!-- Desglose por descripción hoy -->
-            <div style="margin-bottom:14px;">
-                <p style="font-size:0.78rem;font-weight:700;color:var(--accent);margin-bottom:8px;">📋 Detalle por registro — hoy</p>
-                <div style="display:flex;flex-direction:column;gap:5px;">
-                ${hoyMovs.slice().reverse().map(m=>`
-                    <div data-mov="${m.id}" style="display:flex;justify-content:space-between;align-items:center;background:${m.tipo==='ingreso'?'rgba(16,185,129,0.06)':'rgba(239,68,68,0.05)'};border:1px solid ${m.tipo==='ingreso'?'rgba(16,185,129,0.15)':'rgba(239,68,68,0.12)'};border-radius:8px;padding:8px 12px;gap:8px;flex-wrap:wrap;">
-                        <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;">
-                            <span style="font-size:0.75rem;color:var(--muted);flex-shrink:0;">${new Date(m.fecha).toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})}</span>
-                            <span class="tag ${m.tipo==='ingreso'?'tag-ing':'tag-egr'}" style="flex-shrink:0;">${m.concepto}</span>
-                            ${m.esPagoAdmin?'<span class="tag tag-admin" style="flex-shrink:0;font-size:0.6rem;">👑</span>':''}
-                            <span style="font-size:0.82rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${m.descripcion||'<span style="color:var(--muted);font-style:italic;">Sin descripción</span>'}</span>
-                            ${m.verificadoIA?'<span style="font-size:0.62rem;background:rgba(249,115,22,0.15);color:#f97316;padding:1px 6px;border-radius:8px;flex-shrink:0;" title="Registrado con IA">✨ IA</span>':''}
-                            ${m.esReporteEfecty?`<span style="font-size:0.62rem;background:rgba(234,88,12,0.15);color:#ea580c;padding:1px 6px;border-radius:8px;flex-shrink:0;" title="Reporte Efecty con ${m.cantidadPagos||0} pagos">📄 Efecty (${m.cantidadPagos||0})</span>`:''}
-                            ${m.cajeroWisphub?`<span style="font-size:0.62rem;background:rgba(139,92,246,0.15);color:#a78bfa;padding:1px 6px;border-radius:8px;flex-shrink:0;" title="Cobrado por (WispHub)">👤 ${m.cajeroWisphub}</span>`:''}
-                            ${m.esOtroIngreso?`<span style="font-size:0.62rem;background:rgba(217,119,6,0.18);color:#d97706;padding:1px 6px;border-radius:8px;flex-shrink:0;font-weight:600;" title="Otro Ingreso de WispHub (no es mensualidad)">🏷️ Otro Ingreso</span>`:''}
-                        </div>
-                        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
-                            <button class="btn btn-outline btn-sm" onclick="modalComprobantes('${oid}','${m.id}')" style="padding:3px 8px;font-size:0.72rem;" title="Ver/subir comprobantes">
-                                📎${_insigniaComprobantes(m, 'font-size:0.62rem;margin-left:3px;')}
-                            </button>
-                            <span class="tag ${m.forma==='Efectivo'?'tag-ef':m.forma==='Efecty'?'tag-efty':'tag-banc'}" style="font-size:0.65rem;">${m.forma}</span>
-                            <span class="money ${m.tipo==='ingreso'?'pos':'neg'}" style="font-weight:800;">${m.tipo==='ingreso'?'+':'-'}${fmtShort(m.valor)}</span>
-                        </div>
-                    </div>`).join('')}
-                </div>
-            </div>
-            <div class="table-wrap"><table>
-            <thead><tr><th>Hora</th><th>Tipo</th><th>Concepto</th><th>Descripción</th><th>Forma Pago</th><th>Cajero</th><th>Valor</th><th></th></tr></thead>
-            <tbody>
-                ${hoyMovs.slice().reverse().map(m=>`<tr data-mov="${m.id}" style="${m.esPagoAdmin?'background:rgba(245,158,11,0.04);':''}">
-                    <td style="color:var(--muted);font-size:0.78rem;">${new Date(m.fecha).toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})}</td>
-                    <td>
-                        <span class="tag ${m.tipo==='ingreso'?'tag-ing':'tag-egr'}">${m.tipo==='ingreso'?'Ingreso':'Egreso'}</span>
-                        ${m.esPagoAdmin?'<span class="tag tag-admin" style="margin-left:4px;">👑 Admin</span>':''}
-                    </td>
-                    <td>${m.concepto}${m.esOtroIngreso?` <span style="font-size:0.6rem;background:rgba(217,119,6,0.18);color:#d97706;padding:1px 6px;border-radius:8px;font-weight:600;" title="Otro Ingreso (no es mensualidad)">🏷️ Otro Ingreso</span>`:''}</td>
-                    <td style="color:var(--muted);font-size:0.78rem;">${m.descripcion||'-'}${m.verificadoIA?' <span style="font-size:0.62rem;background:rgba(249,115,22,0.15);color:#f97316;padding:1px 6px;border-radius:8px;" title="Registrado con IA">✨</span>':''}${m.esReporteEfecty?` <span style="font-size:0.62rem;background:rgba(234,88,12,0.15);color:#ea580c;padding:1px 6px;border-radius:8px;" title="Reporte Efecty con ${m.cantidadPagos||0} pagos">📄${m.cantidadPagos||0}</span>`:''}</td>
-                    <td><span class="tag ${m.forma==='Efectivo'?'tag-ef':m.forma==='Efecty'?'tag-efty':'tag-banc'}">${m.forma}</span></td>
-                    <td style="color:var(--muted);font-size:0.74rem;">${m.cajeroWisphub?'👤 '+m.cajeroWisphub:'—'}</td>
-                    <td class="money ${m.tipo==='ingreso'?'pos':'neg'}">${m.tipo==='ingreso'?'+':'-'}${fmtShort(m.valor)}</td>
-                    <td style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
-                        <button class="btn btn-outline btn-sm" onclick="modalComprobantes('${oid}','${m.id}')" title="Ver/subir comprobantes" style="padding:3px 7px;">
-                            📎${_insigniaComprobantes(m, 'font-size:0.6rem;margin-left:2px;')}
-                        </button>
-                        ${m.esPagoAdmin
-                            ? (USER.role==='admin'?`<button class="btn btn-danger btn-sm" onclick="eliminarMovimiento('${oid}','${m.id}')">🗑️</button>`:'<span style="font-size:0.72rem;color:var(--muted);">👑 Admin</span>')
-                            : (USER.role==='admin'
-                                ?`<button class="btn btn-outline btn-sm" onclick="modalEditarMovimiento('${oid}','${m.id}')">✏️</button><button class="btn btn-danger btn-sm" onclick="eliminarMovimiento('${oid}','${m.id}')">🗑️</button>`
-                                :`<button class="btn btn-outline btn-sm" onclick="modalSolicitarEdicion('${oid}','${m.id}')">✏️ Solicitar</button><button class="btn btn-outline btn-sm" onclick="solicitarEliminar('${oid}','${m.id}')">🗑️ Solicitar</button>`
-                              )
-                        }
-                    </td>
-                </tr>`).join('')}
-            </tbody>
-        </table></div>`}
+        <div id="reg_lista">${_regListaHTML(oid, hoyMovs, listaReg)}</div>
     </div>
     `;
 }
@@ -15970,6 +16207,8 @@ function renderAdmin(){
     </div>
 
     ${tarjetaRevisionSoportes()}
+
+    ${_tarjetaMantenimientoHTML()}
 
     <div class="card" style="margin-bottom:14px;border:2px solid ${(DB.config&&DB.config.bloqueoComprobantes)?'#10b981':'var(--border)'};">
         <div class="card-header"><h2>🚫 Exigir comprobante de transferencias</h2></div>
@@ -22023,6 +22262,9 @@ async function subirArchivoCloudinary(file, movId){
 // Sube el comprobante a TU Google Drive (carpeta por oficina) vía el Apps Script.
 // Devuelve {url} (miniatura para mostrar) y {verUrl} (para abrir completo), igual de
 // compatible que Cloudinary para que el resto del código funcione sin cambios.
+// v309 (16 sep 2026): NATALIA vio tres veces en tres minutos "Exception: Error de servicio: Drive" al subir un comprobante y a la
+// cuarta entró. Es un tropiezo pasajero del lado de Google (DriveApp), no de la app ni del archivo. Estos mensajes se reintentan.
+function _esErrorPasajeroDrive(msg){ return /error de servicio|service error|invoked too many|too many requests|tiempo de espera|timed? ?out|temporal|internal error|error interno|rate limit|l[ií]mite de|backend error|try again/i.test(String(msg||'')); }
 async function subirArchivoDrive(file, oid, movId, _intento){
     const url=compsDriveUrl(), clave=compsDriveClave();
     if(!url) throw new Error('Falta la URL del Drive de comprobantes (configúrala en el panel de administrador).');
@@ -22042,12 +22284,16 @@ async function subirArchivoDrive(file, oid, movId, _intento){
     });
     let data;
     try{ data=await r.json(); }catch(e){ throw new Error('Respuesta inválida del Drive. Revisa que la URL del script termine en /exec y esté bien publicada.'); }
-    if(!data || !data.ok) throw new Error((data&&data.error)||'Error subiendo a Drive');
+    if(!data || !data.ok){
+        const msg=(data&&data.error)||'Error subiendo a Drive'; const n=(_intento||0);
+        if(_esErrorPasajeroDrive(msg) && n<2){ console.warn('⚠️ Drive con error pasajero (intento '+(n+1)+' de 3):', msg); await new Promise(r=>setTimeout(r,1500*(n+1))); return subirArchivoDrive(file, oid, movId, n+1); }   // v309
+        throw new Error(_esErrorPasajeroDrive(msg) ? msg+'. Google Drive falló 3 veces seguidas; suele ser pasajero: espera un minuto y vuelve a intentarlo.' : msg);
+    }
     // v308: una respuesta "ok" SIN archivo no es una subida. El 15/9/2026 el script respondió con su doGet de prueba
     // ({ok:true, mensaje:'…activo'}) y la app guardó 9 comprobantes sin enlace: el archivo nunca llegó a Drive.
     if(!data.fileId || !data.url){
         console.warn('⚠️ Drive respondió sin archivo:', JSON.stringify(data).slice(0,160));
-        if(!_intento){ await new Promise(r=>setTimeout(r,1500)); return subirArchivoDrive(file, oid, movId, 1); }
+        if(!(_intento||0)){ await new Promise(r=>setTimeout(r,1500)); return subirArchivoDrive(file, oid, movId, 1); }
         throw new Error('Drive respondió sin el archivo, así que NO quedó guardado. Vuelve a intentarlo en un momento.');
     }
     return { url:data.url, secure_url:data.url, verUrl:data.verUrl||data.url, fileId:data.fileId||null, formato:'drive' };
@@ -22431,6 +22677,7 @@ async function procesarArchivos(files, oid, mid){
     }
 
     if(_subidosOk){ const _q=_quitarComprobantesSinArchivo(_movDestino(oid, mid, m)); if(_q) registrarLog('COMPROBANTE_SIN_ARCHIVO_REEMPLAZADO',{oid, mid, quitados:_q}); }   // v308
+    { const _mf=_movDestino(oid, mid, m); if(_mf && _mf.requiereSoporte && (_mf.comprobantes||[]).some(c=>!_esComprobanteSinArchivo(c))) _mf.estadoSoporte='completo'; }   // v309: antes solo el cargue por lotes lo marcaba; con el clip quedaba "pendiente" con comprobante
     if(fallidos.length) alert('⚠️ No se pudo subir a Drive:\n\n• '+fallidos.join('\n• ')+'\n\nEsos comprobantes NO quedaron guardados. Revisa la conexión (o la clave de Drive en Configuración) y vuelve a adjuntarlos.');   // v303
     await save().then(()=>renderRegistro());
     setTimeout(()=>modalComprobantes(oid, mid), 500);
@@ -22499,6 +22746,7 @@ function eliminarComp(oid, mid, idx){
     const m=getMovimiento(oid,mid);
     if(!m) return;
     m.comprobantes=(m.comprobantes||[]).filter((_,i)=>i!==idx);
+    if(m.requiereSoporte && !(m.comprobantes||[]).some(c=>!_esComprobanteSinArchivo(c))) m.estadoSoporte='pendiente';   // v309
     save(); modalComprobantes(oid,mid); renderRegistro();
 }
 
@@ -34114,6 +34362,7 @@ const firebaseConfig = {
         // Activar control de versión desde la pantalla de login
         registrarVersion();
         iniciarEscuchaVersion();
+        iniciarEscuchaMantenimiento();   // v309
         const vLabel=document.getElementById('appVersionLabel'); if(vLabel) vLabel.textContent='v'+APP_VERSION;
     }catch(e){
         showSync("err","Error de conexion");
