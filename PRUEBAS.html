@@ -3410,6 +3410,58 @@ const PRUEBAS = [
        +(noStandalone.length?'No abren en ventana propia: '+noStandalone.join(', '):'')};
  }},
 
+{app:'ofi', titulo:'Una factura de WispHub queda como un solo pago aunque dos sesiones la creen con ids distintos',
+ porque:'Elkin (17 sep 2026): "está duplicando pagos, trae pagos hechos en WispHub y los refleja 2 veces en el registro diario, esto es un '
+       +'peligro grave". En la nube había 6 facturas con 2 y 3 copias: dos sesiones (admin y oficina, o dos pestañas) sincronizaban WispHub '
+       +'con segundos de diferencia, cada una creaba el pago con su propio id y la fusión entre sesiones, que compara por id, conservaba las dos. '
+       +'Ahora el id sale de (oficina, factura) y una red de seguridad determinista une las copias que ya existan.',
+ correr:async W=>{
+   for(let k=0;k<90;k++){ if(E(W,'return window._cargaMovsIncompleta===false && (DB.oficinas||[]).some(o=>(o.movimientos||[]).length>0);')) break; await new Promise(r=>setTimeout(r,1000)); }
+   let r=null;
+   try{
+     r=await W.eval('(async function(){'
+       +'const oidP="prueba_v310"; const mk=(id,extra)=>Object.assign({id, tipo:"ingreso", origen:"cierre_wisphub", facturaWisphub:"104086", valor:35000, fecha:"2026-09-16T11:07:00", forma:"Efectivo", concepto:"Renta", descripcion:"LINA (WispHub #104086)", comprobantes:[], requiereSoporte:false, estadoSoporte:"no_aplica"}, extra||{});'
+       +'const nLog0=(DB.logsAuditoria||[]).length; const limpiar=()=>{ delete _baseMovs[oidP]; delete _vistosMovs[oidP]; };'
+       +'const nubeT1=[mk("mB1"), mk("mA1")]; const r1=_fusionarMovsAlCargar(oidP, [], nubeT1); const nubeIntacta=nubeT1[1]._unidoDe===undefined && nubeT1[1].anulado===undefined && r1.lista[0]!==nubeT1[1]; const t1=nubeIntacta && r1.sinBase===true && r1.lista.length===1 && r1.lista[0].id==="mA1" && r1.unidosFactura===1 && (r1.lista[0]._unidoDe||[]).join()==="mB1";'
+       +'_guardarBaseMovs(oidP, [mk("mA1")]); const r2=_fusionarMovsAlCargar(oidP, [mk("mA1"), mk("mB1",{comprobantes:[{fileId:"fB", url:"https://x/fB", nombre:"b.pdf", tipo:"pdf", fecha:"2026-09-16T12:00:00.000Z"}]})], [mk("mA1")]); limpiar();'
+       +'const t2=r2.lista.length===1 && r2.lista[0].id==="mA1" && (r2.lista[0].comprobantes||[]).length===1 && r2.lista[0].comprobantes[0].fileId==="fB" && r2.unidosFactura===1;'
+       +'const u3=_unirMovsPorFactura(oidP, [mk("m3"), mk("m1"), mk("m2"), {id:"x", tipo:"egreso", valor:5, concepto:"Gastos", forma:"Efectivo", fecha:"2026-09-16T09:00:00"}]);'
+       +'const t3=u3.lista.map(m=>m.id).join()==="m1,x" && u3.uniones.length===1 && u3.uniones[0].conservado==="m1" && u3.uniones[0].descartados.join()==="m2,m3" && (u3.lista[0]._unidoDe||[]).join()==="m2,m3";'
+       +'const u4=_unirMovsPorFactura(oidP, u3.lista); const t4=u4.uniones.length===0 && JSON.stringify(u4.lista)===JSON.stringify(u3.lista);'
+       +'_guardarBaseMovs(oidP, [mk("mA1")]); const rX=_fusionarMovsAlCargar(oidP, [mk("mA1")], [mk("mA1"), mk("mB1")]); limpiar();'
+       +'_guardarBaseMovs(oidP, [mk("mB1")]); const rY=_fusionarMovsAlCargar(oidP, [mk("mB1")], [mk("mA1"), mk("mB1")]); limpiar();'
+       +'_guardarBaseMovs(oidP, [mk("mB1")]); const rY2=_fusionarMovsAlCargar(oidP, [mk("mB1",{comprobantes:[{fileId:"fY", url:"https://x/fY", nombre:"y.pdf", tipo:"pdf", fecha:"2026-09-16T12:30:00.000Z"}]})], [mk("mA1"), mk("mB1")]); limpiar();'
+       +'const t5=JSON.stringify(rX.lista)===JSON.stringify(rY.lista) && rX.lista.length===1 && rX.lista[0].id==="mA1" && rY2.lista.length===1 && rY2.lista[0].id==="mA1" && (rY2.lista[0].comprobantes||[]).some(c=>c.fileId==="fY");'
+       +'_guardarBaseMovs(oidP, [mk("mA1")]); const r6=_fusionarMovsAlCargar(oidP, [mk("mA1")], [mk("mA1"), mk("mB1",{comprobantes:[{fileId:"fN", url:"https://x/fN", nombre:"n.pdf", tipo:"pdf", fecha:"2026-09-16T13:00:00.000Z"}]})]); limpiar();'
+       +'const t6=r6.lista.length===1 && r6.lista[0].id==="mA1" && (r6.lista[0].comprobantes||[]).some(c=>c.fileId==="fN") && _redirMovsUnidos.get(oidP+"\u2502mB1")==="mA1";'
+       +'_guardarBaseMovs(oidP, [mk("mA1")]); _marcarMovBorrado(oidP, "mA1"); const r11=_fusionarMovsAlCargar(oidP, [], [mk("mB1")]); limpiar(); _movsBorradosLocal.delete(oidP+"\u2502mA1"); const t11=r11.lista.length===0;'
+       +'const r12=_fusionarMovsAlCargar(oidP, [], [mk("mB1")]); const t12=r12.lista.length===1 && r12.lista[0].id==="mB1";'
+       +'window._quitadosPorUnion=window._quitadosPorUnion||{}; const qPrev=window._quitadosPorUnion[oidP]; window._quitadosPorUnion[oidP]=2; const t13=_encogeExplicado(oidP, 799, 3, 400)===true && _encogeExplicado(oidP, 700, 3, 400)===false; window._quitadosPorUnion[oidP]=0; const t13b=_encogeExplicado(oidP, 799, 3, 400)===false; if(qPrev===undefined) delete window._quitadosPorUnion[oidP]; else window._quitadosPorUnion[oidP]=qPrev;'
+       +'const manual={id:"man1", tipo:"ingreso", origen:"manual", facturaWisphub:"777", valor:1000, forma:"Efectivo", fecha:"2026-09-16T10:00:00", comprobantes:[]}; const u7=_unirMovsPorFactura(oidP, [mk("w7",{facturaWisphub:"777"}), manual, {id:"sin", tipo:"ingreso", valor:2, forma:"Efectivo", fecha:"2026-09-16T10:00:00"}, mk("solo",{facturaWisphub:"999"})]);'
+       +'const t7=u7.lista.length===4 && u7.uniones.length===0 && u7.dudosos.join()==="777" && _unirMovsPorFactura("otraOfi", [mk("z1")]).lista.length===1;'
+       +'const u8=_unirMovsPorFactura(oidP, [mk("mA1",{anulado:false}), mk("mB1",{anulado:true, anuladoMotivo:"reverso"})]); const t8=u8.lista.length===1 && u8.lista[0].id==="mA1" && u8.lista[0].anulado===true && u8.lista[0].anuladoMotivo==="reverso" && u8.lista[0]._anuladoEnCopia==="mB1"; const u8b=_unirMovsPorFactura(oidP, [mk("mA1"), mk("mB1")]); const t8b=u8b.lista[0].anulado!==true;'
+       +'const t9=_idMovWisphub("ofi1","104086")==="wh_ofi1_104086" && _idMovWisphub("ofi1","104086")===_idMovWisphub("ofi1"," 104086 ") && _idMovWisphub("ofi2","104086")!==_idMovWisphub("ofi1","104086") && !/^wh_/.test(_idMovWisphub("ofi1","")) && _idMovWisphub("ofi1","")!==_idMovWisphub("ofi1","");'
+       +'if(!DB.solicitudes) DB.solicitudes=[]; const sol={id:"solP", oid:oidP, mid:"mB1", estado:"pendiente"}; DB.solicitudes.push(sol); _aplicarUnionesFactura(oidP, [{factura:"104086", conservado:"mA1", descartados:["mB1"]}], "prueba"); _aplicarUnionesFactura(oidP, [{factura:"104086", conservado:"mA1", descartados:["mB1"]}], "prueba");'
+       +'const logsP=(DB.logsAuditoria||[]).filter(l=>l.accion==="DUPLICADO_FACTURA_UNIDO" && l.detalles && l.detalles.oid===oidP && l.detalles.descartado==="mB1"); const t10=logsP.length===1 && sol.mid==="mA1" && logsP[0].detalles.conservado==="mA1" && logsP[0].pestana && logsP[0].version===APP_VERSION;'
+       +'DB.solicitudes=DB.solicitudes.filter(x=>x!==sol); DB.logsAuditoria=(DB.logsAuditoria||[]).filter(l=>!(l.accion==="DUPLICADO_FACTURA_UNIDO" && l.detalles && l.detalles.oid===oidP)); [..._redirMovsUnidos.keys()].filter(k=>k.startsWith(oidP)).forEach(k=>_redirMovsUnidos.delete(k)); [..._unionesLogeadas].filter(k=>k.startsWith(oidP)).forEach(k=>_unionesLogeadas.delete(k)); limpiar();'
+       +'const repetidas=[]; (DB.oficinas||[]).forEach(o=>{ const g={}; (o.movimientos||[]).forEach(m=>{ const k=_claveFacturaMov(m); if(k){ g[k]=(g[k]||0)+1; } }); Object.entries(g).filter(([k,v])=>v>1).forEach(([k,v])=>repetidas.push(o.nombre+" #"+k+" x"+v)); });'
+       +'const unidasReales=(DB.logsAuditoria||[]).filter(l=>l.accion==="DUPLICADO_FACTURA_UNIDO").length;'
+       +'const sr=_saveReal.toString(); const srs=sincronizarRapidaPagos.toString(); const fuente=sr.indexOf("_unirMovsPorFactura(o.id, o.movimientos)")>=0 && sr.split("_encogeExplicado(o.id, lista.length, remoto, MOVS_CHUNK)").length===3 && sr.indexOf("vaciadoPorUnion: true")>=0 && sr.indexOf("window._quitadosPorUnion[oid]=0")>=0 && eliminarMovimiento.toString().indexOf("m._unidoDe")>=0 && srs.indexOf("motivo:\'carga_incompleta\'")>=0 && srs.indexOf("_aplicarPagosWisphub(oVivo, pagadas)")>=0 && eliminarMovimiento.toString().indexOf("_marcarMovBorrado(oid, mid)")>=0 && _eliminarDuplicado.toString().indexOf("_marcarMovBorrado(o.id, movId)")>=0 && registrarLog.toString().indexOf("pestana:_idPestana()")>=0;'
+       +'const t=await (await fetch("OFICINAS_PTOVISION.html",{cache:"no-store"})).text(); const tresIds=t.split("id:_idMovWisphub(").length===4 && t.indexOf("id:uid(), tipo:\'ingreso\'")<0;'
+       +'return {t1,t2,t3,t4,t5,t6,t7,t8,t8b,t9,t10,t11,t12,t13,t13b,fuente,tresIds,repetidas,unidasReales};'
+       +'})()');
+   }catch(e){ r={error:String(e&&e.message||e)}; }
+   const claves=['t1','t2','t3','t4','t5','t6','t7','t8','t8b','t9','t10','t11','t12','t13','t13b','fuente','tresIds'];
+   const bien = r && !r.error && claves.every(k=>r[k]===true) && Array.isArray(r.repetidas) && r.repetidas.length===0;
+   return {ok:bien, detalle: bien
+     ? 'El id de un pago de WispHub sale de la oficina y la factura, igual en todas las sesiones; los tres lugares que crean pagos lo usan ✓'
+      +'\nDos copias de la misma factura se unen al cargar y al fusionar: sobrevive el id menor, la otra aporta sus comprobantes y queda anotada (_unidoDe); tres copias se reducen a una; hacerlo dos veces no cambia nada ✓'
+      +'\nDos sesiones con bases distintas llegan a la misma lista (sin ping-pong), y una copia ya unida no revive aunque la nube la vuelva a traer: sus comprobantes se vierten en la que quedó ✓'
+      +'\nNo se toca lo que no es duplicado de WispHub (un ingreso manual con la misma factura deja el grupo en duda y se avisa, un pago solo nunca se quita); si cualquiera de las copias estaba anulada, la unida queda anulada (un pago reversado no vuelve a contar solo) ✓'
+      +'\nLa lista que llega de la nube no se modifica (la base sigue retratando la nube); si el pago unido se borra, la copia vieja no resucita aunque la nube la traiga; y si al unir la oficina queda con un bloque menos, el guardado lo entiende, deja vacío el bloque sobrante y no se frena ✓'
+      +'\nQueda registro de auditoría una sola vez por copia (con pestaña y versión) y las solicitudes pendientes pasan al pago que quedó; el guardado une antes de firmar, la sincronización usa la oficina viva y salta oficinas cargadas incompletas, y eliminar deja lápida ✓'
+      +'\nEn los datos reales cargados: 0 facturas repetidas en memoria'+(r.unidasReales?' ('+r.unidasReales+' copia(s) unida(s) al cargar, quedan anotadas en auditoría)':'')+' ✓'
+     : JSON.stringify(r)};}},
 {app:'ofi', titulo:'El registro diario se puede ordenar (hora, nombre, valor) y filtrar (tipo, forma de pago, hora, texto) sin cambiar los totales',
  porque:'Elkin (16 sep 2026): "en los registros diarios quiero poder filtrar, de la a-z o al contrario, también por tipo de pagos, '
        +'por hora, que me sea más fácil organizar, sin afectar todo lo que está bien". La barra solo cambia el orden y qué filas se ven '
@@ -3478,7 +3530,7 @@ const PRUEBAS = [
        +'document.getElementById("mant_msg").value="  Volvemos a las 3  "; document.getElementById("mant_app_inventario").checked=true; const d=_docMantenimientoDesdeFormulario({oficinas:APP_VERSION, inventario:110, tecnicos:95, red:null});'
        +'const docBien=d.activo===true && d.mensaje==="Volvemos a las 3" && d.apps.oficinas && d.apps.inventario && !d.apps.tecnicos && d.avisoMin===2 && d.empiezaMs-d.desdeMs===120000 && d.terminaAlPublicar===true && d.versionAlActivar.inventario===110 && d.por==="Administrador" && d.terminadoMs===null;'
        +'const bl0=(window._escriturasBloqueadas||[]).length; const cPrev=window.confirm; window.confirm=()=>true; const nLog=(DB.logsAuditoria||[]).length; await _activarMantenimiento(); window.confirm=cPrev; const bl1=(window._escriturasBloqueadas||[]).length;'
-       +'const activa=bl1>=bl0+1 && window._mantenimiento && window._mantenimiento.activo===true && window._mantenimiento.apps.inventario===true && (DB.logsAuditoria||[]).some(l=>l.accion==="MANTENIMIENTO_ON") && !!document.getElementById("mantBanner") && caja.innerText.indexOf("Mantenimiento ACTIVO")>=0;'
+       +'const activaDet={bl:bl1>=bl0+1, activo:!!(window._mantenimiento && window._mantenimiento.activo===true), inv:!!(window._mantenimiento && window._mantenimiento.apps && window._mantenimiento.apps.inventario===true), log:(DB.logsAuditoria||[]).some(l=>l.accion==="MANTENIMIENTO_ON"), banner:!!document.getElementById("mantBanner"), tarjeta:caja.innerText.indexOf("Mantenimiento ACTIVO")>=0, tarjetas:document.querySelectorAll("#mant_card").length}; const activa=Object.values(activaDet).every(v=>v===true || typeof v==="number");'
        +'DB.logsAuditoria=(DB.logsAuditoria||[]).filter(l=>l.accion!=="MANTENIMIENTO_ON"); if(window._escriturasBloqueadas) window._escriturasBloqueadas.length=bl0; caja.remove(); window._mantenimiento=mPrev; USER=uPrev; _aplicarMantenimiento();'
        +'const limpio=!document.getElementById("mantOverlay") && !document.getElementById("mantBanner");'
        +'const leer=async f=>{ try{ return await (await fetch(f,{cache:"no-store"})).text(); }catch(e){ return ""; } }; const inv=await leer("INVENTARIO_PTOVISION.html"), tec=await leer("TECNICOS_PTOVISION.html"), red=await leer("RED_PTOVISION.html");'
@@ -3486,7 +3538,7 @@ const PRUEBAS = [
        +'  tec: tec.indexOf("const APP_VERSION_TEC = 96;")>=0 && tec.indexOf("const MANT_APP=\'tecnicos\';")>=0 && tec.indexOf("iniciarEscuchaVersionTec(); iniciarEscuchaMantenimiento();")>=0 && tec.indexOf("return false; }catch(e){ return false; } }")>=0 && tec.indexOf(".doc(\'app_version\').onSnapshot(")>=0,'
        +'  red: red.indexOf("const APP_VERSION_RED = 41;")>=0 && red.indexOf("const MANT_APP=\'red\';")>=0 && red.indexOf("iniciarEscuchaMantenimiento(); }catch(e){ console.warn(\'mantenimiento red:\'")>=0 && red.indexOf(".doc(\'app_version\').onSnapshot(")>=0 };'
        +'const escucha=_saveReal.toString().length>0 && typeof iniciarEscuchaMantenimiento==="function" && typeof window._unsubMant==="function";'
-       +'return {vig1,vig2,vig3,vig4,vig5,vig6,vig7,vig8,bloqueo,tecladoBloqueado,cuenta,admin,sinSesion,pausa,quita,zOk,form,docBien,activa,limpio,otras,escucha};'
+       +'return {vig1,vig2,vig3,vig4,vig5,vig6,vig7,vig8,bloqueo,tecladoBloqueado,cuenta,admin,sinSesion,pausa,quita,zOk,form,docBien,activa,activaDet,limpio,otras,escucha};'
        +'})()');
    }catch(e){ r={error:String(e&&e.message||e)}; }
    const claves=['vig1','vig2','vig3','vig4','vig5','vig6','vig7','vig8','bloqueo','tecladoBloqueado','cuenta','admin','sinSesion','pausa','quita','zOk','form','docBien','activa','limpio','escucha'];

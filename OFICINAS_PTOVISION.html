@@ -855,6 +855,12 @@ function _nacMes(f){ return _nacParts(f).m; }
 function _nacDia(f){ return _nacParts(f).d; }
 function fechaLocal(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+// v310 (17 sep 2026): un pago de WispHub tiene el MISMO id en todas las sesiones: 'wh_<oficina>_<factura>'. Con uid() cada
+// pestaña inventaba un id distinto para la misma factura y la fusión entre sesiones (que compara por id) conservaba las dos copias.
+function _idMovWisphub(oid, numero){ numero=String(numero==null?'':numero).trim(); return (oid!=null && oid!=='' && numero) ? ('wh_'+oid+'_'+numero) : uid(); }
+window._idMovWisphub=_idMovWisphub;
+// v310: cada pestaña tiene su marca (sessionStorage) para que el registro de auditoría distinga dos pestañas o un F5 de la misma persona
+function _idPestana(){ try{ let t=sessionStorage.getItem('pv_pestana'); if(!t){ t=uid(); sessionStorage.setItem('pv_pestana', t); } return t; }catch(e){ return 'sin_storage'; } }
 
 // Resuelve la etiqueta real de un movimiento:
 // Si concepto es "Otro", usa la descripción como clave. Si no hay descripción, "Otro"
@@ -968,7 +974,7 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION = 309; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 310; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -989,7 +995,7 @@ const APP_VERSION = 309; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '16 Sep 2026 (v309: el registro diario se ordena y filtra por hora, nombre, valor, tipo y forma de pago; modo mantenimiento que activa el administrador y bloquea a las oficinas; un comprobante subido con el clip deja el pago con soporte completo. v308: celular, Drive sin archivo, auditoria. Historial en git y en docs/01-firestore-limites.md)';
+const APP_VERSION_FECHA = '17 Sep 2026 (v310: un pago de WispHub es un solo registro: id fijo por oficina y factura, y las copias repetidas se unen solas al cargar y antes de guardar. v309: registro diario con orden y filtros, modo mantenimiento, reintentos ante Drive. Historial en git y en docs/01-firestore-limites.md)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -1227,6 +1233,8 @@ function _leerComoDataURL(file){ return new Promise(res=>{ try{ const r=new File
 // Decide qué bloques de una oficina hay que reenviar. Si cambió la cantidad de bloques
 // (respecto al índice de la nube) o no hay firmas previas, se reenvían todos: cada bloque
 // lleva totalPartes y debe quedar consistente. Si no, solo los que tienen otra firma.
+// v310: ¿la lista de una oficina es más corta que la nube SOLO porque se unieron copias repetidas? Entonces encoger es correcto.
+function _encogeExplicado(oid, largo, remoto, tam){ const q=(window._quitadosPorUnion&&window._quitadosPorUnion[oid])||0; return q>0 && Math.ceil((largo+q)/(tam||400))>=remoto; }
 function _bloquesQueCambian(oid, partes, remoto){
     const firmas=(partes||[]).map(_firmaBloqueMovs);
     const previas=(window._sigMovsBloque && window._sigMovsBloque[oid]) || null;
@@ -1837,21 +1845,120 @@ function _unirComprobantes(a, b){
     [].concat(a||[], b||[]).forEach(c=>{ if(!c) return; const k=clave(c); if(k && vistos.has(k)) return; if(k) vistos.add(k); out.push(c); });
     return out;
 }
+/* ════════════════════════════════════════════════════════════════════
+   v310 (17 sep 2026) — UNA FACTURA DE WISPHUB, UN SOLO PAGO.
+   Elkin: "está duplicando pagos, trae pagos hechos en WispHub y los refleja 2 veces en el
+   registro diario, esto es un peligro grave". Medido en la nube: 6 facturas con 2 y 3 copias
+   (NATALIA, ESNEIDER), todas desde el 15 de septiembre. En cada caso dos sesiones distintas
+   (la del administrador, que sincroniza todas las oficinas, y la de la oficina; o dos pestañas
+   de la misma oficina) corrieron la sincronización de WispHub con segundos de diferencia: cada
+   una creó el pago con su propio uid() y la fusión entre sesiones (v296/v305), que compara por
+   id, conservó las dos "creaciones en vuelo" y las escribió. Dos capas:
+    1) _idMovWisphub: el id del pago sale de (oficina, factura): 'wh_<oficina>_<factura>'. Dos
+       sesiones que reflejan la misma factura producen EL MISMO registro y la fusión por id ya
+       los junta sola.
+    2) Red de seguridad determinista para lo que ya está y para sesiones viejas que sigan con
+       uid(): _unirMovsPorFactura une las copias de la misma oficina y factura (todas con origen
+       'cierre_wisphub'). Sobrevive la de id menor (regla que depende solo de los ids, iguales en
+       todas las sesiones: nunca hay ping-pong entre pantallas); las demás se ABSORBEN
+       (comprobantes, marcas) y quedan anotadas en _unidoDe. Una copia unida no revive: si la
+       nube la vuelve a traer, se vierte en la superviviente (_redirMovsUnidos). Se aplica al
+       cargar, al fusionar y antes de guardar; deja registro DUPLICADO_FACTURA_UNIDO.
+   ════════════════════════════════════════════════════════════════════ */
+function _claveFacturaMov(m){
+    if(!m || m.tipo!=='ingreso' || m.esReporteEfecty || m.origen!=='cierre_wisphub') return '';
+    return String(m.facturaWisphub==null?'':m.facturaWisphub).trim();
+}
+const _redirMovsUnidos=new Map();    // 'oid│idDescartado' → idSuperviviente (dura toda la sesión)
+const _unionesLogeadas=new Set();    // 'oid│idDescartado' ya anotado en auditoría
+// Vierte en `d` (superviviente) lo que aporta `f` (descartado): comprobantes, marcas, edición del admin.
+function _absorberMov(d, f){
+    if(!d || !f || d===f) return d;
+    d.comprobantes=_unirComprobantes(d.comprobantes, f.comprobantes);
+    { const _anot=[].concat(Array.isArray(d.comprobantesSinArchivo)?d.comprobantesSinArchivo:[], Array.isArray(f.comprobantesSinArchivo)?f.comprobantesSinArchivo:[]);
+      if(_anot.length){ const _v=new Set(); d.comprobantesSinArchivo=_anot.filter(c=>{ const k=_claveCompSinArchivo(c); if(_v.has(k)) return false; _v.add(k); return true; }); } }
+    if(f.verificadoIA) d.verificadoIA=true;
+    if(f.esPagoCombinado) d.esPagoCombinado=true;
+    if(f.recuperadoPorRevision) d.recuperadoPorRevision=true;
+    if(f.editadoEn && (!d.editadoEn || String(f.editadoEn)>String(d.editadoEn))){ ['editadoEn','editadoPor','anteriorDatos'].forEach(k=>{ if(f[k]!==undefined) d[k]=f[k]; }); }
+    if(f.anulado && !d.anulado){ d.anulado=true; ['anuladoMotivo','anuladoPor','anuladoEn'].forEach(k=>{ if(f[k]!==undefined && d[k]===undefined) d[k]=f[k]; }); d._anuladoEnCopia=String(f.id); }   // si CUALQUIER copia estaba anulada, la unida queda anulada: un pago reversado no vuelve a contar solo; si fue para matar el duplicado, el admin lo desanula
+    if(d.requiereSoporte){ const conArchivo=(d.comprobantes||[]).some(c=>!_esComprobanteSinArchivo(c)); d.estadoSoporte=conArchivo?'completo':(d.estadoSoporte||'pendiente'); }
+    const ids=new Set([].concat(Array.isArray(d._unidoDe)?d._unidoDe:[], Array.isArray(f._unidoDe)?f._unidoDe:[], [f.id]).filter(x=>x!=null && x!==d.id));
+    d._unidoDe=[...ids].sort().slice(0,20);
+    return d;
+}
+// PURA (no toca DB ni registra). Devuelve {lista, uniones:[{factura, conservado, descartados}], dudosos}.
+// Solo une grupos donde TODAS las copias cumplen la clave; si alguna tiene la misma factura pero otro origen o tipo, el grupo es dudoso y no se toca.
+function _unirMovsPorFactura(oid, lista){
+    lista=lista||[];
+    const grupos=new Map(), porFacturaTodos=new Map();
+    lista.forEach((m,i)=>{
+        if(!m || m.id==null) return;
+        const f=String(m.facturaWisphub==null?'':m.facturaWisphub).trim(); if(!f) return;
+        porFacturaTodos.set(f,(porFacturaTodos.get(f)||0)+1);
+        const k=_claveFacturaMov(m); if(k){ if(!grupos.has(k)) grupos.set(k,[]); grupos.get(k).push(i); }
+    });
+    const uniones=[], dudosos=[], quitar=new Set(), clones=new Map();
+    for(const [factura, idxs] of grupos){
+        const total=porFacturaTodos.get(factura)||0;
+        if(total<2) continue;
+        if(total!==idxs.length){ dudosos.push(factura); continue; }   // misma factura en algo que no es un pago de WispHub: se deja como está y se anota como dudoso
+        const orden=idxs.slice().sort((a,b)=>String(lista[a].id)<String(lista[b].id)?-1:1);   // sobrevive el id menor; se absorbe en orden ascendente
+        const sup=Object.assign({}, lista[orden[0]]);   // clon: el objeto original (que puede ser el de la nube) no se toca
+        for(const j of orden.slice(1)){ _absorberMov(sup, lista[j]); quitar.add(j); }
+        clones.set(orden[0], sup);
+        uniones.push({factura, conservado:sup.id, descartados:orden.slice(1).map(j=>lista[j].id)});
+    }
+    if(!quitar.size) return {lista, uniones, dudosos};
+    return {lista:lista.map((m,i)=>clones.has(i)?clones.get(i):m).filter((m,i)=>!quitar.has(i)), uniones, dudosos};
+}
+// Efectos (idempotentes) de una unión: redirección, caché de imágenes, solicitudes pendientes y registro de auditoría (una vez por copia).
+function _aplicarUnionesFactura(oid, uniones, donde){
+    const o=(typeof DB!=='undefined' && DB && Array.isArray(DB.oficinas)) ? DB.oficinas.find(x=>x.id===oid) : null;
+    (uniones||[]).forEach(u=>{
+        (u.descartados||[]).forEach(idD=>{
+            const k=oid+'│'+idD;
+            _redirMovsUnidos.set(k, u.conservado);
+            try{ if(window._compImgCache && window._compImgCache[idD]){ window._compImgCache[u.conservado]=(window._compImgCache[u.conservado]||[]).concat(window._compImgCache[idD]); delete window._compImgCache[idD]; } }catch(e){}
+            try{ ((typeof DB!=='undefined' && DB && DB.solicitudes)||[]).forEach(s=>{ if(s && s.oid===oid && s.mid===idD && s.estado==='pendiente') s.mid=u.conservado; }); }catch(e){}
+            if(!_unionesLogeadas.has(k)){
+                _unionesLogeadas.add(k);
+                if(!window._quitadosPorUnion) window._quitadosPorUnion={}; window._quitadosPorUnion[oid]=(window._quitadosPorUnion[oid]||0)+1;   // explica a GUARDA 2 por qué la lista es más corta
+                let creadoMs=null; try{ if(!/^wh_/.test(String(idD))) creadoMs=parseInt(String(idD).slice(0,8),36)||null; }catch(e){}
+                console.warn(`🧩 ${o?o.nombre:oid}: la factura WispHub #${u.factura} estaba ${(u.descartados||[]).length+1} veces → se conserva ${u.conservado} y se une ${idD} (${donde})`);
+                try{ registrarLog('DUPLICADO_FACTURA_UNIDO',{oid, oficina:o?o.nombre:'', factura:u.factura, conservado:u.conservado, descartado:idD, donde, creadoMs}); }catch(e){}
+            }
+        });
+    });
+}
+// Una factura con copias que NO se unen (porque alguna no viene de WispHub) se avisa una vez por oficina y sesión, para revisarla a mano
+const _dudosasAvisadas=new Set();
+function _avisarDudosas(oid, dudosos){ (dudosos||[]).forEach(f=>{ const k=oid+'│'+f; if(_dudosasAvisadas.has(k)) return; _dudosasAvisadas.add(k); const o=(typeof DB!=='undefined' && DB && Array.isArray(DB.oficinas)) ? DB.oficinas.find(x=>x.id===oid) : null; console.warn(`🧩 ${o?o.nombre:oid}: la factura WispHub #${f} está repetida pero una de las copias no viene de WispHub: no se une sola, revisarla con 🔍 Revisar duplicados`); }); }
+window._claveFacturaMov=_claveFacturaMov; window._unirMovsPorFactura=_unirMovsPorFactura; window._avisarDudosas=_avisarDudosas; window._aplicarUnionesFactura=_aplicarUnionesFactura; window._absorberMov=_absorberMov; window._redirMovsUnidos=_redirMovsUnidos;
 /* Fusiona la lista local de una oficina con la que llega de la nube. Devuelve
    {lista, preservados, unidos, sinBase}. Sin base (primera carga) manda la nube. */
 function _fusionarMovsAlCargar(oid, local, nube){
     const base=_baseMovs[oid];
-    if(!base) return {lista:nube||[], preservados:0, unidos:0, sinBase:true};
+    if(!base){   // primera carga: manda la nube (v310: ya sin copias repetidas de la misma factura)
+        const _u=_unirMovsPorFactura(oid, nube||[]);
+        if(_u.uniones.length) _aplicarUnionesFactura(oid, _u.uniones, 'carga');
+        return {lista:_u.lista, preservados:0, unidos:0, sinBase:true, unidosFactura:_u.uniones.length};
+    }
     const ahora=Date.now();
     const locPorId=new Map((local||[]).filter(x=>x&&x.id!=null).map(x=>[x.id,x]));
     const vistos=_vistosMovs[oid]||new Set();
     const idsNube=new Set();
     let preservados=0, unidos=0;
+    const unidosFactura=[], _pendAbsorber=[], remPorFactura=new Map(); let redirigidos=0;   // v310
+    const _clonEnLista=id=>{ const i=lista.findIndex(x=>x&&x.id===id); if(i<0) return null; if(!clonados.has(id)){ lista[i]=Object.assign({}, lista[i]); clonados.add(id); } return lista[i]; };   // v310: se absorbe sobre un clon, no sobre el objeto de la nube
+    const clonados=new Set();
     const lista=(nube||[]).map(rem=>{
         if(!rem||rem.id==null) return rem;
         idsNube.add(rem.id);
+        { const _sup=_redirMovsUnidos.get(oid+'│'+rem.id); if(_sup!==undefined && _sup!==rem.id){ _pendAbsorber.push([_sup, rem]); const _locR=locPorId.get(rem.id); if(_locR && _locR!==rem) _pendAbsorber.push([_sup, _locR]); return null; } }   // v310: copia ya unida: no revive; lo que traiga (nube o local) se vierte en la superviviente
         const tb=_movsBorradosLocal.get(oid+'│'+rem.id);
         if(tb && ahora-tb<600000){ preservados++; return null; }   // lo borré aquí hace poco: no revive
+        { const _kf=_claveFacturaMov(rem); if(_kf && !remPorFactura.has(_kf)) remPorFactura.set(_kf, rem.id); }   // v310: qué id tiene cada factura en la nube
         const loc=locPorId.get(rem.id);
         if(!loc) return rem;                                       // lo creó otra sesión → entra
         if(!_movTocado(oid, loc)) return rem;                      // no lo toqué → manda la nube
@@ -1871,10 +1978,26 @@ function _fusionarMovsAlCargar(oid, local, nube){
     }).filter(Boolean);
     (local||[]).forEach(loc=>{                                     // creaciones locales que la nube no trae
         if(!loc||loc.id==null||idsNube.has(loc.id)) return;
+        { const _sup=_redirMovsUnidos.get(oid+'│'+loc.id); if(_sup!==undefined && _sup!==loc.id){ const d=_clonEnLista(_sup); if(d){ _absorberMov(d, loc); redirigidos++; return; } } }   // v310: copia local ya unida: se vierte, no revive
+        {   // v310: la misma factura ya está en la nube con otro id (otra sesión la creó primero) → se vierte ahí, no se duplica
+            const _kf=_claveFacturaMov(loc); const _idNube=_kf?remPorFactura.get(_kf):undefined;
+            if(_idNube!==undefined && _idNube!==loc.id){ const d=_clonEnLista(_idNube); if(d){ _absorberMov(d, loc); unidosFactura.push({factura:_kf, conservado:d.id, descartados:[loc.id]}); return; } }
+        }
         if(vistos.has(loc.id)) return;                             // la nube lo tuvo y ya no → borrado ajeno
         lista.push(loc); preservados++;                            // nunca llegó → en vuelo → se conserva
     });
-    return {lista, preservados, unidos, sinBase:false};
+    _pendAbsorber.forEach(([sid,rem])=>{
+        const d=_clonEnLista(sid); if(d){ _absorberMov(d, rem); redirigidos++; return; }
+        // la superviviente no está: si se borró (aquí, con lápida, o en otra sesión: la nube la trajo antes y ya no), la copia unida tampoco revive
+        const tbS=_movsBorradosLocal.get(oid+'│'+sid), tbR=_movsBorradosLocal.get(oid+'│'+rem.id);
+        if((tbS && ahora-tbS<600000) || (tbR && ahora-tbR<600000) || vistos.has(sid)) return;
+        if(!lista.some(x=>x&&x.id===rem.id)) lista.push(rem);   // nunca la vimos: se conserva, una sola vez
+    });
+    const _u=_unirMovsPorFactura(oid, lista);                      // v310: pasada final determinista (misma regla en todas las sesiones)
+    _avisarDudosas(oid, _u.dudosos);
+    const _uniones=unidosFactura.concat(_u.uniones);
+    if(_uniones.length) _aplicarUnionesFactura(oid, _uniones, 'fusion');
+    return {lista:_u.lista, preservados, unidos, sinBase:false, unidosFactura:_uniones.length+redirigidos};
 }
 window._fusionarMovsAlCargar=_fusionarMovsAlCargar; window._guardarBaseMovs=_guardarBaseMovs; window._marcarMovBorrado=_marcarMovBorrado; window._unirComprobantes=_unirComprobantes;
 /* v294 — Cuántas veces se ha reenviado cada "creación en vuelo" (col│id). Si ya
@@ -2633,6 +2756,16 @@ async function _saveReal(_opts){
                     window._ultimosSellos.m=String(_selloNube||0);
                 }
             }catch(eS){ console.warn('sello de movimientos fresco (no crítico):', eS); }
+            // v310: antes de firmar, una factura de WispHub = un solo pago (misma regla determinista en todas las sesiones:
+            // la primera que guarda reescribe UNA vez el bloque; las demás recargan, fusionan y coinciden, así que no escriben).
+            if(!_saltarMovs) try{
+                for(const o of (DB.oficinas||[])){
+                    if(!Array.isArray(o.movimientos) || o.movimientos.length<2) continue;
+                    const _u=_unirMovsPorFactura(o.id, o.movimientos);
+                    if(_u.uniones.length){ o.movimientos=_u.lista; _aplicarUnionesFactura(o.id, _u.uniones, 'guardado'); }
+                    _avisarDudosas(o.id, _u.dudosos);
+                }
+            }catch(eU){ console.warn('unión por factura antes de guardar (no crítico):', eU); }
             // v305: antes de reescribir un bloque, confirmar que la nube lo tiene como esta sesión lo cargó.
             // Si otra sesión lo cambió y esta no se enteró, se recarga completo y se fusiona ANTES de escribir.
             // Un bloque que no se pudo leer cuenta como cambiado; un bloque que existe más allá del índice, también.
@@ -2644,7 +2777,7 @@ async function _saveReal(_opts){
                     const lista=o.movimientos||[];
                     _recortarTextosLargos(lista, o.nombre);
                     const numChunks=Math.ceil(lista.length/MOVS_CHUNK), remoto=_idxRemoto[o.id]||0;
-                    if(numChunks<remoto) continue;
+                    if(numChunks<remoto && !_encogeExplicado(o.id, lista.length, remoto, MOVS_CHUNK)) continue;   // v310
                     const sig=lista.length+':'+_hashStr(JSON.stringify(lista));
                     if(window._sigMovs && window._sigMovs[o.id]===sig) continue;
                     const partes=[]; for(let i=0;i<numChunks;i++) partes.push(sanitizarFirebase(lista.slice(i*MOVS_CHUNK, (i+1)*MOVS_CHUNK)));
@@ -2690,7 +2823,9 @@ async function _saveReal(_opts){
                     continue;
                 }
                 // 🛡️ GUARDA 2 (anti-encogimiento): si memoria tiene menos bloques que la nube, no encoger.
-                if(numChunks < remoto){
+                // v310: salvo que la lista sea más corta porque esta sesión unió copias repetidas de WispHub (_quitadosPorUnion):
+                // ahí el encogimiento está explicado y sí se escribe (el índice movs_index queda con el número nuevo de bloques).
+                if(numChunks < remoto && !_encogeExplicado(o.id, lista.length, remoto, MOVS_CHUNK)){
                     movsChunkInfo[o.id] = remoto;
                     _ofiPreservada = true;
                     console.warn(`🛡️ ${o.nombre}: memoria ${lista.length} movs (${numChunks} bloques) < nube ${remoto}. NO se encoge (se conserva la nube).`);
@@ -2717,6 +2852,10 @@ async function _saveReal(_opts){
                         data: { movimientos: _partes[i], oficinaId: o.id, parte: i, totalPartes: numChunks, actualizado: Date.now() },
                         _movFirma: { oid:o.id, i, firma:_plan.firmas[i] }   // v305: su firma viaja en el mismo lote (_repartirFirmasMovsEnLotes)
                     });
+                }
+                if(numChunks<remoto){   // v310: la lista encogió por uniones: los bloques que sobran se dejan VACÍOS en el mismo lote (el cargador también lee más allá del índice y los sumaría)
+                    for(let i=numChunks;i<remoto;i++) opsEscritura.push({ ref: db.collection('oficinas_sistema').doc(`movs_${o.id}_${i}`), data: { movimientos: [], oficinaId: o.id, parte: i, totalPartes: numChunks, actualizado: Date.now(), vaciadoPorUnion: true }, _movFirma: { oid:o.id, i, firma:_firmaBloqueMovs([]) } });
+                    console.log(`   🧩 ${o.nombre}: ${remoto-numChunks} bloque(s) de movimientos sobrante(s) se dejan vacíos tras unir copias repetidas`);
                 }
             }
             // Índice de movimientos
@@ -3006,7 +3145,7 @@ async function _saveReal(_opts){
         _sigClientes = sigClientesNuevas;
         _sigIdxClientes = idxClientesSig;
         // v296: firmas y bases de movimientos, solo tras el éxito (lo escrito ES la nube ahora)
-        try{ if(Object.keys(_movsPendientesConfirmar).length) window._genConfirmMovs=(window._genConfirmMovs||0)+1;   /* v305: una carga que empezó antes ya es vieja */ if(!window._sigMovs) window._sigMovs={}; Object.keys(_movsPendientesConfirmar).forEach(oid=>{ const p=_movsPendientesConfirmar[oid]; window._sigMovs[oid]=p.sig; _guardarBaseMovs(oid, p.lista); if(p.firmasBloques){ if(!window._sigMovsBloque) window._sigMovsBloque={}; window._sigMovsBloque[oid]=p.firmasBloques; } if(p.escritos) _cacheConfirmarEscrituraMovs(oid, p.numChunks, p.escritos, p.firmasBloques||[]); }); }catch(eM){ console.warn('base movs tras guardar:', eM); }
+        try{ if(Object.keys(_movsPendientesConfirmar).length) window._genConfirmMovs=(window._genConfirmMovs||0)+1;   /* v305: una carga que empezó antes ya es vieja */ if(!window._sigMovs) window._sigMovs={}; Object.keys(_movsPendientesConfirmar).forEach(oid=>{ const p=_movsPendientesConfirmar[oid]; window._sigMovs[oid]=p.sig; _guardarBaseMovs(oid, p.lista); if(window._quitadosPorUnion) window._quitadosPorUnion[oid]=0;   /* v310: lo unido ya está en la nube */ if(p.firmasBloques){ if(!window._sigMovsBloque) window._sigMovsBloque={}; window._sigMovsBloque[oid]=p.firmasBloques; } if(p.escritos) _cacheConfirmarEscrituraMovs(oid, p.numChunks, p.escritos, p.firmasBloques||[]); }); }catch(eM){ console.warn('base movs tras guardar:', eM); }
         if(_gsigNueva) window._sigGaps = _gsigNueva; // v168: firma de gaps confirmada tras el lote
         // ════════════════════════════════════════════════════════════════
         // SELLO DE CHUNKS (v168 — CORRECCIÓN DE RAÍZ del problema de solicitudes
@@ -3982,8 +4121,7 @@ async function _cargarMovimientosChunks(opts){
                 if(!r.leido){ huboError = true; fallosSeguidos++; } // error de lectura real
                 else if(r.existe){
                     fallosSeguidos = 0;                              // bloque encontrado → seguir
-                    huerfanos++;
-                    if(r.movs.length>0) movs = movs.concat(r.movs);
+                    if(r.movs.length>0){ huerfanos++; movs = movs.concat(r.movs); }   // v310: un bloque vaciado por unión no cuenta como huérfano (no invalida la copia local)
                 }
                 else { fallosSeguidos++; }                           // bloque ausente → posible fin
                 i++;
@@ -4021,6 +4159,7 @@ async function _cargarMovimientosChunks(opts){
                     // v296: fusionar con lo local en vez de reemplazarlo (ver _fusionarMovsAlCargar)
                     const _f = completo ? _fusionarMovsAlCargar(ofiId, oMem.movimientos, movs) : {lista:movs, preservados:0, unidos:0};
                     if(_f.preservados>0) console.log(`🛡️ ${oMem.nombre||ofiId}: ${_f.preservados} movimiento(s) con cambios locales sin guardar conservado(s) al recargar${_f.unidos?` · ${_f.unidos} con comprobantes unidos`:''}`);
+                    if(_f.unidosFactura) console.log(`🧩 ${oMem.nombre||ofiId}: ${_f.unidosFactura} pago(s) de WispHub repetido(s) unido(s) al cargar`);   // v310
                     oMem.movimientos = _f.lista;
                     if(completo) _guardarBaseMovs(ofiId, movs);   // la base retrata la NUBE
                     totalMovs += _f.lista.length;
@@ -12429,6 +12568,7 @@ function eliminarMovimiento(oid,mid){
         if(m) registrarLog('ELIMINACION_MOV',{oid, mid, valor:m.valor, concepto:m.concepto});
     }
     if(!o) return;
+    _marcarMovBorrado(oid, mid); (m&&Array.isArray(m._unidoDe)?m._unidoDe:[]).forEach(idU=>_marcarMovBorrado(oid, idU));   // v310: lápida (también a las copias unidas en él), para que la recarga previa al guardado no lo reviva
     o.movimientos=(o.movimientos||[]).filter(x=>x.id!==mid);
     save().then(()=>renderRegistro());
 }
@@ -23821,6 +23961,7 @@ function registrarLog(accion, detalles){
         fecha:now(),
         usuario:USER?.nombre||USER?.id||'desconocido',
         rol:USER?.role||'?',
+        pestana:_idPestana(), version:APP_VERSION,   // v310
         accion:accion,
         detalles:det
     });
@@ -31734,6 +31875,7 @@ async function sincronizarRapidaPagos(oid, opts){
     opts=opts||{};
     const o=(DB.oficinas||[]).find(x=>x.id===oid);
     if(!o||!o.cuentaWisphub) return {ok:false, motivo:'sin_cuenta'};
+    if(window._cargaCompletaPorOficina && window._cargaCompletaPorOficina[oid]===false) return {ok:false, motivo:'carga_incompleta'};   // v310: con la lista parcial se recrearía lo que falta
     if(_syncOcupado()) return {ok:false, motivo:'ocupado'};
     _tomarSync();
     try{
@@ -31762,7 +31904,8 @@ async function sincronizarRapidaPagos(oid, opts){
             const est=String(f.estado||'').toLowerCase();
             return est.includes('pagad') && (parseFloat(f.total_cobrado||f.total||0)>0);
         });
-        const r=_aplicarPagosWisphub(o, pagadas);
+        const oVivo=(DB.oficinas||[]).find(x=>x.id===oid)||o; if(!Array.isArray(oVivo.movimientos)) oVivo.movimientos=[];   // v310: la oficina viva (un snapshot pudo reemplazar el objeto mientras se esperaba a WispHub)
+        const r=_aplicarPagosWisphub(oVivo, pagadas);
         if(r.creados>0){
             registrarLog('SYNC_RAPIDA_WISPHUB',{oficinaId:o.id, creados:r.creados});
             // Quien llama puede pedir que NO se guarde ni se avise aquí, para
@@ -31935,7 +32078,7 @@ function _aplicarPagosWisphub(o, pagadas){
         const conceptoReal = esOtroIngreso ? (_detalle||'Otro ingreso') : (_detalle||'Pago internet');
 
         o.movimientos.push({
-            id:uid(), tipo:'ingreso',
+            id:_idMovWisphub(o.id, numero), tipo:'ingreso',   // v310: mismo id en todas las sesiones
             concepto:conceptoReal, forma:forma,
             esOtroIngreso:esOtroIngreso, tipoFacturaWisphub:(f.tipo!=null?f.tipo:null),
             descripcion:`${cliente}${cedula?' · CC '+cedula:''} (WispHub #${numero})`,
@@ -32112,7 +32255,7 @@ function _aplicarPagosWisphubEnMemoria(o, facturas){
         const cajero=(f.cajero && f.cajero.nombre) ? f.cajero.nombre : '';
         const requiereSoporte=_requiereSoporte(forma);
         o.movimientos.push({
-            id:uid(), tipo:'ingreso',
+            id:_idMovWisphub(o.id, numero), tipo:'ingreso',   // v310: mismo id en todas las sesiones
             concepto:conceptoReal, forma:forma,
             descripcion:`${cliente}${cedula?' · CC '+cedula:''} (WispHub #${numero})`,
             valor:valor, fecha:fechaISO,
@@ -32781,7 +32924,7 @@ async function registrarPagosFaltantes(oid, periodoOMes){
         const esOtro=_esOtroIngresoWH(undefined, x.tipoWisphub, x.concepto);
         const _det=(String(x.concepto||'').split(/[\r\n]/)[0]||'').trim();
         o.movimientos.push({
-            id:uid(), tipo:'ingreso',
+            id:_idMovWisphub(o.id, x.numero), tipo:'ingreso',   // v310
             concepto: esOtro ? (_det||'Otro ingreso') : (_det||'Pago internet'),
             forma:forma,
             esOtroIngreso:esOtro, tipoFacturaWisphub:x.tipoWisphub,
@@ -33230,6 +33373,7 @@ function _eliminarDuplicado(oid, movId){
     const m=(o.movimientos||[]).find(x=>x.id===movId);
     if(!m) return;
     if(!confirm(`¿Eliminar este ingreso?\n\n${m.descripcion||m.concepto}\n${fmtShort(m.valor)} · ${m.forma}\n\nEsta acción no se puede deshacer.`)) return;
+    _marcarMovBorrado(o.id, movId); (Array.isArray(m._unidoDe)?m._unidoDe:[]).forEach(idU=>_marcarMovBorrado(o.id, idU));   // v310
     o.movimientos=o.movimientos.filter(x=>x.id!==movId);
     registrarLog('DUPLICADO_ELIMINADO',{oid, movId, valor:m.valor, descripcion:m.descripcion});
     save().then(()=>{

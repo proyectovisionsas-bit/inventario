@@ -78,3 +78,71 @@ cartera sola, hacerla **incremental** como la de pagos — no revivir aquella.
 
 **No confundir con el mensaje "Sincronizando con la nube, no cierres la
 ventana"**: ese es el guardado en Firestore, no WispHub.
+
+## Una factura de WispHub, un solo pago (OFICINAS v310, 17 Sep 2026)
+
+Elkin: "está duplicando pagos, trae pagos hechos en WispHub y los refleja 2
+veces en el registro diario". En la nube había 6 facturas con 2 y 3 copias
+idénticas (NATALIA, ESNEIDER), todas desde el 15 de septiembre.
+
+**Causa.** La sincronización rápida corre cada 12 minutos en cada pantalla
+abierta (la del administrador sincroniza todas las oficinas). Dos sesiones que
+sincronizan la misma oficina con segundos de diferencia creaban el mismo pago
+con ids distintos (`uid()`), y la fusión entre sesiones de la v296/v305
+(`_fusionarMovsAlCargar`), que compara por id, conservaba las dos "creaciones
+en vuelo". Antes de la v305 el mismo choque terminaba en pisada, por eso no se
+veía. La búsqueda `existe` por número de factura solo mira la memoria de la
+pestaña; nunca hubo comparación por factura entre sesiones.
+
+**Arreglo, dos capas.**
+
+1. `_idMovWisphub(oid, numero)` → `wh_<oficina>_<factura>`. Los tres lugares
+   que crean pagos de WispHub (`_aplicarPagosWisphub`,
+   `_aplicarPagosWisphubEnMemoria`, `registrarPagosFaltantes`) lo usan. Dos
+   sesiones producen el MISMO registro y la fusión por id ya lo junta. Lleva la
+   oficina porque el número de factura es la secuencia de cada cuenta WispHub y
+   una cuenta compartida puede llevar la misma factura a dos oficinas.
+2. Red de seguridad determinista, `_unirMovsPorFactura(oid, lista)` (pura):
+   agrupa por factura los ingresos con `origen:'cierre_wisphub'` de la misma
+   oficina; sobrevive el id lexicográficamente menor (depende solo de los ids,
+   así todas las sesiones eligen igual y no hay ping-pong); las demás se
+   absorben (`_absorberMov`: comprobantes, marcas, edición del admin; si
+   CUALQUIER copia estaba anulada la unida queda anulada, con `_anuladoEnCopia`:
+   un pago reversado nunca vuelve a contar solo) y quedan en `_unidoDe`. La
+   superviviente es un CLON: la lista que llega de la nube no se muta, así la
+   base (`_guardarBaseMovs`) sigue retratando la nube y la copia unida cuenta
+   como "tocada" hasta que se guarda. Si alguna copia con la
+   misma factura NO cumple la clave (origen distinto, egreso), el grupo es
+   "dudoso" y no se toca. Se aplica en la carga sin base, en la fusión (la
+   creación local cuya factura ya está en la nube se vierte ahí; un id ya unido
+   que la nube vuelva a traer se vierte en la superviviente vía
+   `_redirMovsUnidos`; si la superviviente ya se borró, con lápida o en otra
+   sesión, la copia tampoco revive) y en el paso 0 de `_saveReal`, antes de
+   firmar los bloques. Al borrar un pago, la lápida cubre también sus
+   `_unidoDe`. Si al unir la oficina queda con un bloque menos que la nube,
+   `_encogeExplicado` deja pasar GUARDA 2 (el encogimiento está explicado por
+   `_quitadosPorUnion`, que se reinicia al confirmar el guardado) y los
+   bloques sobrantes se escriben VACÍOS en el mismo lote, porque el cargador
+   también lee más allá del índice y los sumaría. Una factura repetida con una copia que no viene de
+   WispHub ("dudosa") no se toca y se avisa una vez en consola. `_aplicarUnionesFactura` deja registro `DUPLICADO_FACTURA_UNIDO`
+   (una vez por copia, con `creadoMs` sacado del uid), mueve `_compImgCache` y
+   re-apunta las solicitudes pendientes.
+
+Además: la sincronización rápida aplica sobre la oficina viva (`oVivo`; un
+snapshot podía reemplazar el objeto mientras se esperaba a WispHub y el pago
+caía en una lista huérfana: log `creados:1` sin movimiento), y salta oficinas
+con carga incompleta; `eliminarMovimiento` y `_eliminarDuplicado` dejan lápida;
+`registrarLog` anota `pestana` (sessionStorage) y `version` para distinguir
+dos pestañas o un F5 de la misma persona.
+
+**Limpieza de lo que ya estaba.** No hace falta borrar a mano: la primera
+sesión v310 une las copias al cargar y su primer guardado reescribe una vez el
+bloque afectado. NO usar "borrar selección por fecha" sobre una copia: anota
+`facturaWisphub` en `borradosPermanentes` y `_aplicarBorradosPermanentes`
+quitaría también la copia buena.
+
+**Lo que sigue igual.** Admin y oficinas siguen consultando WispHub por la
+misma oficina cada 12 minutos (lectura duplicada de la API, sin candado entre
+sesiones); el pago nuevo tarda en llegar a la nube mientras se concilian
+clientes (`diferirGuardado`); `modalDetectarDuplicados` agrupa por fecha y valor
+(falsos positivos) y su "Fusionar" exige exactamente 2.
