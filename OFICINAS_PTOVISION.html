@@ -12,6 +12,8 @@
 <script src="contrato.js?v=6"></script>
 <!-- IA: una sola forma de hablar con Groq para las tres apps. Editar ia.js. -->
 <script src="ia.js?v=5"></script>
+<!-- Antes de llamar al ingeniero: listas y motor compartidos con TECNICOS. Editar checklists.js, no copiarlo aquí. -->
+<script src="checklists.js?v=1"></script>
     <!-- ░░ PWA: instalable en celulares (sin archivos extra) ░░ -->
     <meta name="theme-color" content="#16a34a">
     <meta name="mobile-web-app-capable" content="yes">
@@ -648,6 +650,7 @@
                 <button class="nav-btn" data-tab="facturas">📄 Facturas</button>
                 <button class="nav-btn" data-tab="recogidas">📦 Recogida de Equipos</button>
                 <button class="nav-btn" data-tab="ordenes">🔧 Órdenes de Trabajo</button>
+                <button class="nav-btn" data-tab="ingeniero">🛑 Antes de llamar al ingeniero</button>
                 <button class="nav-btn" data-tab="contratos">📄 Contratos</button>
                 <div class="nav-group-label">Equipo comercial</div>
                 <button class="nav-btn" data-tab="vendedores">🧑‍💼 Vendedores</button>
@@ -689,7 +692,7 @@
 <!-- MODAL -->
 <div id="modal" class="modal-overlay">
     <div class="modal">
-        <div class="modal-header"><h3 id="mTitle">Título</h3><button class="close-btn" onclick="closeModal()">✕</button></div>
+        <div class="modal-header"><h3 id="mTitle">Título</h3><button class="close-btn" onclick="if(!document.getElementById('fo_valid')||confirm('La validación YA quedó guardada como «orden al técnico». ¿Salir SIN crear la orden?'))closeModal()">✕</button></div>
         <div class="modal-body" id="mBody"></div>
         <div class="modal-footer" id="mFooter"></div>
     </div>
@@ -974,7 +977,7 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION = 310; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 311; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -995,7 +998,7 @@ const APP_VERSION = 310; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '17 Sep 2026 (v310: un pago de WispHub es un solo registro: id fijo por oficina y factura, y las copias repetidas se unen solas al cargar y antes de guardar. v309: registro diario con orden y filtros, modo mantenimiento, reintentos ante Drive. Historial en git y en docs/01-firestore-limites.md)';
+const APP_VERSION_FECHA = '19 Sep 2026 (v311: «Antes de llamar al ingeniero»: lista de validación por servicio, franja de fallas masivas y casos del mes. v310: un pago de WispHub es un solo registro: id fijo por oficina y factura, y las copias repetidas se unen solas al cargar y antes de guardar. Historial en git y en docs/01-firestore-limites.md)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -10120,6 +10123,8 @@ function enterApp(){
     setTimeout(iniciarMonitorRecordatorios,1000);
     setTimeout(()=>{ _rtActivo=true; iniciarEscuchaRealtime(); }, 500);
     setTimeout(()=>{ registrarVersion(); iniciarEscuchaVersion(); iniciarEscuchaMantenimiento(); }, 700);
+    setTimeout(()=>{ try{ iniciarEscuchaFallasMasivas(); }catch(e){ console.warn('fallas masivas:', e); } }, 900);   // v311: franja de fallas masivas (solo con sesión iniciada)
+    setTimeout(()=>{ try{ if(typeof PV_CHECK!=='undefined' && !MODO_PRUEBA && USER && USER.role!=='sgsst') Promise.resolve(PV_CHECK.reenviarPendientes(_ingGuardar)).catch(()=>{}); }catch(e){ console.warn('casos sin subir:', e); } }, 8000);   // v311: casos que quedaron sin subir
     setTimeout(showAIFab, 800);
     setTimeout(()=>{ try{ verificarRespaldoDrive(); }catch(e){ console.warn('verificarRespaldoDrive:',e); } }, 1800);
     const _nombreSaludo = USER.role==='admin' ? 'Administrador' : (USER.nombre||'');
@@ -10256,7 +10261,7 @@ function navigate(tab){
     if(document.getElementById('aiPanel')?.classList.contains('open')){
         setTimeout(()=>{actualizarContextoIA();actualizarSugerenciasIA();},100);
     }
-    const renders = { contratos:renderContratos, dash:renderDash, registro:renderRegistro, clientes:renderClientes, reportes:renderReportes, vendedores:renderVendedores, incentivos:renderIncentivos, ventas:renderVentas2, pagos_admin:renderPagosAdmin, prestamos:renderPrestamos, rrhh:renderRRHH, administracion:renderAdmin, especiales:renderClientesEspeciales, facturas:renderFacturas, recogidas:renderRecogidas, ordenes:renderOrdenes, documentos:renderDocumentos, energia:renderEnergia, antenas:renderAntenas, proveedores:renderProveedores, sgsst:renderSGSST };
+    const renders = { contratos:renderContratos, dash:renderDash, registro:renderRegistro, clientes:renderClientes, reportes:renderReportes, vendedores:renderVendedores, incentivos:renderIncentivos, ventas:renderVentas2, pagos_admin:renderPagosAdmin, prestamos:renderPrestamos, rrhh:renderRRHH, administracion:renderAdmin, especiales:renderClientesEspeciales, facturas:renderFacturas, recogidas:renderRecogidas, ordenes:renderOrdenes, ingeniero:renderIngeniero, documentos:renderDocumentos, energia:renderEnergia, antenas:renderAntenas, proveedores:renderProveedores, sgsst:renderSGSST };
     if(renders[tab]) renders[tab]();
     try{ if(typeof _verificarBloqueoComprobantes==='function') _verificarBloqueoComprobantes(); }catch(e){}
 }
@@ -10483,6 +10488,7 @@ function applyStoredTheme(){
 function doLogout(){
     try{ _olvidarSesionOfi(); }catch(e){}
     USER=null; selOficinaLogin=null;
+    try{ window._ing={ q:'', oid:'', mesSel:'actual', mes:{}, cargando:false, error:'' }; window._ingCliente=null; window._ingOrdenExtra=null; window._ingUltimoPre=null; try{ if(typeof window._unsubIngMasivas==='function') window._unsubIngMasivas(); }catch(e2){} window._unsubIngMasivas=null; window._ingMasivas={}; try{ clearInterval(window._ingTic); }catch(e2){} window._ingTic=null; _ingPintarFranja(); }catch(e){}   // v311: lo de «Antes de llamar» no pasa a la sesión siguiente; sin sesión no queda la escucha de fallas masivas gastando lecturas (se vuelve a crear al entrar)
     document.getElementById('app').classList.add('hidden');
     document.getElementById('login-screen').style.display='flex';
     if(document.getElementById('passAdmin')) document.getElementById('passAdmin').value='';
@@ -12919,6 +12925,7 @@ function modalVerCliente(oid,cid){
             <button class="btn btn-sm" style="background:#6366f1;color:#fff;padding:3px 10px;" onclick="hacerPing('${c.ip||c.ipWisphub}')">📡 Ping</button>
             <button class="btn btn-sm btn-outline" style="padding:3px 10px;" onclick="navigator.clipboard.writeText('${c.ip||c.ipWisphub}').then(()=>showToastMini('IP copiada'))">📋 Copiar</button>
         </p>`:''}
+        <p style="margin:8px 0 10px;"><button class="btn btn-sm" style="background:#c53030;color:#fff;padding:6px 12px;" onclick="ingAbrirDesdeCliente('${oid}','${cid}')" title="v311: lista de validación con los datos de este cliente ya cargados">🛑 Antes de llamar al ingeniero</button></p>
         <p style="font-size:0.82rem;color:var(--muted);margin-bottom:4px;">🧑‍💼 <strong style="color:var(--text);">Vendedor:</strong> ${v?v.nombre:'Sin asignar'}</p>
         <p style="font-size:0.82rem;color:var(--muted);margin-bottom:14px;">📅 <strong style="color:var(--text);">Fecha instalación:</strong> ${c.fechaInstalacion||'-'}</p>
 
@@ -28754,6 +28761,7 @@ function renderOrdenes(){
                         : `<div style="font-size:0.85rem;margin-top:4px;"><strong>Cliente:</strong> ${o.cliente||'—'} ${o.cedula?`· ${o.cedula}`:''}</div>
                            ${o.direccion?`<div style="font-size:0.82rem;color:var(--muted);">📍 ${o.direccion}</div>`:''}`}
                     ${o.descripcion?`<div style="font-size:0.82rem;color:var(--muted);margin-top:4px;">📝 ${o.descripcion}</div>`:''}
+                    ${o.valId?`<div style="margin-top:5px;"><span style="font-size:0.7rem;font-weight:700;background:rgba(197,48,48,0.12);color:#c53030;padding:2px 8px;border-radius:10px;" title="v311: esta orden salió de una validación «Antes de llamar al ingeniero»">🛑 validada${o.servicio?' · '+esc2(o.servicio):''}</span></div>`:''}
                     <div style="font-size:0.78rem;color:var(--muted);margin-top:6px;">
                         🏢 ${ofi?ofi.nombre:'—'} · 👷 ${o.tecnicoId?_nombreOrdenTecnico(o.tecnicoId):'<em>sin tomar</em>'}
                     </div>
@@ -28925,6 +28933,10 @@ function guardarNuevaOrden(clienteId){
         estado:'pendiente', observacionTecnico:'',
         creada:Date.now(), creadaPor:USER.nombre||USER.role, actualizada:Date.now()
     });
+    // v311: si la orden nace de una validación «Antes de llamar al ingeniero» lleva ADEMÁS servicio y valId. Solo vale si el formulario
+    // abierto es el de esa validación (campo oculto fo_valid); si no, no se agrega ningún campo.
+    try{ const _ix=window._ingOrdenExtra, _iv=document.getElementById('fo_valid'); window._ingOrdenExtra=null;
+         if(_ix && _ix.valId && _iv && _iv.value===_ix.valId) Object.assign(DB.ordenesTrabajo[DB.ordenesTrabajo.length-1], { servicio:String(_ix.servicio||''), valId:String(_ix.valId) }); }catch(e){ console.warn('orden validada:', e); }
     save(); closeModal(); renderOrdenes();
     alert('✅ Orden creada. Ya está disponible para el técnico.');
 }
@@ -28951,6 +28963,380 @@ function eliminarOrden(id){
     save(); renderOrdenes();
 }
 window.eliminarOrden=eliminarOrden;
+
+// ════════════════════════════════════════════════════════════════════════════
+// 🛑 v311 — ANTES DE LLAMAR AL INGENIERO
+// ════════════════════════════════════════════════════════════════════════════
+// Las listas, el motor y la pantalla de la validación viven en checklists.js (window.PV_CHECK),
+// compartido con TECNICOS. Aquí solo va el pegamento con OFICINAS: la vista del menú, la franja
+// de fallas masivas y DÓNDE se guarda cada cosa:
+//   · Cada caso: UNA escritura en oficinas_sistema/esc_AAAA_MM_<oficina> → items.<id> = un texto JSON.
+//     Cero lecturas y nadie escucha ese documento. Si no cabe, se reintenta una vez en <doc>_b.
+//   · Fallas masivas: oficinas_sistema/fallas_masivas → activas.<id>. Es el ÚNICO listener nuevo.
+//     La franja solo INFORMA: nunca bloquea nada. Vence sola a las 6 horas.
+//   · El documento 'main' no se toca, salvo servicio y valId en la orden que nace de una validación.
+//   · Nada de cédulas, direcciones, teléfonos, IP ni claves en esos documentos (las reglas de
+//     Firebase están abiertas). PV_CHECK.registro ya viene limpio: no agregarle nada.
+// La vista se pinta como función de window._ing (sin listeners propios).
+window._ing = window._ing || { q:'', oid:'', mesSel:'actual', mes:{}, cargando:false, error:'' };
+window._ingMasivas = window._ingMasivas || {};   // copia en memoria de fallas_masivas.activas
+window._ingCliente = null;                       // {oid,cid} del cliente con el que se abrió la validación (solo en memoria)
+window._ingOrdenExtra = null;                    // {servicio,valId} para la orden que nace de una validación
+window._ingUltimoPre = null;                     // .pre del último caso cerrado (primer nombre, servicio WispHub, plan): solo en memoria
+const _ING_MESES=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+
+function _ingHay(){ return typeof PV_CHECK!=='undefined' && !!PV_CHECK && typeof PV_CHECK.abrir==='function'; }
+function _ingVistaActiva(){ try{ return document.querySelector('.nav-btn.active')?.dataset?.tab==='ingeniero' && !!document.getElementById('ingVista'); }catch(e){ return false; } }
+function _ingRepintarSiActiva(){ if(_ingVistaActiva()) renderIngeniero(); }
+function _ingHora(ms){ try{ return new Date(Number(ms)||0).toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'}); }catch(e){ return ''; } }
+function _ingNorm(s){ return String(s==null?'':s).replace(/\s+/g,' ').trim().toLowerCase(); }
+// Oficina con la que se trabaja: la propia, o la que el administrador eligió en la vista
+function _ingOficinaActiva(){
+    if(!USER) return null;
+    const ofis=currentOficinas()||[];
+    if(USER.role!=='admin') return ofis[0]||null;
+    return ofis.find(o=>String(o.id)===String(window._ing.oid)) || ofis.find(o=>String(o.id)===String(window._selOfiCli||'')) || ofis[0] || null;
+}
+function _ingMunicipioDe(o){ return String((o&&(o.ciudad||o.municipio||o.nombre))||'').replace(/\s+/g,' ').trim(); }
+function _ingMunicipios(){
+    const vistos={}, lista=[];
+    (DB.oficinas||[]).forEach(o=>{ const m=_ingMunicipioDe(o), k=_ingNorm(m); if(m && !vistos[k]){ vistos[k]=true; lista.push(m); } });
+    return lista;
+}
+function _ingQuien(o){
+    const esAdmin=!!USER && USER.role==='admin';
+    return { id: esAdmin?'admin':String((USER&&USER.id)||(o&&o.id)||''), nombre: String((USER&&USER.nombre) || (esAdmin?'Administrador':((o&&o.nombre)||'Oficina'))) };
+}
+// El aviso de la capa reusa el globo de showToastMini, pero sin el ✓ (muchos avisos son de "sin señal") y 5 segundos
+function _ingAviso(msg){
+    try{
+        if(typeof showToastMini!=='function') return;
+        showToastMini(String(msg||''));
+        const t=document.getElementById('toastMini');
+        if(t){ t.textContent=String(msg||''); clearTimeout(t._to); t._to=setTimeout(()=>{ t.style.display='none'; }, 5000); }
+    }catch(e){}
+}
+
+// ── Guardado ────────────────────────────────────────────────────────────────
+// Un caso = una hoja de texto dentro de items. Si falla, PV_CHECK lo deja en su cola local y lo reenvía después.
+function _ingGuardar(docId, id, json){
+    if(window._mantBloqueando===true) return Promise.reject(new Error('mantenimiento'));
+    if(MODO_PRUEBA) return Promise.reject(new Error('modo prueba'));   // en modo prueba las escrituras "resuelven" sin escribir: la cola real se vaciaría sin haber subido nada
+    if(typeof db==='undefined' || !db) return Promise.reject(new Error('sin conexión con la nube'));
+    docId=String(docId||''); id=String(id||'');
+    if(!/^esc_\d{4}_\d{2}_[A-Za-z0-9_\-]+$/.test(docId) || !/^[A-Za-z0-9_\-]{3,40}$/.test(id) || typeof json!=='string' || !json) return Promise.reject(new Error('registro inválido'));
+    const escribir=d=>db.collection('oficinas_sistema').doc(d).set({ items:{ [id]: json }, actualizadoMs: Date.now() }, { merge:true });
+    return escribir(docId).catch(e=>{
+        const t=String((e&&e.message)||'')+' '+String((e&&e.code)||'');
+        if(/exceeds the maximum|too large|INVALID_ARGUMENT|invalid-argument/i.test(t)) return escribir(docId+'_b');   // el documento del mes se llenó: una sola vez al de reserva
+        throw e;
+    });
+}
+function _ingGuardarMasiva(m){
+    if(!m || !m.id) return Promise.reject(new Error('falla masiva sin id'));
+    if(window._mantBloqueando===true) return Promise.reject(new Error('mantenimiento'));
+    if(typeof db==='undefined' || !db) return Promise.reject(new Error('sin conexión con la nube'));
+    let limpio; try{ limpio=JSON.parse(JSON.stringify(m)); }catch(e){ return Promise.reject(e); }   // sin undefined ni funciones
+    return db.collection('oficinas_sistema').doc('fallas_masivas').set({ activas:{ [String(m.id)]: limpio }, actualizadoMs: Date.now() }, { merge:true })
+        .then(()=>{
+            try{ registrarLog('FALLA_MASIVA_REPORTADA',{ id:String(m.id), tipo:String(m.tipo||''), municipio:String(m.municipio||''), servicio:String(m.servicio||''), afectados:Number(m.afectados)||0 }); _enviarLogsAuditoria(); }catch(e){ console.warn('log falla masiva:', e); }
+        });
+}
+function _ingPuedeCerrarMasiva(m){
+    if(!USER || !m) return false;
+    if(USER.role==='admin') return true;
+    return m.porApp==='oficinas' && !!m.porNombre && _ingNorm(m.porNombre)===_ingNorm(_ingQuien(_ingOficinaActiva()).nombre);
+}
+function _ingCerrarMasiva(id){
+    id=String(id||'');
+    const m=(window._ingMasivas||{})[id];
+    if(!id || !m) return Promise.reject(new Error('aviso no encontrado'));
+    if(!_ingPuedeCerrarMasiva(m)){
+        setTimeout(()=>_ingAviso('Este aviso solo lo quita la oficina que lo reportó o el administrador. Igual vence solo a las 6 horas.'), 60);
+        return Promise.reject(new Error('sin permiso'));
+    }
+    if(window._mantBloqueando===true) return Promise.reject(new Error('mantenimiento'));
+    if(typeof db==='undefined' || !db) return Promise.reject(new Error('sin conexión con la nube'));
+    return db.collection('oficinas_sistema').doc('fallas_masivas').set({ activas:{ [id]:{ cerradaMs: Date.now(), cerradaPor: _ingQuien(_ingOficinaActiva()).nombre } }, actualizadoMs: Date.now() }, { merge:true });
+}
+
+// ── Abrir la capa ───────────────────────────────────────────────────────────
+function _ingOp(oid, precarga){
+    const o=(DB.oficinas||[]).find(x=>String(x.id)===String(oid)) || _ingOficinaActiva() || {};
+    const pc=precarga||{};
+    return {
+        app:'oficinas', rol:'oficina', quien:_ingQuien(o),
+        oficinaId:String(o.id||''), municipio:_ingMunicipioDe(o), municipios:_ingMunicipios(),
+        precarga:{ servicio:'', servicioWisphub:String(pc.servicioWisphub||''), nombreCorto:String(pc.nombreCorto||''), plan:String(pc.plan||''),
+                   estadoSugerido:String(pc.estadoSugerido||''), estadoNota:String(pc.estadoNota||''), ordenId:'', tipoOrden:'', resumenOficina:'',
+                   ordenAbierta:!!pc.ordenAbierta, visitas30d:Number(pc.visitas30d)||0 },
+        masivas:()=>_ingVigentes(),   // la capa muestra lo mismo que la franja global: la oficina solo su municipio; el admin todas
+        guardar:_ingGuardar, guardarMasiva:_ingGuardarMasiva, cerrarMasiva:_ingCerrarMasiva, crearOrden:_ingCrearOrden,
+        alCerrar:_ingAlCerrar, aviso:_ingAviso,
+        modoPrueba:MODO_PRUEBA, oscuro:!document.body.classList.contains('light-mode')
+    };
+}
+function _ingAlCerrar(estado){ window._ingCliente=null; window._ingUltimoPre=(estado && estado.pre && typeof estado.pre==='object')?estado.pre:null; setTimeout(()=>{ try{ _ingRepintarSiActiva(); }catch(e){} }, 1500); }   // el registro sube solo; al rato se refresca el "sin subir"
+function _ingSinLista(){ alert('No cargó la lista de validación (checklists.js). Recarga la página e inténtalo otra vez.'); }
+function ingAbrir(){
+    if(!_ingHay()) return _ingSinLista();
+    const o=_ingOficinaActiva(); if(!o) return alert('No hay ninguna oficina para registrar el caso.');
+    window._ingCliente=null;
+    PV_CHECK.abrir(_ingOp(o.id, null));
+}
+function ingAbrirMasiva(){
+    if(!_ingHay()) return _ingSinLista();
+    const o=_ingOficinaActiva(); if(!o) return alert('No hay ninguna oficina para reportar la falla.');
+    window._ingCliente=null;
+    PV_CHECK.abrirMasiva(_ingOp(o.id, null));
+}
+// Lo que se le muestra a la oficina antes de empezar. Nada de esto se guarda tal cual: PV_CHECK se queda con el primer nombre, el servicio y el plan.
+function _ingPrecargaDe(o, c){
+    const ep=c.estadoPago||null;
+    let estado=String(c.estado||'Activo');
+    if(ep) estado+=' · '+(ep.alDia?'al día':((Number(ep.pendientes)||0)+' factura(s) pendiente(s)'));
+    // Frescura: la hora de la última conciliación con WispHub en ESTA sesión (c.estadoActualizadoEn solo cambia cuando algo cambió)
+    const ms=Number((window._ultimaConcCli||{})[o.cuentaWisphub])||0;
+    const nota=ms ? ('conciliado con WispHub en esta sesión hace '+Math.max(0,Math.round((Date.now()-ms)/60000))+' min') : 'sin conciliar en esta sesión: confírmalo en WispHub';
+    const suyas=(DB.ordenesTrabajo||[]).filter(ot=>ot && ot.clienteId && String(ot.clienteId)===String(c.id));
+    const hace30=Date.now()-30*24*3600*1000;
+    return { servicioWisphub:String(c.servicioWisphub||''), nombreCorto:String(c.nombre||''), plan:String(c.plan||''), estadoSugerido:estado, estadoNota:nota,
+             ordenAbierta:suyas.some(ot=>ot.estado!=='finalizada' && ot.estado!=='cancelada'), visitas30d:suyas.filter(ot=>(Number(ot.creada)||0)>=hace30).length };
+}
+function ingAbrirDesdeCliente(oid, cid){
+    const o=(DB.oficinas||[]).find(x=>x.id===oid)||getOficina(oid);
+    const c=(o?.clientes||[]).find(x=>x.id===cid);
+    if(!c) return alert('No se encontró el cliente.');
+    if(!_ingHay()) return _ingSinLista();
+    try{ closeModal(); }catch(e){}
+    setTimeout(()=>{ window._ingCliente={ oid:o.id, cid:c.id }; PV_CHECK.abrir(_ingOp(o.id, _ingPrecargaDe(o, c))); }, 150);
+}
+// "Crear orden al técnico": mismo camino de ordenDesdeCliente, con el resumen ya escrito. La capa llama esto y LUEGO guarda
+// el caso en el mismo clic; por eso la capa se cierra dentro del setTimeout y no antes.
+function _ingCrearOrden(resumen, servicio, valId){
+    const ctx=window._ingCliente||null;   // se toma YA: al cerrar la capa se borra
+    const desc=String(resumen||'').replace(/[<>]/g,'').replace(/\s+/g,' ').trim().slice(0,160);
+    const extra={ servicio:String(servicio||'').replace(/[^A-Za-z0-9_\-]/g,'').slice(0,20), valId:String(valId||'').replace(/[^A-Za-z0-9_\-]/g,'').slice(0,40) };
+    try{ closeModal(); }catch(e){}
+    setTimeout(()=>{
+        window._ingUltimoPre=null;
+        try{ if(_ingHay()) PV_CHECK.cerrar(); }catch(e){}   // al cerrar, _ingAlCerrar deja en _ingUltimoPre el cliente REAL del caso
+        // Un caso retomado ("tienes un caso a medias") puede ser de OTRO cliente que el de la ficha desde la que se entró:
+        // manda el servicio WispHub que quedó en el caso. Si no coincide, se busca por ese número; si no aparece, el cliente queda en blanco.
+        const limpia=x=>String(x==null?'':x).replace(/[^A-Za-z0-9_\-]/g,'').slice(0,20);   // así guarda PV_CHECK el número de servicio
+        const sw=String((window._ingUltimoPre||{}).sw||'');
+        let o=ctx?((DB.oficinas||[]).find(x=>x.id===ctx.oid)||null):null;
+        let c=o?((o.clientes||[]).find(x=>x.id===ctx.cid)||null):null;
+        if(c && limpia(c.servicioWisphub)!==sw){ c=null; o=null; }
+        if(!c && sw){ for(const x of (currentOficinas()||[])){ const y=clientesVivos(x).find(z=>limpia(z.servicioWisphub)===sw); if(y){ o=x; c=y; break; } } }
+        const ofi=o||_ingOficinaActiva()||{}, cid=c?String(c.id):'';
+        window._ingOrdenExtra=extra;
+        openModal('🔧 Nueva orden — '+(c?(c.nombre||''):'desde la validación'),
+            `<div style="background:rgba(197,48,48,0.08);border:1px solid rgba(197,48,48,0.3);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:0.82rem;">🛑 Esta orden sale de una validación${extra.servicio?' de <b>'+esc2(extra.servicio)+'</b>':''}. El resumen ya quedó escrito: revisa los datos${c?'':', escribe el cliente'} y pulsa «Crear orden».</div>`
+            + _formOrden({ tipo:'soporte', oficinaId:ofi.id, cliente:esc2(c?(c.nombre||''):''), cedula:esc2(c?(c.cedula||c.documento||''):''),
+                           direccion:esc2(c?(c.direccion||''):''), telefono:esc2(c?(c.telefono||c.celular||''):''), clienteId:cid, descripcion:esc2(desc) })
+            + `<input type="hidden" id="fo_valid" value="${esc2(extra.valId)}">`,
+            `<button class="btn btn-outline" onclick="if(confirm('La validación YA quedó guardada como «orden al técnico» y no se puede retomar. ¿Salir SIN crear la orden?')) closeModal()">Cancelar</button>
+             <button class="btn btn-primary" data-cid="${esc2(cid)}" onclick="guardarNuevaOrden(this.dataset.cid);_ingTrasOrden()">✅ Crear orden</button>`);
+    }, 120);
+}
+// guardarNuevaOrden pinta la lista de órdenes: si guardó (cerró el modal), el menú debe decir lo mismo
+function _ingTrasOrden(){
+    try{ if(!document.getElementById('modal').classList.contains('show')) document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab==='ordenes')); }catch(e){}
+}
+
+// ── Franja global de fallas masivas ─────────────────────────────────────────
+function _ingVigentes(){
+    if(!_ingHay() || !USER || USER.role==='sgsst') return [];
+    const mun = USER.role==='admin' ? [] : [_ingMunicipioDe(_ingOficinaActiva())].filter(Boolean);   // admin: todas; oficina: las de su municipio
+    try{ return PV_CHECK.masivasVigentes(window._ingMasivas||{}, Date.now(), mun) || []; }catch(e){ return []; }
+}
+function _ingAsegurarFranja(){
+    let f=document.getElementById('ingFranja'); if(f) return f;
+    const c=document.getElementById('appContent'); if(!c || !c.parentNode) return null;
+    f=document.createElement('div'); f.id='ingFranja';
+    f.style.cssText='display:none;width:100%;max-width:1400px;box-sizing:border-box;margin:12px auto 0;padding:0 15px;';
+    c.parentNode.insertBefore(f, c);
+    return f;
+}
+function _ingPintarFranja(){
+    const f=_ingAsegurarFranja();
+    let html=''; try{ const v=_ingVigentes(); html=v.length?PV_CHECK.franjaHTML(v):''; }catch(e){ html=''; }   // franjaHTML ya escapa todo
+    if(f){ f.innerHTML=html; f.style.display=html?'block':'none'; }
+    if(_ingVistaActiva()){   // en la vista solo se repintan estos dos trozos: así el buscador no pierde el cursor
+        const a=document.getElementById('ingVistaFranja'); if(a) a.innerHTML=_ingEstadoFranjaHTML();
+        const b=document.getElementById('ingVistaMasivas'); if(b) b.innerHTML=_ingMasivasHTML();
+    }
+}
+function iniciarEscuchaFallasMasivas(){
+    try{ _ingPintarFranja(); }catch(e){}   // siempre primero: con SG-SST (o sin sesión) _ingVigentes da [] y la franja que dejó la sesión anterior se oculta
+    if(typeof db==='undefined' || !db || !USER || USER.role==='sgsst') return;
+    // Las fallas vencen solas a las 6 horas: se reevalúa cada 5 minutos aunque no llegue ningún cambio
+    // Si el listener murió con error (cuota agotada, corte largo) el mismo tic lo vuelve a suscribir: una lectura cada 5 minutos como máximo mientras dure la caída
+    if(!window._ingTic) window._ingTic=setInterval(()=>{ try{ if(!window._unsubIngMasivas && USER) iniciarEscuchaFallasMasivas(); else _ingPintarFranja(); }catch(e){} }, 5*60000);
+    if(window._unsubIngMasivas){ try{ _ingPintarFranja(); }catch(e){} return; }   // ya se está escuchando (otra entrada en la misma pestaña): cero lecturas más
+    try{
+        window._unsubIngMasivas=db.collection('oficinas_sistema').doc('fallas_masivas').onSnapshot(s=>{
+            const d=s.exists?(s.data()||{}):{};
+            window._ingMasivas=(d.activas && typeof d.activas==='object')?d.activas:{};
+            try{ _ingPintarFranja(); }catch(e){ console.warn('franja de fallas masivas:', e); }
+        }, e=>{ console.warn('escucha fallas masivas:', e); window._unsubIngMasivas=null; });
+    }catch(e){ console.warn('fallas masivas:', e); }
+}
+
+// ── Vista del menú ──────────────────────────────────────────────────────────
+function _ingEstadoFranjaHTML(){
+    const n=_ingVigentes().length;
+    return n ? `<div style="background:rgba(197,48,48,0.08);border:1px solid rgba(197,48,48,0.35);border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:0.86rem;font-weight:700;">⚠ Hay ${n} aviso(s) de falla masiva o apagón vigente(s): lee la franja de arriba ANTES de llamar.</div>`
+             : `<div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:0.86rem;">✅ No hay fallas masivas ni apagones vigentes${USER&&USER.role==='admin'?'':' en tu municipio'}.</div>`;
+}
+function _ingMasivasHTML(){
+    const v=_ingVigentes();
+    if(!v.length) return '<p style="color:var(--muted);font-size:0.85rem;margin:0;">No hay avisos vigentes.</p>';
+    return v.map(m=>`<div style="border:1px solid var(--border);border-left:4px solid ${m.tipo==='apagon'?'#b7791f':'#c53030'};border-radius:8px;padding:10px 12px;margin-bottom:8px;">
+            <div style="font-weight:700;font-size:0.88rem;">${m.tipo==='apagon'?'⚡ Apagón':'🚨 Falla masiva'} · ${esc2(m.municipio||'sin municipio')}${m.servicio?' · '+esc2(m.servicio==='todo'?'todos los servicios':m.servicio):''}</div>
+            <div style="font-size:0.78rem;color:var(--muted);margin-top:3px;">${m.comun?'En común: '+esc2(m.comun)+' · ':''}${Number(m.afectados)||0} afectado(s) · desde las ${esc2(_ingHora(m.desdeMs||m.creadaMs))} · reporta ${esc2(m.porNombre||'—')}${m.porApp?' ('+esc2(m.porApp)+')':''} · vence sola a las ${esc2(_ingHora(m.venceMs))}</div>
+            <div style="font-size:0.82rem;margin-top:5px;">💬 A los clientes: ${esc2(m.mensajeCliente||'')}</div>
+            ${_ingPuedeCerrarMasiva(m)?`<button class="btn btn-outline btn-sm" style="margin-top:8px;" data-id="${esc2(m.id)}" onclick="ingQuitarMasiva(this.dataset.id)">Quitar aviso</button>`:''}
+        </div>`).join('');
+}
+function ingQuitarMasiva(id){
+    if(!confirm('¿Seguro que la falla ya se arregló? El aviso se quita en las dos apps (Oficinas y Técnicos).')) return;
+    if(MODO_PRUEBA){ _ingAviso('Modo prueba: no se sube a la nube'); return; }
+    if(window._mantBloqueando===true){ _ingAviso('La app está en mantenimiento: inténtalo en un momento.'); return; }
+    _ingCerrarMasiva(id).then(()=>{ _ingAviso('Aviso quitado.'); }, e=>{ if(!e || e.message!=='sin permiso') _ingAviso('No se pudo quitar el aviso. Revisa la señal e inténtalo otra vez.'); });
+}
+function ingReintentar(){
+    if(!_ingHay()) return _ingSinLista();
+    if(MODO_PRUEBA){ _ingAviso('Modo prueba: no se sube a la nube'); return; }
+    if(window._ingReint) return;   // ya hay un reintento corriendo: los toques de más no apilan avisos
+    window._ingReint=true; try{ if(PV_CHECK.pendientes()>0) _ingAviso('Subiendo los casos… puede tardar hasta 20 segundos por caso.'); }catch(e){}
+    let p; try{ p=PV_CHECK.reenviarPendientes(_ingGuardar); }catch(e){ p=Promise.resolve(-1); }
+    Promise.resolve(p).finally(()=>{ window._ingReint=false; }).then(q=>{ _ingAviso(Number(q)>0 ? ('Todavía quedan '+Number(q)+' caso(s) sin subir. Revisa la señal.') : 'Listo: todos los casos quedaron en la nube.'); _ingRepintarSiActiva(); }, ()=>_ingRepintarSiActiva());
+}
+// Buscador: mismo criterio del filtro de Clientes (nombre, cédula, teléfono o servicio WispHub), sobre clientesVivos. Máximo 8.
+function _ingBuscarClientes(q){
+    q=String(q||'').toLowerCase().trim();
+    const res=[]; if(q.length<2 || !USER) return res;
+    for(const o of (currentOficinas()||[])){
+        for(const c of clientesVivos(o)){
+            if((c.nombre||'').toLowerCase().includes(q) || String(c.cedula||'').includes(q) || String(c.telefono||'').includes(q) || String(c.servicioWisphub||'').includes(q)){
+                res.push({o, c}); if(res.length>=8) return res;
+            }
+        }
+    }
+    return res;
+}
+function _ingPintarResultados(){
+    const caja=document.getElementById('ingResultados'); if(!caja) return;
+    const q=String(window._ing.q||'').trim();
+    if(q.length<2){ caja.innerHTML=''; return; }
+    const res=_ingBuscarClientes(q), esAdmin=USER && USER.role==='admin';
+    caja.innerHTML = res.length===0
+        ? '<p style="color:var(--muted);font-size:0.85rem;margin:8px 0 0;">Sin clientes que coincidan. Prueba con el documento, el teléfono o el número de servicio.</p>'
+        : res.map(r=>`<button type="button" class="btn btn-outline" style="display:block;width:100%;box-sizing:border-box;text-align:left;margin-top:8px;padding:10px 12px;white-space:normal;" data-oid="${esc2(r.o.id)}" data-cid="${esc2(r.c.id)}" onclick="ingAbrirDesdeCliente(this.dataset.oid,this.dataset.cid)">
+                <span style="font-weight:700;">${esc2(r.c.nombre||'Sin nombre')}</span>
+                <span style="display:block;font-size:0.76rem;color:var(--muted);font-weight:400;margin-top:2px;">${r.c.servicioWisphub?'🔌 '+esc2(r.c.servicioWisphub)+' · ':''}📦 ${esc2(r.c.plan||'-')} · ${esc2(r.c.estado||'Activo')}${esAdmin?' · 🏢 '+esc2(r.o.nombre||''):''}</span>
+            </button>`).join('') + (res.length>=8?'<p style="color:var(--muted);font-size:0.74rem;margin:6px 0 0;">Se muestran los primeros 8. Escribe más para afinar.</p>':'');
+}
+// Casos del mes: no lee NADA hasta que se pulsa Cargar (2 lecturas por oficina visible: el documento del mes y su reserva _b)
+function _ingMesMs(sel){ const d=new Date(); return sel==='anterior' ? new Date(d.getFullYear(), d.getMonth()-1, 15, 12).getTime() : d.getTime(); }
+function _ingMesClave(sel){ const d=new Date(_ingMesMs(sel)); return d.getFullYear()+'_'+String(d.getMonth()+1).padStart(2,'0'); }
+function _ingMesTexto(sel){ const d=new Date(_ingMesMs(sel)); return _ING_MESES[d.getMonth()]+' de '+d.getFullYear(); }
+// Las listas empezaron el 1-sep-2026 y PV_CHECK.docMes sube cualquier fecha anterior hasta ese mes: si el documento que se leería
+// no es el del mes pedido (agosto de 2026 leería septiembre), ese mes no se ofrece
+function _ingMesHay(sel){ try{ return PV_CHECK.docMes(_ingMesMs(sel),'x').indexOf('esc_'+_ingMesClave(sel)+'_')===0; }catch(e){ return false; } }
+async function ingCargarMes(){
+    const E=window._ing;
+    if(E.cargando || !USER) return;
+    if(!_ingHay()) return _ingSinLista();
+    if(typeof db==='undefined' || !db){ E.error='No hay conexión con la nube.'; return _ingRepintarSiActiva(); }
+    const sel=(E.mesSel==='anterior' && _ingMesHay('anterior'))?'anterior':'actual', ms=_ingMesMs(sel), clave=_ingMesClave(sel);
+    const ofis=(currentOficinas()||[]).slice();   // el rol decide: admin todas, oficina solo la suya
+    E.cargando=true; E.error=''; _ingRepintarSiActiva();
+    try{
+        const col=db.collection('oficinas_sistema'), porId={}, porOficina=[]; let lecturas=0;
+        for(const o of ofis){
+            const base=PV_CHECK.docMes(ms, o.id);
+            const snaps=await Promise.all([col.doc(base).get(), col.doc(base+'_b').get()]); lecturas+=2;
+            let n=0;
+            snaps.forEach(s=>{ const it=(s.exists && s.data() && typeof s.data().items==='object' && s.data().items) || {};
+                Object.keys(it).forEach(k=>{ if(typeof it[k]==='string' && !(k in porId)){ porId[k]=it[k]; n++; } }); });
+            porOficina.push({ nombre:String(o.nombre||o.id||''), n });
+        }
+        if(!E.mes || typeof E.mes!=='object') E.mes={};
+        E.mes[sel]={ clave, leidoMs:Date.now(), registros:Object.keys(porId).map(k=>porId[k]), porOficina, lecturas };
+    }catch(e){ console.warn('casos del mes:', e); E.error='No se pudieron leer los casos. Revisa la conexión e inténtalo otra vez.'; }
+    E.cargando=false; _ingRepintarSiActiva();
+}
+function _ingMesHTML(){
+    const E=window._ing, esAdmin=USER.role==='admin', hayAnt=_ingMesHay('anterior'), sel=(E.mesSel==='anterior' && hayAnt)?'anterior':'actual';
+    let m=(E.mes||{})[sel]||null; if(m && m.clave!==_ingMesClave(sel)) m=null;   // cambió el mes con la app abierta
+    let cuerpo='';
+    if(E.cargando) cuerpo='<p style="color:var(--muted);font-size:0.85rem;">⏳ Leyendo…</p>';
+    else if(m){
+        let tabla=''; try{ tabla=PV_CHECK.tablaMesHTML(PV_CHECK.resumenMes(m.registros)); }catch(e){ tabla='<p style="color:#ef4444;font-size:0.85rem;">No se pudo armar la tabla.</p>'; }
+        cuerpo=`<p style="color:var(--muted);font-size:0.78rem;margin:0 0 8px;">Leído a las ${esc2(_ingHora(m.leidoMs))} · ${Number(m.lecturas)||0} lectura(s). No se actualiza solo: pulsa «Volver a cargar».</p>
+            ${esAdmin && m.porOficina.length>1?`<p style="font-size:0.8rem;margin:0 0 8px;">${m.porOficina.map(x=>'🏢 '+esc2(x.nombre)+': <b>'+(Number(x.n)||0)+'</b>').join(' · ')}</p>`:''}
+            ${tabla}`;
+    }
+    return `<p style="font-size:0.84rem;color:var(--muted);margin:0 0 10px;line-height:1.5;">${esAdmin?'Todas las oficinas (incluye lo que validan sus técnicos).':'Solo los casos de tu oficina (incluye lo que validan tus técnicos).'} No se lee nada de la nube hasta que pulses «Cargar».</p>
+        <select class="form-control" style="width:auto;max-width:100%;margin:0 8px 8px 0;vertical-align:middle;" onchange="window._ing.mesSel=this.value;window._ing.error='';renderIngeniero()">
+            <option value="actual" ${sel==='actual'?'selected':''}>Este mes · ${esc2(_ingMesTexto('actual'))}</option>
+            <option value="anterior" ${sel==='anterior'?'selected':''} ${hayAnt?'':'disabled'}>Mes anterior · ${esc2(_ingMesTexto('anterior'))}${hayAnt?'':' (sin datos: las listas empezaron en septiembre de 2026)'}</option>
+        </select>
+        <button class="btn btn-primary" style="margin-bottom:8px;vertical-align:middle;" ${E.cargando?'disabled':''} onclick="ingCargarMes()">${m?'🔄 Volver a cargar':'📥 Cargar'}</button>
+        ${E.error?`<p style="color:#ef4444;font-size:0.85rem;">${esc2(E.error)}</p>`:''}
+        ${cuerpo}`;
+}
+function renderIngeniero(){
+    const cont=document.getElementById('appContent');
+    if(!cont || !USER) return;
+    const E=window._ing, esAdmin=USER.role==='admin';
+    const cab=`<h1 style="margin:0;font-size:1.4rem;">🛑 Antes de llamar al ingeniero</h1>
+        <p style="margin:4px 0 16px;color:var(--muted);font-size:0.85rem;">Una lista corta por servicio. Al final la app te dice si es de cartera, de técnico o del ingeniero, y arma el mensaje o la orden.</p>`;
+    if(!_ingHay()){
+        cont.innerHTML=`<div id="ingVista" style="width:760px;max-width:100%;margin:0 auto;">${cab}
+            <div class="card" style="border:2px solid #f59e0b;"><p style="font-weight:700;margin-bottom:8px;">⚠️ No cargó la lista de validación.</p>
+            <p style="font-size:0.85rem;color:var(--muted);margin-bottom:12px;">Suele pasar cuando la página abrió con mala señal. Recarga y vuelve a entrar.</p>
+            <button class="btn btn-primary" onclick="location.reload()">🔄 Recargar</button></div></div>`;
+        return;
+    }
+    const ofis=currentOficinas()||[], o=_ingOficinaActiva();
+    let pend=0; try{ pend=Number(PV_CHECK.pendientes())||0; }catch(e){ pend=0; }
+    cont.innerHTML=`<div id="ingVista" style="width:760px;max-width:100%;margin:0 auto;">
+        ${cab}
+        <div id="ingVistaFranja">${_ingEstadoFranjaHTML()}</div>
+        ${MODO_PRUEBA?'<p style="font-size:0.8rem;color:#f59e0b;margin:0 0 10px;">🧪 Modo prueba: los casos y las fallas masivas no se suben a la nube.</p>':''}
+        ${pend>0?`<div id="ingPendientes" style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.4);border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:0.86rem;">
+            📤 <b>${pend} caso(s) sin subir</b> a la nube (quedaron guardados en este equipo). Se suben solos cuando hay señal.
+            <button class="btn btn-outline btn-sm" style="margin-left:6px;" onclick="ingReintentar()">Reintentar</button></div>`:''}
+        <div class="card" style="margin-bottom:14px;">
+            ${esAdmin && ofis.length>1?`<label style="font-size:0.78rem;color:var(--muted);">Oficina con la que se registra el caso</label>
+            <select class="form-control" style="margin:4px 0 12px;" onchange="window._ing.oid=this.value;renderIngeniero()">
+                ${ofis.map(x=>`<option value="${esc2(x.id)}" ${o&&String(o.id)===String(x.id)?'selected':''}>${esc2(x.nombre||x.id)}${x.ciudad?' · '+esc2(x.ciudad):''}</option>`).join('')}
+            </select>`:''}
+            <button class="btn btn-primary" style="display:block;width:100%;box-sizing:border-box;text-align:center;padding:16px 12px;font-size:1.05rem;" onclick="ingAbrir()">🛑 Empezar una validación</button>
+            <p style="font-size:0.8rem;color:var(--muted);margin:14px 0 4px;">O busca al cliente y entra con sus datos ya cargados:</p>
+            <input id="ingBuscar" class="form-control" type="search" autocomplete="off" placeholder="🔍 Nombre, cédula, teléfono o servicio WispHub" value="${esc2(E.q||'')}" oninput="window._ing.q=this.value;_ingPintarResultados()">
+            <div id="ingResultados"></div>
+        </div>
+        <button class="btn btn-danger" style="display:block;width:100%;box-sizing:border-box;text-align:center;padding:14px 12px;font-size:0.98rem;margin-bottom:14px;" onclick="ingAbrirMasiva()">🚨 Reportar falla masiva o apagón</button>
+        <div class="card" style="margin-bottom:14px;">
+            <div class="card-header"><h2>📢 Fallas masivas y apagones vigentes</h2></div>
+            <div id="ingVistaMasivas">${_ingMasivasHTML()}</div>
+        </div>
+        <div class="card" style="margin-bottom:14px;">
+            <div class="card-header"><h2>📊 Casos del mes</h2></div>
+            <div id="ingVistaMes">${_ingMesHTML()}</div>
+        </div>
+    </div>`;
+    _ingPintarResultados();
+}
+window.renderIngeniero=renderIngeniero; window.ingAbrir=ingAbrir; window.ingAbrirMasiva=ingAbrirMasiva; window.ingAbrirDesdeCliente=ingAbrirDesdeCliente;
+window.ingQuitarMasiva=ingQuitarMasiva; window.ingReintentar=ingReintentar; window.ingCargarMes=ingCargarMes; window.iniciarEscuchaFallasMasivas=iniciarEscuchaFallasMasivas;
+window._ingOp=_ingOp; window._ingGuardar=_ingGuardar; window._ingGuardarMasiva=_ingGuardarMasiva; window._ingCerrarMasiva=_ingCerrarMasiva; window._ingCrearOrden=_ingCrearOrden;
+window._ingPintarResultados=_ingPintarResultados; window._ingPintarFranja=_ingPintarFranja; window._ingTrasOrden=_ingTrasOrden; window._ingPrecargaDe=_ingPrecargaDe;
 
 // FASE F-2 — Genera órdenes de trabajo (tipo recogida) para las recogidas marcadas con casilla.
 function generarOrdenesRecogida(){
@@ -34242,7 +34628,7 @@ function openModal(title,body,footer=''){
     document.getElementById('modal').classList.add('show');
 }
 function closeModal(){ document.getElementById('modal').classList.remove('show'); window._bloqueoCompSuspendido=false; try{ if(typeof _verificarBloqueoComprobantes==='function') _verificarBloqueoComprobantes(); }catch(e){} }
-document.getElementById('modal').addEventListener('click',function(e){ if(e.target===this) closeModal(); });
+document.getElementById('modal').addEventListener('click',function(e){ if(e.target===this && !document.getElementById('fo_valid')) closeModal(); });   // v311: la orden que nace de una validación no se cierra con un clic fuera (el caso YA quedó guardado como «orden»)
 
 // ════════════════════════════════════════════════════════════════════════════
 // ☁️ RESPALDO AUTOMÁTICO A GOOGLE DRIVE (Camino A)

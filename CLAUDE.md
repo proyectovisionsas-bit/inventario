@@ -25,14 +25,15 @@ sin proceso de compilación: se editan directamente y se publican tal cual.
 | Archivo | Para quién | Versión | Tamaño |
 |---|---|---|---|
 | `index.html` | Portal de entrada, solo enlaces | — | 170 líneas |
-| `OFICINAS_PTOVISION.html` | Oficina: caja, cartera, facturas, clientes, RRHH, SG-SST | `APP_VERSION = 310` | 34.553 líneas · 2,5 MB |
+| `OFICINAS_PTOVISION.html` | Oficina: caja, cartera, facturas, clientes, RRHH, SG-SST | `APP_VERSION = 311` | 34.939 líneas · 2,5 MB |
 | `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 111` | 11.311 líneas · 782 KB |
 | `RED_PTOVISION.html` | Red y nodos | `APP_VERSION_RED = 41` | 9.404 líneas · 573 KB |
-| `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 96` | 3.208 líneas · 205 KB |
-| `PRUEBAS.html` | Banco de pruebas (102 pruebas) | — | 3.879 líneas |
+| `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 97` | 3.402 líneas · 222 KB |
+| `PRUEBAS.html` | Banco de pruebas (106 pruebas) | — | 4.491 líneas |
 | `FIRMA_SST.html` | Firma desde el celular (SG-SST): página pública, sin login, lee un solo documento por token | — | 187 líneas |
 | `contrato.js` | Contrato de servicio: **compartido** OFICINAS ↔ TECNICOS | `?v=6` | 956 líneas |
 | `ia.js` | Llamadas a Groq: compartido por OFICINAS, INVENTARIO y TECNICOS | `?v=5` | 388 líneas |
+| `checklists.js` | «Antes de llamar al ingeniero»: listas, motor y pantalla, **compartido** OFICINAS ↔ TECNICOS | `?v=1` | 1.413 líneas · 232 KB |
 | `wisphub-explorador.html` | Herramienta aparte para explorar la API de WispHub | — | 391 líneas |
 
 Las cifras de esta tabla se actualizan con `/revisar`. Si no cuadran con lo que
@@ -84,6 +85,7 @@ cargan enteras: se leen cuando se toca ese tema.
 - @docs/06-material-ordenes-y-limpiezas.md — bodega ↔ cuadrilla, estados de órdenes, limpiezas
 - @docs/07-sgsst.md — SG-SST: documentos `sgsst_*`, firma desde el celular (`FIRMA_SST.html`), cálculos legales
 - @docs/08-modo-mantenimiento.md — modo mantenimiento: documento `mantenimiento`, qué ve cada rol, cómo termina al publicar
+- @docs/09-antes-de-llamar-al-ingeniero.md — listas de validación antes de escalar (`checklists.js`), documentos `esc_*` y `fallas_masivas`, cómo corregir un paso
 
 ## Pendientes conocidos
 

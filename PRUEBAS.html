@@ -3535,7 +3535,7 @@ const PRUEBAS = [
        +'const limpio=!document.getElementById("mantOverlay") && !document.getElementById("mantBanner");'
        +'const leer=async f=>{ try{ return await (await fetch(f,{cache:"no-store"})).text(); }catch(e){ return ""; } }; const inv=await leer("INVENTARIO_PTOVISION.html"), tec=await leer("TECNICOS_PTOVISION.html"), red=await leer("RED_PTOVISION.html");'
        +'const otras={ inv: inv.indexOf("const APP_VERSION_INV = 111;")>=0 && inv.indexOf("const MANT_APP=\'inventario\';")>=0 && inv.indexOf("onSnapshot(doc(fsDB,\'oficinas_sistema/mantenimiento\')")>=0 && inv.indexOf("onSnapshot(doc(fsDB,\'oficinas_sistema/app_version\')")>=0 && inv.indexOf("return !!(typeof USER!==\'undefined\' && USER && USER.role===\'admin\')")>=0 && inv.indexOf("window.USER")<0 === false,'
-       +'  tec: tec.indexOf("const APP_VERSION_TEC = 96;")>=0 && tec.indexOf("const MANT_APP=\'tecnicos\';")>=0 && tec.indexOf("iniciarEscuchaVersionTec(); iniciarEscuchaMantenimiento();")>=0 && tec.indexOf("return false; }catch(e){ return false; } }")>=0 && tec.indexOf(".doc(\'app_version\').onSnapshot(")>=0,'
+       +'  tec: tec.indexOf("const APP_VERSION_TEC = 97;")>=0 && tec.indexOf("const MANT_APP=\'tecnicos\';")>=0 && tec.indexOf("iniciarEscuchaVersionTec(); iniciarEscuchaMantenimiento();")>=0 && tec.indexOf("return false; }catch(e){ return false; } }")>=0 && tec.indexOf(".doc(\'app_version\').onSnapshot(")>=0,'
        +'  red: red.indexOf("const APP_VERSION_RED = 41;")>=0 && red.indexOf("const MANT_APP=\'red\';")>=0 && red.indexOf("iniciarEscuchaMantenimiento(); }catch(e){ console.warn(\'mantenimiento red:\'")>=0 && red.indexOf(".doc(\'app_version\').onSnapshot(")>=0 };'
        +'const escucha=_saveReal.toString().length>0 && typeof iniciarEscuchaMantenimiento==="function" && typeof window._unsubMant==="function";'
        +'return {vig1,vig2,vig3,vig4,vig5,vig6,vig7,vig8,bloqueo,tecladoBloqueado,cuenta,admin,sinSesion,pausa,quita,zOk,form,docBien,activa,activaDet,limpio,otras,escucha};'
@@ -3548,7 +3548,7 @@ const PRUEBAS = [
       +'\nDeja de aplicar cuando la sesión ya es una versión mayor que la que había al activar, o cuando la nube ya tiene una OFICINAS publicada mayor (así termina también en INVENTARIO, TECNICOS y RED); la pantalla de "hay versión nueva" queda por encima ✓'
       +'\nMientras la sesión está bloqueada, sus guardados y su registro de auditoría quedan en pausa (no se intenta ninguna escritura) y al terminar el mantenimiento se reanudan solos ✓'
       +'\nEl formulario del panel arma el documento (mensaje limpio, apps marcadas, aviso previo, versiones) y activar escribe en la nube (aquí quedó bloqueado por el modo prueba) y deja registro de auditoría ✓'
-      +'\nOFICINAS escucha el documento desde que entra; INVENTARIO v111 (reconoce la sesión por nombre, no por window.USER), TECNICOS v96 y RED v41 traen el mismo bloque, su escucha y la de la versión publicada de OFICINAS ✓'
+      +'\nOFICINAS escucha el documento desde que entra; INVENTARIO v111 (reconoce la sesión por nombre, no por window.USER), TECNICOS v97 y RED v41 traen el mismo bloque, su escucha y la de la versión publicada de OFICINAS ✓'
      : JSON.stringify(r)};}},
 {app:'ofi', titulo:'Subir un comprobante con el clip deja el pago con soporte completo (y borrar el último lo devuelve a pendiente)',
  porque:'16 sep 2026: 14 pagos de YESCENIA y NATALIA tenían comprobante y seguían como "pendiente" porque solo el cargue por lotes '
@@ -3750,6 +3750,618 @@ const PRUEBAS = [
       +'\nLa lista de campos vacíos queda anotada en la consola y en errores_guardado (una vez cada 30 minutos) para encontrar el origen ✓'
       +'\nLa sincronización de WispHub en memoria ya no deja el tipo de factura vacío ✓'
      : JSON.stringify(r)};}},
+// ───────────── v311: «Antes de llamar al ingeniero» (checklists.js) ─────────────
+{app:'ofi', titulo:'Las listas de «Antes de llamar al ingeniero» cumplen el contrato',
+ porque:'v311 (19 sep 2026). Las listas, el motor y la ficha de WhatsApp viven en checklists.js y los comparten OFICINAS y TECNICOS. '
+       +'Si un paso repite su id, si un campo pide un dato personal, si la ficha no cabe en un mensaje o si el registro lleva un campo '
+       +'vacío o una clave numérica, el daño sale en la nube: las reglas de Firebase están abiertas y Firebase rechaza la escritura entera. '
+       +'Esta prueba recorre TODAS las combinaciones de servicio, rol, síntoma y variante con el peor caso en cada una, y no depende de '
+       +'los ids de hoy: si mañana se cambia un paso, sigue valiendo.',
+ correr:async W=>{
+   const P=W.PV_CHECK;
+   if(!P || !P.datos || typeof P.pasos!=='function') return {ok:false, detalle:'OFICINAS no cargó checklists.js: window.PV_CHECK no existe.'};
+   const D=P.datos, fallas=[], r={};
+   const anota=(k,t)=>{ r[k]=false; if(fallas.length<12) fallas.push(k+': '+t); };
+   const lista=x=>Array.isArray(x)?x:[];
+   const ID_OK=/^[A-Za-z_][A-Za-z0-9_\-]*$/;
+   const SALIDAS=['','cartera','comercial','masiva','autorizador','tecnico','ingeniero_llamada','ingeniero_mensaje','resuelve'];
+   const TIPOS=['opcion','sino','numero','texto'], SEMS=['','rx_onu','rx_olt','senal_radio','wifi','perdidos','ccq'], COLORES=['','verde','amarillo','rojo'];
+   // Un campo no puede PEDIR un dato personal. Los paréntesis que lo prohíben ("sin usuario ni clave") no cuentan.
+   const PERSONAL=/c[eé]dula|documento|direcci[oó]n|tel[eé]fono|celular|\bip\b|clave|contrase|password|usuario|serial|\bmac\b|pppoe/i;
+   const servicios=Object.keys(D.servicios||{});
+   const claves=['idsPaso','idsCampo','idsListas','sinPersonales','referencias','combos','fichas','registros','semaforos','docMes','peso','alturas','masivas','guiasSi','sugerencia','resumenMes','masivasTope','borradorClave'];
+   claves.forEach(k=>{ r[k]=true; });
+
+   // 1. Ids únicos, de texto y nunca numéricos (pasos, campos, síntomas, variantes, casos, motivos y causas)
+   const grupos=[];
+   Object.keys(D.comun||{}).forEach(k=>grupos.push({donde:'comun.'+k, servicio:'', pasos:lista(D.comun[k])}));
+   servicios.forEach(s=>['oficina','tecnico'].forEach(rol=>grupos.push({donde:s+'.'+rol, servicio:s, pasos:lista(D.servicios[s][rol])})));
+   const idUnico=(arr, clave, donde)=>{ const v={}; lista(arr).forEach(x=>{ const id=x&&x.id;
+       if(typeof id!=='string' || !ID_OK.test(id)) anota(clave, donde+' tiene un id que no sirve: '+JSON.stringify(id));
+       else if(v[id]) anota(clave, donde+' repite el id '+id); v[id]=true; }); return v; };
+   const todosSint={}, todosVari={};
+   servicios.forEach(s=>{ if(!ID_OK.test(s)) anota('idsListas','servicio con id que no sirve: '+s);
+     Object.assign(todosSint, idUnico(D.servicios[s].sintomas,'idsListas','síntomas de '+s));
+     Object.assign(todosVari, idUnico(D.servicios[s].variantes,'idsListas','variantes de '+s)); });
+   idUnico(D.casos,'idsListas','casos'); const motivos=Object.keys(idUnico(D.motivosNoPude,'idsListas','motivosNoPude')); idUnico(D.causasResuelto,'idsListas','causasResuelto');
+   if(motivos.indexOf('inseguro')<0) anota('idsListas','falta el motivo "inseguro" (lo usa la parada de alturas)');
+   const vistosP={}, vistosC={}; let nPasos=0, nCampos=0; const deSeguridad=[];
+   grupos.forEach(g=>{ const sv=g.servicio?D.servicios[g.servicio]:null;
+     const sOk=sv?lista(sv.sintomas).map(x=>x.id):Object.keys(todosSint), vOk=sv?lista(sv.variantes).map(x=>x.id):Object.keys(todosVari);
+     g.pasos.forEach(p=>{ nPasos++;
+       if(!p || typeof p.id!=='string' || !ID_OK.test(p.id)){ anota('idsPaso', g.donde+' tiene un paso con id que no sirve: '+JSON.stringify(p&&p.id)); return; }
+       if(vistosP[p.id]) anota('idsPaso', p.id+' está en '+vistosP[p.id]+' y en '+g.donde); vistosP[p.id]=g.donde;
+       if(p.seguridad) deSeguridad.push({paso:p, grupo:g});
+       if(typeof p.titulo!=='string' || !p.titulo.trim()) anota('referencias', p.id+' no tiene título');
+       // 3. Cada síntoma, variante y salida que se nombra existe
+       lista(p.sintomas).forEach(x=>{ if(sOk.indexOf(x)<0) anota('referencias', p.id+' nombra el síntoma '+x+', que no existe en '+(g.servicio||'ningún servicio')); });
+       lista(p.variantes).forEach(x=>{ if(vOk.indexOf(x)<0) anota('referencias', p.id+' nombra la variante '+x+', que no existe en '+(g.servicio||'ningún servicio')); });
+       lista(p.siMal).forEach(x=>{ if(SALIDAS.indexOf((x&&x.salida)||'')<0) anota('referencias', p.id+' manda a la salida '+(x&&x.salida)+', que el motor no conoce'); });
+       lista(p.campos).forEach(c=>{ nCampos++;
+         if(!c || typeof c.id!=='string' || !ID_OK.test(c.id)){ anota('idsCampo', p.id+' tiene un campo con id que no sirve: '+JSON.stringify(c&&c.id)); return; }
+         if(vistosC[c.id]) anota('idsCampo', c.id+' está en '+vistosC[c.id]+' y en '+p.id); vistosC[c.id]=p.id;
+         if(TIPOS.indexOf(c.tipo)<0) anota('referencias', c.id+' es de tipo '+c.tipo);
+         if(SEMS.indexOf(c.semaforo||'')<0) anota('referencias', c.id+' usa el semáforo '+c.semaforo+', que no existe');
+         if(c.tipo==='opcion'){ if(lista(c.opciones).length<2) anota('referencias', c.id+' no tiene opciones');
+           lista(c.opciones).forEach(o=>{ if(!o || typeof o.v!=='string' || !o.v || COLORES.indexOf(o.color||'')<0) anota('referencias', c.id+' tiene una opción mal armada'); }); }
+         // 2. Ningún campo pide cédula, dirección, teléfono, IP, clave, serial ni MAC
+         const pide=String(c.etiqueta||'').replace(/\((sin|no|nunca)\b[^)]*\)/gi,' ')+' '+c.id.replace(/_/g,' ');
+         if(PERSONAL.test(pide)) anota('sinPersonales', c.id+' pide un dato personal: «'+c.etiqueta+'»');
+       }); }); });
+   lista(D.casos).forEach(c=>{ if(!c) return;
+     lista(c.servicios).forEach(s=>{ if(servicios.indexOf(s)<0) anota('referencias','el caso '+c.id+' nombra el servicio '+s); });
+     lista(c.roles).forEach(x=>{ if(x!=='oficina' && x!=='tecnico') anota('referencias','el caso '+c.id+' nombra el rol '+x); });
+     if(c.via!=='llamada' && c.via!=='mensaje') anota('referencias','el caso '+c.id+' no dice si es llamada o mensaje');
+     if(typeof c.texto!=='string' || !c.texto.trim()) anota('referencias','el caso '+c.id+' no tiene texto'); });
+
+   // 4. Todas las combinaciones, con el peor caso: todo con problema o «no pude», números con coma, texto con una IP y un teléfono
+   const SIN='__sin__', textoMalo='Error 691 desde 192.168.1.20, llamar al 300 123 4567 o al 3001234567 para seguir';
+   const PROHIBIDO=['1117500123','CALLE 5','3001234567','300 123 4567','10.20.30.40','192.168.1.20','secreto123','zulma.rios','RIOSFALSO'];
+   const ctxMalo=rol=>({app:rol==='tecnico'?'tecnicos':'oficinas', rol, municipio:'San José del Fragua', oficinaId:'ofi_prueba', quienId:'u_prueba', quienNombre:'NATALIA PRUEBA',
+     nombreCorto:'ZULMA RIOSFALSO PEREZ', cedula:'1117500123', clienteCedula:'1117500123', direccion:'CALLE 5 # 4-32 BARRIO CENTRO', telefono:'3001234567', ip:'10.20.30.40', clave:'secreto123', usuarioPppoe:'zulma.rios'});
+   const armar=(servicio, rol, sintoma, variante, modo)=>{ const peor=modo==='peor'; const e=P.nuevoEstado({app:rol==='tecnico'?'tecnicos':'oficinas', rol});
+     e.servicio=servicio; e.sintoma=sintoma; e.variante=variante;
+     e.pre={sw:'98765', nom:'ZULMA', plan:'PLAN 100 MEGAS HOGAR', ord:'ord_1758300000000_ab', tipoOrden:'soporte'};
+     if(!modo) return e;
+     P.pasos(servicio, rol, sintoma, variante).forEach((p,i)=>{ e.resp[p.id]=!peor?'bien':((i%2)?'nopude':'problema'); if(peor && i%2) e.motivo[p.id]=motivos[i%Math.max(1,motivos.length)]||'';
+       lista(p.campos).forEach(c=>{ e.datos[c.id]= c.tipo==='numero' ? (!peor?'-21,4':((c.sinDato && i%2)?SIN:'-27,5')) : c.tipo==='texto' ? (peor?textoMalo:'Error 691') : c.tipo==='sino' ? (peor?'no':'si')
+           : (lista(c.opciones).length?c.opciones[peor?c.opciones.length-1:0].v:''); }); });
+     const casos=lista(P.evaluar(e).casos); e.caso=casos.length?casos.reduce((a,b)=>String(b.texto).length>String(a.texto).length?b:a).id:'';
+     e.estadoVisto=peor?'Suspendido por mora':'Activo'; e.causa=peor?'causa_mora':''; e.salida='ingeniero'; e.finMs=e.iniMs+600000; return e; };
+   const revisar=(o, ruta)=>{ if(o===undefined) return ruta+' vale undefined'; if(typeof o==='function') return ruta+' es una función';
+     if(typeof o==='number' && !isFinite(o)) return ruta+' no es un número de verdad'; if(o===null || typeof o!=='object') return '';
+     if(Array.isArray(o)){ for(let i=0;i<o.length;i++){ const x=revisar(o[i], ruta+'['+i+']'); if(x) return x; } return ''; }
+     for(const k of Object.keys(o)){ if(k==='' || /^\d/.test(k) || /[.\/]/.test(k)) return ruta+' tiene la clave «'+k+'» (numérica o con punto)'; const x=revisar(o[k], ruta+'.'+k); if(x) return x; }
+     return ''; };
+   const CAMPOS_REG=['id','v','app','rol','serv','sint','vari','of','mun','porId','porNombre','sw','ord','iniMs','finMs','sal','caso','causa','h','t','pr','np','d'];
+   let nCombos=0, fichaMax=0, regMax=''; const tipicos=[];
+   servicios.forEach(s=>{ const sv=D.servicios[s], sint=lista(sv.sintomas).map(x=>x.id), vari=lista(sv.variantes).length?lista(sv.variantes).map(x=>x.id):[''];
+     if(!sint.length) anota('combos', s+' no tiene síntomas');
+     ['oficina','tecnico'].forEach(rol=>sint.forEach(si=>vari.forEach(va=>{ nCombos++; const cual=s+'/'+rol+'/'+si+(va?'/'+va:'');
+       let ps=[]; try{ ps=lista(P.pasos(s, rol, si, va)); }catch(e){ anota('combos', cual+' revienta: '+e.message); return; }
+       if(!ps.length){ anota('combos', cual+' no tiene ningún paso'); return; }
+       [false,'peor','tipico'].forEach(modo=>{ try{
+           const e=armar(s, rol, si, va, modo), c=ctxMalo(rol), ficha=String(P.textoWhatsApp(e, c)), larga=String(P.textoWhatsApp(e, c, true)), orden=String(P.resumenOrden(e)), reg=P.registro(e, c), json=JSON.stringify(reg);
+           fichaMax=Math.max(fichaMax, ficha.length);
+           if(ficha.length>900) anota('fichas', cual+': la ficha mide '+ficha.length+' letras (máximo 900)');
+           if(/\bundefined\b|\bnull\b|\bNaN\b|\[object /.test(ficha+' '+larga+' '+orden)) anota('fichas', cual+': la ficha o el resumen dicen undefined, null o NaN');
+           if(ficha.indexOf('ZULMA')<0 || ficha.indexOf('98765')<0) anota('fichas', cual+': la ficha no trae el primer nombre o el servicio WispHub');
+           if(orden.length>160 || /[<>]/.test(orden)) anota('fichas', cual+': el resumen para la orden mide '+orden.length+' o trae < >');
+           PROHIBIDO.forEach(x=>{ if((ficha+' '+larga+' '+orden).indexOf(x)>=0) anota('fichas', cual+': la ficha deja pasar «'+x+'»'); if(json.indexOf(x)>=0) anota('registros', cual+': el registro deja pasar «'+x+'»'); });
+           const malo=revisar(reg,'registro'); if(malo) anota('registros', cual+': '+malo);
+           if(json.indexOf('ZULMA')>=0) anota('registros', cual+': el registro guarda el nombre del cliente');
+           CAMPOS_REG.forEach(k=>{ if(!(k in reg)) anota('registros', cual+': al registro le falta '+k); });
+           ['tipo','clienteCedula','firmaRef','nombre','nom','cedula','direccion','telefono'].forEach(k=>{ if(k in reg) anota('registros', cual+': el registro trae el campo '+k); });
+           if(modo==='peor' && json.length>regMax.length) regMax=json; if(modo==='tipico') tipicos.push(json);
+         }catch(e){ anota('combos', cual+' ('+(modo||'vacío')+') revienta: '+e.message); } });
+     }))); });
+
+   // 5. Semáforos
+   const sem=[['rx_onu',21.4,'verde'],['rx_onu','-27,5','rojo'],['rx_onu','-26','amarillo'],['rx_onu','abc',''],['perdidos',0,'verde'],['perdidos','1','amarillo'],['perdidos',2,'rojo']];
+   sem.forEach(x=>{ const v=P.semaforo(x[0], x[1]); if(v!==x[2]) anota('semaforos', x[0]+' con '+JSON.stringify(x[1])+' da «'+v+'» y debía dar «'+x[2]+'»'); });
+
+   // 6. El documento del mes sale de la HORA LOCAL, y un reloj malo no crea documentos de otro siglo
+   const dm=[[new Date(2026,8,30,23,59).getTime(),'ofi1','esc_2026_09_ofi1'],[new Date(2026,9,1,0,30).getTime(),'ofi1','esc_2026_10_ofi1'],[new Date(2027,0,1,0,5).getTime(),'ofi1','esc_2027_01_ofi1'],
+     [0,'ofi1','esc_2026_09_ofi1'],[new Date(2019,4,5).getTime(),'ofi1','esc_2026_09_ofi1'],['no es fecha','ofi1','esc_2026_09_ofi1'],[new Date(2026,9,1,0,30).getTime(),'','esc_2026_10_sin'],[new Date(2026,9,1,0,30).getTime(),'a/b.c d','esc_2026_10_a_b_c_d']];
+   dm.forEach(x=>{ const v=P.docMes(x[0], x[1]); if(v!==x[2]) anota('docMes', 'docMes('+JSON.stringify(x[0])+', '+JSON.stringify(x[1])+') da '+v+' y debía dar '+x[2]);
+     if(!/^esc_\d{4}_\d{2}_[A-Za-z0-9_\-]+$/.test(String(v))) anota('docMes', v+' no es un nombre de documento que OFICINAS acepte'); });
+
+   // 7. 600 casos de ejemplo (todo respondido y todos los datos llenos, rotando por todas las combinaciones) en un documento {items:{id:texto}}:
+   //    peso y entradas de índice (cada hoja cuenta dos veces: subiendo y bajando). El peor caso posible se informa aparte.
+   const items={}, itemsPeor={}; for(let i=0;i<600;i++){ const id='e'+(1758300000000+i*61000).toString(36)+'pr'+(i%7); items[id]=tipicos.length?tipicos[i%tipicos.length]:''; itemsPeor[id]=regMax; }
+   const docEj={items, actualizadoMs:Date.now()}, pesoKB=o=>Math.round(new TextEncoder().encode(JSON.stringify(o)).length/1024);
+   const hojas=o=>(o && typeof o==='object') ? Object.keys(o).reduce((n,k)=>n+hojas(o[k]), 0) : 1;
+   const kb=pesoKB(docEj), kbPeor=pesoKB({items:itemsPeor, actualizadoMs:Date.now()}), nHojas=hojas(docEj), hojasComoMapa=regMax?600*hojas(JSON.parse(regMax)):0;
+   if(Object.keys(items).length!==600 || !regMax || !tipicos.length) anota('peso','no se pudieron armar los 600 registros de ejemplo');
+   if(kb>=700) anota('peso','600 registros pesan '+kb+' KB (tope de la prueba 700; el documento de Firebase aguanta 1.024)');
+   if(nHojas*2>=40000) anota('peso','600 registros dan '+(nHojas*2)+' entradas de índice (tope 40.000)');
+
+   // 8. La parada de alturas respondida «No pude: condición insegura» no bloquea ni cuenta como problema
+   if(!deSeguridad.length) anota('alturas','ninguna lista de técnico tiene un paso de seguridad (seguridad:true)');
+   deSeguridad.forEach(x=>{ const p=x.paso; servicios.forEach(s=>{ const sv=D.servicios[s], si=(lista(sv.sintomas)[0]||{}).id||'', va=(lista(sv.variantes)[0]||{}).id||'';
+       const ps=lista(P.pasos(s,'tecnico',si,va)); if(!ps.some(q=>q.id===p.id)) return;
+       const e=armar(s,'tecnico',si,va,false); ps.forEach(q=>{ e.resp[q.id]='bien'; }); e.resp[p.id]='nopude'; e.motivo[p.id]='inseguro';
+       lista(p.campos).forEach(c=>{ if(c.tipo==='sino') e.datos[c.id]='no'; else if(c.tipo==='opcion'){ const feo=lista(c.opciones).find(o=>o && (o.color==='rojo' || o.color==='amarillo')); if(feo) e.datos[c.id]=feo.v; } });
+       const ev=P.evaluar(e);
+       if(ev.puedeEscalar!==true) anota('alturas', s+': con '+p.id+' en «no pude: inseguro» no deja pasar al ingeniero');
+       if(lista(ev.problemas).some(q=>q.id===p.id) || lista(ev.guias).some(g=>g.pasoId===p.id)) anota('alturas', s+': '+p.id+' en «no pude: inseguro» cuenta como problema');
+       e.resp[p.id]='problema'; delete e.motivo[p.id]; if(!lista(P.evaluar(e).problemas).some(q=>q.id===p.id)) anota('alturas', s+': '+p.id+' marcado «con problema» no sale en los problemas');
+       if(p.obligatorio){ delete e.resp[p.id]; if(P.evaluar(e).puedeEscalar!==false) anota('alturas', s+': sin responder '+p.id+' igual deja pasar al ingeniero'); } }); });
+
+   // 9. Fallas masivas: vencen a las 6 horas, se comparan sin tildes ni mayúsculas, y la franja no interpreta HTML
+   try{
+     const t0=new Date(2026,8,19,10,0).getTime(), H6=6*3600000;
+     const m=P.masivaNueva({tipo:'masiva', municipio:'San José del Fragua', servicio:'fibra', afectados:'4', comun:'puerto 0/1/3', mensajeCliente:'Aviso <img src=x onerror=alert(1)> de prueba'}, {app:'oficinas', quienNombre:'Prueba', ahoraMs:t0});
+     const cuantas=(mapa, ahora, mun)=>lista(P.masivasVigentes(mapa, ahora, mun)).length;
+     if(m.creadaMs!==t0 || m.venceMs!==t0+H6 || m.cerradaMs!==0) anota('masivas','la falla nueva no vence a las 6 horas exactas');
+     if(revisar(m,'masiva') || /^\d/.test(String(m.id))) anota('masivas','la falla nueva trae un campo vacío o un id numérico: '+revisar(m,'masiva'));
+     if(cuantas({a:m}, t0+H6-1000, ['SAN JOSE DEL FRAGUA'])!==1) anota('masivas','un segundo antes de las 6 horas ya no sale, o no compara sin tildes');
+     if(cuantas({a:m}, t0+H6, ['San José del Fragua'])!==0 || cuantas({a:m}, t0+H6+1000, [])!==0) anota('masivas','a las 6 horas sigue saliendo');
+     if(cuantas({a:m}, t0+1000, ['Milán'])!==0) anota('masivas','sale en otro municipio');
+     if(cuantas({a:m}, t0+1000, [])!==1 || cuantas({a:m}, t0+1000, ['Milán','  san josé del FRAGUA '])!==1) anota('masivas','sin municipios debe salir, y con varios municipios también');
+     if(cuantas({a:Object.assign({}, m, {cerradaMs:t0+5})}, t0+1000, [])!==0) anota('masivas','una falla cerrada sigue saliendo');
+     if(cuantas({a:null, b:'basura', c:7, d:m}, t0+1000, [])!==1) anota('masivas','un registro dañado tumba o ensucia la lista');
+     const fr=String(P.franjaHTML(P.masivasVigentes({a:m}, t0+1000, [])));
+     if(fr.indexOf('<img')>=0 || fr.indexOf('&lt;img')<0) anota('masivas','la franja interpreta el HTML del mensaje');
+     if(P.franjaHTML([])!=='') anota('masivas','sin fallas vigentes la franja no queda vacía');
+   }catch(e){ anota('masivas','revienta: '+e.message); }
+
+   // 10. Cada guía con "si" mira un campo de SU MISMO paso, de una de dos formas (o de las dos): si:{campo, v:[códigos]} sobre un campo de opción
+   //     (códigos de sus opciones) o de sí/no ('si'/'no'); si:{campo, color:['rojo'|'amarillo'|'verde']} sobre un número CON semáforo o sobre un campo
+   //     de opción. Nunca sobre texto libre, y el color nunca sobre sí/no. Sin "v" ni "color", esa guía nunca mueve la sugerencia.
+   let nSi=0, nSiV=0, nSiColor=0; const COLORES_SI=['rojo','amarillo','verde'];
+   grupos.forEach(g=>g.pasos.forEach(p=>{ if(!p) return; lista(p.siMal).forEach((gu,i)=>{ if(!gu || gu.si===undefined) return; nSi++; const s=gu.si, cual=p.id+', guía '+i;
+       if(!s || typeof s!=='object' || Array.isArray(s) || typeof s.campo!=='string' || !s.campo){ anota('guiasSi', cual+': el "si" está mal armado (debe ser {campo, v:[…]} o {campo, color:[…]}): '+JSON.stringify(s)); return; }
+       const conV=s.v!==undefined, conColor=s.color!==undefined;
+       if(!conV && !conColor){ anota('guiasSi', cual+': el "si" sobre '+s.campo+' no trae ni "v" ni "color": nunca coincide'); return; }
+       if(conV && (!Array.isArray(s.v) || !s.v.length)){ anota('guiasSi', cual+': "v" debe ser una lista con al menos un código y trae '+JSON.stringify(s.v)); return; }
+       if(conColor && (!Array.isArray(s.color) || !s.color.length)){ anota('guiasSi', cual+': "color" debe ser una lista con al menos un color y trae '+JSON.stringify(s.color)); return; }
+       const c=lista(p.campos).find(x=>x && x.id===s.campo);
+       if(!c){ anota('guiasSi', cual+': mira el campo '+s.campo+', que no es de ese paso'); return; }
+       if(c.tipo==='texto'){ anota('guiasSi', cual+': mira el campo '+s.campo+', que es de texto libre (no tiene códigos ni color)'); return; }
+       if(conV){ nSiV++;
+         if(c.tipo!=='opcion' && c.tipo!=='sino') anota('guiasSi', cual+': usa "v" sobre el campo '+s.campo+', que es de tipo '+c.tipo+' (los códigos solo sirven en los de opción o sí/no'+(c.tipo==='numero'?'; para un número se usa "color"':'')+')');
+         else { const validos=c.tipo==='sino'?['si','no']:lista(c.opciones).map(o=>o&&o.v);
+           s.v.forEach(v=>{ if(typeof v!=='string' || validos.indexOf(v)<0) anota('guiasSi', cual+': espera el código '+JSON.stringify(v)+', que no existe en '+s.campo+' (valen: '+validos.join(', ')+')'); }); } }
+       if(conColor){ nSiColor++;
+         s.color.forEach(k=>{ if(COLORES_SI.indexOf(k)<0) anota('guiasSi', cual+': espera el color '+JSON.stringify(k)+', que no existe (solo rojo, amarillo o verde)'); });
+         if(c.tipo==='sino') anota('guiasSi', cual+': usa "color" sobre el campo '+s.campo+', que es de sí/no y nunca tiene color (ahí se usa "v" con «si» o «no»)');
+         else if(c.tipo==='numero' && !c.semaforo) anota('guiasSi', cual+': usa "color" sobre el número '+s.campo+', que no tiene semáforo: nunca tiene color');
+         else if(c.tipo!=='numero' && c.tipo!=='opcion') anota('guiasSi', cual+': usa "color" sobre el campo '+s.campo+', que es de tipo '+c.tipo+' (solo sirven un número con semáforo o un campo de opción)');
+         else if(c.tipo==='opcion'){ const alcanza=lista(c.opciones).map(o=>(o&&o.color)||'').concat(c.sinDato?['amarillo']:[]);
+           if(!s.color.some(k=>alcanza.indexOf(k)>=0)) anota('guiasSi', cual+': espera '+s.color.join(' o ')+' en '+s.campo+', y ninguna de sus opciones tiene ese color: nunca coincide'); } }
+       if(!gu.salida) anota('guiasSi', cual+': trae "si" pero no manda a ninguna salida'); }); }));
+   if(!nSi) anota('guiasSi','ninguna guía trae "si": la sugerencia quedaría siempre neutra');
+
+   // 11. La sugerencia, con los ids de hoy. Todos los pasos van en «Bien»: lo que la mueve es el color del dato. Si un id ya no existe, lo dice.
+   const dondeCampo=id=>{ let h=null; grupos.forEach(g=>g.pasos.forEach(p=>lista(p&&p.campos).forEach(c=>{ if(c && c.id===id) h=c; }))); return h; };
+   const sugerir=(nombre, servicio, rol, datos, espera)=>{ try{
+       for(const id of Object.keys(datos)){ const c=dondeCampo(id);
+         if(!c){ anota('sugerencia', nombre+': el campo '+id+' ya no existe en las listas'); return; }
+         if(c.tipo==='opcion' && !lista(c.opciones).some(o=>o && o.v===datos[id])){ anota('sugerencia', nombre+': la opción '+datos[id]+' ya no existe en el campo '+id); return; } }
+       const sv=D.servicios[servicio]; if(!sv){ anota('sugerencia', nombre+': el servicio '+servicio+' ya no existe'); return; }
+       const sint=lista(sv.sintomas).map(x=>x.id), vari=lista(sv.variantes).length?lista(sv.variantes).map(x=>x.id):['']; let combo=null;
+       sint.forEach(si=>vari.forEach(va=>{ if(combo) return; const ps=lista(P.pasos(servicio, rol, si, va));
+         if(Object.keys(datos).every(id=>ps.some(p=>lista(p.campos).some(c=>c.id===id)))) combo={si, va, ps}; }));
+       if(!combo){ anota('sugerencia', nombre+': ninguna lista de '+servicio+'/'+rol+' trae juntos los campos '+Object.keys(datos).join(', ')); return; }
+       const e=P.nuevoEstado({app:rol==='tecnico'?'tecnicos':'oficinas', rol}); e.servicio=servicio; e.sintoma=combo.si; e.variante=combo.va;
+       combo.ps.forEach(p=>{ e.resp[p.id]='bien'; }); Object.assign(e.datos, datos);
+       const sal=String((P.evaluar(e).sugerencia||{}).salida||'');
+       if(sal!==espera) anota('sugerencia', nombre+': sugiere «'+(sal||'nada')+'» y debía sugerir «'+(espera||'nada')+'»');
+     }catch(x){ anota('sugerencia', nombre+' revienta: '+x.message); } };
+   sugerir('módem con LOS en un solo cliente','fibra','oficina',{f_o_olt_estado_est:'los'},'tecnico');
+   sugerir('2 clientes caídos','fibra','oficina',{f_o_vecinos_caidos:'dos'},'');
+   sugerir('3 o más caídos con LOS','fibra','oficina',{f_o_vecinos_caidos:'tres_los'},'masiva');
+   sugerir('cliente suspendido','fibra','oficina',{c_o_wisphub_estado:'suspendido'},'cartera');
+   sugerir('activo con saldo y módem con LOS','fibra','oficina',{c_o_wisphub_estado:'activo_saldo', f_o_olt_estado_est:'los'},'tecnico');
+   sugerir('el módem no aparece para autorizar','fibra','oficina',{f_o_olt_estado_est:'no_aparece'},'autorizador');
+   sugerir('la autorización falla tras dos módems','instalacion','tecnico',{i_t_autorizar_resultado:'falla_2'},'ingeniero_mensaje');
+   // 11b. La sugerencia por COLOR. El campo se busca por su semáforo, no por su id: si mañana cambia el id, el escenario sigue valiendo; si el campo ya no está, lo dice.
+   //      o.nunca: salidas que no pueden salir · o.siHayGuia: salida obligada SI alguna guía de ese paso mira ese color de ese campo y manda allá · o.exacta: salida obligada
+   let colorConGuia=false;
+   const sugerirColor=(nombre, servicio, rol, sem, valor, colorEsperado, o)=>{ try{
+       const sv=D.servicios[servicio]; if(!sv){ anota('sugerencia', nombre+': el servicio '+servicio+' ya no existe'); return; }
+       const sint=lista(sv.sintomas).map(x=>x.id), vari=lista(sv.variantes).length?lista(sv.variantes).map(x=>x.id):['']; let h=null;
+       sint.forEach(si=>vari.forEach(va=>{ if(h) return; const ps=lista(P.pasos(servicio, rol, si, va));
+         ps.forEach(p=>lista(p&&p.campos).forEach(c=>{ if(!h && c && c.tipo==='numero' && c.semaforo===sem) h={si, va, ps, paso:p, campo:c}; })); }));
+       if(!h){ anota('sugerencia', nombre+': ninguna lista de '+servicio+'/'+rol+' trae un campo de número con el semáforo '+sem+': no se pudo probar'); return; }
+       const col=String(P.semaforo(sem, valor)||'');
+       if(col!==colorEsperado){ anota('sugerencia', nombre+': '+valor+' en el semáforo '+sem+' da «'+(col||'nada')+'» y el escenario cuenta con «'+colorEsperado+'»'); return; }
+       const e=P.nuevoEstado({app:rol==='tecnico'?'tecnicos':'oficinas', rol}); e.servicio=servicio; e.sintoma=h.si; e.variante=h.va;
+       h.ps.forEach(p=>{ e.resp[p.id]='bien'; }); e.datos[h.campo.id]=valor;
+       const sal=String((P.evaluar(e).sugerencia||{}).salida||''), donde=' (campo '+h.campo.id+' del paso '+h.paso.id+')';
+       lista(o.nunca).forEach(x=>{ if(sal===x) anota('sugerencia', nombre+': sugiere «'+x+'», y eso nunca'+donde); });
+       if(o.siHayGuia){ const hay=lista(h.paso.siMal).some(g=>g && g.si && g.si.campo===h.campo.id && lista(g.si.color).indexOf(colorEsperado)>=0 && g.salida===o.siHayGuia);
+         if(hay){ colorConGuia=true; if(sal!==o.siHayGuia) anota('sugerencia', nombre+': una guía de '+h.paso.id+' mira el color '+colorEsperado+' de '+h.campo.id+' y manda a «'+o.siHayGuia+'», pero sugiere «'+(sal||'nada')+'»'); } }
+       if(o.exacta!==undefined && sal!==o.exacta) anota('sugerencia', nombre+': sugiere «'+(sal||'nada')+'» y debía sugerir «'+(o.exacta||'nada')+'»'+donde);
+     }catch(x){ anota('sugerencia', nombre+' revienta: '+x.message); } };
+   sugerirColor('potencia que recibe el módem en -29 (rojo) en un solo cliente','fibra','oficina','rx_onu','-29','rojo',{nunca:['ingeniero_llamada','cartera'], siHayGuia:'tecnico'});
+   sugerirColor('potencia que recibe el módem en -21 (verde) con todo en «Bien»','fibra','oficina','rx_onu','-21','verde',{exacta:''});
+
+   // 12. «Casos del mes»: los nombres vienen de la nube (reglas abiertas). Un porNombre «__proto__» no puede tocar Object.prototype
+   try{
+     const regP=n=>JSON.stringify({id:'e_'+n, v:1, app:'oficinas', rol:'oficina', serv:'fibra', sal:'ingeniero', porNombre:n, caso:'__proto__', causa:'__proto__', h:1, t:2, iniMs:1, finMs:2, np:{paso_x:'constructor'}, pr:[], d:{}});
+     const RM=P.resumenMes([regP('__proto__'), regP('constructor'), regP('Ana'), '{"sal":"__proto__","porNombre":"toString","h":1,"t":1}']);
+     const limpio=({}).casos===undefined && ({}).escalados===undefined && ({}).promedioHechosPct===undefined && Object.getPrototypeOf({})===Object.prototype && typeof ({}).toString==='function';
+     if(!limpio) anota('resumenMes','un porNombre «__proto__» contamina Object.prototype: ({}).casos ya no es undefined');
+     if(!RM || RM.total!==4) anota('resumenMes','con nombres raros el total da '+(RM&&RM.total)+' y debía dar 4');
+     const tablaM=String(P.tablaMesHTML(RM)); if(/\[object |undefined|NaN/.test(tablaM) || tablaM.indexOf('Ana')<0) anota('resumenMes','la tabla del mes con nombres raros dice [object …], undefined o NaN, o perdió a una persona');
+   }catch(x){ anota('resumenMes','revienta: '+x.message); }
+   try{ delete Object.prototype.casos; delete Object.prototype.escalados; delete Object.prototype.promedioHechosPct; delete Object.prototype._suma; }catch(x){}   // si falló, no se deja sucio para las pruebas que siguen
+
+   // 13. Lo que hay en fallas_masivas NO es de fiar: nunca más de 6 horas, nunca más de 8 avisos, textos recortados
+   try{
+     const t1=new Date(2026,8,19,10,0).getTime(), H6b=6*3600000, ANIO3000=new Date(3000,0,1).getTime(), largo='a'.repeat(100000);
+     const eterna=Object.assign(P.masivaNueva({tipo:'masiva', municipio:'Milán', servicio:'fibra', afectados:'4'}, {app:'oficinas', quienNombre:'Prueba', ahoraMs:t1}), {venceMs:ANIO3000, mensajeCliente:largo, comun:largo, municipio:largo});
+     const v1=lista(P.masivasVigentes({a:eterna}, t1+1000, []));
+     if(v1.length!==1) anota('masivasTope','una falla con vencimiento en el año 3000 ni siquiera sale recién creada');
+     else { if(!(v1[0].venceMs<=t1+H6b)) anota('masivasTope','una falla con venceMs en el año 3000 vence en '+new Date(v1[0].venceMs).getFullYear()+' y no a las 6 horas de creada');
+       if(!(String(v1[0].mensajeCliente).length<=200)) anota('masivasTope','un mensajeCliente de 100.000 letras sale con '+String(v1[0].mensajeCliente).length);
+       if(JSON.stringify(v1[0]).length>1500) anota('masivasTope','un aviso con textos de 100.000 letras sale con '+JSON.stringify(v1[0]).length+' letras'); }
+     if(lista(P.masivasVigentes({a:eterna}, t1+H6b+1000, [])).length!==0) anota('masivasTope','una falla con venceMs en el año 3000 sigue saliendo pasadas las 6 horas');
+     if(String(P.franjaHTML(P.masivasVigentes({a:eterna}, t1+1000, []))).length>3000) anota('masivasTope','la franja de un aviso con textos de 100.000 letras no sale recortada');
+     const muchas={}; for(let i=0;i<500;i++){ muchas['k'+i]=Object.assign(P.masivaNueva({tipo:'masiva', municipio:'Milán', servicio:'fibra', afectados:'3'}, {app:'oficinas', quienNombre:'Prueba', ahoraMs:t1+i}), {id:'m'+i}); }
+     const v500=lista(P.masivasVigentes(muchas, t1+1000, []));
+     if(v500.length>8 || v500.length<1) anota('masivasTope','500 fallas activas devuelven '+v500.length+' (máximo 8)');
+     const futura=Object.assign({}, eterna, {creadaMs:t1+48*3600000, venceMs:ANIO3000});
+     if(lista(P.masivasVigentes({a:futura}, t1, [])).length!==0) anota('masivasTope','una falla creada «pasado mañana» sale hoy');
+   }catch(x){ anota('masivasTope','revienta: '+x.message); }
+
+   // 14. El caso a medias se guarda POR PERSONA: dos personas en el mismo equipo no se pisan el borrador
+   try{
+     const kA=P.claveBorrador({app:'oficinas', quien:{id:'u_ana', nombre:'Ana'}}), kB=P.claveBorrador({app:'oficinas', quien:{id:'u_beto', nombre:'Beto'}}), kT=P.claveBorrador({app:'tecnicos', quien:{id:'u_ana', nombre:'Ana'}});
+     const kN1=P.claveBorrador({app:'oficinas', quien:{id:'', nombre:'Ana María'}}), kN2=P.claveBorrador({app:'oficinas', quien:{id:'', nombre:'Beto'}}), kRara=P.claveBorrador({app:'oficinas', quien:{id:'a/b.c d<x>'+'z'.repeat(60)}});
+     const forma=/^pv_check_borrador_[a-z]+_[A-Za-z0-9_]{1,24}$/;
+     if(typeof kA!=='string' || kA===kB) anota('borradorClave','dos personas de la misma app comparten la clave del borrador: '+kA);
+     if(kA===kT) anota('borradorClave','la misma persona en OFICINAS y en TECNICOS comparte la clave del borrador');
+     if(kN1===kN2) anota('borradorClave','sin id, dos nombres distintos dan la misma clave');
+     [kA,kB,kT,kN1,kRara].forEach(k=>{ if(!forma.test(String(k))) anota('borradorClave','la clave «'+String(k).slice(0,80)+'» no tiene la forma pv_check_borrador_&lt;app&gt;_&lt;quien&gt;'); });
+     if(P.claveBorrador({app:'oficinas', quien:{id:'u_ana'}})!==kA) anota('borradorClave','la misma persona da dos claves distintas');
+   }catch(x){ anota('borradorClave','revienta: '+x.message); }
+
+   const bien=claves.every(k=>r[k]===true) && fallas.length===0 && nCombos>0;
+   return {ok:bien, detalle: bien
+     ? 'Listas versión '+P.version+': '+nPasos+' pasos y '+nCampos+' campos con ids únicos, de texto y nunca numéricos; cada síntoma, variante, salida y caso que se nombra existe ✓'
+      +'\nNingún campo pide cédula, dirección, teléfono, IP, clave, serial ni MAC ✓'
+      +'\nLas '+nCombos+' combinaciones de servicio, rol, síntoma y variante tienen pasos. Con todo marcado mal y datos personales metidos a propósito, la ficha más larga mide '+fichaMax+' letras (máximo 900), no dice undefined ni null, y solo deja pasar el primer nombre y el servicio WispHub ✓'
+      +'\nEl registro que se guarda no trae campos vacíos, claves numéricas, nombre del cliente ni campos tipo, clienteCedula o firmaRef ✓'
+      +'\nSemáforos: 21.4 en la potencia del módem es verde, "-27,5" es rojo; 0, 1 y 2 paquetes perdidos son verde, amarillo y rojo ✓'
+      +'\nEl documento del mes sale de la hora local (30 sep 23:59 es septiembre, 1 oct 00:30 es octubre) y un reloj malo cae en septiembre de 2026 ✓'
+      +'\n600 casos de ejemplo en un documento del mes pesan '+kb+' KB (tope de la prueba 700; Firebase aguanta 1.024) y gastan '+(nHojas*2)+' entradas de índice de 40.000; guardados como mapa y no como texto gastarían hasta '+(hojasComoMapa*2)+'. Si los 600 fueran el peor caso posible ('+regMax.length+' letras cada uno) pesarían '+kbPeor+' KB'+(kbPeor>=1024?': no cabrían, y para eso está el documento de reserva _b':'')+' ✓'
+      +'\nLa parada de alturas respondida «No pude: condición insegura» deja pasar al ingeniero y no cuenta como problema ✓'
+      +'\nUna falla masiva vence sola a las 6 horas, se compara sin tildes ni mayúsculas, una cerrada no sale y la franja muestra el mensaje como texto ✓'
+      +'\nLas '+nSi+' guías que mueven la sugerencia miran un campo de su mismo paso: '+nSiV+' por código (opción o sí/no, con códigos que existen) y '+nSiColor+' por color (número con semáforo u opción). Un módem con LOS sugiere técnico; 2 caídos, nada; 3 con LOS, falla masiva; suspendido, cartera; activo con saldo y LOS, técnico y no cartera; no aparece para autorizar, quien autoriza; falla tras dos módems, mensaje al ingeniero. La potencia del módem en -29 (rojo) nunca sugiere ingeniero por llamada ni cartera'+(colorConGuia?' y sugiere técnico':' (hoy ninguna guía de ese paso mira el color: no sugiere nada)')+'; en -21 (verde) con todo en «Bien», nada ✓'
+      +'\nUn caso guardado a nombre de «__proto__» no daña la tabla del mes ni a Object.prototype ✓'
+      +'\nUna falla con vencimiento en el año 3000 igual vence a las 6 horas; 500 fallas activas dan máximo 8 franjas, y un mensaje de 100.000 letras sale recortado a 200 ✓'
+      +'\nEl caso a medias se guarda con una clave por app y por persona: dos personas en el mismo equipo no se pisan ✓'
+     : 'Fallan: '+claves.filter(k=>r[k]!==true).join(', ')+'\n'+fallas.join('\n').replace(/</g,'&lt;')};}},
+{app:'ofi', titulo:'OFICINAS: el menú nuevo abre, precarga al cliente y en modo prueba no sube nada',
+ porque:'v311 (19 sep 2026). «Antes de llamar al ingeniero» es el pegamento entre OFICINAS y checklists.js: la vista del menú, la ficha del cliente, '
+       +'la franja de fallas masivas, «Casos del mes» y la orden que nace de una validación. Lo que se cuida: que a la capa solo le llegue el PRIMER nombre '
+       +'(las reglas de Firebase están abiertas), que la vista no lea nada de la nube hasta que se pulse Cargar (la cuota gratis es de 50.000 lecturas al día), '
+       +'que una oficina no vea los casos de otra, que la franja solo salga en su municipio y venza sola, y que en modo prueba no se intente ninguna escritura. '
+       +'Usa un cliente inventado que se quita al terminar; el borrador y la cola de casos sin subir de este navegador quedan como estaban.',
+ correr:async W=>{
+   let r=null;
+   try{
+     r=await W.eval('(async function(){ '
+       +'if(typeof PV_CHECK==="undefined" || typeof renderIngeniero!=="function" || typeof _ingOp!=="function" || typeof db==="undefined" || !db || !(DB.oficinas||[]).length) return {error:"OFICINAS no trae el módulo v311 o no cargó checklists.js"}; '
+       +'if(typeof PV_CHECK.claveBorrador!=="function") return {error:"checklists.js no trae PV_CHECK.claveBorrador: el borrador ya no se podría retirar ni restaurar"}; '
+       +'const esperar=ms=>new Promise(x=>setTimeout(x,ms)); const R={}; const CID="cli_prueba_v311", K2="pv_check_pend"; '
+       +'const K1=(function(){ const u=USER; try{ USER={role:"admin", nombre:"Administrador"}; return PV_CHECK.claveBorrador(_ingOp(((DB.oficinas||[])[0]||{}).id, null)); } finally{ USER=u; } })(); '
+       +'const esPvck=()=>{ try{ return !!history.state && history.state.pvck===1; }catch(e){ return false; } }; '
+       +'const lsLeer=k=>{ try{ return localStorage.getItem(k); }catch(e){ return null; } }; const lsPoner=(k,v)=>{ try{ if(v===null) localStorage.removeItem(k); else localStorage.setItem(k,v); }catch(e){} }; '
+       +'const uPrev=USER, tabPrev=(document.querySelector(".nav-btn.active")||{dataset:{}}).dataset.tab||"", b0=lsLeer(K1), p0=lsLeer(K2); lsPoner(K1,null); '
+       +'const ingPrev=JSON.stringify(window._ing), masPrev=window._ingMasivas, cliPrev=window._ingCliente, extraPrev=window._ingOrdenExtra, prePrev=window._ingUltimoPre, mantPrev=window._mantBloqueando; '
+       +'const aPrev=window.alert, cPrev=window.confirm, sPrev=window.save, c0=db.collection; const alertas=[]; let guardados=0; '
+       +'window.alert=t=>{ alertas.push(String(t).slice(0,90)); }; window.confirm=()=>false; window.save=()=>{ guardados++; return Promise.resolve(); }; '
+       +'const nube=[]; const ovPrev=document.body.style.overflow; '
+       +'db.collection=function(n){ const col=c0.call(db,n); if(n!=="oficinas_sistema") return col; const d0=col.doc.bind(col); '
+       +'col.doc=function(id){ const ref=d0(id), sid=String(id); if(!/^(esc_|fallas_masivas)/.test(sid)) return ref; '
+       +'["set","update","delete"].forEach(f=>{ ref[f]=function(){ nube.push(f+":"+sid); return Promise.resolve(); }; }); '
+       +'ref.onSnapshot=function(){ nube.push("onSnapshot:"+sid); return function(){}; }; '
+       +'ref.get=function(){ nube.push("get:"+sid); const reserva=/_b$/.test(sid), of=sid.replace(/^esc_\\d{4}_\\d{2}_/,"").replace(/_b$/,""); const it={}; '
+       +'it["e_"+of]=JSON.stringify({id:"e_"+of, v:1, app:"oficinas", rol:"oficina", serv:"fibra", sint:"", vari:"", of:of, mun:"", porId:"x", porNombre:"Prueba", sw:"", ord:"", iniMs:1, finMs:2, sal:"resuelto", caso:"", causa:"", h:1, t:1, pr:[], np:{}, d:{}}); '
+       +'return Promise.resolve({exists:!reserva, data:()=>(reserva?undefined:{items:it, actualizadoMs:2})}); }; '
+       +'return ref; }; '
+       +'return col; }; '
+       +'const o1=(DB.oficinas||[])[0]; const nOf=(DB.oficinas||[]).length; let falso=null, ord=null, servId="", nPasos=0; '
+       +'try{ '
+       +'window._ingMasivas={}; const pend0=PV_CHECK.pendientes(); '
+       +'R.boton=!!document.querySelector(".nav-btn[data-tab=ingeniero]"); '
+       +'USER={role:"admin", nombre:"Administrador"}; '
+       +'let errVista=""; try{ navigate("ingeniero"); }catch(e){ errVista=String(e&&e.message||e); } await esperar(150); '
+       +'R.vista=errVista==="" && ["ingVista","ingVistaFranja","ingBuscar","ingResultados","ingVistaMasivas","ingVistaMes"].every(id=>!!document.getElementById(id)) && document.getElementById("ingVista").textContent.indexOf("Modo prueba")>=0 && document.getElementById("ingVistaMes").textContent.indexOf("No se lee nada de la nube")>=0; '
+       +'R.sinLeer=nube.length===0; '
+       +'falso={id:CID, nombre:"ZULMA RIOSFALSO PEREZ", cedula:"1117500123", direccion:"CALLE 5 # 4-32 BARRIO PRUEBA", telefono:"3001234567", servicioWisphub:"98765", plan:"PLAN 100 MEGAS", estado:"Activo", estadoPago:{alDia:false, pendientes:2}}; '
+       +'if(!Array.isArray(o1.clientes)) o1.clientes=[]; o1.clientes.push(falso); '
+       +'const hall=_ingBuscarClientes("riosfalso"); window._ing.q="riosfalso"; _ingPintarResultados(); const bRes=document.querySelector("#ingResultados [data-cid="+CID+"]"); '
+       +'R.buscador=hall.length===1 && hall[0].c.id===CID && _ingBuscarClientes("r").length===0 && !!bRes && bRes.textContent.indexOf("1117500123")<0; '
+       +'const pre=_ingPrecargaDe(o1, falso), op=_ingOp(o1.id, pre); '
+       +'const sinVacios=o=>Object.keys(o).every(k=>o[k]!==undefined && (o[k]===null || typeof o[k]!=="object" || Array.isArray(o[k]) || sinVacios(o[k]))); '
+       +'R.precarga=pre.servicioWisphub==="98765" && pre.plan==="PLAN 100 MEGAS" && /2 factura/.test(pre.estadoSugerido) && pre.ordenAbierta===false && pre.visitas30d===0 && sinVacios(pre); '
+       +'R.op=op.app==="oficinas" && op.rol==="oficina" && op.modoPrueba===true && op.oficinaId===String(o1.id) && op.quien.id==="admin" && typeof op.guardar==="function" && typeof op.guardarMasiva==="function" && typeof op.cerrarMasiva==="function" && typeof op.crearOrden==="function" && typeof op.alCerrar==="function" && typeof op.masivas==="function" && Array.isArray(op.municipios) && op.municipios.length>0 && sinVacios(op) && ["1117500123","CALLE 5","3001234567"].every(x=>JSON.stringify(op).indexOf(x)<0) && PV_CHECK.claveBorrador(op)===K1; '
+       +'if(bRes) bRes.click(); else ingAbrirDesdeCliente(o1.id, CID); '
+       +'await esperar(500); '
+       +'const capa=document.getElementById("pvCheckCapa"), tCapa=capa?capa.textContent:""; '
+       +'R.historial=!!capa && esPvck(); '
+       +'R.capa=!!capa && tCapa.indexOf("ZULMA")>=0 && tCapa.indexOf("98765")>=0 && tCapa.indexOf("PLAN 100 MEGAS")>=0 && tCapa.indexOf("2 factura")>=0 && parseInt(getComputedStyle(capa).zIndex,10)===99990; '
+       +'R.soloPrimerNombre=!!capa && tCapa.indexOf("RIOSFALSO")<0 && tCapa.indexOf("PEREZ")<0; '
+       +'R.capaSinPersonales=!!capa && ["1117500123","CALLE 5","3001234567"].every(x=>tCapa.indexOf(x)<0 && capa.innerHTML.indexOf(x)<0); '
+       +'const clic=sel=>{ const b=document.querySelector("#pvCheckCapa "+sel); if(!b || b.disabled) return false; b.click(); return true; }; '
+       +'const bServ=document.querySelector("#pvCheckCapa [data-acc=serv]"); servId=bServ?bServ.getAttribute("data-v"):""; const c1=clic("[data-acc=serv]"); '
+       +'const bSint=document.querySelector("#pvCheckCapa [data-acc=sint]"), sintId=bSint?bSint.getAttribute("data-v"):""; const c2=clic("[data-acc=sint]"); '
+       +'const bVari=document.querySelector("#pvCheckCapa [data-acc=vari]"), variId=bVari?bVari.getAttribute("data-v"):""; if(bVari) clic("[data-acc=vari]"); '
+       +'const c3=clic("[data-acc=empezar]"); nPasos=PV_CHECK.pasos(servId, "oficina", sintId, variId).length; '
+       +'R.lista=c1 && c2 && c3 && nPasos>0 && document.querySelectorAll("#pvCheckCapa .pvck-t").length===nPasos; '
+       +'const borr=lsLeer(K1); R.borrador=!!borr && borr.indexOf("98765")>=0 && ["RIOSFALSO","1117500123","CALLE 5","3001234567"].every(x=>borr.indexOf(x)<0) && K1.indexOf("pv_check_borrador_oficinas_")===0 && K1.length>27; '
+       +'const c4=clic("[data-acc=ir-decidir]"), c5=clic("[data-acc=sal-orden]"); '
+       +'await esperar(600); '
+       +'const fv=document.getElementById("fo_valid"), x1=window._ingOrdenExtra, val=id=>{ const el=document.getElementById(id); return el?String(el.value):""; }; '
+       +'R.formOrden=c4 && c5 && !document.getElementById("pvCheckCapa") && !!fv && !!x1 && fv.value===x1.valId && /^e[a-z0-9]{6,}$/.test(x1.valId) && x1.servicio===servId && document.getElementById("modal").classList.contains("show") && val("fo_tipo")==="soporte" && val("fo_ofi")===String(o1.id) && val("fo_cliente")==="ZULMA RIOSFALSO PEREZ" && val("fo_cedula")==="1117500123" && val("fo_desc").length>10 && val("fo_desc").length<=160 && !/[<>]/.test(val("fo_desc")); '
+       +'R.borradorCerrado=lsLeer(K1)===null; '
+       +'R.historialDevuelto=!esPvck(); '
+       +'let pregs=0, pregTxt=""; window.confirm=t=>{ pregs++; pregTxt=String(t); return false; }; '
+       +'const bCan=document.querySelector("#mFooter .btn-outline"), bX=document.querySelector("#modal .close-btn"); if(bCan) bCan.click(); if(bX) bX.click(); document.getElementById("modal").click(); '
+       +'R.cancelarPregunta=!!bCan && !!bX && pregs===2 && pregTxt.indexOf("YA qued")>=0 && document.getElementById("modal").classList.contains("show") && !!document.getElementById("fo_valid") && window._ingOrdenExtra===x1; '
+       +'window.confirm=()=>false; '
+       +'let rechazo=""; try{ await _ingGuardar("esc_2026_09_prueba","e_prueba_v311","{}"); rechazo="resolvió"; }catch(e){ rechazo=String(e&&e.message||e); } R.guardarRechaza=rechazo==="modo prueba"; '
+       +'window._mantBloqueando=true; let rMant=""; try{ await _ingGuardar("esc_2026_09_prueba","e_prueba_v311","{}"); rMant="resolvió"; }catch(e){ rMant=String(e&&e.message||e); } window._mantBloqueando=mantPrev; R.mantenimiento=rMant==="mantenimiento"; '
+       +'R.sinEscribir=nube.filter(x=>!/^get:/.test(x)).length===0 && PV_CHECK.pendientes()===pend0 && lsLeer(K2)===p0; '
+       +'const n0=(DB.ordenesTrabajo||[]).length; const bCrear=document.querySelector("#mFooter [data-cid]"); if(bCrear) bCrear.click(); await esperar(120); '
+       +'ord=(DB.ordenesTrabajo||[]).find(x=>x && x1 && x.valId===x1.valId)||null; '
+       +'R.orden=!!bCrear && !!ord && (DB.ordenesTrabajo||[]).length===n0+1 && ord.servicio===servId && ord.clienteId===CID && ord.tipo==="soporte" && String(ord.oficinaId)===String(o1.id) && ord.estado==="pendiente" && ord.descripcion.length<=160 && typeof ord.creada==="number" && Object.keys(ord).every(k=>ord[k]!==undefined) && window._ingOrdenExtra===null && guardados>=1; '
+       +'R.menuOrdenes=(document.querySelector(".nav-btn.active")||{dataset:{}}).dataset.tab==="ordenes" && !document.getElementById("modal").classList.contains("show"); '
+       +'R.etiqueta=document.getElementById("appContent").textContent.indexOf("validada")>=0; '
+       +'ordenDesdeCliente(o1.id, CID); await esperar(320); window._ingOrdenExtra={servicio:"fibra", valId:"colado_v311"}; '
+       +'const b2=document.querySelector("#mFooter .btn-primary"); if(b2 && !document.getElementById("fo_valid")) b2.click(); await esperar(120); '
+       +'const ord2=(DB.ordenesTrabajo||[]).find(x=>x && x.clienteId===CID && x!==ord)||null; '
+       +'R.ordenNormal=!!ord2 && !("valId" in ord2) && !("servicio" in ord2) && window._ingOrdenExtra===null; '
+       +'USER={role:"oficina", id:o1.id, nombre:o1.nombre||"Oficina"}; window._ing.mes={}; window._ing.mesSel="actual"; window._ing.cargando=false; window._ing.error=""; nube.length=0; '
+       +'navigate("ingeniero"); await esperar(120); '
+       +'const hayAnt=_ingMesHay("anterior"), opAnt=document.querySelector("#ingVistaMes option[value=anterior]"); '
+       +'R.mesAnterior=!!opAnt && opAnt.disabled===!hayAnt && (hayAnt || opAnt.textContent.indexOf("sin datos")>=0); '
+       +'if(!hayAnt) window._ing.mesSel="anterior"; '
+       +'R.vistaOficina=!!document.getElementById("ingVista") && document.getElementById("ingVistaMes").textContent.indexOf("Solo los casos de tu oficina")>=0 && !document.querySelector("#ingVista select[onchange*=oid]") && nube.length===0; '
+       +'await ingCargarMes(); const mesO=(window._ing.mes||{}).actual||null, base=PV_CHECK.docMes(Date.now(), o1.id), ofEsp=base.replace(/^esc_\\d{4}_\\d{2}_/,""); '
+       +'R.mesOficina=!!mesO && window._ing.error==="" && mesO.lecturas===2 && nube.join()==="get:"+base+",get:"+base+"_b" && mesO.registros.length===1 && mesO.registros.every(j=>JSON.parse(j).of===ofEsp) && mesO.porOficina.length===1 && document.getElementById("ingVistaMes").textContent.indexOf("2 lectura")>=0; '
+       +'USER={role:"admin", nombre:"Administrador"}; window._ing.mes={}; nube.length=0; await ingCargarMes(); const mesA=(window._ing.mes||{}).actual||null; '
+       +'R.mesAdmin=!!mesA && mesA.lecturas===2*nOf && nube.length===2*nOf && nube.every(x=>/^get:esc_/.test(x)) && mesA.porOficina.length===nOf; '
+       +'USER={role:"oficina", id:o1.id, nombre:o1.nombre||"Oficina"}; const mun=_ingMunicipioDe(o1), ahora=Date.now(); '
+       +'const mk=(municipio, ahoraMs, extra)=>Object.assign(PV_CHECK.masivaNueva({tipo:"masiva", municipio:municipio, servicio:"fibra", afectados:"4", comun:"puerto de prueba", mensajeCliente:"Aviso de prueba <b>v311</b>"}, {app:"oficinas", quienNombre:"Alguien de prueba", ahoraMs:ahoraMs}), extra||{}); '
+       +'const mOtra=mk("Municipio Inventado Zz", ahora), mVieja=mk(mun, ahora-7*3600000), mCerrada=mk(mun, ahora, {cerradaMs:ahora, cerradaPor:"Prueba"}), mMia=mk(mun.toUpperCase(), ahora); '
+       +'window._ingMasivas={a:mOtra, b:mVieja, c:mCerrada}; _ingPintarFranja(); const fr=document.getElementById("ingFranja"); '
+       +'R.franjaVacia=!!mun && !!fr && fr.style.display==="none" && fr.innerHTML===""; '
+       +'window._ingMasivas={a:mOtra, b:mVieja, c:mCerrada, d:mMia}; _ingPintarFranja(); '
+       +'R.franjaSale=!!fr && fr.style.display==="block" && fr.querySelectorAll(".pvck-franja").length===1 && fr.textContent.indexOf("Falla masiva")>=0 && fr.textContent.indexOf("<b>v311</b>")>=0 && !fr.querySelector("b") && fr.nextElementSibling===document.getElementById("appContent"); '
+       +'const masO=_ingOp(o1.id, null).masivas(), kOfi=PV_CHECK.claveBorrador(_ingOp(o1.id, null)); '
+       +'const puedeOfi=_ingPuedeCerrarMasiva(mMia); USER={role:"admin", nombre:"Administrador"}; _ingPintarFranja(); '
+       +'const masA=_ingOp(o1.id, null).masivas(); '
+       +'R.masivasCapa=Array.isArray(masO) && masO.length===1 && masO[0].id===mMia.id && Array.isArray(masA) && masA.length===2; '
+       +'R.borradorPorPersona=typeof kOfi==="string" && kOfi!==K1 && kOfi.indexOf("pv_check_borrador_oficinas_")===0 && kOfi.length>27; '
+       +'const tSalir=doLogout.toString(); R.salirReinicia=/window\\._ing\\s*=\\s*\\{/.test(tSalir) && tSalir.indexOf("window._ingOrdenExtra=null")>=0 && tSalir.indexOf("_ingPintarFranja()")>=0; '
+       +'R.franjaAdmin=!!fr && fr.querySelectorAll(".pvck-franja").length===2; '
+       +'R.permiso=puedeOfi===false && _ingPuedeCerrarMasiva(mMia)===true; '
+       +'const fuentes=[_ingGuardar,_ingGuardarMasiva,_ingCerrarMasiva].map(f=>f.toString()), sets=[]; '
+       +'fuentes.forEach(t=>{ for(let i=t.indexOf(".set("); i>=0; i=t.indexOf(".set(", i+5)){ const j=t.indexOf("merge:true", i); sets.push((j<0 || j-i>400)?"SIN MERGE":t.slice(i,j)); } }); '
+       +'R.fuente=sets.length===3 && sets.every(s=>s!=="SIN MERGE" && !/\\b(tipo|clienteCedula|firmaRef)\\s*:/.test(s)) && fuentes.every(t=>t.indexOf("db.collection(\'oficinas_sistema\').doc(")>=0 && t.indexOf("db.doc(")<0 && t.indexOf("window._mantBloqueando===true")>=0) && fuentes[0].indexOf("docId+\'_b\'")>=0 && fuentes[0].indexOf("if(MODO_PRUEBA) return Promise.reject")>=0; '
+       +'R.sinAvisos=!alertas.some(a=>/No se encontr|No carg|No hay ninguna/.test(a)); '
+       +'}catch(e){ R.error="a mitad de la prueba: "+String(e&&e.message||e); } '
+       +'finally{ '
+       +'try{ PV_CHECK.cerrar(); }catch(e){} try{ closeModal(); }catch(e){} '
+       +'(DB.oficinas||[]).forEach(o=>{ const l=o.clientes||[]; for(let i=l.length-1;i>=0;i--){ if(l[i] && l[i].id===CID) l.splice(i,1); } }); '
+       +'const ots=DB.ordenesTrabajo||[]; for(let i=ots.length-1;i>=0;i--){ if(ots[i] && (ots[i].clienteId===CID || ots[i].valId==="colado_v311")) ots.splice(i,1); } '
+       +'db.collection=c0; window.alert=aPrev; window.confirm=cPrev; window.save=sPrev; window._mantBloqueando=mantPrev; '
+       +'window._ingMasivas=masPrev; window._ingCliente=cliPrev; window._ingOrdenExtra=extraPrev; window._ingUltimoPre=prePrev; try{ Object.assign(window._ing, JSON.parse(ingPrev)); }catch(e){} '
+       +'USER=uPrev; try{ _ingPintarFranja(); }catch(e){} lsPoner(K1,b0); lsPoner(K2,p0); '
+       +'if(USER && tabPrev){ try{ navigate(tabPrev); }catch(e){} } '
+       +'await esperar(300); '
+       +'} '
+       +'const frFin=document.getElementById("ingFranja"); '
+       +'R.limpio=!document.getElementById("pvCheckCapa") && !(DB.oficinas||[]).some(o=>(o.clientes||[]).some(c=>c && c.id===CID)) && !(DB.ordenesTrabajo||[]).some(x=>x && x.clienteId===CID) && db.collection===c0 && window.save===sPrev && window.alert===aPrev && lsLeer(K1)===b0 && lsLeer(K2)===p0 && (!!USER || !frFin || frFin.style.display==="none") && document.body.style.overflow===ovPrev && !esPvck(); '
+       +'R.nOf=nOf; R.servId=servId; R.nPasos=nPasos; R.nube=nube.slice(0,6); R.alertas=alertas.slice(0,4); '
+       +'return R; '
+       +'})()');
+   }catch(e){ r={error:String(e&&e.message||e)}; }
+   const claves=['boton','vista','sinLeer','buscador','precarga','op','capa','historial','soloPrimerNombre','capaSinPersonales','lista','borrador','formOrden','sinEscribir','guardarRechaza','mantenimiento','borradorCerrado','historialDevuelto','cancelarPregunta','mesAnterior','masivasCapa','borradorPorPersona','salirReinicia','orden','menuOrdenes','ordenNormal','vistaOficina','mesOficina','mesAdmin','franjaVacia','franjaSale','franjaAdmin','permiso','fuente','sinAvisos','limpio'];
+   const bien = r && !r.error && claves.every(k=>r[k]===true);
+   return {ok:bien, detalle: bien
+     ? 'El menú trae «🛑 Antes de llamar al ingeniero»; la vista se pinta sin errores y sin leer nada de la nube, y el buscador encuentra al cliente (mínimo 2 letras) ✓'
+      +'\nDesde el cliente, la capa abre con su servicio WispHub, su plan y su estado de pago, pero solo con el PRIMER nombre: ni los apellidos, ni la cédula, ni la dirección, ni el teléfono llegan a la capa ✓'
+      +'\nLa lista muestra los '+r.nPasos+' pasos de '+r.servId+'; el caso a medias queda guardado en este equipo con la clave de ESA persona (otra persona usa otra clave) y se borra al cerrarlo ✓'
+      +'\nAl abrir, la capa deja una entrada en el historial para el botón Atrás del celular, y al cerrarse la devuelve ✓'
+      +'\nCon la orden de la validación abierta, Cancelar y la ✕ preguntan antes de salir, y un clic fuera no la cierra: la validación ya quedó guardada ✓'
+      +'\n«Crear orden al técnico» cierra la capa y abre la orden de soporte con el cliente y el resumen ya escritos; al crearla queda con servicio y valId, sin campos vacíos, y el menú pasa a Órdenes. Una orden normal no lleva esos campos aunque hubiera quedado un resto en memoria ✓'
+      +'\nEn modo prueba no se intentó NINGUNA escritura: el guardado rechaza («modo prueba»), la cola de casos sin subir no creció, y en mantenimiento rechaza antes de tocar la nube ✓'
+      +'\nCon rol oficina, «Casos del mes» pide solo los 2 documentos de SU oficina; el administrador pide 2 por cada una de las '+r.nOf+' oficinas. «Mes anterior» solo se ofrece si ese mes tiene documento propio (antes de octubre de 2026 sale apagado y se lee el mes actual) ✓'
+      +'\nLa franja global sale con una falla del municipio (aunque venga en mayúsculas), con el mensaje como texto; no sale con una de otro municipio, una vencida ni una cerrada. El administrador ve todas, y un aviso ajeno solo lo quita él. Dentro de la capa se ve lo mismo que en la franja ✓'
+      +'\nAl salir de la sesión se reinicia lo de «Antes de llamar» y la franja se vuelve a pintar ✓'
+      +'\nLas tres escrituras del módulo usan db.collection(...).doc(...), van con merge y no llevan campos tipo, clienteCedula ni firmaRef ✓'
+      +(r.nOf<2?'\n⚠️ Solo hay una oficina cargada: que una oficina no vea los casos de otra no se pudo comprobar de verdad.':'')
+     : JSON.stringify(r).replace(/</g,'&lt;')};}},
+{app:'ofi', titulo:'La capa de «Antes de llamar»: teclear «-21» no deja el paso «Con problema», y el botón Atrás la cierra',
+ porque:'v311 (19 sep 2026). Al teclear la potencia «-21» el campo pasa por «-2», que es un valor malo: la capa marcaba el paso «Con problema» '
+       +'y así se quedaba aunque el número final fuera bueno, y la ficha le llegaba al ingeniero con un problema que no existía. '
+       +'Ahora la marca que pone la app se quita sola cuando ya ningún dato del paso está en rojo; la que pone la persona no se toca. '
+       +'Además, en el celular el botón Atrás sacaba de la app con la lista a medias: la capa deja una entrada en el historial, Atrás solo cierra la capa '
+       +'(el caso a medias queda guardado) y al cerrar con la ✕ esa entrada se devuelve. '
+       +'La prueba abre la capa de verdad dentro de OFICINAS con una persona inventada: no toca el borrador de nadie y en modo prueba no sube nada.',
+ correr:async W=>{
+   let r=null;
+   try{
+     r=await W.eval('(async function(){ '
+       +'if(typeof PV_CHECK==="undefined" || !PV_CHECK || typeof PV_CHECK.abrir!=="function" || typeof PV_CHECK.cerrar!=="function" || typeof PV_CHECK.claveBorrador!=="function") return {error:"OFICINAS no cargó checklists.js, o es una versión sin claveBorrador"}; '
+       +'const esperar=ms=>new Promise(x=>setTimeout(x,ms)); '
+       +'const hasta=async (cond, tope)=>{ const fin=Date.now()+tope; while(Date.now()<fin){ let ya=false; try{ ya=!!cond(); }catch(e){} if(ya) return true; await esperar(50); } try{ return !!cond(); }catch(e){ return false; } }; '
+       +'const lsLeer=k=>{ try{ return localStorage.getItem(k); }catch(e){ return null; } }; '
+       +'const lsPoner=(k,v)=>{ try{ if(v===null) localStorage.removeItem(k); else localStorage.setItem(k,v); }catch(e){} }; '
+       +'const R={}; let cerrados=0; const avisos=[]; '
+       +'const op={app:"oficinas", rol:"oficina", quien:{id:"prueba_capa_v311", nombre:"Prueba"}, oficinaId:"ofi_prueba", municipio:"", municipios:[], precarga:{}, masivas:()=>[], modoPrueba:true, alCerrar:()=>{ cerrados++; }, aviso:t=>{ avisos.push(String(t).slice(0,80)); }}; '
+       +'const K1=PV_CHECK.claveBorrador(op), K2="pv_check_pend", b0=lsLeer(K1), p0=lsLeer(K2), ovPrev=document.body.style.overflow; '
+       +'const esPvck=()=>{ try{ return !!history.state && history.state.pvck===1; }catch(e){ return false; } }; '
+       +'const capa=()=>document.getElementById("pvCheckCapa"); '
+       +'const clic=sel=>{ const b=document.querySelector("#pvCheckCapa "+sel); if(!b || b.disabled) return false; b.click(); return true; }; '
+       +'R.estadoAntes=esPvck(); let campoId="", pasoId="", sintId=""; '
+       +'try{ '
+       +'try{ PV_CHECK.cerrar(); }catch(e){} '
+       +'if(esPvck()) await hasta(()=>!esPvck(), 1500); '
+       +'lsPoner(K1,null); '
+       +'(PV_CHECK.datos.servicios.fibra.sintomas||[]).forEach(s=>{ if(campoId) return; PV_CHECK.pasos("fibra","oficina",s.id,"").forEach(p=>(p.campos||[]).forEach(c=>{ if(!campoId && c.tipo==="numero" && c.semaforo==="rx_onu"){ campoId=c.id; pasoId=p.id; sintId=s.id; } })); }); '
+       +'if(!campoId) return {error:"la lista de fibra de oficina ya no trae un campo numérico con el semáforo rx_onu (potencia que recibe el módem)"}; '
+       +'PV_CHECK.abrir(op); '
+       +'R.abre=!!capa() && document.body.style.overflow==="hidden"; '
+       +'R.historial=esPvck(); '
+       +'const c1=clic("[data-acc=serv][data-v=fibra]"), c2=clic("[data-acc=sint][data-v="+sintId+"]"), c3=clic("[data-acc=empezar]"); '
+       +'const tarjeta=()=>document.querySelector("#pvCheckCapa .pvck-t[data-paso="+pasoId+"]"); '
+       +'const inp=()=>{ const t=tarjeta(); return t?t.querySelector("input[data-campo="+campoId+"]"):null; }; '
+       +'R.lista=c1 && c2 && c3 && !!tarjeta() && !!inp(); '
+       +'const marcadas=()=>{ const t=tarjeta(); return t?Array.prototype.map.call(t.querySelectorAll("[data-acc=resp][aria-pressed=true]"), b=>b.getAttribute("data-r")).join(","):"sin tarjeta"; }; '
+       +'const sem=()=>{ const t=tarjeta(), s=t?t.querySelector("[data-sem="+campoId+"]"):null; return s?String(s.className).replace("pvck-sem","").trim():"sin semáforo"; }; '
+       +'const teclear=v=>{ const i=inp(); if(!i) return; i.value=v; i.dispatchEvent(new Event("input",{bubbles:true})); }; '
+       +'const resp=r=>{ const t=tarjeta(), b=t?t.querySelector("[data-acc=resp][data-r="+r+"]"):null; if(b) b.click(); }; '
+       +'const pasos=[]; '
+       +'const mira=n=>{ const x=n+" → marcado ["+marcadas()+"], semáforo ["+sem()+"]"; pasos.push(x); return x; }; '
+       +'if(R.lista){ '
+       +'R.alEmpezar=marcadas()===""; '
+       +'teclear("-"); const m1=marcadas(), s1=sem(); mira("-"); '
+       +'teclear("-2"); const m2=marcadas(), s2=sem(); mira("-2"); '
+       +'teclear("-21"); const m3=marcadas(), s3=sem(); mira("-21"); '
+       +'R.aMedioTeclear=m1==="" && s1==="" && m2==="problema" && s2==="pvck-s-rojo"; '
+       +'R.menos21=m3==="" && s3==="pvck-s-verde" && String(tarjeta().className).indexOf("pvck-r-")<0 && inp().value==="-21"; '
+       +'teclear("-30"); const m4=marcadas(), s4=sem(); mira("-30"); '
+       +'R.menos30=m4==="problema" && s4==="pvck-s-rojo" && String(tarjeta().className).indexOf("pvck-r-problema")>=0; '
+       +'resp("bien"); const m5=marcadas(); mira("toque en Bien"); '
+       +'teclear("-21"); const m6=marcadas(); teclear("-30"); const m7=marcadas(); mira("Bien a mano y luego -21 y -30"); '
+       +'R.bienAMano=m5==="bien" && m6==="bien" && m7==="bien"; '
+       +'resp("bien"); const m8=marcadas(); teclear(""); teclear("-30"); const m9=marcadas(); resp("problema"); const m10=marcadas(); resp("problema"); const m11=marcadas(); teclear("-21"); const m12=marcadas(), s12=sem(); mira("Con problema a mano y luego -21"); '
+       +'R.problemaAMano=m8==="" && m9==="problema" && m10==="" && m11==="problema" && m12==="problema" && s12==="pvck-s-verde"; '
+       +'const borr=lsLeer(K1)||""; R.borrador=borr.indexOf(campoId)>=0 && borr.indexOf("-21")>=0 && K1.indexOf("prueba_capa_v311")>0; '
+       +'const tipos={}; (function(){ const D=PV_CHECK.datos, reg=l=>(l||[]).forEach(p=>(p.campos||[]).forEach(c=>{ tipos[c.id]=c.tipo; })); Object.keys(D.servicios).forEach(k=>{ reg(D.servicios[k].oficina); reg(D.servicios[k].tecnico); }); reg(D.comun.oficina); reg(D.comun.tecnicoInicio); reg(D.comun.tecnicoFin); })(); '
+       +'const iTxt=Array.prototype.filter.call(capa().querySelectorAll("input[data-campo]"), i=>tipos[i.getAttribute("data-campo")]==="texto")[0]; '
+       +'if(iTxt){ const idT=iTxt.getAttribute("data-campo"); '
+       +'const busca=(o,k)=>{ if(!o||typeof o!=="object") return undefined; if(Object.prototype.hasOwnProperty.call(o,k)) return o[k]; for(const x of Object.keys(o)){ const r=busca(o[x],k); if(r!==undefined) return r; } return undefined; }; '
+       +'const guardado=()=>{ try{ const v=busca(JSON.parse(lsLeer(K1)||"{}"), idT); return v===undefined?"":String(v); }catch(e){ return "?"; } }; '
+       +'const escribe=t=>{ iTxt.value=""; for(const ch of t){ iTxt.value=iTxt.value+ch; iTxt.dispatchEvent(new Event("input",{bubbles:true})); } }; '
+       +'escribe("C-14 puerto 5"); const g1=guardado(), v1=iTxt.value; '
+       +'escribe("cliente 3212223344 no contesta"); const g2=guardado(); '
+       +'R.textoLibre=v1==="C-14 puerto 5" && g1==="C-14 puerto 5" && g2.indexOf("no contesta")>=0 && g2.indexOf("cliente ")===0 && !/\\d{3}/.test(g2); '
+       +'pasos.push("texto libre ["+idT+"]: «"+g1+"» · «"+g2+"»"); '
+       +'iTxt.value=""; iTxt.dispatchEvent(new Event("input",{bubbles:true})); '
+       +'} else { R.textoLibre=false; pasos.push("no hay ningún campo de texto libre en esta lista"); } '
+       +'} '
+       +'const cont=(document.getElementById("pvCheckCont")||{}).textContent||""; '
+       +'R.contador=/^1\\/\\d+$/.test(cont); '
+       +'if(esPvck()){ history.back(); R.atras=await hasta(()=>!capa() && !esPvck(), 2500); } else R.atras=false; '
+       +'R.atrasLimpio=R.atras && cerrados===1 && document.body.style.overflow===ovPrev && lsLeer(K1)!==null; '
+       +'await esperar(100); '
+       +'PV_CHECK.abrir(op); '
+       +'const tRetoma=capa()?capa().textContent:""; const c4=clic("[data-acc=seguir]"); '
+       +'R.retoma=esPvck() && tRetoma.indexOf("a medias")>=0 && c4 && !!inp() && inp().value==="-21" && marcadas()==="problema" && sem()==="pvck-s-verde"; '
+       +'PV_CHECK.cerrar(); '
+       +'R.cerrar=!capa() && document.body.style.overflow===ovPrev && cerrados===2; '
+       +'R.cerrarDevuelve=await hasta(()=>!esPvck(), 2500); '
+       +'await esperar(300); '
+       +'R.sigueCerrada=!capa() && !esPvck(); '
+       +'R.pasos=pasos; R.contadorVisto=cont; '
+       +'}catch(e){ R.error="a mitad de la prueba: "+String(e&&e.message||e); } '
+       +'finally{ '
+       +'try{ PV_CHECK.cerrar(); }catch(e){} '
+       +'if(esPvck()) await hasta(()=>!esPvck(), 1500); '
+       +'lsPoner(K1,b0); '
+       +'await esperar(300); '
+       +'} '
+       +'R.limpio=!capa() && !esPvck() && lsLeer(K1)===b0 && lsLeer(K2)===p0 && document.body.style.overflow===ovPrev; '
+       +'R.campoId=campoId; R.pasoId=pasoId; R.avisos=avisos.slice(0,3); '
+       +'return R; '
+       +'})() ');
+   }catch(e){ r={error:String(e&&e.message||e)}; }
+   const claves=['abre','historial','lista','alEmpezar','aMedioTeclear','menos21','menos30','bienAMano','problemaAMano','borrador','textoLibre','contador','atras','atrasLimpio','retoma','cerrar','cerrarDevuelve','sigueCerrada','limpio'];
+   const bien = r && !r.error && claves.every(k=>r[k]===true);
+   return {ok:bien, detalle: bien
+     ? 'La capa abre sobre OFICINAS, bloquea el fondo y deja una entrada {pvck:1} en el historial ✓'
+      +'\nEn el campo '+r.campoId+', al teclear «-», «-2», «-21» letra por letra el paso pasa por «Con problema» (el «-2») y termina SIN respuesta marcada y con el semáforo en verde ✓'
+      +'\n«-30» lo deja en «Con problema» con el semáforo en rojo ✓'
+      +'\nUna respuesta puesta a mano no se quita sola: «Bien» aguanta un -30, y «Con problema» aguanta un -21 ✓'
+      +'\nEl botón Atrás cierra la capa sin salir de la app, avisa a la app una sola vez, suelta el fondo y deja el caso a medias guardado; al volver a entrar se retoma con el -21 escrito ✓'
+      +'\nPV_CHECK.cerrar() quita la capa, deja el fondo como estaba y devuelve la entrada del historial. Al terminar no queda capa, ni entrada, ni borrador de la prueba ✓'
+     : (r && r.error ? r.error+'\n' : 'Fallan: '+claves.filter(k=>!r || r[k]!==true).join(', ')+'\n')+JSON.stringify(r).replace(/</g,'&lt;')};}},
+{app:'ofi', titulo:'TECNICOS v97 (leído como texto): trae «Antes de llamar al ingeniero» y ya no relee los contratos en cada guardado',
+ porque:'v311 / TECNICOS v97 (19 sep 2026). TECNICOS no tiene modo prueba: abrirlo registra versión y sesiones de verdad, así que aquí solo se LEE su archivo. '
+       +'Si las dos apps cargan checklists.js con distinto ?v=, una oficina y un técnico verían listas distintas por la caché del navegador. '
+       +'Y la pestaña Contratos releía TODOS los contratos en cada guardado de cualquier persona: eso gastaba la cuota gratis de lecturas.',
+ correr:async W=>{
+   const leer=async f=>{ try{ const x=await fetch(f,{cache:'no-store'}); return x.ok ? await x.text() : ''; }catch(e){ return ''; } };
+   const tec=await leer('TECNICOS_PTOVISION.html'), ofi=await leer('OFICINAS_PTOVISION.html');
+   if(!tec || !ofi) return {ok:false, detalle:'No se pudo leer '+(!tec?'TECNICOS_PTOVISION.html':'OFICINAS_PTOVISION.html')+'.'};
+   const r={}, veces=(t,x)=>t.split(x).length-1;
+   r.version = tec.indexOf('const APP_VERSION_TEC = 97;')>=0;
+   // Mismo ?v= en las dos apps, una sola vez en cada una, y es el que OFICINAS tiene cargado de verdad
+   const RE_SRC=new RegExp('<scr'+'ipt src="checklists\\.js\\?v=(\\d+)">','g'), vT=[...tec.matchAll(RE_SRC)].map(m=>m[1]), vO=[...ofi.matchAll(RE_SRC)].map(m=>m[1]);
+   let srcVivo=''; try{ srcVivo=W.document.querySelector('script[src^="checklists.js"]').getAttribute('src'); }catch(e){}
+   r.mismoV = vT.length===1 && vO.length===1 && vT[0]===vO[0] && srcVivo==='checklists.js?v='+vO[0];
+   r.archivo = vO.length===1 && (await leer('checklists.js?v='+vO[0])).indexOf('PV_CHECK_DATOS')>=0;
+   r.botones = veces(tec,'id="ingBtnTec"')===1 && tec.indexOf('onclick="ingAbrirTec()"')>=0 && tec.indexOf('onclick="ingAbrirDesdeOrden(\'${o.id}\')"')>=0
+     && tec.indexOf("_ING_TIPOS_TEC.includes(o.tipo)&&o.estado!=='finalizada'&&o.estado!=='cancelada'")>=0 && tec.indexOf("const _ING_TIPOS_TEC=['soporte','instalacion','cambio_equipo','traslado'];")>=0
+     && veces(tec,'id="ingFranjaTec"')>=1;
+   const FUNCIONES=['_ingGuardarTec','_ingGuardarMasivaTec','_ingPuedeCerrarMasivaTec','_ingCerrarMasivaTec','_ingAlCerrarTec','_ingOpTec','ingAbrirTec','ingAbrirDesdeOrden','_ingPintarFranjaTec','iniciarEscuchaFallasMasivasTec','detenerEscuchaFallasMasivasTec'];
+   const faltan=FUNCIONES.filter(f=>(tec.match(new RegExp('function\\s+'+f+'\\s*\\(','g'))||[]).length!==1);
+   r.funciones = faltan.length===0;
+   // Se enganchan al entrar y al salir, y los casos sin subir se reenvían solos
+   const trozo=(t, desde, hasta)=>{ const i=t.indexOf(desde); if(i<0) return ''; const j=t.indexOf(hasta, i+desde.length); return j<0 ? t.slice(i, i+12000) : t.slice(i, j); };
+   const entrar=trozo(tec,'function enterApp(){','\nfunction '), salir=trozo(tec,'function doLogout(){','\nfunction ');
+   r.enganche = entrar.indexOf('iniciarEscuchaFallasMasivasTec()')>=0 && entrar.indexOf('PV_CHECK.reenviarPendientes(_ingGuardarTec)')>=0 && salir.indexOf('detenerEscuchaFallasMasivasTec()')>=0;
+   // El módulo: solo db.collection(...).doc(...), siempre con merge, sin campos por los que hay consultas, sin tocar main, y respeta el mantenimiento
+   const mod=trozo(tec,'const _ING_TIPOS_TEC=','function modalCambiarClave(');
+   const sets=[]; for(let i=mod.indexOf('.set('); i>=0; i=mod.indexOf('.set(', i+5)){ const j=mod.indexOf('merge:true', i); sets.push((j<0 || j-i>400) ? 'SIN MERGE' : mod.slice(i, j)); }
+   r.modulo = mod.length>2000 && mod.indexOf('db.doc(')<0 && sets.length===3 && veces(mod,"db.collection('oficinas_sistema').doc(")===4
+     && sets.every(s=>s!=='SIN MERGE' && !/\b(tipo|clienteCedula|firmaRef)\s*:/.test(s))
+     && mod.indexOf('.update(')<0 && mod.indexOf('DOC_ID')<0 && mod.indexOf('COLECCION')<0;
+   r.guardado = veces(mod,"if(window._mantBloqueando===true) return Promise.reject(new Error('mantenimiento'));")===3
+     && /exceeds the maximum\|too large\|INVALID_ARGUMENT/.test(mod) && mod.indexOf("String(docId)+'_b'")>=0 && mod.indexOf('modoPrueba:false')>=0 && veces(mod,'.onSnapshot(')===1;
+   // Contratos: render() corre en cada snapshot de main; ya no fuerza la relectura
+   const rc=trozo(tec,'async function _renderContratosTec(','\nasync function ') || '';
+   const rcCorto=rc.indexOf('\nfunction ')>0 ? rc.slice(0, rc.indexOf('\nfunction ')) : rc;
+   r.contratos = rcCorto.length>200 && rcCorto.indexOf('_cargarContratosTec(true)')<0 && tec.indexOf('_cargarContratosTec(true)')<0 && rcCorto.indexOf('_cargarContratosTec(!!forzar)')>=0
+     && rcCorto.indexOf('window._contratosTecCarga')>=0 && rcCorto.indexOf("if(_tab!=='contratos') return;")>=0 && tec.indexOf('onclick="_renderContratosTec(true)"')>=0;
+   // Una función suelta: desde su «function nombre(» hasta la siguiente función de primer nivel
+   const funcion=nombre=>{ const i=tec.search(new RegExp('(^|\\n)(async\\s+)?function\\s+'+nombre+'\\s*\\(')); if(i<0) return ''; const resto=tec.slice(i+1), j=resto.search(/\n(async\s+)?function\s/); return j<0 ? resto.slice(0,6000) : resto.slice(0,j); };
+   // El id de la orden se compara recortado a 32 (mide 23 y entra completo). A 20 se cortaba, y dos órdenes del mismo segundo se confundían
+   const fCerrar=funcion('_ingAlCerrarTec'); let ordCompleto=false;
+   try{ const P=W.PV_CHECK, ID='ord_1758300000000_ab3de', e=P.nuevoEstado({app:'tecnicos', rol:'tecnico'}); e.servicio='fibra'; e.pre={sw:'98765', nom:'ZULMA', plan:'', ord:ID, tipoOrden:'soporte'}; e.salida='resuelto'; e.finMs=e.iniMs+1000;
+        ordCompleto = P.registro(e, {app:'tecnicos', rol:'tecnico'}).ord===ID && P.registro(e, {app:'tecnicos', rol:'tecnico', ordenId:ID}).ord===ID; }catch(e){ ordCompleto=false; }
+   r.idOrden = fCerrar.length>200 && fCerrar.indexOf('.slice(0,32)')>=0 && fCerrar.indexOf('.slice(0,20)')<0 && ordCompleto;
+   // El aviso de falla masiva solo lo quita quien lo reportó: se pregunta ANTES de escribir
+   const fQuitar=funcion('_ingCerrarMasivaTec'), fPuede=funcion('_ingPuedeCerrarMasivaTec'), iPuede=fQuitar.indexOf('_ingPuedeCerrarMasivaTec('), iNo=fQuitar.indexOf("Promise.reject(new Error('sin permiso'))"), iSet=fQuitar.indexOf('.set(');
+   r.candado = fPuede.length>100 && fPuede.indexOf('porNombre')>=0 && fPuede.indexOf('.set(')<0 && iPuede>=0 && iNo>iPuede && iSet>iNo && fQuitar.indexOf('if(!_ingPuedeCerrarMasivaTec(')>=0;
+   // Si la lectura de contratos falla, la caché queda en null (un [] contaba como caché buena y no se reintentaba)
+   const fCarga=funcion('_cargarContratosTec'), iCatch=fCarga.lastIndexOf('catch('), cola=iCatch<0 ? '' : fCarga.slice(iCatch);
+   r.contratosFallo = fCarga.length>300 && /window\._contratosTec\s*=\s*null/.test(cola) && !/window\._contratosTec\s*=\s*\[\s*\]/.test(cola) && cola.indexOf('window._contratosTecFallo=true')>=0
+     && fCarga.indexOf('window._contratosTecFallo=false')>=0 && tec.indexOf('No se pudieron cargar los contratos')>=0;
+   // Enfriamiento: tras un fallo, render() (que corre en cada guardado ajeno) no relanza la consulta durante 1 minuto. Solo la relanza lo que fuerza (🔄 Actualizar, firmar, crear).
+   // La guarda va ANTES del get y no aplica cuando se fuerza; el fallo deja anotada la hora; y la función, corrida aquí con un reloj de mentira, enfría y deja de enfriar.
+   const fEnf=funcion('_contratosTecEnfriando'), nEnf=(tec.match(/function\s+_contratosTecEnfriando\s*\(/g)||[]).length;
+   const iGuarda=fCarga.search(/if\s*\(\s*!\s*forzar\s*&&\s*_contratosTecEnfriando\(\)\s*\)\s*return\b/), iGet=fCarga.indexOf('.get('), iCol=fCarga.indexOf('db.collection(');
+   let enfria=false, enfriaDetalle='';
+   try{ const reloj={now:()=>5000000}, w={}, fn=new Function('window','Date', fEnf+'\nreturn _contratosTecEnfriando;')(w, reloj);
+        const sinFallo=fn(); w._contratosTecFallo=true; w._contratosTecFalloMs=5000000-5000; const recien=fn();
+        w._contratosTecFalloMs=5000000-3600000; const viejo=fn(); w._contratosTecFallo=false; w._contratosTecFalloMs=5000000-5000; const yaCargo=fn();
+        enfria = sinFallo===false && recien===true && viejo===false && yaCargo===false;
+        if(!enfria) enfriaDetalle='sin fallo '+sinFallo+', fallo hace 5 s '+recien+', fallo hace 1 h '+viejo+', cargó bien después '+yaCargo+' (debía dar false, true, false, false)';
+   }catch(e){ enfria=false; enfriaDetalle='no se pudo correr _contratosTecEnfriando: '+e.message; }
+   r.contratosEnfria = nEnf===1 && fEnf.length>40 && iGuarda>=0 && iGet>iGuarda && iCol>iGuarda && /window\._contratosTecFalloMs\s*=\s*Date\.now\(\)/.test(cola) && enfria;
+   if(!r.contratosEnfria && !enfriaDetalle) enfriaDetalle = nEnf!==1 ? 'function _contratosTecEnfriando aparece '+nEnf+' veces (debía ser 1)'
+     : iGuarda<0 ? '_cargarContratosTec no trae «if(!forzar && _contratosTecEnfriando()) return»' : !(iGet>iGuarda && iCol>iGuarda) ? 'la guarda del enfriamiento va DESPUÉS de la consulta (.get)' : 'el catch no anota la hora del fallo (window._contratosTecFalloMs=Date.now())';
+   const claves=['version','mismoV','archivo','botones','funciones','enganche','modulo','guardado','contratos','idOrden','candado','contratosFallo','contratosEnfria'];
+   const bien=claves.every(k=>r[k]===true);
+   return {ok:bien, detalle: bien
+     ? 'TECNICOS es la v97 y carga checklists.js?v='+vO[0]+', el mismo que OFICINAS (y el que OFICINAS tiene cargado ahora) ✓'
+      +'\nTrae el botón ancho, el botón «Antes de llamar» en las órdenes de soporte, instalación, cambio de equipo y traslado que siguen abiertas, la franja y las '+FUNCIONES.length+' funciones del pegamento, una sola vez cada una ✓'
+      +'\nLa escucha de fallas masivas arranca al entrar y se apaga al salir (es el único listener nuevo); los casos sin subir se reenvían solos ✓'
+      +'\nSus 3 escrituras van con db.collection(...).doc(...) y merge, sin campos tipo, clienteCedula ni firmaRef, sin tocar main; en mantenimiento rechazan, y si el documento del mes se llena reintenta una vez en _b ✓'
+      +'\nLa pestaña Contratos ya no relee todos los contratos en cada guardado: usa la caché, comparte la lectura en curso y solo fuerza con el botón Actualizar, al firmar o al crear; si la lectura falla la caché queda vacía de verdad (null) y se reintenta, pero no antes de 1 minuto: durante ese enfriamiento los guardados ajenos no relanzan la consulta (el botón Actualizar sí) ✓'
+      +'\nLa nota de la lista busca la orden con el id completo (recorte a 32, ya no a 20), y el registro guarda ese mismo id entero ✓'
+      +'\nEl aviso de falla masiva solo lo quita el técnico que lo reportó: _ingCerrarMasivaTec pregunta a _ingPuedeCerrarMasivaTec antes de escribir ✓'
+     : 'Fallan: '+claves.filter(k=>r[k]!==true).join(', ')+(faltan.length?'\nFunciones que faltan o están repetidas: '+faltan.join(', '):'')+(enfriaDetalle?'\nEnfriamiento de contratos: '+enfriaDetalle:'')+'\n'+JSON.stringify({vT, vO, srcVivo, sets:sets.length, mod:mod.length})};}},
 {app:'red', titulo:'Nada se escribió durante las pruebas',
  porque:'Las pruebas corren sobre los datos de verdad. Si alguna escribiera, dañaría justo lo que '
        +'está revisando.',
