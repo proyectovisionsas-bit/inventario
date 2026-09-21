@@ -3482,10 +3482,10 @@ const PRUEBAS = [
        +'pon(); const sinFiltro=!_regHayFiltro(); pon("az"); const conFiltro=_regHayFiltro();'
        +'pon(); const app=document.getElementById("app"), ls=document.getElementById("login-screen"); const oculta=app.classList.contains("hidden"); const lsPrev=ls?ls.style.display:""; const uPrev=USER; const selPrev=window._selOfiReg, fPrev=window._regFechaPreserve;'
        +'if(!USER||!USER.role) USER={role:"admin"}; app.classList.remove("hidden"); if(ls) ls.style.display="none";'
-       +'const o=(DB.oficinas||[]).map(x=>({x, dias:[...new Set((x.movimientos||[]).filter(m=>_cuentaEnCaja(m)).map(m=>String(m.fecha||"").slice(0,10)))]})).find(x=>x.dias.length); window._selOfiReg=o.x.id; const dia=o.dias.sort().slice(-1)[0]; window._regFechaPreserve=dia;'
+       +'const seVe=m=>(typeof _regSeMuestra==="function")?_regSeMuestra(m):_cuentaEnCaja(m); const o=(DB.oficinas||[]).map(x=>({x, dias:[...new Set((x.movimientos||[]).filter(m=>seVe(m)).map(m=>String(m.fecha||"").slice(0,10)))]})).find(x=>x.dias.length); window._selOfiReg=o.x.id; const dia=o.dias.sort().slice(-1)[0]; window._regFechaPreserve=dia;'
        +'navigate("registro"); await new Promise(x=>setTimeout(x,300));'
        +'const tb=document.getElementById("reg_toolbar"); const barra=!!tb && tb.querySelectorAll("select").length===3 && tb.querySelectorAll("input[type=time]").length===2 && !!document.getElementById("reg_buscar");'
-       +'const movsDia=(o.x.movimientos||[]).filter(m=>_cuentaEnCaja(m) && String(m.fecha||"").slice(0,10)===dia); const nTabla=document.querySelectorAll("#appContent table tbody tr[data-mov]").length; const tablaCompleta=nTabla===movsDia.length;'
+       +'const movsDia=(o.x.movimientos||[]).filter(m=>seVe(m) && String(m.fecha||"").slice(0,10)===dia); const nTabla=document.querySelectorAll("#appContent table tbody tr[data-mov]").length; const tablaCompleta=nTabla===movsDia.length;'
        +'const totalAntes=(document.querySelector("#appContent .card")||{}).innerText||""; const campo=document.getElementById("ing_valor"); if(campo) campo.value="45000"; const campoDesc=document.getElementById("ing_desc"); if(campoDesc) campoDesc.value="Prueba a medio llenar";'
        +'_regSet("Orden","az"); await new Promise(x=>setTimeout(x,200)); const filas=[...document.querySelectorAll("#appContent table tbody tr[data-mov]")].map(tr=>tr.getAttribute("data-mov")); const esperado=_regOrdenarFiltrar(movsDia).map(m=>m.id); const ordenAZ=filas.join()===esperado.join() && filas.length===movsDia.length;'
        +'const totalDespues=(document.querySelector("#appContent .card")||{}).innerText||""; const totalesIguales=totalAntes===totalDespues; const c2=document.getElementById("ing_valor"), d2=document.getElementById("ing_desc"); const formularioSigue=!!c2 && c2.value==="45000" && !!d2 && d2.value==="Prueba a medio llenar" && !!document.getElementById("reg_lista"); if(c2) c2.value=""; if(d2) d2.value="";'
@@ -5075,6 +5075,41 @@ const PRUEBAS = [
    return {ok:bien, detalle: bien
      ? 'Con préstamos y abonos viejos (sin hora propia) y nuevos del mismo día, cada abono sale después del préstamo que lo origina, las fechas van en orden y el saldo corrido nunca es negativo; el último saldo es la deuda de la persona ✓'
      : (r && r.error ? r.error+'\n' : 'Fallan: '+claves.filter(k=>!r || r[k]!==true).join(', ')+'\n')+JSON.stringify(r).replace(/</g,'&lt;')};}},
+{app:'ofi', titulo:'Préstamos v313: un abono o préstamo anulado con su reverso no suma en «Entró» ni en «Salió», pero sigue a la vista en el registro',
+ porque:'v313 (21 sep 2026), Elkin: en la Cuenta Bancaria de YESCENIA «Entró hoy +$405.000 · Salió hoy −$60.000»: lo que ingresó le restó lo que no se restó realmente. '
+       +'Un abono de $60.000 por banco se anuló con reverso («la plata NO entró»): el ingreso y su reverso se cancelan, así que ninguno de los dos debe contar '
+       +'en caja, banco, reportes ni tablero (el neto no cambia). Nada se borra: los dos siguen en el registro, atenuados y marcados «Anulado · no cuenta».',
+ correr:async W=>{
+   for(let k=0;k<90;k++){ if(E(W,'return window._cargaMovsIncompleta===false && (DB.oficinas||[]).length>0;')) break; await new Promise(r=>setTimeout(r,1000)); }
+   const r=E(W,
+     'const OID="ofi_prueba_v313"; const o={id:OID, nombre:"PRUEBA V313", movimientos:[]}; DB.oficinas.push(o);'
+    +'try{'
+    +' const f="2026-09-21T10:00:00";'
+    +' const ing={id:"pr_"+OID+"_p1_a1", tipo:"ingreso", concepto:"Abono préstamo", forma:"Cta Bancolombia", valor:60000, fecha:f, esPrestamo:true, prestamoId:"p1", lineaId:"a1"};'
+    +' const normal={id:"mv_v313_n", tipo:"ingreso", concepto:"Suscripción", forma:"Cta Bancolombia", valor:345000, fecha:f};'
+    +' o.movimientos.push(ing, normal);'
+    +' const antes=[_cuentaEnCaja(ing), _movAnuladoConReverso(ing)];'
+    +' const rev={id:ing.id+"_rev", tipo:"egreso", concepto:"Abono préstamo", forma:"Cta Bancolombia", valor:60000, fecha:"2026-09-21T16:00:00", esPrestamo:true, esReverso:true, revierte:ing.id};'
+    +' o.movimientos.push(rev);'
+    +' const despues=[_cuentaEnCaja(ing), _cuentaEnCaja(rev), _regSeMuestra(ing), _regSeMuestra(rev), _cuentaEnCaja(normal)];'
+    +' const suma=t=>o.movimientos.filter(m=>_cuentaEnCaja(m)&&m.tipo===t).reduce((a,m)=>a+m.valor,0);'
+    +' const entro=suma("ingreso"), salio=suma("egreso");'
+    +' const huerfano={id:"pr_"+OID+"_p2_a9_rev", tipo:"egreso", concepto:"Abono préstamo", forma:"Efectivo", valor:5000, fecha:f, esPrestamo:true, esReverso:true, revierte:"pr_"+OID+"_p2_a9"};'
+    +' o.movimientos.push(huerfano); const huerfanoCuenta=_cuentaEnCaja(huerfano);'
+    +' const sinPrestamo={id:"mv_v313_x", tipo:"ingreso", forma:"Efectivo", valor:1, fecha:f, esReverso:true, revierte:normal.id}; o.movimientos.push(sinPrestamo); const normalSigue=_cuentaEnCaja(normal);'
+    +' const fPrev=window._regForma; window._regForma="Cta Bancolombia"; let barra=""; try{ barra=_regToolbarHTML(o.movimientos.filter(m=>_regSeMuestra(m)&&String(m.fecha||"").slice(0,10)==="2026-09-21"), o.movimientos.filter(m=>_regSeMuestra(m)&&String(m.fecha||"").slice(0,10)==="2026-09-21"&&m.forma==="Cta Bancolombia")); } finally { window._regForma=fPrev; }'
+    +' const barraBien=barra.indexOf(fmtShort(345000))>=0 && barra.indexOf(fmtShort(405000))<0;'
+    +' const copia=o.movimientos.slice(); copia.splice(copia.indexOf(normal),1); copia.push({id:"mv_v313_otro", tipo:"ingreso", forma:"Efectivo", valor:1, fecha:f}); const quitado=copia.splice(copia.findIndex(m=>m.id===rev.id),1)[0]; copia.push({id:"mv_v313_otro2", tipo:"ingreso", forma:"Efectivo", valor:1, fecha:f}); o.movimientos=copia;'
+    +' const recarga=_cuentaEnCaja(ing)===true && !!quitado;'
+    +' return {antes, despues, entro, salio, huerfanoCuenta, normalSigue, barraBien, recarga, fuente:_cuentaEnCaja.toString().indexOf("_movAnuladoConReverso")>=0};'
+    +'} finally { const i=DB.oficinas.indexOf(o); if(i>=0) DB.oficinas.splice(i,1); }');
+   const bien = r && JSON.stringify(r.antes)==='[true,false]' && JSON.stringify(r.despues)==='[false,false,true,true,true]'
+     && r.entro===345000 && r.salio===0 && r.huerfanoCuenta===true && r.normalSigue===true && r.barraBien===true && r.recarga===true && r.fuente===true;
+   return {ok:bien, detalle: bien
+     ? 'Un abono de $60.000 por banco cuenta mientras no se anule; al anularlo con reverso, ni el abono ni el reverso cuentan: la oficina queda con Entró $345.000 y Salió $0 (antes: Entró $405.000 y Salió $60.000) ✓'
+      +'\nLos dos siguen a la vista en el registro (atenuados, «Anulado · no cuenta»); un reverso sin su original sí cuenta, y un movimiento que no es de préstamo no se toca ✓'
+      +'\nCon un filtro puesto, la barra del registro suma $345.000 y no $405.000; y si una recarga trae la misma cantidad de movimientos pero sin el reverso, el abono vuelve a contar ✓'
+     : JSON.stringify(r)};}},
 {app:'red', titulo:'Nada se escribió durante las pruebas',
  porque:'Las pruebas corren sobre los datos de verdad. Si alguna escribiera, dañaría justo lo que '
        +'está revisando.',

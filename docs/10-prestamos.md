@@ -148,6 +148,12 @@ consola del admin (`DB.config.prestTopeOficina=1500000; save()`), con una sola s
   `lineaId`, `bloqueadoEdicion`; fecha de la línea.
 - Reverso (`_reversarMovPrestamo`): `<original>_rev`, tipo contrario, misma caja, fecha de
   hoy, `esReverso`, hereda la marca; el original no se toca y el ítem guarda `revMovId`.
+- v313: el par original + reverso NO cuenta en caja (`_cuentaEnCaja` → `_movAnuladoConReverso`, con
+  `_idsParesReverso()` cacheado por la longitud de movimientos de cada oficina): ni en «Entró» ni en
+  «Salió», ni en tablero, reportes, PDF, Excel o IA (el neto no cambia). El registro del día los
+  sigue mostrando (`_regSeMuestra`), atenuados y marcados «⛔ Anulado · no cuenta». Un reverso
+  sin su original sí cuenta. Pedido de Elkin (21-sep-2026): «lo que ingresó le restó lo que no
+  se restó realmente».
 - Enlazar (`ya_salio`, `ya_entro`, Conciliar 5): el movimiento recibe `esPrestamo`,
   `prestamoId`, `lineaId`, `reclasificadoPor/Ms` sin cambiar valor, fecha ni concepto.
   Nunca se enlaza un Pago Admin (`esPagoAdmin`/`pagoAdminId`: se corrige desde Pagos Admin)

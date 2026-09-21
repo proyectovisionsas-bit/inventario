@@ -25,11 +25,11 @@ sin proceso de compilación: se editan directamente y se publican tal cual.
 | Archivo | Para quién | Versión | Tamaño |
 |---|---|---|---|
 | `index.html` | Portal de entrada, solo enlaces | — | 170 líneas |
-| `OFICINAS_PTOVISION.html` | Oficina: caja, cartera, facturas, clientes, RRHH, SG-SST | `APP_VERSION = 312` | 37.013 líneas · 2,7 MB |
+| `OFICINAS_PTOVISION.html` | Oficina: caja, cartera, facturas, clientes, RRHH, SG-SST | `APP_VERSION = 313` | 37.030 líneas · 2,7 MB |
 | `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 111` | 11.311 líneas · 782 KB |
 | `RED_PTOVISION.html` | Red y nodos | `APP_VERSION_RED = 41` | 9.404 líneas · 573 KB |
 | `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 97` | 3.402 líneas · 222 KB |
-| `PRUEBAS.html` | Banco de pruebas (112 pruebas) | — | 5.204 líneas |
+| `PRUEBAS.html` | Banco de pruebas (113 pruebas) | — | 5.239 líneas |
 | `FIRMA_SST.html` | Firma desde el celular (SG-SST): página pública, sin login, lee un solo documento por token | — | 187 líneas |
 | `contrato.js` | Contrato de servicio: **compartido** OFICINAS ↔ TECNICOS | `?v=6` | 956 líneas |
 | `ia.js` | Llamadas a Groq: compartido por OFICINAS, INVENTARIO y TECNICOS | `?v=5` | 388 líneas |

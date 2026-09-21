@@ -1004,7 +1004,7 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION = 312; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 313; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -1025,7 +1025,7 @@ const APP_VERSION = 312; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '21 Sep 2026 (v312: Préstamos «una cuenta por persona»: extracto, entregas y abonos ligados a la caja con reverso en vez de borrar, autorización del admin por tope y atraso, conciliación y unión de repetidos. v311: «Antes de llamar al ingeniero». v310: un pago de WispHub, un solo registro. Historial en git y en docs/01-firestore-limites.md)';
+const APP_VERSION_FECHA = '21 Sep 2026 (v313: un abono o préstamo anulado con su reverso no suma en Entró ni en Salió. v312: Préstamos «una cuenta por persona». v311: «Antes de llamar al ingeniero». v310: un pago de WispHub, un solo registro. Historial en git y en docs/01-firestore-limites.md)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -10663,7 +10663,22 @@ function _bolsilloDe(forma){
 }
 
 function _esPagoWisphub(m){ return !!(m && (m.facturaWisphub || m.origen==='cierre_wisphub')); }
-function _cuentaEnCaja(m){ return !!m && (!m.vinculadoAbono || _esPagoWisphub(m)); }
+// v313: un movimiento de préstamo anulado con su reverso (y el reverso) no cuenta en caja: la plata nunca se movió.
+// Se detecta por el reverso (esReverso + revierte) en la misma oficina; se recalcula solo cuando cambian los movimientos.
+let _revParesCache={arrs:[], lens:[], ids:null};
+function _idsParesReverso(){
+    const ofs=(typeof DB!=='undefined'&&DB&&Array.isArray(DB.oficinas))?DB.oficinas:[];
+    const c=_revParesCache;   // vale mientras cada oficina tenga el MISMO arreglo con la MISMA cantidad (una recarga pone un arreglo nuevo)
+    if(c.ids && c.arrs.length===ofs.length && ofs.every((o,i)=>{ const a=o&&o.movimientos; return a===c.arrs[i] && (a?a.length:-1)===c.lens[i]; })) return c.ids;
+    const ids=new Set();
+    for(const o of ofs){ const ms=(o&&o.movimientos)||[]; const revs=ms.filter(x=>x&&x.esPrestamo&&x.esReverso&&x.revierte); if(!revs.length) continue;
+        const hay=new Set(ms.map(x=>x&&String(x.id||''))); revs.forEach(r=>{ if(hay.has(String(r.revierte))){ ids.add(String(r.revierte)); ids.add(String(r.id)); } }); }
+    _revParesCache={arrs:ofs.map(o=>o&&o.movimientos), lens:ofs.map(o=>(o&&o.movimientos)?o.movimientos.length:-1), ids}; return ids;
+}
+function _movAnuladoConReverso(m){ return !!m && !!m.esPrestamo && _idsParesReverso().has(String(m.id||'')); }
+function _cuentaEnCaja(m){ return !!m && (!m.vinculadoAbono || _esPagoWisphub(m)) && !_movAnuladoConReverso(m); }
+// v313: lo que se MUESTRA en el registro del día: lo que cuenta más los anulados con su reverso (atenuados, sin sumar)
+function _regSeMuestra(m){ return _cuentaEnCaja(m) || _movAnuladoConReverso(m); }
 
 function getMesMovs(oid, refDate=null){
     const ref=refDate||new Date();
@@ -11673,7 +11688,8 @@ function _regToolbarHTML(hoyMovs, lista){
     const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
     const formas=[...new Set((hoyMovs||[]).map(m=>String(m.forma||'')).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es'));
     const hay=_regHayFiltro();
-    const ing=lista.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+(parseFloat(m.valor||0)||0),0), egr=lista.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+(parseFloat(m.valor||0)||0),0);
+    const _suman=lista.filter(m=>!_movAnuladoConReverso(m));   // v313: el par anulado se ve en la lista pero no suma
+    const ing=_suman.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+(parseFloat(m.valor||0)||0),0), egr=_suman.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+(parseFloat(m.valor||0)||0),0);
     const sel='class="form-control" style="width:auto;max-width:100%;padding:4px 8px;font-size:0.78rem;"';
     return `<div id="reg_toolbar" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;font-size:0.78rem;">
         <label style="display:flex;align-items:center;gap:4px;" title="Orden de la lista">🔃 <select ${sel} onchange="_regSet('Orden',this.value)">${_REG_ORDENES.map(o=>`<option value="${o[0]}" ${window._regOrden===o[0]?'selected':''}>${o[1]}</option>`).join('')}</select></label>
@@ -11698,10 +11714,10 @@ function _regListaHTML(oid, hoyMovs, listaReg){
                 <p style="font-size:0.78rem;font-weight:700;color:var(--accent);margin-bottom:8px;">📋 Detalle por registro — hoy</p>
                 <div style="display:flex;flex-direction:column;gap:5px;">
                 ${listaReg.map(m=>`
-                    <div data-mov="${m.id}" style="display:flex;justify-content:space-between;align-items:center;background:${m.tipo==='ingreso'?'rgba(16,185,129,0.06)':'rgba(239,68,68,0.05)'};border:1px solid ${m.tipo==='ingreso'?'rgba(16,185,129,0.15)':'rgba(239,68,68,0.12)'};border-radius:8px;padding:8px 12px;gap:8px;flex-wrap:wrap;">
+                    <div data-mov="${m.id}" style="display:flex;justify-content:space-between;align-items:center;background:${m.tipo==='ingreso'?'rgba(16,185,129,0.06)':'rgba(239,68,68,0.05)'};border:1px solid ${m.tipo==='ingreso'?'rgba(16,185,129,0.15)':'rgba(239,68,68,0.12)'};border-radius:8px;padding:8px 12px;gap:8px;flex-wrap:wrap;${_movAnuladoConReverso(m)?'opacity:.5;':''}">
                         <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;">
                             <span style="font-size:0.75rem;color:var(--muted);flex-shrink:0;">${new Date(m.fecha).toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})}</span>
-                            <span class="tag ${m.tipo==='ingreso'?'tag-ing':'tag-egr'}" style="flex-shrink:0;">${m.concepto}</span>
+                            <span class="tag ${m.tipo==='ingreso'?'tag-ing':'tag-egr'}" style="flex-shrink:0;">${m.concepto}</span>${_movAnuladoConReverso(m)?'<span class="tag" style="flex-shrink:0;font-size:0.6rem;background:rgba(148,163,184,0.2);color:var(--muted);" title="Anulado desde Préstamos: la plata no se movió. No suma en Entró ni en Salió.">⛔ Anulado · no cuenta</span>':''}
                             ${m.esPagoAdmin?'<span class="tag tag-admin" style="flex-shrink:0;font-size:0.6rem;">👑</span>':''}
                             <span style="font-size:0.82rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${m.descripcion||'<span style="color:var(--muted);font-style:italic;">Sin descripción</span>'}</span>
                             ${m.verificadoIA?'<span style="font-size:0.62rem;background:rgba(249,115,22,0.15);color:#f97316;padding:1px 6px;border-radius:8px;flex-shrink:0;" title="Registrado con IA">✨ IA</span>':''}
@@ -11714,7 +11730,7 @@ function _regListaHTML(oid, hoyMovs, listaReg){
                                 📎${_insigniaComprobantes(m, 'font-size:0.62rem;margin-left:3px;')}
                             </button>
                             <span class="tag ${m.forma==='Efectivo'?'tag-ef':m.forma==='Efecty'?'tag-efty':'tag-banc'}" style="font-size:0.65rem;">${m.forma}</span>
-                            <span class="money ${m.tipo==='ingreso'?'pos':'neg'}" style="font-weight:800;">${m.tipo==='ingreso'?'+':'-'}${fmtShort(m.valor)}</span>
+                            <span class="money ${m.tipo==='ingreso'?'pos':'neg'}" style="font-weight:800;${_movAnuladoConReverso(m)?'text-decoration:line-through;':''}">${m.tipo==='ingreso'?'+':'-'}${fmtShort(m.valor)}</span>
                         </div>
                     </div>`).join('')}
                 </div>
@@ -11722,7 +11738,7 @@ function _regListaHTML(oid, hoyMovs, listaReg){
             <div class="table-wrap"><table>
             <thead><tr><th>Hora</th><th>Tipo</th><th>Concepto</th><th>Descripción</th><th>Forma Pago</th><th>Cajero</th><th>Valor</th><th></th></tr></thead>
             <tbody>
-                ${listaReg.map(m=>`<tr data-mov="${m.id}" style="${m.esPagoAdmin?'background:rgba(245,158,11,0.04);':''}">
+                ${listaReg.map(m=>`<tr data-mov="${m.id}" style="${m.esPagoAdmin?'background:rgba(245,158,11,0.04);':''}${_movAnuladoConReverso(m)?'opacity:.5;':''}">
                     <td style="color:var(--muted);font-size:0.78rem;">${new Date(m.fecha).toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})}</td>
                     <td>
                         <span class="tag ${m.tipo==='ingreso'?'tag-ing':'tag-egr'}">${m.tipo==='ingreso'?'Ingreso':'Egreso'}</span>
@@ -11731,8 +11747,8 @@ function _regListaHTML(oid, hoyMovs, listaReg){
                     <td>${m.concepto}${m.esOtroIngreso?` <span style="font-size:0.6rem;background:rgba(217,119,6,0.18);color:#d97706;padding:1px 6px;border-radius:8px;font-weight:600;" title="Otro Ingreso (no es mensualidad)">🏷️ Otro Ingreso</span>`:''}</td>
                     <td style="color:var(--muted);font-size:0.78rem;">${m.descripcion||'-'}${m.verificadoIA?' <span style="font-size:0.62rem;background:rgba(249,115,22,0.15);color:#f97316;padding:1px 6px;border-radius:8px;" title="Registrado con IA">✨</span>':''}${m.esReporteEfecty?` <span style="font-size:0.62rem;background:rgba(234,88,12,0.15);color:#ea580c;padding:1px 6px;border-radius:8px;" title="Reporte Efecty con ${m.cantidadPagos||0} pagos">📄${m.cantidadPagos||0}</span>`:''}</td>
                     <td><span class="tag ${m.forma==='Efectivo'?'tag-ef':m.forma==='Efecty'?'tag-efty':'tag-banc'}">${m.forma}</span></td>
-                    <td style="color:var(--muted);font-size:0.74rem;">${m.cajeroWisphub?'👤 '+m.cajeroWisphub:'—'}</td>
-                    <td class="money ${m.tipo==='ingreso'?'pos':'neg'}">${m.tipo==='ingreso'?'+':'-'}${fmtShort(m.valor)}</td>
+                    <td style="color:var(--muted);font-size:0.74rem;">${m.cajeroWisphub?'👤 '+m.cajeroWisphub:'—'}${_movAnuladoConReverso(m)?' <span style="font-size:0.62rem;color:var(--muted);" title="Anulado desde Préstamos: no suma">⛔ no cuenta</span>':''}</td>
+                    <td class="money ${m.tipo==='ingreso'?'pos':'neg'}" style="${_movAnuladoConReverso(m)?'text-decoration:line-through;':''}">${m.tipo==='ingreso'?'+':'-'}${fmtShort(m.valor)}</td>
                     <td style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
                         <button class="btn btn-outline btn-sm" onclick="modalComprobantes('${oid}','${m.id}')" title="Ver/subir comprobantes" style="padding:3px 7px;">
                             📎${_insigniaComprobantes(m, 'font-size:0.6rem;margin-left:2px;')}
@@ -11754,7 +11770,7 @@ function _regRefrescarLista(){
         const cont=document.getElementById('reg_lista'); if(!cont){ renderRegistro(); return; }
         const oficinas=currentOficinas(); const oid=USER.role==='admin'?(window._selOfiReg||(oficinas[0]||{}).id):USER.id; const o=getOficina(oid); if(!o){ renderRegistro(); return; }
         const fechaVal=window._regFechaPreserve||document.getElementById('reg_fecha')?.value||hoyLocal();
-        const hoyMovs=(o.movimientos||[]).filter(m=>_cuentaEnCaja(m) && String(m.fecha||'').slice(0,10)===fechaVal);
+        const hoyMovs=(o.movimientos||[]).filter(m=>_regSeMuestra(m) && String(m.fecha||'').slice(0,10)===fechaVal);   // v313: la lista muestra también los anulados con su reverso
         cont.innerHTML=_regListaHTML(oid, hoyMovs, _regOrdenarFiltrar(hoyMovs));
     }catch(e){ console.warn('lista del registro:', e); renderRegistro(); }
 }
@@ -11782,7 +11798,8 @@ function renderRegistro(){
         const mFecha=m.fecha?m.fecha.slice(0,10):'';
         return mFecha===_regFechaVal;
     });
-    const listaReg=_regOrdenarFiltrar(hoyMovs);   // v309: el orden y los filtros elegidos arriba de la lista (los totales siguen con todo el día)
+    const hoyMovsLista=(o.movimientos||[]).filter(m=>_regSeMuestra(m) && (m.fecha?m.fecha.slice(0,10):'')===_regFechaVal);   // v313: anulados con su reverso, visibles pero sin sumar
+    const listaReg=_regOrdenarFiltrar(hoyMovsLista);   // v309: el orden y los filtros elegidos arriba de la lista (los totales siguen con todo el día)
     const ingHoy=hoyMovs.filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+parseFloat(m.valor||0),0);
     // 🏷️ De lo que entró hoy, cuánto fue Otros Ingresos (tipo≠1: traslados, saldos, reconexión)
     const ingOtrosHoy=hoyMovs.filter(m=>m.tipo==='ingreso' && _esOtroMovWH(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
@@ -12024,7 +12041,7 @@ function renderRegistro(){
                 ${USER.role==='admin'?`<button class="btn btn-warning btn-sm" onclick="modalGestionarMovimientos('${oid}')">🗑️ Gestionar todos</button>`:''}
             </div>
         </div>
-        <div id="reg_lista">${_regListaHTML(oid, hoyMovs, listaReg)}</div>
+        <div id="reg_lista">${_regListaHTML(oid, hoyMovsLista, listaReg)}</div>
     </div>
     `;
 }
