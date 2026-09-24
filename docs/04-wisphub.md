@@ -146,3 +146,154 @@ misma oficina cada 12 minutos (lectura duplicada de la API, sin candado entre
 sesiones); el pago nuevo tarda en llegar a la nube mientras se concilian
 clientes (`diferirGuardado`); `modalDetectarDuplicados` agrupa por fecha y valor
 (falsos positivos) y su "Fusionar" exige exactamente 2.
+
+## Pagos de facturas viejas: el rastreador rehecho (OFICINAS v314, 24 Sep 2026)
+
+Elkin: "cuando pagan una factura muy vieja no la sincroniza, es más no muestra
+el ingreso en el día".
+
+**Por qué pasa.** WispHub no devuelve en sus listados las facturas emitidas
+fuera de su ventana (unos dos meses) ni las de servicios archivados, **ni
+siquiera filtrando por `fecha_pago`** (comprobado el 20 ago 2026 con la #13313).
+La sincronización rápida pregunta por fecha de pago, así que un pago de una
+factura vieja nunca le llega. Solo la ficha directa `/api/facturas/<n>/` la
+entrega. Eso lo resolvía el rastreador de la v248, pero medido con los datos
+reales del 23 sep tenía cuatro fallas:
+
+1. **Cola vieja.** Se armaba una sola vez, cuando estaba vacía. Como las
+   facturas sin pagar vuelven siempre a la cola, nunca se vaciaba y no se volvió
+   a armar: lo que salió del listado después jamás entró. El barrido manual
+   conocía 366 pendientes viejas de Cartagena que el rastreador no vigilaba,
+   107 de Florencia, 90 de Paujil y 41 de Montañita.
+2. **Sin rescate.** Filtraba solo por zona. El que paga una factura vieja suele
+   ser un retirado, y WispHub le quita la zona al retirado: se botaba callado.
+3. **Oficina huérfana.** Aplicaba sobre la oficina tomada al empezar; si
+   mientras revisaba otra pantalla recargaba, el pago quedaba en una copia que
+   nadie guardaba.
+4. **Trabajo repetido.** Todas las pantallas hacían la misma revisión: Paujil
+   llevaba 352.009 consultas para vigilar 258 facturas.
+
+**Cómo quedó** (`_revisarHuecosWisphub`, cada 20 min, `_programarRevisionHuecos`):
+
+- **Un turno por cuenta** (`oficinas_sistema/rastreo_turnos`, transacción, 25
+  min, se renueva cada vuelta). Solo una pantalla revisa cada cuenta; si se
+  cierra, otra lo toma al vencerse. Una versión más nueva le gana el turno a una
+  vieja. Una pantalla con movimientos o clientes a medio cargar
+  (`_datosListosRastreo`) ni lo pide, y si una vuelta termina sin poder aplicar,
+  lo suelta (`_soltarTurnoRastreo`). En modo prueba no se escribe el turno.
+- **Estado propio por cuenta** (`oficinas_sistema/rastreo_wisp_<cuenta>`), en
+  rangos compactos ("1-5,9,12-40"): `resueltos` (solo crece), `pend` (viejas
+  sin pagar), `urgentes`, `descubrir`, `sinAsignar`, `cursor`, `listadoN`,
+  `rangoMin/Max`, `maxExiste`. Se escribe en transacción que une con lo de la
+  nube (`_fusionarRastreo`, pura). Con los datos reales pesa entre 1 y 6 KB por
+  cuenta. **Nada de esto va en el documento principal.**
+- **La cola de cada vuelta** (`_planVueltaRastreo`, pura): urgentes → lo que se
+  salió del listado o es oculta nueva (todo número ≤ máximo que no esté en el
+  listado ni en ninguna lista) → 30 "sin oficina" a re-verificar → pendientes
+  viejas por turno fijo (`_turnoRastreo`: cada número cae en uno de 3 turnos, así
+  cada una se mira una vez por hora aunque la lista crezca) → 400 nunca
+  revisadas, de la más nueva a la más vieja. La primera vez siembra `descubrir`
+  con todo lo desconocido (Paujil ≈ 81.000 números: unos días de fondo;
+  Cartagena ≈ 25 vueltas; Florencia 7; Montañita 2). Semilla: la caché del
+  barrido manual ('no' → resueltos; 'ok' → resuelto SOLO si ese pago ya está en
+  la nube según `_baseMovs`, urgente si solo está en memoria y revisar si no está
+  en ninguna caja; 'pend' → pend; 'asig' → urgentes) y la cola vieja
+  `config._huecosWisp` (se sigue leyendo, ya no se escribe).
+- **Listado recortado:** si llega menos del 90 % de la vuelta anterior no se usa
+  para buscar desaparecidas en esa vuelta, pero queda como referencia: si la baja
+  era real (la ventana soltó un lote), la vuelta siguiente las mira. Si no llega,
+  igual se vigila lo conocido. En mantenimiento no escribe su estado.
+- **Hacia arriba:** después del último número conocido, hasta 12 inexistentes
+  seguidos (ocultas nuevas).
+- **Ficha** (`_fichaFacturaWisp`): solo se acepta si trae el mismo número que se
+  pidió; una respuesta rara es "fallo" (se reintenta), nunca "no existe". Un 404
+  por encima del máximo tampoco es "no existe".
+- **Reparto** (`_repartoRastreo`, síncrono, sobre las oficinas **vivas**): lo que
+  ya está en la caja de cualquier oficina de la cuenta no se repite; mismas
+  reglas que la sincronización (`_filtrarPorZonaOficina` +
+  `_rescatarFacturasDeMisClientes`, guardando y restaurando
+  `window._sinAsignarWisp`). Si alguna oficina o los clientes no terminaron de
+  cargar, no se decide nada: todo queda urgente para la vuelta siguiente.
+- **Prudencia:** no entra solo a la caja lo que reclaman dos oficinas, lo que no
+  reclama ninguna, lo que no trae `fecha_pago` y lo pagado hace más de
+  `RASTREO_DIAS_AUTO` (35) días. Eso queda en **"Pagos sin oficina"**.
+- **Primero la nube, después "resuelto":** se guarda (`save`) y solo si el
+  movimiento quedó en `_baseMovs` (lo que la nube tiene) la factura pasa a
+  resueltas; si no, queda urgente y se vuelve a mirar sin duplicar.
+- **Avisos:** toast con oficina, valor y, si el pago quedó en un día anterior, su
+  fecha. Auditoría: `PAGOS_OCULTOS`, `PAGOS_TARDIOS`, `PAGOS_SIN_OFICINA`,
+  `PAGOS_SIN_OFICINA_METIDOS`, `PAGOS_SIN_OFICINA_DESCARTADOS`.
+
+**"Pagos sin oficina" (solo admin).** Franja en el Dashboard y botón en el
+Registro (`modalPagosSinAsignar`). Agrupado por cuenta, motivo y la oficina que
+WispHub sugiere (ya escogida en el selector del grupo); si se escoge otra, avisa
+antes. Se marcan y se meten a la caja de una oficina de esa cuenta (con su fecha
+real de pago; si WispHub no la trae, la escribe quien los mete, nunca la de
+emisión; sin repetir lo que ya esté en alguna caja; lo que esté en "borrados para
+siempre" no entra) o se descartan con motivo. Si mientras tanto se abrió otra
+ventana, la lista no se le pinta encima. La lista guarda solo lo mínimo de cada factura
+(`_stubFacturaWisp`, zona vacía = `null` para que el rescate la siga viendo "sin
+zona"); máximo 500 por cuenta, lo que no cabe vuelve a vigilarse.
+
+**Lo que las sincronizaciones le entregan al rastreador**
+(`_rastreoEntregarUrgentes`): la rápida y la completa le pasan lo pagado que
+ninguna oficina de la cuenta reclama (`_pagadasSinDueno`) en vez de botarlo; la
+completa, además, lo recuperado que no tomó nadie, que antes quedaba `'libre'`
+(definitivo: ni la otra oficina lo recibía) y ahora queda `'asig'`.
+
+**Otros arreglos de la misma versión**
+
+- `_soltarSync` olvida el "⛔ Cancelar": antes la bandera quedaba en true hasta
+  abrir otra sincronización y la automática fallaba callada hasta recargar.
+- `_valorCobradoWH` reemplaza `total_cobrado || total` en todos los caminos: un
+  cobro de 0 (saldo a favor) ya no se vuelve el total de la factura.
+- La sincronización rápida pide los días en hora de Colombia (`_diaLocalISO`).
+- `_pestanaDesactualizada()`: si ya hay otra versión publicada, la pantalla no
+  corre la sincronización automática ni el rastreador (`?ignorarVersion` la deja).
+- Sincronización completa: tras confirmar se aplica sobre la oficina **viva**; los
+  "conocidos" del barrido son solo de las oficinas de la **misma cuenta** (los
+  números son la secuencia de cada cuenta); se salta lo que el rastreador ya dejó
+  resuelto.
+- Conciliación automática de clientes: no corre con los clientes a medio cargar,
+  usa las oficinas vivas y actualiza estados con la lista completa de la cuenta
+  (como la manual desde la v214).
+- `_acotarGapsFacturas` conserva primero 'ok', 'pend' y 'asig'.
+
+**Pruebas:** cinco nuevas en PRUEBAS.html (una lee una ficha real de WispHub, solo
+lectura). Fuera del repo se corrieron 76 escenarios con las funciones reales y
+WispHub/Firestore simulados, y la app completa en Chromium (32 comprobaciones,
+cero errores de JavaScript, en admin, oficina y modo prueba). La revisión
+independiente (subagente) encontró seis fallas antes de publicar, todas
+corregidas y con prueba: la referencia del 90 % que podía dejar ciego al
+rastreador, pagos de una oficina metidos en otra desde el modal, el turno retenido
+por una pantalla a medio cargar, la fecha de emisión en pagos sin fecha de pago,
+los 'ok' de la caché aceptados sin estar en la nube y el modal pintado encima de
+otra ventana.
+
+**Las otras apps (antes de publicar, 24 Sep 2026).** Inventario, Técnicos, Red y
+Firma SST no cambian en esta versión, pero comparten la base con OFICINAS, así que
+también se probaron sobre una base Firestore simulada y COMPARTIDA (lo que una app
+escribe, la otra lo lee), con datos inventados:
+
+- La tanda completa de `PRUEBAS.html` (Inventario 19, Red 29, Firma 1, OFICINAS
+  64 + 5 nuevas) con OFICINAS v313 y con v314: ninguna empeora, cero errores de
+  JavaScript y cero escrituras (el modo prueba de las apps bloquea todo).
+- Una trayectoria de punta a punta con escrituras reales en la simulación:
+  OFICINAS v314 crea una orden de instalación → TÉCNICOS la acepta y la finaliza
+  con una ONU → OFICINAS guarda con una copia VIEJA en memoria mientras el
+  rastreador mete un pago de factura vieja (la orden sigue finalizada: la fusión
+  de la v220 funciona con la v314) → INVENTARIO confirma el consumo (la cuadrilla
+  baja a 2 ONU sin el serial instalado y la ONU queda en la ficha del cliente) →
+  RED, OFICINAS y TÉCNICOS recargan y ven todo. 22 comprobaciones, cero errores;
+  ninguna app anunció versión desde la prueba.
+- Riesgo que ya existía (no es de esta versión): TÉCNICOS no tiene modo prueba.
+  `PRUEBAS.html` lo abre con `?prueba=1` creyendo que no escribe, pero a los 600 ms
+  escribe `app_version_tecnicos` si su versión es MAYOR que la de la nube (sin
+  guarda de localhost). Con la versión publicada no pasa nada; probar en local una
+  TÉCNICOS nueva con PRUEBAS bloquearía a todos los técnicos. Pendiente: darle la
+  misma guarda que OFICINAS (`_esEntornoLocal`) y un modo prueba de verdad.
+- Otro que ya existía: la prueba «Un comprobante viejo subido hoy se anota…»
+  falla igual con v313 y v314. Es el Apps Script `REVISION_SOPORTES.gs`:
+  `REV_debeContinuar(48,35,true,0)` da `false` y la prueba espera `true` (con
+  Gemini saturado la noche se acaba en vez de esperar y volver). Revisar si la
+  copia del repositorio es la que está publicada en Apps Script.

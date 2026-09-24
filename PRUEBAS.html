@@ -620,6 +620,154 @@ const PRUEBAS = [
        +'\nseriales que le quedan a la cuadrilla: '+r.quedan+' (2) · cantidad: '+r.cant+' (2)'
        +'\n¿sigue ahí?: '+r.sigue+' (false) · lo vuelve a encontrar: '+r.despues+' (0)'};}},
 
+{app:'inv', titulo:'v112 · Un serial escrito de otra forma es el mismo equipo (mayúsculas, espacios, HWTC… = 48575443…)',
+ porque:'Revisión del 23 sep 2026 (I-2): el serial que llega de TÉCNICOS se comparaba letra por letra. En minúsculas, con '
+       +'espacios o en el otro formato de Huawei no se encontraba y la confirmación descontaba OTRO equipo: el instalado seguía '
+       +'apareciendo en la cuadrilla. La etiqueta de la caja trae HWTCxxxxxxxx y la OLT 48575443xxxxxxxx: es el mismo aparato.',
+ correr:W=>{ const r=E(W, 'return {a:_snNormal("hwtc ed66 0aa4"), b:_snNormal("48575443-ED66-0AA4"), c:_snNormal(" sn-onu-002 "),'
+   +' rel:["n/a"," - ","Sin serial","N/A","0"].every(_snEsRelleno), real:!_snEsRelleno("48575443ED660AA4"),'
+   +' donde:typeof _dondeEstaSN==="function"};');
+   const bien = r.a==='48575443ED660AA4' && r.b===r.a && r.c==='SNONU002' && r.rel===true && r.real===true && r.donde===true;
+   return {ok:bien, detalle: bien
+     ? '"hwtc ed66 0aa4" y "48575443-ED66-0AA4" son el mismo serial ✓'
+      +'\nLos rellenos (N/A, -, "Sin serial", 0) no cuentan como serial; uno real sí ✓'
+     : JSON.stringify(r)};}},
+
+{app:'inv', titulo:'v112 · Confirmar unidad por unidad: sale ESE serial de SU fila y lo que no alcanza queda pendiente aparte',
+ porque:'Revisión del 23 sep 2026 (I-1 e I-2): si faltaba cualquier material (cable) no se podía confirmar ni la ONU, y '
+       +'"rechazar" dejaba la ONU instalada en la cuadrilla para siempre. Y con dos filas del mismo equipo la cantidad bajaba '
+       +'en una fila y el serial salía de otra: quedaba una fila en 0 con un serial adentro. Datos inventados, no toca nada.',
+ correr:W=>{ const r=E(W,
+     'const cu={materiales:[{id:"r1",nombre:"ONT X",tipo:"nuevo",cantidad:1,snes:["S1"]},{id:"r2",nombre:"ont x",tipo:"nuevo",cantidad:1,snes:["S2"]},'
+   +'  {id:"c",nombre:"CABLE",tipo:"nuevo",cantidad:40,snes:[]}]};'
+   +'const x={items:[{nombre:"ont x",cant:1,tipo:"nuevo",snes:["s2"]},{nombre:"CABLE",cant:60,tipo:"nuevo",snes:[]},{nombre:"ONT X",cant:1,tipo:"nuevo",snes:["NOESTA"]}]};'
+   +'const plan=_planConsumoInv(cu,x); const el=new Set(plan.filter(u=>u.ok).map(u=>u.clave));'
+   +'_aplicarUnidadesInv(cu,x,plan,el,{}); const p=_partirItemsInv(x,plan,el,{});'
+   +'return {r1:cu.materiales[0].cantidad+"/"+cu.materiales[0].snes.join(), r2:cu.materiales[1].cantidad+"/"+cu.materiales[1].snes.join(),'
+   +' cable:cu.materiales[2].cantidad, conf:p.confirmados.map(i=>i.nombre+":"+i.cant).join(), pend:p.pendientes.map(i=>i.nombre+":"+i.cant).join(),'
+   +' motivos:plan.filter(u=>!u.ok).map(u=>u.motivo)};');
+   const bien = r.r1==='1/S1' && r.r2==='0/' && r.cable===40 && r.conf==='ont x:1' && r.pend==='CABLE:60,ONT X:1' && r.motivos.length===2;
+   return {ok:bien, detalle: bien
+     ? 'El serial s2 (en minúsculas) sale de SU fila, y esa fila baja a 0 sin serial adentro; la otra fila no se toca ✓'
+      +'\nEl cable no alcanzaba (40 de 60): no se toca y queda pendiente aparte ✓'
+      +'\nUn serial que no está en la cuadrilla no se descuenta de otra fila: queda pendiente y dice por qué ✓'
+     : JSON.stringify(r)};}},
+
+{app:'inv', titulo:'v112 · Entre dos pantallas un equipo confirmado no vuelve a la cuadrilla y una corrección no se pierde',
+ porque:'Revisión del 23 sep 2026 (I-3): si una pantalla había tocado cualquier cosa de una cuadrilla (aunque fuera la '
+       +'"categoria" de una fila recién entregada), al guardar reescribía la cuadrilla COMPLETA y el equipo que otra pantalla '
+       +'acababa de confirmar volvía. Ahora se fusiona campo por campo y fila por fila contra la última sincronía.',
+ correr:W=>{ const r=E(W,
+     'const cp=o=>JSON.parse(JSON.stringify(o));'
+   +'const base={id:"c",materiales:[{id:"m1",nombre:"ONT",cantidad:2,snes:["X","Y"]},{id:"m2",nombre:"CABLE",cantidad:40,snes:[]}]};'
+   +'const aqui=cp(base); aqui.materiales[1].categoria="material"; aqui.materiales[1].cantidad=35;'
+   +'const alla=cp(base); alla.materiales[0].cantidad=1; alla.materiales[0].snes=["Y"]; alla.materiales[1].cantidad=30;'
+   +'const u=_fusion3RegistroInv(base,aqui,alla);'
+   +'return {ont:u.materiales[0].cantidad+"/"+u.materiales[0].snes.join(), cable:u.materiales[1].cantidad, cat:u.materiales[1].categoria||"",'
+   +' sinBase:_fusion3RegistroInv(null,aqui,alla)===aqui, intacto:JSON.stringify(_fusion3RegistroInv(base,cp(base),alla))===JSON.stringify(alla)};');
+   const bien = r.ont==='1/Y' && r.cable===25 && r.cat==='material' && r.sinBase===true && r.intacto===true;
+   return {ok:bien, detalle: bien
+     ? 'La ONT X confirmada en otra pantalla NO vuelve (queda 1, solo Y) ✓'
+      +'\nEl cable corregido aquí (−5) y descontado allá (−10) queda en 25: se suman los dos cambios ✓'
+      +'\nLo que solo cambió aquí (categoria) se conserva; lo que aquí no se tocó es idéntico a la nube ✓'
+      +'\nSin base con qué comparar sigue ganando lo de aquí, como desde la v88 ✓'
+     : JSON.stringify(r)};}},
+
+{app:'inv', titulo:'v112 · La Auditoría ve los consumos pendientes (fecha 17/9) y el equipo instalado que sigue en una cuadrilla',
+ porque:'Revisión del 23 sep 2026 (I-6): la Auditoría leía "17/9/2026" como fecha inválida (todo día mayor a 12), contaba los '
+       +'rechazados como pendientes y buscaba campos que TÉCNICOS no escribe. Y no había forma de ver los equipos que se '
+       +'instalaron (consumo confirmado) y siguen en una cuadrilla, que es el síntoma. Datos inventados; se devuelven al terminar.',
+ correr:W=>{ const r=E(W,
+     'const gC=DB.cuadrillas, gK=DB.consumosPendientes, gE=DB.entregas;'
+   +'try{'
+   +'  const h=Date.now()-10*86400000;'
+   +'  DB.cuadrillas=[{id:"PRUEBA_C1",nombre:"CUADRILLA PRUEBA",bodegaId:(DB.bodegas[0]||{}).id,tecnicos:[{id:"t",nombre:"T",cedula:"1.117.000.999"}],'
+   +'    materiales:[{id:"PM",nombre:"ONU PRUEBA",cantidad:2,snes:["PRUEBA-SN-1","PRUEBA-SN-2"]}]},'
+   +'   {id:"PRUEBA_C2",nombre:"CUADRILLA PRUEBA DOS",bodegaId:(DB.bodegas[0]||{}).id,tecnicos:[{id:"t2",nombre:"T2",cedula:"1117000999"}],materiales:[]}];'
+   +'  DB.entregas=[];'
+   +'  DB.consumosPendientes=[{id:"P1",estado:"pendiente",fecha:"17/9/2026",fechaMs:h,cuadrillaNombre:"CUADRILLA PRUEBA",tecnicoNombre:"T",destinoDetalle:"CLIENTE PRUEBA",items:[{nombre:"ONU PRUEBA",cant:1,snes:[]}]},'
+   +'   {id:"R1",estado:"rechazado",fecha:"5/8/2026",fechaMs:h-20*86400000,cuadrillaNombre:"CUADRILLA RECHAZADA",items:[]},'
+   +'   {id:"C1",estado:"confirmado",confirmadoMs:h,confirmadoFecha:"14/9/2026",destinoDetalle:"CLIENTE INSTALADO",items:[{nombre:"ONU PRUEBA",cant:1,snes:["prueba-sn-2"]}]}];'
+   +'  const H=auditarInventario();'
+   +'  const pend=H.filter(x=>/sin confirmar/i.test(x.titulo) && /CUADRILLA PRUEBA/.test(x.detalle));'
+   +'  return {pend:pend.length, dias:pend[0]?/10 día/.test(pend[0].detalle):false, rech:H.some(x=>/CUADRILLA RECHAZADA/.test(x.detalle)),'
+   +'    inst:H.some(x=>/instalado que sigue/i.test(x.titulo) && /prueba-sn-2/i.test(x.detalle)), dos:H.some(x=>/DOS cuadrillas/.test(x.titulo) && /PRUEBA/.test(x.detalle))};'
+   +'} finally { DB.cuadrillas=gC; DB.consumosPendientes=gK; DB.entregas=gE; }');
+   const bien = r.pend===1 && r.dias===true && r.rech===false && r.inst===true && r.dos===true;
+   return {ok:bien, detalle: bien
+     ? 'El consumo pendiente del 17/9 aparece, con su cuadrilla y 10 días ✓ · el rechazado no se cuenta ✓'
+      +'\nEl serial de un consumo confirmado que sigue en la cuadrilla sale como "Equipo instalado que sigue en una cuadrilla" ✓'
+      +'\nLa misma cédula escrita con puntos en dos cuadrillas se detecta ✓'
+     : JSON.stringify(r)};}},
+
+{app:'inv', titulo:'v98 · TÉCNICOS (leído como texto): finalizar es UNA transacción, tiene modo prueba y compara seriales igual que INVENTARIO',
+ porque:'Revisión del 23 sep 2026 (I-4, V-5): hasta la v97 finalizar eran dos escrituras (la orden y después el material): si la '
+       +'segunda fallaba la bodega nunca veía el consumo. Y PRUEBAS abría TÉCNICOS con ?prueba=1 creyendo que no escribía. Aquí '
+       +'solo se LEE su archivo; el serial se compara con la función de TÉCNICOS contra la de INVENTARIO.',
+ correr:async W=>{
+   const leer=async f=>{ try{ const x=await fetch(f,{cache:'no-store'}); return x.ok ? await x.text() : ''; }catch(e){ return ''; } };
+   const tec=(await leer('TECNICOS_PTOVISION.html')).replace(/\r/g,'');
+   if(!tec) return {ok:false, detalle:'No se pudo leer TECNICOS_PTOVISION.html.'};
+   const funcion=n=>{ const i=tec.search(new RegExp('\\n(async\\s+)?function\\s+'+n+'\\s*\\(')); if(i<0) return ''; const resto=tec.slice(i+1), j=resto.search(/\n(async\s+)?function\s/); return j<0?resto.slice(0,8000):resto.slice(0,j); };
+   const r={};
+   r.version=(+((tec.match(/const APP_VERSION_TEC = (\d+);/)||[])[1]||0))>=98;
+   r.unaTx=/tx\.update\(refO/.test(funcion('_aplicarFinalizacionTec')) && /tx\.update\(refI/.test(funcion('_aplicarFinalizacionTec'))
+     && ['_finalizarConMaterial','_finalizarCambioEquipo','confirmarFinalizarRecogida'].every(f=>funcion(f).indexOf('_finalizarConPlanTec(plan')>=0);
+   // la cola real y, en ?prueba=1, OTRA (una prueba nunca toca la cola real del celular)
+   r.cola=tec.indexOf("const COLA_FIN_TEC=MODO_PRUEBA_TEC ? 'tec_finalizaciones_pend_prueba' : 'tec_finalizaciones_pend';")>=0 && funcion('enterApp').indexOf('_enviarPendientesTec()')>=0
+     && funcion('_aplicarFinalizacionTec').indexOf('finPlanId')>=0;
+   r.prueba=tec.indexOf('const MODO_PRUEBA_TEC=')>=0 && tec.indexOf('_instalarGuardasTec();')>=0 && funcion('registrarVersionTec').indexOf('_esEntornoLocalTec()')>=0;
+   let mismo=false, det='';
+   try{
+     const f=funcion('_snClaveTec'); const clave=new Function(f+'\nreturn _snClaveTec;')();
+     const muestras=['hwtc ed66 0aa4','48575443-ED66-0AA4','AA:BB:CC:DD:EE:FF',' sn 1 ','ZTEGC0FFEE12','x',''];
+     mismo=muestras.every(s=>clave(s)===E(W,'return _snNormal('+JSON.stringify(s)+');'));
+     if(!mismo) det=muestras.map(s=>s+'→'+clave(s)+'/'+E(W,'return _snNormal('+JSON.stringify(s)+');')).join(' · ');
+   }catch(e){ det=String(e); }
+   r.serial=mismo;
+   const bien=Object.values(r).every(v=>v===true);
+   return {ok:bien, detalle: bien
+     ? 'TÉCNICOS v98: la orden y el material se escriben en UNA transacción (material, cambio de equipo y recogida) ✓'
+      +'\nSin señal queda una copia en el celular que se envía sola al entrar; en prueba es otra cola, y una orden ya cerrada por otro celular no se repite ✓'
+      +'\nTiene modo prueba de verdad y una copia local no anuncia su versión ✓'
+      +'\nEl serial se compara EXACTAMENTE igual que en INVENTARIO ✓'
+     : 'Fallan: '+Object.keys(r).filter(k=>r[k]!==true).join(', ')+(det?' · '+det:'')};}},
+
+{app:'inv', titulo:'v112 · Con los datos reales, la fusión fina no cambia nada si nadie tocó nada, y un serial confirmado no vuelve',
+ porque:'La fusión fila por fila (I-3) corre en cada snapshot y en cada guardado sobre las cuadrillas y bodegas de verdad. '
+       +'Aquí se pasa por ella CADA cuadrilla y bodega real, sin escribir nada: si nadie tocó nada, el resultado debe ser idéntico; '
+       +'y en una cuadrilla real, un serial que otra pantalla sacó no debe volver aunque esta pantalla haya tocado otras filas.',
+ correr:W=>{ const r=E(W,
+     'const cp=o=>JSON.parse(JSON.stringify(o)); const t0=performance.now(); let n=0; const malos=[]; let err="";'
+   +'try{ ["cuadrillas","bodegas"].forEach(col=>(DB[col]||[]).forEach(x=>{ n++; const u=_fusion3RegistroInv(cp(x),cp(x),cp(x)); if(!_igualF3(u,x)) malos.push(col+": "+(x.nombre||x.id)); })); }catch(e){ err=String(e); }'
+   +'let prueba=null; const c=(DB.cuadrillas||[]).find(x=>(x.materiales||[]).some(m=>(m.snes||[]).length));'
+   +'if(c){ const i=c.materiales.findIndex(m=>(m.snes||[]).length); const sn=c.materiales[i].snes[0];'
+   +'  const base=cp(c), aqui=cp(c), alla=cp(c); aqui.materiales.forEach(m=>{ m.categoria=(m.categoria||"material")+"*"; });'
+   +'  alla.materiales[i].snes=alla.materiales[i].snes.filter(s=>s!==sn); alla.materiales[i].cantidad=Math.max(0,(parseInt(alla.materiales[i].cantidad)||0)-1);'
+   +'  const u=_fusion3RegistroInv(base,aqui,alla); prueba={sigueFuera:!u.materiales[i].snes.includes(sn), marcas:u.materiales.every(m=>/\\*$/.test(m.categoria||""))}; }'
+   +'return {n, malos:malos.slice(0,5), err, ms:Math.round(performance.now()-t0), prueba};');
+   const bien = !r.err && r.malos.length===0 && r.n>0 && (!r.prueba || (r.prueba.sigueFuera && r.prueba.marcas));
+   return {ok:bien, detalle: bien
+     ? r.n+' cuadrillas y bodegas reales pasan por la fusión sin cambiar nada ('+r.ms+' ms) ✓'
+      +(r.prueba?'\nEn una cuadrilla real: el serial que otra pantalla sacó sigue fuera y lo tocado aquí se conserva ✓':'\n(no hay cuadrillas con seriales para la segunda parte)')
+     : JSON.stringify(r)};}},
+
+{app:'inv', titulo:'v112 · Con los datos reales, un guardado ya no reescribe todo el documento: solo lo que cambió',
+ porque:'Hasta la v111 cada guardado de bodega reescribía inventario/datos COMPLETO (~800 KB) desde la memoria de la pantalla; '
+       +'ahora el guardado va por transacción y escribe solo los campos que cambiaron. Aquí se lee la nube y se compara con lo '
+       +'que esta pantalla escribiría, SIN escribir. Es normal que aparezcan los campos que la pantalla completa al cargar.',
+ correr:async W=>{ const r=await W.eval('(async function(){'
+   +'const t0=performance.now(); const nube=await window._fbLeerDocInv("inventario/datos"); const t1=performance.now();'
+   +'const copia=window._armarCopiaInv(); const cambian=window._camposCambiadosInv(copia.dbCopy, nube||{});'
+   +'const kb=k=>Math.round(new Blob([JSON.stringify(copia.dbCopy[k])]).size/1024);'
+   +'return {lectura:Math.round(t1-t0), calculo:Math.round(performance.now()-t1), campos:Object.keys(copia.dbCopy).length, cambian:Object.keys(cambian).map(k=>k+" ("+kb(k)+" KB)")};'
+   +'})()');
+   const bien = r.campos>0 && r.calculo<5000;
+   return {ok:bien, ojo:bien && r.cambian.length>0, detalle:'De '+r.campos+' campos del documento, un guardado ahora escribiría: '
+     +(r.cambian.length ? r.cambian.join(', ') : 'NINGUNO')+' (la v111 los escribía todos).'
+     +'\nLeer la nube tomó '+r.lectura+' ms y compararla '+r.calculo+' ms.'
+     +(r.cambian.length ? '\nEl primer guardado sube lo que esta pantalla completó al cargar (categoria, listas vacías); de ahí en adelante, solo lo que se toque.' : '')};}},
+
 // ──────────────────────────────── OFICINAS ────────────────────────────────
 {app:'ofi', titulo:'Cada municipio del proveedor encuentra a sus clientes',
  porque:'El proveedor escribe "El Doncello" y WispHub escribe "DONCELLO"; también "Cartagena '
@@ -3534,8 +3682,8 @@ const PRUEBAS = [
        +'DB.logsAuditoria=(DB.logsAuditoria||[]).filter(l=>l.accion!=="MANTENIMIENTO_ON"); if(window._escriturasBloqueadas) window._escriturasBloqueadas.length=bl0; caja.remove(); window._mantenimiento=mPrev; USER=uPrev; _aplicarMantenimiento();'
        +'const limpio=!document.getElementById("mantOverlay") && !document.getElementById("mantBanner");'
        +'const leer=async f=>{ try{ return await (await fetch(f,{cache:"no-store"})).text(); }catch(e){ return ""; } }; const inv=await leer("INVENTARIO_PTOVISION.html"), tec=await leer("TECNICOS_PTOVISION.html"), red=await leer("RED_PTOVISION.html");'
-       +'const otras={ inv: inv.indexOf("const APP_VERSION_INV = 111;")>=0 && inv.indexOf("const MANT_APP=\'inventario\';")>=0 && inv.indexOf("onSnapshot(doc(fsDB,\'oficinas_sistema/mantenimiento\')")>=0 && inv.indexOf("onSnapshot(doc(fsDB,\'oficinas_sistema/app_version\')")>=0 && inv.indexOf("return !!(typeof USER!==\'undefined\' && USER && USER.role===\'admin\')")>=0 && inv.indexOf("window.USER")<0 === false,'
-       +'  tec: tec.indexOf("const APP_VERSION_TEC = 97;")>=0 && tec.indexOf("const MANT_APP=\'tecnicos\';")>=0 && tec.indexOf("iniciarEscuchaVersionTec(); iniciarEscuchaMantenimiento();")>=0 && tec.indexOf("return false; }catch(e){ return false; } }")>=0 && tec.indexOf(".doc(\'app_version\').onSnapshot(")>=0,'
+       +'const otras={ inv: (+((inv.match(/const APP_VERSION_INV = (\\d+);/)||[])[1]||0))>=111 && inv.indexOf("const MANT_APP=\'inventario\';")>=0 && inv.indexOf("onSnapshot(doc(fsDB,\'oficinas_sistema/mantenimiento\')")>=0 && inv.indexOf("onSnapshot(doc(fsDB,\'oficinas_sistema/app_version\')")>=0 && inv.indexOf("return !!(typeof USER!==\'undefined\' && USER && USER.role===\'admin\')")>=0 && inv.indexOf("window.USER")<0 === false,'
+       +'  tec: (+((tec.match(/const APP_VERSION_TEC = (\\d+);/)||[])[1]||0))>=97 && tec.indexOf("const MANT_APP=\'tecnicos\';")>=0 && tec.indexOf("iniciarEscuchaVersionTec(); iniciarEscuchaMantenimiento();")>=0 && tec.indexOf("return false; }catch(e){ return false; } }")>=0 && tec.indexOf(".doc(\'app_version\').onSnapshot(")>=0,'
        +'  red: red.indexOf("const APP_VERSION_RED = 41;")>=0 && red.indexOf("const MANT_APP=\'red\';")>=0 && red.indexOf("iniciarEscuchaMantenimiento(); }catch(e){ console.warn(\'mantenimiento red:\'")>=0 && red.indexOf(".doc(\'app_version\').onSnapshot(")>=0 };'
        +'const escucha=_saveReal.toString().length>0 && typeof iniciarEscuchaMantenimiento==="function" && typeof window._unsubMant==="function";'
        +'return {vig1,vig2,vig3,vig4,vig5,vig6,vig7,vig8,bloqueo,tecladoBloqueado,cuenta,admin,sinSesion,pausa,quita,zOk,form,docBien,activa,activaDet,limpio,otras,escucha};'
@@ -4294,7 +4442,7 @@ const PRUEBAS = [
    const tec=await leer('TECNICOS_PTOVISION.html'), ofi=await leer('OFICINAS_PTOVISION.html');
    if(!tec || !ofi) return {ok:false, detalle:'No se pudo leer '+(!tec?'TECNICOS_PTOVISION.html':'OFICINAS_PTOVISION.html')+'.'};
    const r={}, veces=(t,x)=>t.split(x).length-1;
-   r.version = tec.indexOf('const APP_VERSION_TEC = 97;')>=0;
+   r.version = (+((tec.match(/const APP_VERSION_TEC = (\d+);/)||[])[1]||0))>=97;   // v98 trae lo mismo
    // Mismo ?v= en las dos apps, una sola vez en cada una, y es el que OFICINAS tiene cargado de verdad
    const RE_SRC=new RegExp('<scr'+'ipt src="checklists\\.js\\?v=(\\d+)">','g'), vT=[...tec.matchAll(RE_SRC)].map(m=>m[1]), vO=[...ofi.matchAll(RE_SRC)].map(m=>m[1]);
    let srcVivo=''; try{ srcVivo=W.document.querySelector('script[src^="checklists.js"]').getAttribute('src'); }catch(e){}
@@ -4317,7 +4465,7 @@ const PRUEBAS = [
      && sets.every(s=>s!=='SIN MERGE' && !/\b(tipo|clienteCedula|firmaRef)\s*:/.test(s))
      && mod.indexOf('.update(')<0 && mod.indexOf('DOC_ID')<0 && mod.indexOf('COLECCION')<0;
    r.guardado = veces(mod,"if(window._mantBloqueando===true) return Promise.reject(new Error('mantenimiento'));")===3
-     && /exceeds the maximum\|too large\|INVALID_ARGUMENT/.test(mod) && mod.indexOf("String(docId)+'_b'")>=0 && mod.indexOf('modoPrueba:false')>=0 && veces(mod,'.onSnapshot(')===1;
+     && /exceeds the maximum\|too large\|INVALID_ARGUMENT/.test(mod) && mod.indexOf("String(docId)+'_b'")>=0 && (mod.indexOf('modoPrueba:false')>=0 || mod.indexOf('modoPrueba:MODO_PRUEBA_TEC')>=0) && veces(mod,'.onSnapshot(')===1;
    // Contratos: render() corre en cada snapshot de main; ya no fuerza la relectura
    const rc=trozo(tec,'async function _renderContratosTec(','\nasync function ') || '';
    const rcCorto=rc.indexOf('\nfunction ')>0 ? rc.slice(0, rc.indexOf('\nfunction ')) : rc;
@@ -5109,6 +5257,124 @@ const PRUEBAS = [
      ? 'Un abono de $60.000 por banco cuenta mientras no se anule; al anularlo con reverso, ni el abono ni el reverso cuentan: la oficina queda con Entró $345.000 y Salió $0 (antes: Entró $405.000 y Salió $60.000) ✓'
       +'\nLos dos siguen a la vista en el registro (atenuados, «Anulado · no cuenta»); un reverso sin su original sí cuenta, y un movimiento que no es de préstamo no se toca ✓'
       +'\nCon un filtro puesto, la barra del registro suma $345.000 y no $405.000; y si una recarga trae la misma cantidad de movimientos pero sin el reverso, el abono vuelve a contar ✓'
+     : JSON.stringify(r)};}},
+{app:'ofi', titulo:'Rastreador v314: listas compactas y cola de cada vuelta (nada se salta, lo resuelto no se vuelve a pedir)',
+ porque:'v314 (24 sep 2026), Elkin: «cuando pagan una factura muy vieja no la sincroniza, es más no muestra el ingreso en el día». '
+       +'La cola vieja se armaba una sola vez y nunca se recalculaba. Ahora cada vuelta arma su cola: primero lo urgente, luego lo que se salió '
+       +'del listado, luego las pendientes viejas por turnos (cada una más o menos cada hora, aunque la lista crezca) y al final lo nunca revisado.',
+ correr:async W=>{
+   for(let k=0;k<90;k++){ if(E(W,'return typeof _planVueltaRastreo==="function";')) break; await new Promise(r=>setTimeout(r,1000)); }
+   const r=E(W,
+     'const R=_rangosDeNumeros;'
+    +'const a=_rangosATexto(_unirRangos(R([1,2,3,7]),R([4,9]))), b=_rangosATexto(_restarRangos([[1,20]],R([5,6,15]))), c=_rangosATexto(_complementoRangos(R([2,3,10]),1,12));'
+    +'const ida=_rangosATexto(_textoARangos("12-40,1-5,9,x,0,7-6"));'
+    +'const pend=R(Array.from({length:900},(_,i)=>5000+i*7)); const vistos=new Set(); let cur=0;'
+    +'for(let v=0;v<RASTREO_ROTACION;v++){ const p=_planVueltaRastreo({resueltos:[],pend,urgentes:[],descubrir:[],sinClasificar:[],sinAsignar:[],cursor:cur}); p.rotacion.forEach(n=>vistos.add(n)); cur=p.cursor; }'
+    +'const p3=_planVueltaRastreo({resueltos:[[1,10]],pend:[[1,20]],urgentes:[[5,5],[30,30]],descubrir:[[40,60]],sinClasificar:[[70,72]],sinAsignar:[{f:{id_factura:"15"},vistoEn:0}],cursor:0});'
+    +'return {a,b,c,ida,cubiertas:vistos.size, resueltoPedido:p3.revisar.some(n=>n>=1&&n<=10), estan:[30,15,72,60].every(n=>p3.revisar.includes(n)), primero:p3.revisar[0]};');
+   const bien = r && r.a==='1-4,7,9' && r.b==='1-4,7-14,16-20' && r.c==='1,4-9,11-12' && r.ida==='1-5,9,12-40'
+     && r.cubiertas===900 && r.resueltoPedido===false && r.estan===true && r.primero===30;
+   return {ok:bien, detalle: bien
+     ? 'Las listas compactas unen, restan y leen bien (y descartan basura) ✓'
+      +'\n900 facturas viejas sin pagar: en 3 vueltas (≈1 hora) se miran TODAS, cada una una vez ✓'
+      +'\nLo resuelto nunca se vuelve a pedir; lo urgente va de primero; las que se salieron del listado, las «sin oficina» y las nunca revisadas también entran ✓'
+     : JSON.stringify(r)};}},
+{app:'ofi', titulo:'Rastreador v314: una factura vieja que WispHub esconde y pagan HOY entra sola, con fecha de hoy (y lo dudoso queda para el admin)',
+ porque:'v314: el rastreador aplicaba solo por zona (el cliente retirado no tiene zona en WispHub y su pago se botaba), sobre una copia de la '
+       +'oficina que podía quedar vieja, y lo que no tenía dueño desaparecía sin aviso. Esta prueba arma una cuenta de WispHub SIMULADA (no toca la real) '
+       +'con dos oficinas y corre una vuelta completa en modo prueba.',
+ correr:async W=>{
+   for(let k=0;k<90;k++){ if(E(W,'return window._cargaMovsIncompleta===false && (DB.oficinas||[]).length>0 && typeof _revisarHuecosWisphub==="function";')) break; await new Promise(r=>setTimeout(r,1000)); }
+   const r=await E(W,
+     'const C="prueba_v314", A="ofi_prueba_v314_a", B="ofi_prueba_v314_b"; const hoy=_diaLocalISO(); const hace40=_diaLocalISO(Date.now()-40*86400000);'
+    +'const oA={id:A, nombre:"PRUEBA A", cuentaWisphub:C, zonasWisphub:["ZONA A"], movimientos:[], clientes:[{cedula:"5011",nombre:"Retirado",estado:"Cancelado"},{cedula:"5012",nombre:"Doble"}]};'
+    +'const oB={id:B, nombre:"PRUEBA B", cuentaWisphub:C, zonasWisphub:["ZONA B"], movimientos:[], clientes:[{cedula:"5012",nombre:"Doble"}]};'
+    +'const fac=(n,o)=>Object.assign({id_factura:n, estado:"Pendiente de Pago", total:"70000.00", total_cobrado:"0.00", fecha_emision:"2025-01-10", fecha_pago:"", cliente:{nombre:"C"+n, cedula:String(9000+n)}, zona:{nombre:"ZONA A"}, forma_pago:{nombre:"Efectivo"}, cajero:{nombre:"Caja"}, articulos:[{descripcion:"Mensualidad"}], tipo:1}, o||{});'
+    +'const pag=(f,d,v)=>Object.assign(f,{estado:"Pagada", fecha_pago:d+" 09:15:00", total_cobrado:String(v)+".00"});'
+    +'const fx={}; for(let n=1;n<=60;n++) fx[n]=fac(n);'
+    +'pag(fx[10],hoy,70000); fx[11]=pag(fac(11,{zona:null, cliente:{nombre:"Retirado",cedula:"5011"}}),hoy,45000);'
+    +'fx[12]=pag(fac(12,{zona:null, cliente:{nombre:"Doble",cedula:"5012"}}),hoy,50000); pag(fx[13],hace40,30000);'
+    +'const visibles=n=>n>=41;'
+    +'const fReal=window.fetch; const sReal=save; let consultas=0;'
+    +'window.fetch=async(url,init)=>{ const cu=init&&init.headers&&init.headers["X-Cuenta"]; if(cu!==C || String(url).indexOf(WISPHUB_INTERMEDIARIO)!==0) return fReal(url,init);'
+    +'  consultas++; const u=new URL(url); const js=(st,d)=>({status:st, ok:st<300, json:async()=>JSON.parse(JSON.stringify(d))});'
+    +'  const m=u.pathname.match(/^\\/api\\/facturas\\/(\\d+)\\/$/); if(m){ const f=fx[+m[1]]; return f?js(200,f):js(404,{}); }'
+    +'  const off=+(u.searchParams.get("offset")||0), lim=+(u.searchParams.get("limit")||300); let l=Object.values(fx).filter(f=>visibles(f.id_factura)); const fp=u.searchParams.get("fecha_pago"); if(fp) l=l.filter(f=>String(f.fecha_pago).slice(0,10)===fp);'
+    +'  return js(200,{count:l.length, next:off+lim<l.length?"s":null, results:l.slice(off,off+lim)}); };'
+    +'save=async()=>{ [oA,oB].forEach(o=>{ const b={}; o.movimientos.forEach(m=>b[m.id]="x"); _baseMovs[o.id]=b; }); window._ultimoGuardadoOk=true; };'
+    +'DB.oficinas.push(oA,oB);'
+    +'return (async()=>{ try{'
+    +'  const r1=await _revisarHuecosWisphub(C,{silencioso:true});'
+    +'  const e=window._rastreoPrueba&&window._rastreoPrueba[C];'
+    +'  const mA=n=>oA.movimientos.find(x=>String(x.facturaWisphub)===String(n)); const mB=n=>oB.movimientos.find(x=>String(x.facturaWisphub)===String(n));'
+    +'  const sin=(e&&e.sinAsignar||[]).map(x=>x.f.id_factura+":"+x.motivo.slice(0,30));'
+    +'  return {ok:r1.ok, a10:!!mA(10) && String(mA(10).fecha).slice(0,10)===hoy && mA(10).valor===70000 && mA(10).id===_idMovWisphub(A,"10"), a11:!!mA(11), b:oB.movimientos.length,'
+    +'          sin, pend14:!!(e && _enRangos(e.pend,14)), res10:!!(e && _enRangos(e.resueltos,10)), consultas, escritas:(window._escriturasBloqueadas||[]).some(x=>x.que==="rastreo_wisp_"+C)};'
+    +'} finally { window.fetch=fReal; save=sReal; [A,B].forEach(id=>{ const i=DB.oficinas.findIndex(o=>o.id===id); if(i>=0) DB.oficinas.splice(i,1); delete _baseMovs[id]; }); if(window._rastreoPrueba) delete window._rastreoPrueba[C]; } })();');
+   const bien = r && r.ok===true && r.a10===true && r.a11===true && r.b===0 && r.pend14===true && r.res10===true
+     && r.sin.some(s=>s.indexOf('12:la reclaman dos oficinas')===0) && r.sin.some(s=>s.indexOf('13:se pagó hace más de')===0) && r.escritas===true;
+   return {ok:bien, detalle: bien
+     ? 'La #10 (vieja, fuera del listado, pagada hoy) entró sola a la caja de la oficina A con fecha de HOY, su valor y el id de siempre ✓'
+      +'\nLa #11 de un cliente retirado (sin zona en WispHub) entró por su cédula ✓'
+      +'\nLa #12, que reclaman las dos oficinas, y la #13, pagada hace 40 días, NO entraron solas: quedaron en «Pagos sin oficina» para el admin ✓'
+      +'\nLa #14 (sin pagar) quedó vigilada; en modo prueba el estado no se escribió en la nube ('+r.consultas+' consultas al WispHub simulado) ✓'
+     : JSON.stringify(r)};}},
+{app:'ofi', titulo:'Rastreador v314: dos pantallas que escriben casi al tiempo no se pisan, y nada se bota',
+ porque:'v314: el estado del rastreador vive en su propio documento y se escribe dentro de una transacción que une lo de la nube con lo nuevo: '
+       +'lo resuelto solo crece, la siembra de «por descubrir» se hace una sola vez y, si hay más de 500 pagos sin oficina, los que no caben vuelven a vigilarse.',
+ correr:W=>{
+   const r=E(W,
+     'let e=_fusionarRastreo(_rastreoVacio(), {descubrirSemilla:[[1,100]], resueltosMas:[1,2], pendMas:[50], sinAsigPoner:[{f:{id_factura:"77"},motivo:"m",detectadoEn:1}]});'
+    +'e=_fusionarRastreo(e, {resueltosMas:[50,3], descubrirMenos:[3]});'
+    +'e=_fusionarRastreo(e, {urgentesMas:[200], sinAsigQuitar:["77"], resueltosMas:[77], descubrirSemilla:[[1,9999]]});'
+    +'const ida=_rastreoDesdeNube(JSON.parse(JSON.stringify(_rastreoANube(e))));'
+    +'const muchos=[]; for(let i=0;i<600;i++) muchos.push({f:{id_factura:String(1000+i)}, motivo:"z", detectadoEn:i+1});'
+    +'const g=_fusionarRastreo(_rastreoVacio(), {sinAsigPoner:muchos});'
+    +'return {res:_rangosATexto(ida.resueltos), pend:_rangosATexto(ida.pend), urg:_rangosATexto(ida.urgentes), desc:_rangosATexto(ida.descubrir), sin:ida.sinAsignar.length, sembrado:ida.sembrado,'
+    +'        max:g.sinAsignar.length, vigila:_enRangos(g.pend,1599), noVigila:_enRangos(g.pend,1000)};');
+   const bien = r && r.res==='1-3,50,77' && r.pend==='' && r.urg==='200' && r.desc==='4-49,51-76,78-100' && r.sin===0 && r.sembrado===true
+     && r.max===500 && r.vigila===true && r.noVigila===false;
+   return {ok:bien, detalle: bien
+     ? 'Lo resuelto por una pantalla se suma a lo de la otra; lo entregado y lo decidido por el admin también ✓'
+      +'\nLa lista de «por descubrir» se siembra una sola vez (la segunda siembra se ignora) ✓'
+      +'\nCon 600 pagos sin oficina se muestran 500 y los 100 más nuevos vuelven a vigilarse: nada se bota ✓'
+     : JSON.stringify(r)};}},
+{app:'ofi', titulo:'Sincronización v314: días de Colombia, valor realmente cobrado, pantalla desactualizada y el «Cancelar» que se quedaba pegado',
+ porque:'v314: (1) la sincronización rápida pedía los días en hora UTC: desde las 7 p. m. pedía «mañana». (2) `total_cobrado || total` convertía un '
+       +'cobro de $0 (saldo a favor) en el total de la factura. (3) Una pantalla con versión vieja seguía sincronizando por detrás. (4) Tras darle '
+       +'⛔ Cancelar a una sincronización, la automática fallaba en silencio hasta recargar la página.',
+ correr:W=>{
+   const r=E(W,
+     'const d=_diaLocalISO(new Date(2026,8,24,20,30).getTime());'
+    +'const v=[_valorCobradoWH({total_cobrado:0,total:"70000"}), _valorCobradoWH({total_cobrado:"0.00",total:"70000"}), _valorCobradoWH({total_cobrado:"",total:"70000"}), _valorCobradoWH({total_cobrado:"35000.00",total:"70000"})];'
+    +'const prev=DB.config.appVersionPublicada; let desact, aldia;'
+    +'try{ DB.config.appVersionPublicada=APP_VERSION+1; desact=_pestanaDesactualizada(); DB.config.appVersionPublicada=APP_VERSION; aldia=_pestanaDesactualizada()===false || (window._mantVersionOficinasNube||0)>APP_VERSION; } finally { DB.config.appVersionPublicada=prev; }'
+    +'const suelta=_soltarSync.toString().indexOf("_syncCancelarWisp=false")>=0;'
+    +'const rapida=sincronizarRapidaPagos.toString().indexOf("_diaLocalISO(")>=0 && sincronizarRapidaPagos.toString().indexOf("toISOString().slice(0,10)")<0;'
+    +'return {d, v, desact, aldia, suelta, rapida};');
+   const bien = r && r.d==='2026-09-24' && JSON.stringify(r.v)==='[0,0,70000,35000]' && r.desact===true && r.aldia===true && r.suelta===true && r.rapida===true;
+   return {ok:bien, detalle: bien
+     ? 'A las 8:30 p. m. del 24 el día sigue siendo el 24 (antes daba el 25) ✓'
+      +'\nUn cobro de $0 no se vuelve $70.000; un abono parcial cuenta lo cobrado ✓'
+      +'\nSi ya hay otra versión publicada, esta pantalla deja de sincronizar sola ✓'
+      +'\nAl terminar cualquier sincronización se olvida el «Cancelar» (la automática ya no queda muerta) ✓'
+     : JSON.stringify(r)};}},
+{app:'ofi', titulo:'Rastreador v314: la ficha de una factura REAL de WispHub se lee y corresponde (una sola consulta de lectura)',
+ porque:'El rastreador solo acepta una ficha si trae el MISMO número que se pidió (si llega otra cosa no la toma como «no existe»). Esta prueba toma el '
+       +'último pago de WispHub que ya está en una caja y pide su ficha, para confirmar con datos de verdad que el formato no cambió. No escribe nada.',
+ correr:async W=>{
+   for(let k=0;k<90;k++){ if(E(W,'return window._cargaMovsIncompleta===false && (DB.oficinas||[]).length>0;')) break; await new Promise(r=>setTimeout(r,1000)); }
+   const r=await E(W,
+     'let mejor=null; (DB.oficinas||[]).forEach(o=>{ if(!o.cuentaWisphub) return; (o.movimientos||[]).forEach(m=>{ if(m && m.origen==="cierre_wisphub" && m.facturaWisphub && (!mejor || String(m.fecha)>String(mejor.m.fecha))) mejor={o,m}; }); });'
+    +'if(!mejor) return {sin:true};'
+    +'return (async()=>{ const x=await _fichaFacturaWisp(mejor.o.cuentaWisphub, String(mejor.m.facturaWisphub).trim(), 2);'
+    +'  const DESDE=(DB.config&&DB.config.sincPagosDesde)||"2026-05-01";'
+    +'  return {n:mejor.m.facturaWisphub, cuenta:mejor.o.cuentaWisphub, fallo:!!x.fallo, noExiste:!!x.noExiste, clase:x.f?_clasificarFichaWisp(x.f, DESDE):null, valor:x.f?_valorCobradoWH(x.f):null, enCaja:mejor.m.valor}; })();');
+   if(r && r.sin) return {ok:true, ojo:true, detalle:'No hay pagos de WispHub en ninguna caja para comparar.'};
+   if(r && r.fallo) return {ok:false, ojo:true, detalle:'No se pudo consultar WispHub en este momento (sin conexión o WispHub lento). Vuelve a correr las pruebas en un rato.'};
+   const bien = r && !r.noExiste && (r.clase==='pagada' || r.clase==='no') && r.valor>0;
+   return {ok:bien, detalle: bien
+     ? `La ficha de la factura #${r.n} (cuenta ${r.cuenta}) llegó con su mismo número, está pagada y vale ${r.valor.toLocaleString('es-CO')} (en la caja: ${Number(r.enCaja||0).toLocaleString('es-CO')}) ✓`
      : JSON.stringify(r)};}},
 {app:'red', titulo:'Nada se escribió durante las pruebas',
  porque:'Las pruebas corren sobre los datos de verdad. Si alguna escribiera, dañaría justo lo que '

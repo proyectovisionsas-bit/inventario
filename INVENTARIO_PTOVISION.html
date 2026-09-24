@@ -624,8 +624,24 @@ function _reanudarSesionInv(){
 // de verdad: N/A, NA, SN, S/N, 0, -, y el vacío.
 // ════════════════════════════════════════════════════════════════════════════
 const _SN_RELLENO = ['','N/A','NA','S/N','SN','0','-','--','X','NINGUNO','SIN SERIAL','NO APLICA'];
-function _snNormal(s){ return String(s==null?'':s).trim().toUpperCase(); }
-function _snEsRelleno(s){ return _SN_RELLENO.indexOf(_snNormal(s))>=0; }
+/* v112 — EL MISMO EQUIPO, ESCRITO DE CUALQUIER FORMA, ES EL MISMO SERIAL.
+   Revisión del 23 sep 2026 (I-2): el serial que llega de TÉCNICOS se comparaba
+   letra por letra. En minúsculas, con espacios o en el otro formato de Huawei
+   no se encontraba, y la confirmación descontaba OTRO equipo en su lugar: el
+   instalado seguía apareciendo en la cuadrilla. Ahora la clave de un serial es:
+   mayúsculas, sin espacios, guiones, puntos ni dos puntos, y el formato de 12
+   (4 letras del fabricante + 8 hexadecimales, como HWTCED660AA4) se pasa al de
+   16 (48575443ED660AA4): la etiqueta de la caja trae uno y la OLT el otro.
+   Todo lo que pregunta "¿es el mismo serial?" pasa por aquí. Solo es la clave
+   para comparar: el serial se sigue guardando y mostrando como se escribió. */
+function _snNormal(s){
+    let k=String(s==null?'':s).toUpperCase().replace(/[\s\-:.]/g,'');
+    const m=/^([A-Z]{4})([0-9A-F]{8})$/.exec(k);
+    if(m) k=m[1].split('').map(c=>c.charCodeAt(0).toString(16).toUpperCase().padStart(2,'0')).join('')+m[2];
+    return k;
+}
+const _SN_RELLENO_CLAVE = new Set(_SN_RELLENO.map(_snNormal));
+function _snEsRelleno(s){ return _SN_RELLENO_CLAVE.has(_snNormal(s)); }
 
 /* Dónde está ya un serial. Devuelve [] si está libre.
    `exceptoMatId` deja fuera el propio artículo al que se le está agregando. */
@@ -2301,11 +2317,16 @@ window.verArchivoHistoricoInv = verArchivoHistoricoInv;
 // No corrige nada por su cuenta: muestra el problema, dónde está y qué revisar.
 // ════════════════════════════════════════════════════════════════════════════
 function _audNorm(s){ return (s||'').toString().toLowerCase().trim().replace(/\s+/g,' '); }
+/* v112 (I-6): new Date("17/9/2026") da fecha inválida y "5/8/2026" lo lee como 8 de
+   mayo: la Auditoría no veía los consumos pendientes con día mayor a 12. Ahora recibe
+   el registro (y usa su marca numérica: fechaMs, confirmadoMs…) o un texto, que se lee
+   como DD/MM/AAAA con _msDeFechaInv, igual que el archivador. */
 function _audDias(fecha){
     if(!fecha) return null;
-    const d=new Date(fecha);
-    if(isNaN(d.getTime())) return null;
-    return Math.floor((Date.now()-d.getTime())/86400000);
+    const v=(typeof fecha==='object') ? _fechaDeRegistroInv(fecha) : fecha;
+    const ms=_msDeFechaInv(v);
+    if(ms===null) return null;
+    return Math.floor((Date.now()-ms)/86400000);
 }
 function auditarInventario(){
     const H=[];   // hallazgos: {sev:'alta'|'media'|'baja', grupo, titulo, detalle, donde}
@@ -2316,8 +2337,8 @@ function auditarInventario(){
     // ── Índice global de seriales: dónde está cada uno ──
     const snMapa=new Map();   // serial → [{lugar, tipoLugar, articulo}]
     const anotarSN=(sn,lugar,tipoLugar,articulo)=>{
-        const k=(sn||'').toString().trim().toUpperCase();
-        if(!k) return;
+        const k=_snNormal(sn);   // v112: el mismo equipo escrito de otra forma también cuenta
+        if(!k || _snEsRelleno(k)) return;
         if(!snMapa.has(k)) snMapa.set(k,[]);
         snMapa.get(k).push({lugar,tipoLugar,articulo});
     };
@@ -2404,21 +2425,51 @@ function auditarInventario(){
     // ═══ 3c. CUADRILLAS Y TÉCNICOS: lo que rompe la app de Técnicos ═══
     cuadrillas.forEach(c=>{
         const tecs=Array.isArray(c.tecnicos)?c.tecnicos:[];
-        const sinCedula=tecs.filter(t=>!String((t&&t.cedula)||'').trim());
+        const sinCedula=tecs.filter(t=>!_normCedCli(t&&t.cedula));
         if(sinCedula.length)
             add('media','tecnicos','Técnico sin cédula registrada',
                 `${sinCedula.length} técnico(s) de "${c.nombre}" no tienen cédula. La app de Técnicos los busca POR CÉDULA: sin ella no pueden devolver material ni reportar consumos.`,
                 `Cuadrilla ${c.nombre}`);
         tecs.forEach(tc=>{
-            const ced=String((tc&&tc.cedula)||'').trim();
+            const ced=_normCedCli(tc&&tc.cedula);   // v112: solo los dígitos (1.117.523 = 1117523), como TÉCNICOS
             if(!ced) return;
-            const otras=cuadrillas.filter(c2=>c2.id!==c.id && (c2.tecnicos||[]).some(t2=>String((t2&&t2.cedula)||'').trim()===ced));
+            const otras=cuadrillas.filter(c2=>c2.id!==c.id && (c2.tecnicos||[]).some(t2=>_normCedCli(t2&&t2.cedula)===ced));
             if(otras.length)
                 add('alta','tecnicos','Un técnico está en DOS cuadrillas',
                     `La cédula ${ced} aparece en "${c.nombre}" y en "${otras.map(o=>o.nombre).join(', ')}". La app de Técnicos elige una sola: sus consumos y devoluciones pueden ir a la cuadrilla equivocada.`,
                     `Cuadrilla ${c.nombre}`);
         });
     });
+
+    // ═══ 3d. v112 — EQUIPO YA INSTALADO QUE SIGUE EN UNA CUADRILLA ═══
+    // El síntoma de Elkin: "los equipos se instalan y siguen apareciendo". Un serial de un
+    // consumo CONFIRMADO (salió de la cuadrilla hacia un cliente o la red) que todavía
+    // figura en una cuadrilla. Si después se volvió a entregar a una cuadrilla (entrega
+    // posterior con ese serial), no se reporta: ahí es legítimo. Solo informa: la corrección
+    // se hace caso por caso.
+    (()=>{
+        const enCuad=new Map();
+        cuadrillas.forEach(c=>(c.materiales||[]).forEach(m=>(m.snes||[]).forEach(sn=>{
+            const k=_snNormal(sn); if(!k || _snEsRelleno(k)) return;
+            if(!enCuad.has(k)) enCuad.set(k,[]); enCuad.get(k).push({c, m}); })));
+        if(!enCuad.size) return;
+        const entregas=Array.isArray(DB.entregas)?DB.entregas:[];
+        const entregadoDespues=(k, desdeMs)=>entregas.some(e=>{ const ms=_msDeFechaInv(e.fechaMs||e.reg||e.fecha)||0;
+            return ms>desdeMs && (e.mats||[]).some(mt=>(mt.snes||[]).some(s=>_snNormal(s)===k)); });
+        const vistos=new Set();
+        (Array.isArray(DB.consumosPendientes)?DB.consumosPendientes:[]).filter(x=>x && x.estado==='confirmado').forEach(cp=>{
+            const cuando=_msDeFechaInv(_fechaDeRegistroInv(cp))||0;
+            (cp.items||[]).forEach(it=>_snesDeItem(it).forEach(sn=>{
+                const k=_snNormal(sn); if(!k || _snEsRelleno(k) || vistos.has(k)) return;
+                const donde=enCuad.get(k); if(!donde) return;
+                if(entregadoDespues(k, cuando)) return;
+                vistos.add(k);
+                add('alta','seriales','Equipo instalado que sigue en una cuadrilla',
+                    `El serial ${sn} («${it.nombre||''}») se confirmó como gastado el ${cp.confirmadoFecha||cp.fecha||''} ${cp.destino==='red'?'en la red':'para '+(cp.destinoDetalle||'un cliente')}, pero sigue en ${donde.map(d=>'«'+(d.c.nombre||'')+'» › '+(d.m.nombre||'')).join(' y ')}: la cuadrilla lo cuenta como si el técnico lo tuviera.`,
+                    donde.map(d=>'Cuadrilla '+(d.c.nombre||'')).join(' · '));
+            }));
+        });
+    })();
 
     // ═══ 4. MATERIAL EN EL LIMBO: transferencias pendientes ═══
     (Array.isArray(DB.transfers)?DB.transfers:[]).filter(x=>x.estado==='pendiente').forEach(tr=>{
@@ -2430,12 +2481,18 @@ function auditarInventario(){
     });
 
     // ═══ 5. Consumos de técnicos sin confirmar ═══
-    (Array.isArray(DB.consumosPendientes)?DB.consumosPendientes:[]).filter(x=>x.estado!=='confirmado').forEach(cp=>{
-        const dias=_audDias(cp.fecha||cp.reg);
+    // v112 (I-6): solo los PENDIENTES (un rechazado ya está resuelto), con la fecha
+    // numérica que se guarda y con los campos que escribe TÉCNICOS (cuadrillaNombre,
+    // tecnicoNombre, destinoDetalle); los de antes (cuadrilla, tecnico, cliente) de respaldo.
+    (Array.isArray(DB.consumosPendientes)?DB.consumosPendientes:[]).filter(x=>x && x.estado==='pendiente').forEach(cp=>{
+        const dias=_audDias({fechaMs:cp.fechaMs, fecha:cp.fecha, reg:cp.reg});
+        const quien=cp.cuadrillaNombre||cp.cuadrilla||cp.tecnicoNombre||cp.tecnico||'un técnico';
+        const para=cp.destino==='red'?'mantenimiento de red':(cp.destinoDetalle||cp.cliente||'');
+        const que=(cp.items||[]).map(it=>(it.nombre||'')+' x'+(it.cant||0)).join(', ');
         if(dias!==null && dias>5)
             add(dias>15?'alta':'media','limbo','Consumo de técnico sin confirmar',
-                `El material que reportó ${cp.cuadrilla||cp.tecnico||'un técnico'}${cp.cliente?' para '+cp.cliente:''} lleva ${dias} día(s) sin confirmarse: hasta que se confirme, sigue contando como si el técnico lo tuviera.`,
-                cp.cuadrilla||cp.tecnico||'—');
+                `El material que reportó ${quien}${cp.tecnicoNombre&&cp.tecnicoNombre!==quien?' ('+cp.tecnicoNombre+')':''}${para?' para '+para:''}${que?' — '+que:''} lleva ${dias} día(s) sin confirmarse: hasta que se confirme, sigue contando como si el técnico lo tuviera.`,
+                quien);
     });
 
     // ═══ 6. Recuperados y solicitudes sin resolver ═══
@@ -2523,6 +2580,8 @@ function renderAuditoria(c){
             <div style="display:flex;gap:6px;flex-wrap:wrap;">
                 <button class="btn btn-outline btn-sm" onclick="modalSerialesRepetidos()"
                         title="El mismo equipo contado en dos sitios">🔧 Seriales repetidos</button>
+                <button class="btn btn-outline btn-sm" onclick="revisarOrdenesSinConsumo()"
+                        title="Órdenes que el técnico finalizó con material y que nunca llegaron a Material por confirmar">🔎 Órdenes sin consumo</button>
                 <button class="btn btn-primary btn-sm" onclick="renderTab('auditoria')">🔄 Volver a revisar</button>
             </div>
         </div>
@@ -2566,6 +2625,63 @@ function exportarAuditoria(){
     XLSX.writeFile(wb,`Auditoria_Inventario_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 window.exportarAuditoria = exportarAuditoria;
+
+/* ════════════════════════════════════════════════════════════════════════════
+   v112 — ÓRDENES FINALIZADAS CON MATERIAL QUE NUNCA LLEGARON A LA BODEGA (I-4)
+   Hasta TÉCNICOS v97, finalizar eran dos escrituras separadas: primero la orden
+   y después el consumo. Si la segunda fallaba (sin señal, Firebase ocupado), la
+   orden quedaba finalizada con su material y la bodega nunca veía el consumo; la
+   cuadrilla seguía con el equipo. Y un guardado de bodega podía borrar un consumo
+   recién llegado (I-5). Esta revisión cruza las órdenes de OFICINAS de los
+   últimos 60 días con los consumos (los de aquí y los archivados de este año y
+   el anterior). Solo lee: no cambia nada.
+   ════════════════════════════════════════════════════════════════════════════ */
+function _materialDeOrdenInv(o){
+    const out=[];
+    ((o&&o.materialGastado&&o.materialGastado.items)||[]).forEach(it=>out.push((it.nombre||'')+' x'+(it.cant||0)+((it.snes||[]).length?' ['+it.snes.join(', ')+']':'')));
+    const ins=o&&o.cambioEquipo&&o.cambioEquipo.instalado;
+    if(ins && ins.nom) out.push(ins.nom+' x1'+(ins.sn?' ['+ins.sn+']':''));
+    return out;
+}
+function _ordenesSinConsumoInv(ordenes, consumos, oficinas, dias){
+    const conConsumo=new Set((consumos||[]).map(c=>c&&c.ordenId).filter(Boolean).map(String));
+    const desde=Date.now()-(dias||60)*86400000;
+    const ofis=new Map((oficinas||[]).map(o=>[String(o.id), o.nombre||'']));
+    return (ordenes||[]).filter(o=>o && o.estado==='finalizada' && (Number(o.finalizada)||0)>=desde
+            && !conConsumo.has(String(o.id)) && _materialDeOrdenInv(o).length)
+        .sort((a,b)=>(b.finalizada||0)-(a.finalizada||0))
+        .map(o=>({id:o.id, fecha:new Date(Number(o.finalizada)).toLocaleDateString('es-CO'), oficina:ofis.get(String(o.oficinaId))||'',
+                  cliente:o.cliente||'', tecnico:o.tecnicoNombre||'', tipo:o.tipo||'', material:_materialDeOrdenInv(o).join(' · ')}));
+}
+async function revisarOrdenesSinConsumo(){
+    if(!USER || USER.role!=='admin') return alert('Solo el administrador puede hacer esta revisión.');
+    if(!window._fbLeerDocInv) return alert('⚠️ La conexión aún no está lista. Espera unos segundos e intenta de nuevo.');
+    if(window.mostrarOverlayGuardado) window.mostrarOverlayGuardado('Revisando órdenes...');
+    let main=null, archivados=[];
+    try{
+        main=await window._fbLeerDocInv('oficinas_sistema/main');
+        const anio=new Date().getFullYear();
+        for(const a of [anio, anio-1]){
+            try{ const d=await window._fbLeerArchivoInv('archivo_consumosPendientes_'+a); if(Array.isArray(d.items)) archivados=archivados.concat(d.items); }catch(eA){}
+        }
+    }catch(e){
+        if(window.ocultarOverlayGuardado) window.ocultarOverlayGuardado(false);
+        return alert('❌ No se pudieron leer las órdenes de OFICINAS.\n\n'+(e.message||e));
+    }
+    if(window.ocultarOverlayGuardado) window.ocultarOverlayGuardado(false);
+    const lista=_ordenesSinConsumoInv((main&&main.ordenesTrabajo)||[], (DB.consumosPendientes||[]).concat(archivados), (main&&main.oficinas)||[], 60);
+    const esc=t=>String(t==null?'':t).replace(/[&<>"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+    openModal('🔎 Órdenes finalizadas con material sin consumo',
+        lista.length ? `<p class="text-muted" style="font-size:0.85rem;">${lista.length} orden(es) de los últimos 60 días se finalizaron con material, pero ese material nunca llegó a «Material por confirmar». Mientras tanto la cuadrilla sigue contando esos equipos como si el técnico los tuviera.</p>
+            <div class="table-wrap"><table><thead><tr><th>Finalizada</th><th>Oficina</th><th>Cliente</th><th>Técnico</th><th>Material que reportó</th></tr></thead><tbody>
+            ${lista.map(r=>`<tr><td style="white-space:nowrap;">${esc(r.fecha)}</td><td>${esc(r.oficina)}</td><td>${esc(r.cliente)}</td><td>${esc(r.tecnico)}</td><td style="font-size:0.82rem;">${esc(r.material)}</td></tr>`).join('')}
+            </tbody></table></div>
+            <p class="text-muted" style="font-size:0.8rem;margin-top:10px;">👉 Para cada una, el técnico puede enviarlo desde su app con «🧾 Reportar gasto olvidado» (queda marcado como reporte posterior) y aquí se confirma como siempre.</p>`
+        : '<p>✅ Todas las órdenes finalizadas con material de los últimos 60 días tienen su consumo en la bodega.</p>', ()=>closeModal());
+    const pie=document.getElementById('mFooter'); if(pie) pie.innerHTML='<button class="btn btn-primary" onclick="closeModal()">Cerrar</button>';
+    return lista;
+}
+window.revisarOrdenesSinConsumo=revisarOrdenesSinConsumo; window._ordenesSinConsumoInv=_ordenesSinConsumoInv;
 
 function renderTab(tab) { const main=id('main-content'); if(!main) return; try { switch(tab) { case 'dash': renderDash(main); break; case 'panel': renderPanelControl(main); break; case 'bodegas': renderBodegas(main); break; case 'clientes': renderClientes(main); break; case 'vista_global': renderVistaGlobal(main); break; case 'inv_global': renderInvGlobal(main); break; case 'transfer': renderTransfer(main); break; case 'recuperados': renderRecuperados(main); break; case 'consumos': renderConsumos(main); break; case 'danados': renderEquiposDanados(main); break; case 'cuads': renderCuads(main); break; case 'entregas': renderEntregas(main); break; case 'inst': renderInst(main); break; case 'busqueda': renderBusquedaGlobal(main); break;
             case 'reportes': renderReportes(main); break;
@@ -5224,7 +5340,7 @@ async function _cuartosTx(mutFn){
         mutFn(cuartos);
         return { hist:{ cuartos } };
     });
-    if(r&&r.hist&&r.hist.cuartos) DB.cuartos=r.hist.cuartos;
+    if(r&&r.hist&&r.hist.cuartos){ if(window._aplicarNubeParcialInv) window._aplicarNubeParcialInv({cuartos:r.hist.cuartos}, 'h'); else DB.cuartos=r.hist.cuartos; }   // v112
     return r;
 }
 async function liberarPuertosHuerfanos(qId, eqId){
@@ -7424,8 +7540,10 @@ function renderConsumos(c) {
         pendientes=pendientes.filter(mio);
         historial=historial.filter(mio);
     }
-    pendientes.sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
-    historial.sort((a,b)=>new Date(b.confirmadoFecha||b.rechazadoFecha||b.fecha)-new Date(a.confirmadoFecha||a.rechazadoFecha||a.fecha));
+    // v112: se ordena por la marca numérica (el texto 17/9/2026 leído con new Date daba fecha inválida)
+    const _msC=x=>_msDeFechaInv(_fechaDeRegistroInv(x))||0;
+    pendientes.sort((a,b)=>(b.fechaMs||_msDeFechaInv(b.fecha)||0)-(a.fechaMs||_msDeFechaInv(a.fecha)||0));
+    historial.sort((a,b)=>_msC(b)-_msC(a));
 
     const destinoLabel=(x)=> x.destino==='red'
         ? '🌐 Mantenimiento de red'
@@ -7451,21 +7569,33 @@ function renderConsumos(c) {
 
     const tarjetaPendiente=(x)=>{
         const cuad=DB.cuadrillas.find(cu=>String(cu.id)===String(x.cuadrillaId));
-        const itemsHtml=(x.items||[]).map(it=>{
-            const matCuad=_matDe(cuad,it);
+        /* v112: la tarjeta mide con el MISMO plan que la confirmación (_planConsumoInv):
+           el equipo con serial se busca por su serial en toda la cuadrilla, y lo
+           demás con la suma de TODAS las filas del material. Antes miraba una sola
+           fila y podía decir "insuficiente" en rojo y aun así dejar confirmar. */
+        const plan=cuad?_planConsumoInv(cuad, x):null;
+        const itemsHtml=(x.items||[]).map((it,i)=>{
             const snsIt=_snesItem(it);
-            const disp=matCuad?matCuad.cantidad:0;
-            const alcanza=disp>=it.cant;
-            return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border,rgba(0,0,0,0.06));">
-                <span><strong>${it.nombre}</strong> · ${it.cant} ${it.unidad||''}${snsIt.length?`<br><small>SN: ${snsIt.map(s=>`<span class="sn-tag">${s}</span>`).join(' ')}</small>`:''}</span>
-                <span class="text-muted" style="font-size:0.8rem;color:${alcanza?'inherit':'#dc2626'};">disponible: ${disp}${alcanza?'':' ⚠️ insuficiente'}</span>
+            const us=plan?plan.filter(u=>u.i===i):[];
+            const estadoSN=us.filter(u=>u.tipo==='sn').map(u=>u.ok
+                ? `<span class="sn-tag">${u.sn}</span> ✅`
+                : `<span class="sn-tag">${u.sn}</span> <span style="color:#dc2626;">⚠️ ${u.motivo}</span>`).join(' ');
+            const uc=us.find(u=>u.tipo==='cant');
+            const disp=uc?uc.disponible:(cuad?_stockDisponibleItem(cuad,it):0);
+            const alcanza=plan ? us.every(u=>u.ok) : false;
+            const der = !cuad ? '⚠️ la cuadrilla ya no existe'
+                : uc ? `disponible: ${disp}${uc.ok?'':' ⚠️ insuficiente'}`
+                : (alcanza ? '✅ en la cuadrilla' : '⚠️ revisar');
+            return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border,rgba(0,0,0,0.06));">
+                <span><strong>${it.nombre}</strong> · ${it.cant} ${it.unidad||''}${snsIt.length?`<br><small>SN: ${estadoSN||snsIt.map(s=>`<span class="sn-tag">${s}</span>`).join(' ')}</small>`:''}</span>
+                <span class="text-muted" style="font-size:0.8rem;white-space:nowrap;color:${alcanza?'inherit':'#dc2626'};">${der}</span>
             </div>`;
         }).join('');
         return `<div style="border:1px solid var(--border,rgba(0,0,0,0.1));border-radius:10px;padding:14px;margin-bottom:12px;">
             <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
                 <div>
                     <div style="font-weight:700;">${destinoLabel(x)}</div>
-                    <div class="text-muted" style="font-size:0.82rem;">👷 ${x.cuadrillaNombre||'-'} · Técnico: ${x.tecnicoNombre||'-'} · 📅 ${x.fecha}${x.ordenTipo?` · 🔧 ${x.ordenTipo}`:''}</div>${x.reportePosterior?`<div style="display:inline-block;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.4);color:#b45309;border-radius:6px;padding:2px 8px;font-size:0.74rem;font-weight:700;margin:2px 0 4px;">⏰ Reporte posterior — material olvidado en una orden ya finalizada</div>`:''}
+                    <div class="text-muted" style="font-size:0.82rem;">👷 ${x.cuadrillaNombre||'-'} · Técnico: ${x.tecnicoNombre||'-'} · 📅 ${x.fecha}${x.ordenTipo?` · 🔧 ${x.ordenTipo}`:''}</div>${x.reportePosterior?`<div style="display:inline-block;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.4);color:#b45309;border-radius:6px;padding:2px 8px;font-size:0.74rem;font-weight:700;margin:2px 0 4px;">⏰ Reporte posterior — material olvidado en una orden ya finalizada</div>`:''}${x.parteDe?`<div style="display:inline-block;background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.35);color:#1d4ed8;border-radius:6px;padding:2px 8px;font-size:0.74rem;font-weight:700;margin:2px 0 4px;">✂️ Resto de un consumo ya confirmado: esto no alcanzaba en la cuadrilla</div>`:''}
                 </div>
                 <div style="display:flex;gap:6px;align-items:flex-start;">
                     <button class="btn btn-success btn-sm" onclick="confirmarConsumo('${x.id}')">✅ Confirmar</button>
@@ -7545,30 +7675,216 @@ function _filasMaterialCuadrilla(cuad, it){
 function _stockDisponibleItem(cuad, it){
     return _filasMaterialCuadrilla(cuad, it).reduce((s,m)=>s+(m.cantidad||0),0);
 }
-// Descuenta el item repartiéndolo entre las filas candidatas (primero la de su
-// mismo tipo). Quita también los seriales donde los encuentre. Registra avisos.
-function _descontarItemCuadrilla(cuad, it, avisos){
-    const filas=_filasMaterialCuadrilla(cuad, it);
-    if(!filas.length){ avisos.push(`"${it.nombre}" no se encontró en la cuadrilla; NO se descontó.`); return; }
-    let falta=it.cant||0;
-    const snes=_snesDeItem(it);
-    for(const m of filas){
-        if(falta<=0 && !snes.length) break;
-        if(falta>0){
-            const quita=Math.min(m.cantidad||0, falta);
-            m.cantidad=(m.cantidad||0)-quita;
-            falta-=quita;
-        }
-        if(snes.length && Array.isArray(m.snes)){
-            for(let i=snes.length-1;i>=0;i--){
-                const idx=m.snes.findIndex(s=>(s||'').toString().trim()===snes[i]);
-                if(idx>-1){ m.snes.splice(idx,1); snes.splice(i,1); }
-            }
-        }
-    }
-    if(falta>0) avisos.push(`"${it.nombre}": faltaron ${falta} por descontar (stock insuficiente al momento de confirmar).`);
-    if(snes.length) avisos.push(`Seriales de "${it.nombre}" que no estaban en la cuadrilla: ${snes.join(', ')}.`);
+/* ════════════════════════════════════════════════════════════════════════════
+   v112 — CONFIRMAR UN CONSUMO UNIDAD POR UNIDAD
+   ────────────────────────────────────────────────────────────────────────────
+   Elkin: "no descuenta" y "los equipos se instalan y siguen apareciendo".
+   Revisión del 23 sep 2026, dos causas de aquí (I-1 e I-2):
+    · todo o nada: si faltaba cualquier material (cable), no se podía confirmar
+      ni la ONU, y "rechazar" dejaba la ONU instalada en la cuadrilla para siempre;
+    · el serial se comparaba letra por letra y la cantidad bajaba en OTRA fila:
+      quedaban filas en 0 con un serial adentro (TÉCNICOS oculta las filas en 0)
+      y se descontaba un equipo que no era.
+   Ahora un consumo se parte en UNIDADES:
+    · cada equipo con serial es una unidad y se busca POR SU SERIAL en toda la
+      cuadrilla (_snNormal); sale de la fila donde está, esa misma fila baja 1;
+      si el serial no está en la cuadrilla NO se descuenta otro en su lugar;
+    · lo que no trae serial se mide con la suma de las filas del material.
+   La bodega confirma lo que marca; lo que no se marca (o no alcanza) queda como
+   un consumo PENDIENTE aparte, de la misma orden, para corregir el stock y
+   confirmarlo después, o rechazarlo. Nada se descuenta dos veces: cada unidad
+   aparta lo que usa antes de medir la siguiente.
+   _planConsumoInv es pura (la usan la tarjeta, la ventana y la transacción).
+   ════════════════════════════════════════════════════════════════════════════ */
+function _planConsumoInv(cuad, x){
+    const mats=(cuad&&Array.isArray(cuad.materiales))?cuad.materiales:[];
+    const unidades=[];
+    const apartado=new Map();                 // fila → unidades ya apartadas por este consumo
+    const libre=m=>Math.max(0,(parseInt(m.cantidad)||0)-(apartado.get(m)||0));
+    const apartar=(m,n)=>apartado.set(m,(apartado.get(m)||0)+n);
+    const usados=new Set();                    // un serial cuenta una sola vez por consumo
+    const items=Array.isArray(x&&x.items)?x.items:[];
+    // 1) primero los equipos con serial (tienen dueño exacto)
+    items.forEach((it,i)=>{
+        _snesDeItem(it).filter(s=>!_snEsRelleno(s)).forEach(sn=>{
+            const k=_snNormal(sn);
+            const repetido=usados.has(k);
+            const f=repetido?null:(mats.find(m=>(m.snes||[]).some(s=>_snNormal(s)===k))||null);
+            usados.add(k);
+            if(f) apartar(f,1);
+            unidades.push({clave:'s|'+i+'|'+k, i, tipo:'sn', sn:String(sn).trim(), cant:1, ok:!!f,
+                filaId:f?(f.id||null):null, filaNombre:f?(f.nombre||''):'',
+                motivo: f?'':(repetido?'serial repetido en este mismo reporte':'ese serial no está en la cuadrilla')});
+        });
+    });
+    // 2) después lo que va por cantidad
+    items.forEach((it,i)=>{
+        const conSN=_snesDeItem(it).filter(s=>!_snEsRelleno(s)).length;
+        const resto=Math.max(0,(parseInt(it.cant)||0)-conSN);
+        if(!resto) return;
+        const filas=_filasMaterialCuadrilla({materiales:mats}, it);
+        const disponible=filas.reduce((s,m)=>s+libre(m),0);
+        const ok=disponible>=resto;
+        if(ok){ let falta=resto; for(const m of filas){ const q=Math.min(libre(m),falta); if(q>0){ apartar(m,q); falta-=q; } if(falta<=0) break; } }
+        // Si esas filas llevan seriales y el técnico no dijo cuál, la bodega puede escogerlo
+        const snesFilas=[]; filas.forEach(m=>(m.snes||[]).forEach(s=>{ const kk=_snNormal(s); if(kk && !usados.has(kk) && !_snEsRelleno(s)) snesFilas.push(String(s)); }));
+        unidades.push({clave:'c|'+i, i, tipo:'cant', cant:resto, disponible, ok, snesFilas,
+            motivo: ok?'':('la cuadrilla tiene '+disponible+(it.unidad?' '+it.unidad:''))});
+    });
+    return unidades;
 }
+/* Descuenta de la cuadrilla (datos FRESCOS, dentro de la transacción) las
+   unidades elegidas que se pueden. `escogidos` = {clave: [seriales]} para las
+   unidades por cantidad cuyas filas traen seriales. Devuelve avisos. */
+function _aplicarUnidadesInv(cuad, x, plan, elegidas, escogidos){
+    if(!Array.isArray(cuad.materiales)) cuad.materiales=[];
+    const mats=cuad.materiales, avisos=[];
+    const sacarSN=(sn)=>{ const k=_snNormal(sn);
+        const m=mats.find(mm=>(mm.snes||[]).some(s=>_snNormal(s)===k)); if(!m) return false;
+        m.snes.splice(m.snes.findIndex(s=>_snNormal(s)===k),1);
+        m.cantidad=Math.max(0,(parseInt(m.cantidad)||0)-1); return true; };
+    plan.filter(u=>u.ok && elegidas.has(u.clave)).forEach(u=>{
+        const it=(x.items||[])[u.i]||{};
+        if(u.tipo==='sn'){ if(!sacarSN(u.sn)) avisos.push('El serial '+u.sn+' ya no estaba en la cuadrilla.'); return; }
+        let falta=u.cant;
+        (escogidos&&escogidos[u.clave]||[]).forEach(sn=>{ if(falta>0 && sacarSN(sn)) falta--; });
+        for(const m of _filasMaterialCuadrilla(cuad, it)){
+            if(falta<=0) break;
+            const q=Math.min(parseInt(m.cantidad)||0, falta);
+            m.cantidad=(parseInt(m.cantidad)||0)-q; falta-=q;
+        }
+        if(falta>0) avisos.push(`"${it.nombre}": faltaron ${falta} por descontar.`);
+    });
+    return avisos;
+}
+/* Parte los ítems del consumo en lo confirmado y lo que queda pendiente. */
+function _partirItemsInv(x, plan, elegidas, escogidos){
+    const confirmados=[], pendientes=[];
+    (x.items||[]).forEach((it,i)=>{
+        const us=plan.filter(u=>u.i===i);
+        if(!us.length){ confirmados.push(JSON.parse(JSON.stringify(it))); return; }   // sin cantidad ni serial: se deja como vino
+        const si=us.filter(u=>u.ok && elegidas.has(u.clave)), no=us.filter(u=>!(u.ok && elegidas.has(u.clave)));
+        const armar=(lista, conEscogidos)=>{
+            const o=JSON.parse(JSON.stringify(it));
+            const snes=lista.filter(u=>u.tipo==='sn').map(u=>u.sn);
+            if(conEscogidos) lista.filter(u=>u.tipo==='cant').forEach(u=>(escogidos&&escogidos[u.clave]||[]).forEach(s=>snes.push(s)));
+            o.cant=lista.reduce((s,u)=>s+u.cant,0); o.snes=snes;
+            if('sn' in o) o.sn=snes[0]||'';
+            return o;
+        };
+        if(si.length) confirmados.push(armar(si, true));
+        if(no.length) pendientes.push(armar(no, false));
+    });
+    return {confirmados, pendientes};
+}
+/* ════════════════════════════════════════════════════════════════════════════
+   v112 — FUSIÓN FINA DEL STOCK ENTRE PANTALLAS (cuadrillas y bodegas)
+   ────────────────────────────────────────────────────────────────────────────
+   Revisión del 23 sep 2026 (I-3): desde la v88 el choque entre dos pantallas se
+   decidía por CUADRILLA ENTERA. Si esta pantalla había tocado cualquier cosa de
+   la cuadrilla —corregir el cable, o solo la "categoria" que fixDB le pone a una
+   fila recién entregada—, se quedaba con su copia completa, y el equipo que otra
+   pantalla acababa de confirmar volvía a la cuadrilla. El consumo seguía
+   "confirmado", así que nadie lo volvía a mirar. Es el síntoma de "los equipos
+   se instalan y siguen apareciendo".
+   Ahora se comparan TRES versiones —como estaba en la última sincronía (base),
+   como está aquí y como está en la nube— campo por campo y fila por fila:
+     · lo que esta pantalla no tocó → vale lo de la nube;
+     · lo que solo tocó esta pantalla → vale lo de aquí;
+     · la cantidad tocada en los dos lados → se suman los dos cambios (nube +
+       lo que cambió aquí), sin bajar de 0;
+     · los seriales tocados en los dos lados → lo que alguien quitó sale y lo
+       que alguien agregó entra (un serial confirmado aquí o allá NO vuelve);
+     · una fila que un lado quitó y el otro cambió → se conserva (nada se pierde);
+     · cualquier otro campo tocado en los dos lados → gana lo de aquí, como antes.
+   Sin base (registro desconocido) sigue ganando lo local, igual que desde la v88.
+   Son funciones puras: las usan el oyente (_protegerSnapshotInv) y el guardado
+   (_fusionarListasInv). PRUEBAS.html y las pruebas de node las llaman directo.
+   ════════════════════════════════════════════════════════════════════════════ */
+function _canonF3(x){ const v=o=>{ if(Array.isArray(o)) return o.map(v); if(o&&typeof o==='object'){ const r={}; Object.keys(o).sort().forEach(k=>{ if(o[k]!==undefined) r[k]=v(o[k]); }); return r; } return o; }; return JSON.stringify(v(x)); }
+function _igualF3(a,b){ return a===b || _canonF3(a)===_canonF3(b); }
+const _numF3=x=>typeof x==='number' && isFinite(x);
+function _indiceF3(lista){
+    const m=new Map(), orden=[], cuenta={};
+    (Array.isArray(lista)?lista:[]).forEach((x,i)=>{
+        if(!x || typeof x!=='object') return;
+        let k=(x.id!=null && x.id!=='') ? 'id:'+String(x.id)
+            : 'n:'+String(x.nombre||x.cedula||'').toLowerCase().trim().replace(/\s+/g,' ')+'|'+String(x.tipo||'');
+        if(k.indexOf('n:')===0){ cuenta[k]=(cuenta[k]||0)+1; k+='#'+cuenta[k]; }
+        if(m.has(k)) k+='~'+i;
+        m.set(k,x); orden.push(k);
+    });
+    return {m, orden};
+}
+// Listas de objetos (filas de material, técnicos, dotación): fila por fila
+function _fusionF3Lista(b, l, r){
+    const B=_indiceF3(b), L=_indiceF3(l), R=_indiceF3(r);
+    const out=[], hechas=new Set();
+    const decidir=k=>{
+        if(hechas.has(k)) return; hechas.add(k);
+        const xb=B.m.get(k), xl=L.m.get(k), xr=R.m.get(k);
+        if(xl && xr){ out.push(xb ? _fusionF3Obj(xb, xl, xr) : (_igualF3(xl,xr) ? xr : xl)); return; }
+        if(xl && !xr){ if(!xb || !_igualF3(xl, xb)) out.push(xl); return; }   // nueva aquí, o allá la quitaron pero aquí la cambiaron
+        if(!xl && xr){ if(!xb || !_igualF3(xr, xb)) out.push(xr); return; }   // nueva allá, o aquí la quité pero allá la cambiaron
+    };
+    R.orden.forEach(decidir); L.orden.forEach(decidir);
+    return out;
+}
+// Seriales (y códigos de fotos): lo que alguien quitó sale; lo que alguien agregó entra
+function _fusionF3Seriales(b, l, r, esSerial){
+    const clave=esSerial ? (s=>_snNormal(s)) : (s=>String(s));
+    const arr=a=>Array.isArray(a)?a:[];
+    const B=new Set(arr(b).map(clave)), L=new Set(arr(l).map(clave));
+    const quitadosAqui=new Set([...B].filter(k=>!L.has(k)));
+    const out=[], vistos=new Set();
+    arr(r).forEach(s=>{ const k=clave(s); if(quitadosAqui.has(k) || vistos.has(k)) return; vistos.add(k); out.push(s); });
+    arr(l).forEach(s=>{ const k=clave(s); if(B.has(k) || vistos.has(k)) return; vistos.add(k); out.push(s); });
+    return out;
+}
+// Historial de movimientos de un material (sin id): lo nuevo de aquí va adelante de lo de la nube, sin repetir, máximo 50
+function _fusionF3Historial(b, l, r){
+    const vistos=new Set((Array.isArray(b)?b:[]).map(_canonF3));
+    const nuevos=(Array.isArray(l)?l:[]).filter(x=>!vistos.has(_canonF3(x)));
+    const out=[], ya=new Set();
+    nuevos.concat(Array.isArray(r)?r:[]).forEach(x=>{ const k=_canonF3(x); if(ya.has(k)) return; ya.add(k); out.push(x); });
+    return out.slice(0,50);
+}
+function _fusionF3Campo(k, vb, vl, vr){
+    if(k==='cantidad' && _numF3(vb) && _numF3(vl) && _numF3(vr)) return Math.max(0, vr+(vl-vb));
+    if(k==='snes' || k==='fotosRef' || k==='fotos') return _fusionF3Seriales(vb, vl, vr, k==='snes');
+    if((k==='materiales' || k==='tecnicos' || k==='dotacion') && Array.isArray(vl) && Array.isArray(vr)) return _fusionF3Lista(vb, vl, vr);
+    if(k==='historial' && Array.isArray(vl) && Array.isArray(vr)) return _fusionF3Historial(vb, vl, vr);
+    if(vl && vr && typeof vl==='object' && typeof vr==='object' && !Array.isArray(vl) && !Array.isArray(vr))
+        return _fusionF3Obj((vb && typeof vb==='object' && !Array.isArray(vb)) ? vb : {}, vl, vr);   // mapas anidados
+    return vl;                                         // los dos lo cambiaron distinto: gana lo de aquí (regla de siempre)
+}
+function _fusionF3Obj(b, l, r){
+    const out={};
+    const llaves=new Set([...Object.keys(l||{}), ...Object.keys(r||{}), ...Object.keys(b||{})]);
+    llaves.forEach(k=>{
+        const vb=b?b[k]:undefined, vl=l?l[k]:undefined, vr=r?r[k]:undefined;
+        let v;
+        if(_igualF3(vl, vb)) v=vr;                     // aquí no se tocó: vale la nube
+        else if(_igualF3(vr, vb)) v=vl;                // solo se tocó aquí
+        else if(_igualF3(vl, vr)) v=vl;                // los dos quedaron igual
+        else v=_fusionF3Campo(k, vb, vl, vr);          // los dos lo cambiaron distinto
+        if(v!==undefined) out[k]=v;
+    });
+    return out;
+}
+/* Fusiona UN registro de cuadrillas o bodegas. Sin base, gana lo local (como antes). */
+function _fusion3RegistroInv(base, local, remoto){
+    if(!base || typeof base!=='object') return local;
+    if(!remoto || typeof remoto!=='object') return local;
+    return _fusionF3Obj(base, local, remoto);
+}
+/* Deja `destino` idéntico a `origen` sin cambiar de objeto (hay pantallas que guardan la referencia). */
+function _enSitioInv(destino, origen){
+    Object.keys(destino).forEach(k=>{ if(!(k in origen)) delete destino[k]; });
+    Object.assign(destino, origen);
+    return destino;
+}
+window._fusion3RegistroInv=_fusion3RegistroInv; window._enSitioInv=_enSitioInv; window._igualF3=_igualF3;
 
 // ════════════════════════════════════════════════════════════════════
 // 👤 EMPAREJADOR DE CLIENTE (v73): encuentra al cliente de un consumo.
@@ -7605,36 +7921,63 @@ function _anotarMaterialEnCliente(x, cl){
     return n;
 }
 
-async function confirmarConsumo(consumoId){
-    // ── Verificación previa con los datos locales (respuesta inmediata al usuario) ──
+/* v112 — La bodega ve cada unidad del consumo y marca lo que confirma. Lo que
+   alcanza viene marcado; lo que no está en la cuadrilla no se puede marcar y
+   dice por qué. Lo que quede sin marcar sigue pendiente, aparte. */
+function confirmarConsumo(consumoId){
     const x=(DB.consumosPendientes||[]).find(c=>c.id===consumoId);
     if(!x || x.estado!=='pendiente') return;
-    const cuadLocal=DB.cuadrillas.find(cu=>String(cu.id)===String(x.cuadrillaId));
-    if(!cuadLocal){ alert('La cuadrilla de este consumo ya no existe. Puedes rechazarlo.'); return; }
-    const faltantesLocal=[];
-    (x.items||[]).forEach(it=>{
-        const disp=_stockDisponibleItem(cuadLocal, it);
-        if(disp<(it.cant||0)) faltantesLocal.push(`${it.nombre}: necesita ${it.cant}, hay ${disp}`);
-    });
-    if(faltantesLocal.length){
-        alert('No se puede confirmar: la cuadrilla no tiene suficiente material.\n\n'+faltantesLocal.join('\n')+'\n\nRevisa el stock de la cuadrilla o rechaza este consumo.');
-        return;
-    }
-    if(!confirm(`Confirmar el material gastado por ${cuadLocal.nombre}.\n\nEsto descontará del stock de la cuadrilla. ¿Continuar?`)) return;
+    const cuad=DB.cuadrillas.find(cu=>String(cu.id)===String(x.cuadrillaId));
+    if(!cuad){ alert('La cuadrilla de este consumo ya no existe. Puedes rechazarlo.'); return; }
+    const plan=_planConsumoInv(cuad, x);
+    const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+    const fila=(u)=>{
+        const it=(x.items||[])[u.i]||{};
+        const que = u.tipo==='sn'
+            ? `<strong>${esc(it.nombre)}</strong> · SN <span class="sn-tag">${esc(u.sn)}</span>`
+            : `<strong>${esc(it.nombre)}</strong> · ${u.cant} ${esc(it.unidad||'')}`;
+        const donde = u.ok
+            ? (u.tipo==='sn' ? `<span style="color:#16a34a;">✅ está en la cuadrilla${u.filaNombre&&_normConsumo(u.filaNombre)!==_normConsumo(it.nombre)?' (en «'+esc(u.filaNombre)+'»)':''}</span>`
+                             : `<span style="color:#16a34a;">✅ hay ${u.disponible}</span>`)
+            : `<span style="color:#dc2626;">⚠️ ${esc(u.motivo)}${u.tipo==='sn'&&typeof _dondeEstaSN==='function'&&_dondeEstaSN(u.sn).length?' — está en '+esc(_dondeEstaSN(u.sn)[0].donde):''}</span>`;
+        const escoger = (u.ok && u.tipo==='cant' && (u.snesFilas||[]).length)
+            ? `<div style="margin:4px 0 0 26px;font-size:0.8rem;">El técnico no dijo cuál serial. ¿Cuál se instaló?`
+              + Array.from({length:Math.min(u.cant,5)},()=>`<select class="ccEscoger form-control" data-clave="${esc(u.clave)}" style="margin-top:3px;max-width:260px;"><option value="">(sin escoger: solo baja la cantidad)</option>${u.snesFilas.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('')}</select>`).join('')
+              + `</div>` : '';
+        return `<label style="display:flex;gap:8px;align-items:flex-start;padding:7px 0;border-bottom:1px solid var(--border,rgba(0,0,0,0.06));${u.ok?'':'opacity:.75;'}">
+            <input type="checkbox" class="ccUnidad" data-clave="${esc(u.clave)}" ${u.ok?'checked':'disabled'} style="margin-top:3px;">
+            <span style="flex:1;">${que}<br><small>${donde}</small>${escoger}</span></label>`;
+    };
+    const noVan=plan.filter(u=>!u.ok).length;
+    openModal('📦 Confirmar material',
+        `<p class="text-muted" style="font-size:0.85rem;margin:0 0 8px;">👷 ${esc(cuad.nombre)} · ${esc(x.tecnicoNombre||'')} · ${x.destino==='red'?'🌐 Mantenimiento de red':'👤 '+esc(x.destinoDetalle||'Cliente')} · 📅 ${esc(x.fecha||'')}</p>
+         <div>${plan.map(fila).join('') || '<p class="text-muted">Este consumo no trae material.</p>'}</div>
+         <p style="font-size:0.8rem;margin:10px 0 0;" class="text-muted">Lo marcado se descuenta de la cuadrilla. ${noVan?'<strong>Lo que no se puede marcar, o lo que desmarques, queda PENDIENTE aparte</strong> para confirmarlo después (cuando corrijas el stock de la cuadrilla) o rechazarlo.':'Lo que desmarques queda pendiente aparte.'}</p>`,
+        ()=>{});
+    const pie=document.getElementById('mFooter');
+    if(pie) pie.innerHTML=`<button class="btn btn-danger" onclick="closeModal()">Cancelar</button><button class="btn btn-success" id="ccConfirmar" onclick="_confirmarConsumoElegidos('${esc(consumoId)}')">✅ Confirmar lo marcado</button>`;
+}
+window.confirmarConsumo=confirmarConsumo;
 
-    // 👤 v73: si el destino es un CLIENTE, buscarlo AHORA (los clientes solo los
-    // maneja esta app, así que la memoria local es la fuente confiable). Si se
-    // encuentra, el material se anotará en su ficha automáticamente al confirmar.
-    const esParaCliente = (x.destino!=='red');
-    const clienteFicha = esParaCliente ? _buscarClienteInv(x.clienteCedula, x.destinoDetalle) : null;
-
+async function _confirmarConsumoElegidos(consumoId){
+    const x=(DB.consumosPendientes||[]).find(c=>c.id===consumoId);
+    if(!x || x.estado!=='pendiente'){ closeModal(); renderTab('consumos'); return; }
+    const elegidas=new Set([...document.querySelectorAll('.ccUnidad:checked')].map(c=>c.dataset.clave));
+    const escogidos={};
+    document.querySelectorAll('.ccEscoger').forEach(s=>{ if(s.value) (escogidos[s.dataset.clave]=escogidos[s.dataset.clave]||[]).push(s.value); });
+    Object.keys(escogidos).forEach(k=>{ escogidos[k]=[...new Set(escogidos[k])]; });   // el mismo serial dos veces no cuenta dos
+    if(!elegidas.size){ alert('No marcaste nada para confirmar.\n\nSi nada de este consumo está en la cuadrilla, revisa el stock de la cuadrilla o recházalo.'); return; }
+    const cuadLocal=DB.cuadrillas.find(cu=>String(cu.id)===String(x.cuadrillaId))||{};
+    const esParaCliente=(x.destino!=='red');
+    const clienteFicha=esParaCliente ? _buscarClienteInv(x.clienteCedula, x.destinoDetalle) : null;
     if(!window._fbTransaccionInv){ alert('⚠️ La conexión aún no está lista. Espera unos segundos e intenta de nuevo.'); return; }
+    closeModal();
     if(window.mostrarOverlayGuardado) window.mostrarOverlayGuardado('Confirmando consumo...');
-
-    const avisos=[];
+    let avisos=[], idResto='', resumen=null;
     try{
-        // ── TRANSACCIÓN: todo se verifica y descuenta sobre datos FRESCOS del servidor ──
-        const resultado = await window._fbTransaccionInv((data)=>{
+        // ── TRANSACCIÓN: todo se vuelve a medir y se descuenta sobre datos FRESCOS ──
+        const resultado=await window._fbTransaccionInv((data)=>{
+            avisos=[]; idResto=''; resumen=null;
             const consumos=data.consumosPendientes||[];
             const xF=consumos.find(c=>c.id===consumoId);
             if(!xF) throw new Error('Este consumo ya no existe en la nube (pudo ser eliminado en otra sesión).');
@@ -7642,54 +7985,61 @@ async function confirmarConsumo(consumoId){
             const cuadrillas=data.cuadrillas||[];
             const cuadF=cuadrillas.find(cu=>String(cu.id)===String(xF.cuadrillaId));
             if(!cuadF) throw new Error('La cuadrilla de este consumo ya no existe en la nube.');
-            // Verificar stock con los datos frescos
-            const faltantes=[];
-            (xF.items||[]).forEach(it=>{
-                const disp=_stockDisponibleItem(cuadF, it);
-                if(disp<(it.cant||0)) faltantes.push(`${it.nombre}: necesita ${it.cant}, hay ${disp}`);
-            });
-            if(faltantes.length) throw new Error('La cuadrilla no tiene suficiente material (según los datos más recientes):\n'+faltantes.join('\n'));
-            // Descontar sobre los datos frescos
-            (xF.items||[]).forEach(it=>_descontarItemCuadrilla(cuadF, it, avisos));
-            xF.estado='confirmado';
-            xF.confirmadoMs=Date.now();   // marca numérica para la lógica
-            xF.confirmadoFecha=new Date().toLocaleDateString();   // texto para mostrar
-            xF.confirmadoPor=USER.role==='admin'?'Admin':(USER.nombre||'Bodega');
-            // 👤 v73: si encontramos la ficha del cliente, el consumo queda marcado como
-            // aplicado (el material se anota en la ficha justo después, en este mismo flujo)
-            if(clienteFicha){
-                xF.materialAplicadoCliente=true;
-                xF.materialAplicadoFecha=new Date().toLocaleDateString();
-                xF.clienteFichaNombre=clienteFicha.nombre||'';
+            const plan=_planConsumoInv(cuadF, xF);
+            const cambio=plan.filter(u=>elegidas.has(u.clave) && !u.ok);
+            if(cambio.length) throw new Error('Mientras revisabas, la cuadrilla cambió (según los datos más recientes):\n'
+                +cambio.map(u=>'• '+((xF.items||[])[u.i]||{}).nombre+(u.tipo==='sn'?' SN '+u.sn:'')+': '+u.motivo).join('\n')+'\n\nVuelve a abrir el consumo.');
+            if(!plan.some(u=>u.ok && elegidas.has(u.clave))) throw new Error('Nada de lo marcado se puede confirmar ya.');
+            avisos=_aplicarUnidadesInv(cuadF, xF, plan, elegidas, escogidos);
+            const partes=_partirItemsInv(xF, plan, elegidas, escogidos);
+            const ahora=Date.now(), hoyTxt=new Date().toLocaleDateString();
+            if(partes.pendientes.length){
+                // Lo que no se confirma queda como consumo aparte de la MISMA orden y con la fecha del reporte
+                let n=1; while(consumos.some(c=>c.id===xF.id+'_r'+n)) n++;
+                idResto=xF.id+'_r'+n;
+                const resto=JSON.parse(JSON.stringify(xF));
+                ['confirmadoMs','confirmadoFecha','confirmadoPor','materialAplicadoCliente','materialAplicadoFecha','clienteFichaNombre','itemsReportados','restoPendienteId'].forEach(k=>delete resto[k]);
+                resto.id=idResto; resto.items=partes.pendientes; resto.estado='pendiente';
+                resto.parteDe=xF.id; resto.partidoMs=ahora; resto.partidoFecha=hoyTxt;
+                resto.nota='Quedó pendiente al confirmar el consumo '+xF.id+': '+plan.filter(u=>!(u.ok&&elegidas.has(u.clave))).map(u=>((xF.items||[])[u.i]||{}).nombre+(u.tipo==='sn'?' SN '+u.sn:'')+(u.motivo?' ('+u.motivo+')':' (sin marcar)')).join('; ');
+                consumos.push(resto);
+                xF.restoPendienteId=idResto;
             }
-            // Escribir SOLO estos dos campos (no todo el documento)
-            return { cuadrillas: cuadrillas, consumosPendientes: consumos };
+            // Lo confirmado queda como ítems del consumo (con el serial que haya escogido la bodega);
+            // lo que reportó el técnico, tal cual, en itemsReportados
+            if(partes.pendientes.length || JSON.stringify(partes.confirmados)!==JSON.stringify(xF.items||[])){
+                if(!xF.itemsReportados) xF.itemsReportados=JSON.parse(JSON.stringify(xF.items||[]));
+                xF.items=partes.confirmados;
+            }
+            xF.estado='confirmado';
+            xF.confirmadoMs=ahora;                        // marca numérica para la lógica
+            xF.confirmadoFecha=hoyTxt;                    // texto para mostrar
+            xF.confirmadoPor=USER.role==='admin'?'Admin':(USER.nombre||'Bodega');
+            if(clienteFicha){ xF.materialAplicadoCliente=true; xF.materialAplicadoFecha=hoyTxt; xF.clienteFichaNombre=clienteFicha.nombre||''; }
+            resumen=partes;
+            return { cuadrillas, consumosPendientes: consumos };   // SOLO estos dos campos
         });
-
-        // Reflejar en la memoria local EXACTAMENTE lo que quedó en la nube
+        // Lo que quedó en la nube entra a la memoria SIN pisar cambios de esta pantalla aún sin guardar
         if(resultado){
-            DB.cuadrillas = resultado.cuadrillas;
-            DB.consumosPendientes = resultado.consumosPendientes;
+            if(window._aplicarNubeParcialInv) window._aplicarNubeParcialInv({cuadrillas:resultado.cuadrillas, consumosPendientes:resultado.consumosPendientes});
+            else { DB.cuadrillas=resultado.cuadrillas; DB.consumosPendientes=resultado.consumosPendientes; }
         }
-        // 👤 v73: anotar el material en la ficha del cliente (sección "🧰 Material instalado").
-        // Se persiste con el guardado normal de clientes (chunks con firma).
         let _itemsAnotados=0;
         if(clienteFicha){
             const xLocal=(DB.consumosPendientes||[]).find(c=>c.id===consumoId) || x;
             _itemsAnotados=_anotarMaterialEnCliente(xLocal, clienteFicha);
         }
         if(window.ocultarOverlayGuardado) window.ocultarOverlayGuardado(true);
-        logMsg(`Material confirmado: ${cuadLocal.nombre} → ${x.destino==='red'?'red':(x.destinoDetalle||'cliente')} (${(x.items||[]).map(i=>i.nombre+' x'+i.cant).join(', ')})`
+        const lista=it=>(it||[]).map(i=>i.nombre+' x'+i.cant+((i.snes||[]).length?' ['+i.snes.join(', ')+']':'')).join(', ');
+        logMsg(`Material confirmado: ${cuadLocal.nombre||''} → ${x.destino==='red'?'red':(x.destinoDetalle||'cliente')} (${lista(resumen&&resumen.confirmados)})`
+            + (idResto?` · queda pendiente aparte: ${lista(resumen.pendientes)}`:'')
             + (clienteFicha?` · anotado en ficha de ${clienteFicha.nombre}`:''));
-        if(avisos.length){
-            logMsg(`⚠️ Avisos al confirmar consumo de ${cuadLocal.nombre}: ${avisos.join(' | ')}`);
-            alert('✅ Consumo confirmado, pero revisa esto:\n\n⚠️ '+avisos.join('\n⚠️ '));
-        }
-        if(clienteFicha && _itemsAnotados>0){
-            alert(`✅ Consumo confirmado y descontado de la cuadrilla.\n\n👤 Material anotado en la ficha de:\n${clienteFicha.nombre}\n(${_itemsAnotados} ítem(s) — míralo en Clientes → "🧰 Material instalado")`);
-        } else if(esParaCliente && !clienteFicha){
-            alert(`✅ Consumo confirmado y descontado de la cuadrilla.\n\n⚠️ PERO no se encontró el cliente "${x.destinoDetalle||'(sin nombre)'}" en el inventario, así que el material NO quedó anotado en ninguna ficha.\n\n👉 Crea o corrige el cliente y luego usa el botón "🔄 Sincronizar material con clientes" para anotarlo.`);
-        }
+        const partesMsg=[];
+        if(avisos.length){ logMsg(`⚠️ Avisos al confirmar consumo de ${cuadLocal.nombre||''}: ${avisos.join(' | ')}`); partesMsg.push('⚠️ '+avisos.join('\n⚠️ ')); }
+        if(idResto) partesMsg.push('⏳ Quedó PENDIENTE aparte (misma orden): '+lista(resumen.pendientes)+'\nLo ves en esta misma lista para confirmarlo cuando corrijas el stock, o rechazarlo.');
+        if(clienteFicha && _itemsAnotados>0) partesMsg.push(`👤 Material anotado en la ficha de ${clienteFicha.nombre} (${_itemsAnotados} ítem(s) — en Clientes → "🧰 Material instalado").`);
+        else if(esParaCliente && !clienteFicha) partesMsg.push(`⚠️ No se encontró el cliente "${x.destinoDetalle||'(sin nombre)'}" en el inventario: el material no quedó anotado en ninguna ficha.\n👉 Crea o corrige el cliente y luego usa "🔄 Sincronizar material con clientes".`);
+        alert('✅ Consumo confirmado y descontado de la cuadrilla.'+(partesMsg.length?'\n\n'+partesMsg.join('\n\n'):''));
         renderTab('consumos');
     }catch(e){
         console.error('confirmarConsumo:', e);
@@ -7698,11 +8048,20 @@ async function confirmarConsumo(consumoId){
         renderTab('consumos'); // refrescar por si fue procesado en otra sesión
     }
 }
-window.confirmarConsumo=confirmarConsumo;
+window._confirmarConsumoElegidos=_confirmarConsumoElegidos;
 
 async function rechazarConsumo(consumoId){
     const x=(DB.consumosPendientes||[]).find(c=>c.id===consumoId);
     if(!x || x.estado!=='pendiente') return;
+    /* v112 (I-1): rechazar NO toca la cuadrilla. Si el consumo trae un equipo con
+       serial que sigue en ella y ese equipo quedó instalado, rechazarlo lo deja
+       "apareciendo" para siempre. Se pregunta antes. */
+    const cuad=DB.cuadrillas.find(cu=>String(cu.id)===String(x.cuadrillaId));
+    const siguen=cuad?_planConsumoInv(cuad, x).filter(u=>u.tipo==='sn' && u.ok).map(u=>u.sn):[];
+    if(siguen.length && !confirm(`⚠️ Este consumo trae ${siguen.length===1?'un equipo':'equipos'} con serial que SIGUE${siguen.length===1?'':'N'} en la cuadrilla "${cuad.nombre||''}":\n   ${siguen.join(', ')}\n\n`
+        +'Rechazar NO lo saca de la cuadrilla. Si ese equipo quedó instalado donde el cliente, seguiría apareciendo como si el técnico lo tuviera.\n\n'
+        +'• Si quedó instalado: cancela y usa ✅ Confirmar (puedes confirmar solo el equipo y dejar lo demás pendiente).\n'
+        +'• Si el técnico todavía lo tiene: acepta para rechazar.\n\n¿Rechazar de todas formas?')) return;
     const motivo=prompt('¿Por qué rechazas este consumo? (queda en el historial)\n\nEjemplo: "El técnico se equivocó de cantidad", "Material no correspondía a esta orden", etc.');
     if(motivo===null) return; // canceló
     if(!window._fbTransaccionInv){ alert('⚠️ La conexión aún no está lista. Espera unos segundos e intenta de nuevo.'); return; }
@@ -7718,11 +8077,15 @@ async function rechazarConsumo(consumoId){
             xF.rechazadoMs=Date.now();   // marca numérica para la lógica
             xF.rechazadoFecha=new Date().toLocaleDateString();   // texto para mostrar
             xF.motivoRechazo=motivo.trim()||'(sin motivo especificado)';
+            if(siguen.length) xF.rechazadoConEquipoEnCuadrilla=siguen;   // v112: queda constancia de que se avisó
             return { consumosPendientes: consumos };
         });
-        if(resultado) DB.consumosPendientes = resultado.consumosPendientes;
+        if(resultado){
+            if(window._aplicarNubeParcialInv) window._aplicarNubeParcialInv({consumosPendientes:resultado.consumosPendientes});
+            else DB.consumosPendientes = resultado.consumosPendientes;
+        }
         if(window.ocultarOverlayGuardado) window.ocultarOverlayGuardado(true);
-        logMsg(`Material RECHAZADO de ${x.cuadrillaNombre||'cuadrilla'} · Motivo: ${(motivo||'').trim()||'(sin motivo especificado)'}`);
+        logMsg(`Material RECHAZADO de ${x.cuadrillaNombre||'cuadrilla'} · Motivo: ${(motivo||'').trim()||'(sin motivo especificado)'}${siguen.length?' · se avisó que '+siguen.join(', ')+' sigue en la cuadrilla':''}`);
         renderTab('consumos');
     }catch(e){
         console.error('rechazarConsumo:', e);
@@ -8285,8 +8648,14 @@ async function saveEntregaLogic() {
         });
         // Reflejar en memoria EXACTAMENTE lo que quedó en la nube
         if(resultado){
-            if(resultado.datos){ DB.bodegas=resultado.datos.bodegas; DB.cuadrillas=resultado.datos.cuadrillas; }
-            if(resultado.hist && resultado.hist.entregas) DB.entregas=resultado.hist.entregas;
+            // v112: entra como un snapshot (no pisa lo que esta pantalla tenga sin guardar)
+            if(window._aplicarNubeParcialInv){
+                if(resultado.datos) window._aplicarNubeParcialInv({bodegas:resultado.datos.bodegas, cuadrillas:resultado.datos.cuadrillas});
+                if(resultado.hist && resultado.hist.entregas) window._aplicarNubeParcialInv({entregas:resultado.hist.entregas}, 'h');
+            } else {
+                if(resultado.datos){ DB.bodegas=resultado.datos.bodegas; DB.cuadrillas=resultado.datos.cuadrillas; }
+                if(resultado.hist && resultado.hist.entregas) DB.entregas=resultado.hist.entregas;
+            }
         }
         if(window.ocultarOverlayGuardado) window.ocultarOverlayGuardado(true);
         const bN=(DB.bodegas.find(x=>String(x.id)===String(bodegaId))||{}).nombre||'';
@@ -10141,6 +10510,9 @@ import { getMessaging, getToken, onMessage, isSupported as _msgSoportado } from 
 // viera normalmente. Lo único que hace es QUITAR permisos, nunca darlos.
 // ════════════════════════════════════════════════════════════════════════════
 const MODO_PRUEBA = (()=>{ try{ return new URLSearchParams(location.search).get('prueba')==='1'; }catch(e){ return false; } })();
+// v112: la misma regla que OFICINAS (_esEntornoLocal) para saber si esta copia es de prueba
+function _esEntornoLocalInv(loc){ loc=loc||location; const h=String(loc.hostname||''); return loc.protocol==='file:' || !h || /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[::1\])/.test(h); }
+window._esEntornoLocalInv=_esEntornoLocalInv;
 const _escBloq = [];
 function _bloquear(que){ _escBloq.push({que, cuando:Date.now()});
     if(_escBloq.length===1) console.warn('🧪 MODO PRUEBA: las escrituras están bloqueadas.'); }
@@ -10185,7 +10557,7 @@ const HISTORIAL_DOC = 'inventario/historial';
 // Campos que SOLO escribe Inventario (Técnicos no los toca) y que solo crecen.
 // Se guardan en un documento aparte para que inventario/datos no llegue al tope de 1MB.
 const HISTORIAL_FIELDS = ['editRequests','entregas','cuartos','logs','transfers','deleteRequests','ventas'];
-const APP_VERSION_INV = 111; // ⬆️ Subir en cada versión publicada de Inventario (v111: modo mantenimiento, lo activa el administrador desde OFICINAS y bloquea la app con un aviso. v110: en el celular ninguna pestaña se sale de la pantalla. v109: SE CORTA EL BUCLE DE GUARDADOS. La v108 extendio la regla de quien toco el registro al historial, pero la base de comparacion solo se tomaba de inventario/datos: las listas de inventario/historial nunca tenian con que compararse, cada snapshot las daba por tocadas y las reenviaba. Resultado (10 sep 2026): todas las sesiones reescribian el historial cada ~10 s, se disparo el consumo de lecturas (44.000 de 50.000 gratis) y una entrega fallo con Quota exceeded. Ahora el historial tambien tiene base (tomada de la nube, antes de proteger), sin base no se reenvia, hay un freno de 3 reenvios por 10 minutos, una creacion en vuelo se reenvia como mucho 2 veces y la comparacion no depende del orden de las llaves. Incluye v108: LA MISMA REGLA, PARA TODO. Elkin: no se estan guardando las modificaciones en las diferentes areas. La comparacion contra la ultima sincronia (quien toco el registro) ya existia desde la v88 pero solo para bodegas y cuadrillas; en las demas listas seguia ganando la sesion que guardaba de ultimo, y una entrega, una instalacion o una solicitud que otro equipo acababa de registrar se perdia en silencio. Ahora vale para todas. Es segura por construccion: solo deja entrar cambios ajenos que antes se descartaban. Incluye v107: AVISOS AL CELULAR. Pedido de Elkin: una notificacion al celular cuando haya solicitudes de aprobacion pendientes, en Android y en iPhone. Va a traves de Google (Firebase Cloud Messaging), el mismo Firebase de la base. Tres piezas: [1] la tarjeta 🔔 en Inicio (admin) pide permiso, instala el receptor firebase-messaging-sw.js -un archivo nuevo junto a la app, que NO intercepta nada: solo recibe avisos- y guarda la direccion del celular en inventario/avisos; [2] el receptor muestra la notificacion aunque la app este cerrada y al tocarla abre la app; [3] el vigilante AVISOS_PENDIENTES.gs en el Apps Script del Drive mira cada 5 minutos las solicitudes pendientes -edicion y borrado en inventario; registros con fecha pasada, eliminar/editar movimientos, prestamos y abonos especiales en oficinas- leyendo SOLO esos campos con mascara, avisa solo lo NUEVO (recuerda lo ya avisado y olvida lo resuelto) y a las 7 a.m. recuerda lo que sigue pendiente. La clave privada para enviar (cuenta de servicio) vive en las propiedades del script, nunca en la app; la clave publica (VAPID) si va en la base, porque es publica. Con la app abierta el aviso se muestra adentro. Prueba: el comparador real del vigilante leido del archivo. v106: BUSCAR Y FILTRAR EN LAS BODEGAS. Pedido de Elkin: una barra de busqueda en los materiales y filtros. Con 255 filas en cinco bodegas, encontrar la ONT usada que quedo en Paujil era abrir cada bodega y bajar con el dedo. La busqueda mira el nombre, la referencia y sus alias, las etiquetas, los seriales y las observaciones, y varias palabras se exigen todas (ont wifi 6). Filtros: categoria, nuevo/usado, estado del stock (con stock, en cero, bajo minimo), con o sin seriales, y etiqueta. Funciona igual en la vista clasica y en la de referencia; en la de referencia el stock se mira por grupo, que es lo que tiene sentido. Al filtrar se abren solas las bodegas que tienen coincidencias y cada una dice cuantas; sin filtro, las bodegas recuerdan si estaban abiertas. Se repinta solo el listado, asi que la barra conserva el cursor y lo escrito. Filtrar no toca ningun dato. v105: ETIQUETAS EN LAS REFERENCIAS. Pregunta de Elkin: si es la misma referencia de ONT pero unas son dual band, otras WiFi 5 y otras WiFi 6, como se lleva. La regla: es la misma referencia si a un tecnico que pide una se le puede entregar cualquiera; WiFi 5 y WiFi 6 son modelos distintos y por tanto referencias distintas (Huawei lo dice en el codigo: V5 es dual band WiFi 5, X6 es WiFi 6). Nuevo/usado, proveedor, lote y ubicacion describen la UNIDAD, nunca crean referencia. Y para preguntar cosas que cruzan modelos -cuantas ONT WiFi 6 tengo en todas las bodegas- cada referencia lleva ETIQUETAS (WiFi 6, dual band, GPON, para exteriores...): se escriben separadas por coma, se limpian sin repetir, se ven como chips en el catalogo, en la bodega y en los totales, y en los totales una barra de etiquetas filtra con un clic. Riesgo cero: es un campo mas del catalogo, que sigue viviendo en su documento aparte. v104: EL CATALOGO COMO CAPA, Etapa 1 del nuevo orden de bodegas. La radiografia del 2 sep 2026 sobre los datos reales mostro 16 modelos escritos de hasta cuatro formas (ONT EG8145V5 GPON DUAL BAND, EG8145V5, ONU GPON EG8145V5 5G, ONU EG8145V5), 25 filas repetidas dentro de una misma bodega porque nuevo y usado son articulos separados, tres formas de la misma unidad y 80 filas material con seriales. Nadie lo creo mal: lo fabrican los traslados, que buscan el destino por nombre EXACTO y crean otra fila cuando no lo encuentran. Los mejores sistemas separan el CATALOGO (la referencia definida una vez) de las EXISTENCIAS por bodega; esta etapa trae el catalogo como una CAPA encima de lo que hay, sin tocar un dato: [1] pestaña Catalogo (admin) donde una referencia agrupa los nombres con que el mismo articulo quedo escrito, con propuestas automaticas por codigo de modelo que se REVISAN antes de aceptar (dos SFP de distinto alcance comparten codigo y no son lo mismo); vive en su propio documento inventario/catalogo. [2] En Bodegas, la vista Por referencia: una fila por referencia con nuevo, usado y total, y debajo las filas de siempre con SUS MISMOS botones; para el admin, los totales por referencia en todas las bodegas, que es la pregunta que antes no tenia respuesta. Se apaga con un clic y todo vuelve a como estaba. La prueba exige lo que importa: la suma de los grupos es la suma de las filas, sobre los datos reales. v103: LOTES — EL PASAPORTE DE CADA EQUIPO. Pedido de Elkin: las referencias llegan en lotes distintos, de proveedores distintos, en fechas distintas, y cuando un equipo sale por garantia hay que saber de que proveedor es, de que lote y cuando llego. Esa informacion solo existe completa EN EL MOMENTO EN QUE LLEGA la mercancia, asi que se captura ahi: Reabastecer y Agregar material ganan dos campos OPCIONALES (proveedor, con lista de los ya usados, y lote/factura); la fecha la pone el sistema. No son obligatorios a proposito: un campo obligatorio molesto termina en xxx tecleado, que es peor que vacio. Se registra el lote solo si trae algo que recordar (proveedor, factura o seriales): el cable reabastecido sin datos no llena el registro de ruido. La consulta es el boton ESCUDO Garantia en Bodegas: se pega o se ESCANEA con la camara el serial del equipo dañado y responde de que proveedor llego, en que lote, cuando, a que bodega, donde esta hoy (bodega o cuadrilla) y por donde ha pasado (el rastro de la v99). La busqueda va del lote mas reciente hacia atras: si un equipo salio y volvio a entrar en otra compra, manda la ultima llegada. Los lotes viven en SU PROPIO documento de la nube (inventario/lotes) porque el principal ya conoce de cerca el limite de 1 MB, y si el registro pasa de 850 KB avisa con tiempo. Los seriales que llegaron antes del 2 de septiembre de 2026 responden sin-origen-registrado en vez de inventar. v99: LOS SERIALES REPETIDOS — POR QUE VUELVEN. Elkin pregunto por que no se resolvia de una vez la unica prueba que quedaba en ambar. No era una falla del programa sino del inventario: 27 seriales anotados en dos sitios son 27 equipos contados dos veces, y eso no se arregla desde el codigo porque depende de donde esta el aparato de verdad. Pero al mirarlos uno por uno aparecieron tres cosas que si son del programa. [1] LA HERRAMIENTA QUE LOS ARREGLA BORRABA EL EQUIPO. _dejarSNSoloEn quitaba el serial por VALOR en cada sitio descartado, y ese filtro se lleva TODAS las copias de ese articulo. Cuando el serial estaba dos veces dentro de la MISMA lista -tres casos en los datos de hoy- el sitio elegido y el descartado eran el mismo objeto, asi que tambien se borraba la copia que se queria conservar: el equipo desaparecia del inventario y la cantidad bajaba igual. Ahora se cuenta por material cuantas copias deben quedar (una en el elegido, cero en los demas) y se recorta a esa cifra. [2] LA CAUSA SEGUIA ABIERTA. integrarRecuperado sumaba el serial a la bodega sin mirar si ya estaba en otro lado. El aviso de la v82 no lo atrapaba: compara NOMBRE y cantidad, y solo actua cuando el recuperado trae cuadrillaId, y los que manda la app de Tecnicos por retiro de un cliente no la traen. Medido: 9 de los 27 entraron justo por ahi. Integrar significa que el aparato VOLVIO a la bodega, asi que ahora se MUEVE en vez de duplicarse: se enseña de donde sale, se pide confirmacion y se descuenta de alla. Reabastecer tambien revisa los seriales, igual que Agregar Serial, porque se teclean a mano igual. [3] YA NO HAY QUE ADIVINAR. Antes la herramienta pedia elegir a ciegas entre dos sitios. Ahora le pregunta al historial: si el equipo entro por un recuperado YA INTEGRADO a una bodega, por un traslado aceptado o por una entrega a esa cuadrilla, esa es la respuesta, y viene marcada con el motivo y la fecha. Entre dos articulos de la misma bodega desempata el nombre, que es la misma regla con la que se creo el duplicado. Hay un boton que resuelve de una vez todos los que tienen prueba, enseñando antes la lista completa. Medido hoy sobre los datos reales: de los 27, en 13 el historial lo demuestra y 14 siguen decidiendose a mano -los que no dejaron rastro, como dos ONT que figuran a la vez en FLORENCIA y en DONCELLO-. Nada se aplica sin enseñar antes que va a pasar. v98: LA APROBACION SE DESHACIA SOLA. Reportado por Elkin: acepta una solicitud, desaparece y despues vuelve a salir, y bodega termina creando la misma orden varias veces. Encontrado y REPRODUCIDO paso a paso. Al recibir un snapshot, _protegerSnapshotInv mete en el array entrante los registros que esta sesion edito y aun no ha guardado -eso esta bien, si no el snapshot los borraria de la pantalla-. Pero acto seguido se guardaba ESE MISMO array como la foto de referencia de lo que hay en la nube, con el cambio local adentro. A partir de ahi _sesionTocoInv, que es quien decide los conflictos, comparaba lo local contra una foto que ya traia lo local: respondia que la sesion NO habia tocado nada, y en el siguiente guardado la fusion dejaba entrar el valor VIEJO de la nube. Medido: aprobar dejaba el material en 1, llegaba un snapshot cualquiera y al fusionar volvia a 0. Nada avisaba, porque en pantalla el cambio se veia aplicado; por eso bodega pedia lo mismo otra vez. En los datos hay tres casos repetidos, separados 6, 39 y 49 minutos, todos de DONCELLO. Ahora la foto se toma ANTES de proteger, asi que retrata la NUBE y no la pantalla. Comprobado en los dos sentidos: la aprobacion propia sobrevive, y el cambio hecho por otra oficina sigue entrando cuando esta sesion no toco nada. Nota aparte: el sintoma tambien lo producia el limite de 1 MB, resuelto en la v97; el archivador esta funcionando (historial 15%, datos 48%). v97: LOS CUATRO REPORTES DE HOY. [1] TIEMPO REAL EN TODOS LOS DISPOSITIVOS. Los escuchas de Firebase ya estaban puestos: lo que fallaba era el GUARDADO. Medido sobre los datos reales de hoy, inventario/datos pesaba 790 KB y inventario/historial 747 KB, del maximo de 1 MB que admite Firestore. Pasado ese tope Firebase RECHAZA la escritura entera, asi que el cambio no salia del equipo y los demas no lo veian nunca. El archivador de la v90 no podia ayudar: sus plazos fijos (45, 120, 180 dias) no alcanzaban a NADA, porque lo que llena el documento son 389 consumos y 339 instalaciones RECIENTES. Ahora el archivador se regula solo: si un documento pasa del 70% del limite, acorta los plazos por escalones (30, 20, 14, 7 dias) hasta dejarlo por debajo del 60%, y nunca los alarga. Ademas archiva siete listas mas que antes (solicitudes de cambio y de borrado ya decididas, entregas, transferencias, ventas, logs). Probado hoy: 1.271 registros y 913 KB al archivo, historial 73%->15% y datos 77%->44%. Lo PENDIENTE no se archiva nunca y nada sale de la base sin haberlo leido antes en el archivo. [2] LA RECARGA YA NO PIDE LA CLAVE. La sesion se recuerda en sessionStorage, que vive solo en esa pestana y muere al cerrarla, asi que el equipo compartido de la bodega no amanece con la sesion abierta. Caduca a las 12 horas, no guarda la contrasena y se comprueba contra la base al volver: si a la bodega le cambiaron la clave o la borraron, se pide entrar de nuevo. [3] LA SOLICITUD DECIDIDA YA NO REAPARECE. El blindaje de la v79 caducaba a los 3 minutos; si el guardado fallaba por lo del punto [1], al minuto 4 el snapshot la devolvia a pendiente. Ahora la decision se sostiene SIN PLAZO y solo se suelta cuando la nube ya la trae con ese mismo estado. Se guarda tambien en el navegador, asi que sobrevive a una recarga, y se limpia a los 30 dias. [4] UN SERIAL, UN SITIO. modalAddSN solo miraba dentro del mismo articulo, asi que el mismo equipo podia quedar en dos bodegas, o en una bodega y una cuadrilla a la vez. Medido: 31 seriales estaban en dos sitios (un ONT figuraba en FLORENCIA y en DONCELLO). Ahora se BLOQUEA en vez de avisar, y en la Auditoria hay 🔧 Seriales repetidos para arreglar los que ya estaban: se elige donde esta de verdad el equipo y se quita de los demas, ajustando la cantidad. Los rellenos que no son seriales (N/A, SN, guiones) se siguen aceptando repetidos. v91: LECTURA DE FECHAS UNIFICADA. Ademas del texto, ahora se guarda una marca de tiempo NUMERICA (confirmadoMs, rechazadoMs) y la logica la prefiere. El texto se conserva sin tocar porque bodega lo muestra tal cual en pantalla, asi que el usuario no ve ningun cambio. El motivo: tanto TECNICOS como esta app guardaban las fechas con toLocaleDateString(), que en Colombia da DD/MM/AAAA, y new Date() lo interpreta como MM/DD: 17/8/2026 daba fecha invalida y 5/8/2026 se leia como 8 de MAYO. Un numero no admite interpretacion. Los registros anteriores siguen resolviendose con _msDeFechaInv. v90: EL ARCHIVADO YA ES AUTOMATICO, como en OFICINAS. Alla se resolvio asi en la v170 tras chocar con el limite de 1 MB; bodega se habia quedado solo con el boton manual, y por eso el historial viejo se acumulaba. Ahora corre dentro del guardado, antes de armar el documento. Es barato: _calcularAligerado() es puro en memoria y devuelve vacio casi siempre, asi que un guardado normal no cuesta nada extra; solo hay lecturas y escrituras cuando de verdad hay historial viejo, y una vez movido no se repite. Seguridad: escribe el archivo, lo vuelve a LEER para confirmar y solo entonces saca los registros de la base; si la escritura o la verificacion fallan, no se quita nada. El boton manual sigue existiendo y ahora comparte el mismo nucleo (_archivarInv) en vez de duplicar la logica. v89: EL ARCHIVADOR NO PODIA LEER LAS FECHAS. El boton Aligerar la base existia y sus reglas eran correctas, pero _diasDeInv usaba new Date() sobre fechas en formato colombiano DD/MM/AAAA que TECNICOS escribe con toLocaleDateString(). new Date() espera MM/DD, asi que 17/8/2026 daba Invalid Date y el registro quedaba invisible para el archivador PARA SIEMPRE, y 5/8/2026 se leia como 8 de MAYO, con la antiguedad mal calculada. Por eso habia 639 consumos ya resueltos (solo 12 seguian pendientes) ocupando el 48% de un documento al 80% de su limite. Ahora _msDeFechaInv resuelve DD/MM/AAAA a mano antes de Date.parse. Medido sobre los datos reales: los registros archivables pasaron de 1 a 458, unos 216 KB. El archivado sigue siendo manual. v88: CONFLICTOS DE CUADRILLAS Y BODEGAS RESUELTOS POR QUIEN TOCO EL REGISTRO. Habia dos reglas fijas y ninguna era correcta en ambos sentidos: el listener hacia Object.assign y la nube pisaba una edicion local sin guardar; y la fusion al guardar se quedaba con la copia local, revirtiendo el descuento que un tecnico acababa de hacer (el material quedaba en recuperados Y en la cuadrilla, contado dos veces). Ahora se guarda el contenido de cada registro en la ultima sincronia y se compara: si esta sesion no lo toco entra lo de la nube, si lo toco se conserva lo local. Sin base o registro desconocido gana lo local, igual que antes, para que un camino no cubierto degrade en vez de perder datos. Solo aplica a cuadrillas y bodegas. v87: GUARDA CONTRA CANTIDADES INVALIDAS. integrarRecuperado SUMA r.cant al stock de la bodega; si ese valor era negativo, cero o texto, restaba o corrompia el stock en silencio y lo registraba como entrada. Ahora se rechaza con un aviso claro. Se pone aqui ademas de en la app de Tecnicos porque un registro guardado ANTES de acotar la entrada seguiria causando el dano al integrarlo. Tambien se acoto la cantidad de equipos del cliente, que sin || guardaba NaN al vaciar el campo. v86: DIAGRAMA DEL CUARTO. Se restauro el boton IMPRIMIR, que estaba perdido: la funcion existia pero apuntaba al id diagSvg y el modal actual crea diagramaSVG, asi que aunque alguien la llamara no hacia nada, y ademas ningun boton la llamaba. Al imprimir se fuerza el color (print-color-adjust): sin eso el navegador omite los fondos y, como el diagrama es oscuro, salia una hoja practicamente en blanco. Se elimino descargarDiagramaSVG, que quedo redundante frente a descargarDiagrama (esta ultima si funciona y ademas agrega el xmlns al archivo). Y en la descarga: la fecha del nombre venia en UTC (de noche ponia la de manana) y la URL temporal se liberaba en el mismo instante del clic, lo que puede cortar la descarga. v85: solo comentarios. Se elimino la constante CAMPOS_DE_TECNICOS, que estaba declarada y NUNCA se usaba: era residuo del enfoque de la v72, reemplazado despues por la fusion universal _fusionarConNubeInv. El comentario del nucleo de guardado describia esa proteccion vieja, asi que enganaba a quien lo leyera. Ahora describe la fusion real y documenta su limite conocido: para un registro que ya existe en ambos lados gana la copia LOCAL, y como una cuadrilla no tiene campo 'estado', un descuento de stock hecho por un tecnico puede revertirse si esta sesion guarda antes de que el listener la refresque. Sin cambios de comportamiento. v84: limpieza de modalDiagramaCompleto duplicada. v83: MENSAJE DEL DIA al iniciar sesion. Ademas del saludo aparece una frase corta para arrancar labores, elegida segun el DIA DE LA SEMANA y estable durante toda la jornada (cambia al dia siguiente, no en cada recarga). Escritas para el trabajo de bodega: material, cuadrillas, seriales, consumos. Uno de cada tres dias se suma un recordatorio practico (anotar serial al entregar, confirmar consumos, revisar la Auditoria, registrar lo que entra, recibir devoluciones el mismo dia). Se editan en FRASES_DIA_INV y TIPS_DIA_INV. Incluye v82: COHERENCIA CON LA APP DE TECNICOS. La app de Tecnicos v71 corrigio que las devoluciones de material NO descontaban del stock del tecnico (quedaba contado dos veces). Aqui: [1] al integrar un recuperado que vino de una cuadrilla con una version anterior, se AVISA si ese material todavia figura a nombre del tecnico, para no contarlo doble. [2] La 🩺 Auditoria detecta ahora tres problemas del cruce con Tecnicos: material contado DOS veces (devuelto a la bodega pero aun en poder del tecnico), equipos danados que siguen en el stock del tecnico, tecnicos SIN CEDULA (la app de Tecnicos los busca por cedula: sin ella no pueden devolver material ni reportar consumos) y un mismo tecnico registrado en DOS cuadrillas (sus reportes irian a la cuadrilla equivocada). Incluye v81: (v81: CAUSA REAL DEL PROBLEMA DE GUARDADO — la base llego a 0.98 MB del maximo de 1 MB que permite Firestore, y pasado ese tope Firebase deja de guardar: por eso las solicitudes aprobadas reaparecian. El diagnostico de la v79 mostro que lo mas pesado NO son las fotos sino las listas de historial que crecen sin parar: consumosPendientes 370KB, bodegas 348KB, instalaciones 161KB, recuperados 81KB. NUEVO en 🩺 Auditoria: panel de espacio con barra de uso y desglose por seccion, boton ARCHIVAR HISTORIAL VIEJO (mueve a documentos por año los consumos ya resueltos de mas de 45 dias, las instalaciones de mas de 120 y los recuperados ya integrados; lo PENDIENTE nunca se archiva), boton para mover las fotos, y boton VER ARCHIVO para consultar lo guardado. Nada se borra y todo se verifica en la nube ANTES de sacarlo de la base. Incluye v80: (v80: LAS FOTOS DE MATERIALES SALEN DE LA BASE PRINCIPAL — esta era la causa de fondo de que los guardados fallaran y las solicitudes reaparecieran. Las fotos se guardaban DENTRO de inventario/datos como texto base64; entre todas hacian que el documento pasara el limite de 1 MB de Firestore, y a partir de ahi NINGUN cambio se guardaba. Ahora cada foto vive en su propio documento (inventario/foto_XXX) y el material solo guarda su codigo; se ven exactamente igual, se cargan solas al abrir la pantalla y las fotos nuevas ya no engordan la base. NUEVO en 🩺 Auditoria: panel de espacio que muestra cuanto pesa la base y cuantos MB ocupan las fotos incrustadas, con boton para MOVERLAS todas: va una por una, comprueba que quedo guardada ANTES de sacarla (ninguna se pierde), guarda bodega por bodega y se puede retomar si se interrumpe. Incluye v79: (v79: LAS SOLICITUDES APROBADAS/RECHAZADAS YA NO REAPARECEN. Causa: el snapshot de Firebase REEMPLAZA la lista completa con lo que hay en la nube; si el guardado aun no habia terminado —o FALLO, como cuando Firebase responde 'write stream exhausted maximum allowed queued writes'— la solicitud volvia a salir como pendiente. Tres correcciones: [1] BLINDAJE DE DECISIONES: toda decision tomada en esta sesion (aprobar, rechazar, aceptar/rechazar transferencia) se vuelve a imponer sobre el snapshot durante 3 minutos, hasta que quede confirmada en la nube. [2] EL GUARDADO FALLIDO YA NO ES INVISIBLE: antes solo se pintaba un indicador chiquito y se escribia en la consola, asi que el usuario creia que su cambio habia quedado; ahora avisa claro que NO se guardo y REINTENTA solo hasta 3 veces. [3] DIAGNOSTICO DE TAMANO: Firestore rechaza documentos de mas de 1 MB y no habia forma de enterarse; ahora se mide en cada guardado, se avisa en consola desde 800 KB y con alerta si pasa el limite, indicando que seccion pesa mas. Incluye v78: (v78: AUDITORIA GENERAL DEL INVENTARIO + correcciones de flujo. NUEVA PANTALLA 🩺 Auditoria (admin): revisa TUS datos reales y reporta stock negativo, seriales repetidos dentro de un articulo, el MISMO equipo registrado en dos lugares a la vez, desajustes entre cantidad y seriales, articulos duplicados en una bodega, cuadrillas con material sin bodega asignada, y material EN EL LIMBO (transferencias sin aceptar, consumos de tecnicos sin confirmar, recuperados sin integrar, solicitudes sin decidir), ordenado por gravedad y exportable a Excel. CORRECCIONES: [1] enviar transferencia validaba articulo por articulo mientras descontaba — si el stock habia cambiado quedaba NEGATIVO, y si el articulo ya no existia reventaba a mitad dejando material descontado SIN transferencia creada (perdido); ahora valida todo primero y no toca nada si algo falla. [2] aceptar/rechazar transferencia agregaba los seriales con push SIN comprobar si ya estaban (el mismo equipo dos veces en la bodega), reventaba si la bodega destino u origen ya no existia (material en el limbo) y al rechazar buscaba por NOMBRE creando duplicados si lo habian renombrado. [3] misma duplicacion de seriales corregida en recuperados integrados, devoluciones de cuadrilla y entregas. [4] KARDEX: ventas, transferencias, entregas, devoluciones y recuperados no dejaban NINGUN rastro en el historial del articulo; ahora si. [5] agregar seriales avisa si estan repetidos o si superan el stock. Incluye v77: (v77: SOLICITUDES DE CAMBIO Y ELIMINACION CORREGIDAS — cuatro fallas: [1] la EDICION de una bodega se aplicaba al material ANTES de mirar el rol, asi que el cambio quedaba hecho sin aprobacion y RECHAZARLO no revertia nada (la aprobacion era decorativa); ahora la bodega solo PROPONE y el material no se toca hasta que el admin apruebe. [2] ELIMINAR UNA VENTA no devolvia el material a la bodega aunque vender SI lo descuenta: el stock desaparecia sin venta que lo justificara; ahora se devuelve cantidad y seriales, con registro en el kardex, y si el articulo ya no existe se vuelve a crear (aplica tambien al borrado directo del admin). [3] RECHAZAR una eliminacion RESUCITABA material fantasma con la cantidad vieja cuando el articulo ya no estaba (agotado, transferido o borrado aparte); ahora rechazar no toca la bodega y, si el articulo falta, se le PREGUNTA al admin. [4] Aprobar eliminacion borraba el articulo SIN dejar rastro en el kardex y sin avisar si la cantidad habia cambiado desde la solicitud; ahora registra la salida y avisa. Ademas approveEdit avisa si la cantidad cambio antes de pisarla, y ya no cierra solicitudes en silencio cuando la bodega o el articulo ya no existen. Incluye v76: CUARTOS DE EQUIPOS — puertos huerfanos y conexiones protegidas: aviso ambar en el equipo cuando hay puertos OCUPADOS sin conexion que los respalde + boton 🧹 Liberarlos (respeta enlaces inter-sede); boton ✏️ para EDITAR conexiones (mover puertos con selector real, cable, color, notas); y TODA modificacion de conexiones (crear/editar/eliminar/liberar) va por TRANSACCION con validacion fresca — dos sesiones ya no se pisan y un puerto no puede ocuparse dos veces. Incluye v75: GUARDADO MAS RAPIDO — la fusion usa la copia del listener cuando tiene <15s (cero descargas extra, misma proteccion); si esta vieja, lee de la red como siempre. Incluye v74: FUSION UNIVERSAL ENTRE SESIONES — el trabajo simultaneo de varias bodegas y tecnicos ya no se pisa: al guardar se fusiona con la nube fresca (datos + historial), lo de otras sesiones se incorpora, los borrados propios dejan LAPIDA y no reviven, las decisiones ajenas (confirmados/integrados/aceptados) se respetan, y un snapshot ya no borra de la pantalla lo recien creado (se conserva y reenvia solo). ENTREGAS ahora con TRANSACCION multi-documento: valida el stock y los seriales sobre datos FRESCOS (si otra sesion entrego mientras tanto, avisa claro), descuenta bodega + suma cuadrilla + registra la entrega de forma atomica. Incluye v73: al CONFIRMAR un consumo de cliente, el material queda anotado AUTOMATICAMENTE en la ficha del cliente — seccion "🧰 Material instalado" — emparejando primero por CEDULA (que ahora envia el tecnico v69) y si no por nombre; si no se encuentra el cliente, avisa claro y el boton "Sincronizar material con clientes" (tambien mejorado con cedula) queda como red de seguridad. Incluye v72: [1] confirmación de consumos con TRANSACCIÓN — el descuento a la cuadrilla ya no se puede revertir por una sincronización cruzada; [2] config Firebase integrada — no vuelve a pedirla; [3] login con ojito 👁️ y Enter; [4] BLINDAJE: guardas anti-borrado de clientes (carga incompleta o encogimiento drástico NO reescriben la nube), firma para no reescribir chunks sin cambios, carga de clientes en paralelo con reintentos, COLA de guardado (nunca se solapan), fusión de envíos recientes de técnicos antes de guardar, y fotos pequeñas ya no se recomprimen)
+const APP_VERSION_INV = 112; // ⬆️ Subir en cada versión publicada de Inventario (v112: EL EQUIPO INSTALADO YA NO SIGUE APARECIENDO EN LA CUADRILLA. Revisión del 23 sep 2026: [1] el serial se reconoce escrito de cualquier forma (mayúsculas, espacios, HWTC… = 48575443…) y sale de la fila donde está; si no está en la cuadrilla no se descuenta otro en su lugar; [2] se confirma unidad por unidad: lo que alcanza se descuenta y lo demás queda pendiente aparte, de la misma orden; rechazar avisa si el equipo sigue en la cuadrilla; la tarjeta mide igual que la confirmación; [3] cuadrillas y bodegas se fusionan fila por fila entre pantallas (una copia vieja ya no devuelve un equipo confirmado); [4] el guardado general va por transacción y escribe solo lo que cambió (un consumo que llega en medio ya no se borra); [5] Auditoría: lee bien las fechas 17/9/2026, solo cuenta pendientes, usa los campos de TÉCNICOS, cédula por dígitos, y dos revisiones nuevas: equipo instalado que sigue en una cuadrilla y órdenes finalizadas con material sin consumo; [6] una pantalla con versión vieja ya no guarda y una copia local no anuncia su versión. v111: modo mantenimiento, lo activa el administrador desde OFICINAS y bloquea la app con un aviso. v110: en el celular ninguna pestaña se sale de la pantalla. v109: SE CORTA EL BUCLE DE GUARDADOS. La v108 extendio la regla de quien toco el registro al historial, pero la base de comparacion solo se tomaba de inventario/datos: las listas de inventario/historial nunca tenian con que compararse, cada snapshot las daba por tocadas y las reenviaba. Resultado (10 sep 2026): todas las sesiones reescribian el historial cada ~10 s, se disparo el consumo de lecturas (44.000 de 50.000 gratis) y una entrega fallo con Quota exceeded. Ahora el historial tambien tiene base (tomada de la nube, antes de proteger), sin base no se reenvia, hay un freno de 3 reenvios por 10 minutos, una creacion en vuelo se reenvia como mucho 2 veces y la comparacion no depende del orden de las llaves. Incluye v108: LA MISMA REGLA, PARA TODO. Elkin: no se estan guardando las modificaciones en las diferentes areas. La comparacion contra la ultima sincronia (quien toco el registro) ya existia desde la v88 pero solo para bodegas y cuadrillas; en las demas listas seguia ganando la sesion que guardaba de ultimo, y una entrega, una instalacion o una solicitud que otro equipo acababa de registrar se perdia en silencio. Ahora vale para todas. Es segura por construccion: solo deja entrar cambios ajenos que antes se descartaban. Incluye v107: AVISOS AL CELULAR. Pedido de Elkin: una notificacion al celular cuando haya solicitudes de aprobacion pendientes, en Android y en iPhone. Va a traves de Google (Firebase Cloud Messaging), el mismo Firebase de la base. Tres piezas: [1] la tarjeta 🔔 en Inicio (admin) pide permiso, instala el receptor firebase-messaging-sw.js -un archivo nuevo junto a la app, que NO intercepta nada: solo recibe avisos- y guarda la direccion del celular en inventario/avisos; [2] el receptor muestra la notificacion aunque la app este cerrada y al tocarla abre la app; [3] el vigilante AVISOS_PENDIENTES.gs en el Apps Script del Drive mira cada 5 minutos las solicitudes pendientes -edicion y borrado en inventario; registros con fecha pasada, eliminar/editar movimientos, prestamos y abonos especiales en oficinas- leyendo SOLO esos campos con mascara, avisa solo lo NUEVO (recuerda lo ya avisado y olvida lo resuelto) y a las 7 a.m. recuerda lo que sigue pendiente. La clave privada para enviar (cuenta de servicio) vive en las propiedades del script, nunca en la app; la clave publica (VAPID) si va en la base, porque es publica. Con la app abierta el aviso se muestra adentro. Prueba: el comparador real del vigilante leido del archivo. v106: BUSCAR Y FILTRAR EN LAS BODEGAS. Pedido de Elkin: una barra de busqueda en los materiales y filtros. Con 255 filas en cinco bodegas, encontrar la ONT usada que quedo en Paujil era abrir cada bodega y bajar con el dedo. La busqueda mira el nombre, la referencia y sus alias, las etiquetas, los seriales y las observaciones, y varias palabras se exigen todas (ont wifi 6). Filtros: categoria, nuevo/usado, estado del stock (con stock, en cero, bajo minimo), con o sin seriales, y etiqueta. Funciona igual en la vista clasica y en la de referencia; en la de referencia el stock se mira por grupo, que es lo que tiene sentido. Al filtrar se abren solas las bodegas que tienen coincidencias y cada una dice cuantas; sin filtro, las bodegas recuerdan si estaban abiertas. Se repinta solo el listado, asi que la barra conserva el cursor y lo escrito. Filtrar no toca ningun dato. v105: ETIQUETAS EN LAS REFERENCIAS. Pregunta de Elkin: si es la misma referencia de ONT pero unas son dual band, otras WiFi 5 y otras WiFi 6, como se lleva. La regla: es la misma referencia si a un tecnico que pide una se le puede entregar cualquiera; WiFi 5 y WiFi 6 son modelos distintos y por tanto referencias distintas (Huawei lo dice en el codigo: V5 es dual band WiFi 5, X6 es WiFi 6). Nuevo/usado, proveedor, lote y ubicacion describen la UNIDAD, nunca crean referencia. Y para preguntar cosas que cruzan modelos -cuantas ONT WiFi 6 tengo en todas las bodegas- cada referencia lleva ETIQUETAS (WiFi 6, dual band, GPON, para exteriores...): se escriben separadas por coma, se limpian sin repetir, se ven como chips en el catalogo, en la bodega y en los totales, y en los totales una barra de etiquetas filtra con un clic. Riesgo cero: es un campo mas del catalogo, que sigue viviendo en su documento aparte. v104: EL CATALOGO COMO CAPA, Etapa 1 del nuevo orden de bodegas. La radiografia del 2 sep 2026 sobre los datos reales mostro 16 modelos escritos de hasta cuatro formas (ONT EG8145V5 GPON DUAL BAND, EG8145V5, ONU GPON EG8145V5 5G, ONU EG8145V5), 25 filas repetidas dentro de una misma bodega porque nuevo y usado son articulos separados, tres formas de la misma unidad y 80 filas material con seriales. Nadie lo creo mal: lo fabrican los traslados, que buscan el destino por nombre EXACTO y crean otra fila cuando no lo encuentran. Los mejores sistemas separan el CATALOGO (la referencia definida una vez) de las EXISTENCIAS por bodega; esta etapa trae el catalogo como una CAPA encima de lo que hay, sin tocar un dato: [1] pestaña Catalogo (admin) donde una referencia agrupa los nombres con que el mismo articulo quedo escrito, con propuestas automaticas por codigo de modelo que se REVISAN antes de aceptar (dos SFP de distinto alcance comparten codigo y no son lo mismo); vive en su propio documento inventario/catalogo. [2] En Bodegas, la vista Por referencia: una fila por referencia con nuevo, usado y total, y debajo las filas de siempre con SUS MISMOS botones; para el admin, los totales por referencia en todas las bodegas, que es la pregunta que antes no tenia respuesta. Se apaga con un clic y todo vuelve a como estaba. La prueba exige lo que importa: la suma de los grupos es la suma de las filas, sobre los datos reales. v103: LOTES — EL PASAPORTE DE CADA EQUIPO. Pedido de Elkin: las referencias llegan en lotes distintos, de proveedores distintos, en fechas distintas, y cuando un equipo sale por garantia hay que saber de que proveedor es, de que lote y cuando llego. Esa informacion solo existe completa EN EL MOMENTO EN QUE LLEGA la mercancia, asi que se captura ahi: Reabastecer y Agregar material ganan dos campos OPCIONALES (proveedor, con lista de los ya usados, y lote/factura); la fecha la pone el sistema. No son obligatorios a proposito: un campo obligatorio molesto termina en xxx tecleado, que es peor que vacio. Se registra el lote solo si trae algo que recordar (proveedor, factura o seriales): el cable reabastecido sin datos no llena el registro de ruido. La consulta es el boton ESCUDO Garantia en Bodegas: se pega o se ESCANEA con la camara el serial del equipo dañado y responde de que proveedor llego, en que lote, cuando, a que bodega, donde esta hoy (bodega o cuadrilla) y por donde ha pasado (el rastro de la v99). La busqueda va del lote mas reciente hacia atras: si un equipo salio y volvio a entrar en otra compra, manda la ultima llegada. Los lotes viven en SU PROPIO documento de la nube (inventario/lotes) porque el principal ya conoce de cerca el limite de 1 MB, y si el registro pasa de 850 KB avisa con tiempo. Los seriales que llegaron antes del 2 de septiembre de 2026 responden sin-origen-registrado en vez de inventar. v99: LOS SERIALES REPETIDOS — POR QUE VUELVEN. Elkin pregunto por que no se resolvia de una vez la unica prueba que quedaba en ambar. No era una falla del programa sino del inventario: 27 seriales anotados en dos sitios son 27 equipos contados dos veces, y eso no se arregla desde el codigo porque depende de donde esta el aparato de verdad. Pero al mirarlos uno por uno aparecieron tres cosas que si son del programa. [1] LA HERRAMIENTA QUE LOS ARREGLA BORRABA EL EQUIPO. _dejarSNSoloEn quitaba el serial por VALOR en cada sitio descartado, y ese filtro se lleva TODAS las copias de ese articulo. Cuando el serial estaba dos veces dentro de la MISMA lista -tres casos en los datos de hoy- el sitio elegido y el descartado eran el mismo objeto, asi que tambien se borraba la copia que se queria conservar: el equipo desaparecia del inventario y la cantidad bajaba igual. Ahora se cuenta por material cuantas copias deben quedar (una en el elegido, cero en los demas) y se recorta a esa cifra. [2] LA CAUSA SEGUIA ABIERTA. integrarRecuperado sumaba el serial a la bodega sin mirar si ya estaba en otro lado. El aviso de la v82 no lo atrapaba: compara NOMBRE y cantidad, y solo actua cuando el recuperado trae cuadrillaId, y los que manda la app de Tecnicos por retiro de un cliente no la traen. Medido: 9 de los 27 entraron justo por ahi. Integrar significa que el aparato VOLVIO a la bodega, asi que ahora se MUEVE en vez de duplicarse: se enseña de donde sale, se pide confirmacion y se descuenta de alla. Reabastecer tambien revisa los seriales, igual que Agregar Serial, porque se teclean a mano igual. [3] YA NO HAY QUE ADIVINAR. Antes la herramienta pedia elegir a ciegas entre dos sitios. Ahora le pregunta al historial: si el equipo entro por un recuperado YA INTEGRADO a una bodega, por un traslado aceptado o por una entrega a esa cuadrilla, esa es la respuesta, y viene marcada con el motivo y la fecha. Entre dos articulos de la misma bodega desempata el nombre, que es la misma regla con la que se creo el duplicado. Hay un boton que resuelve de una vez todos los que tienen prueba, enseñando antes la lista completa. Medido hoy sobre los datos reales: de los 27, en 13 el historial lo demuestra y 14 siguen decidiendose a mano -los que no dejaron rastro, como dos ONT que figuran a la vez en FLORENCIA y en DONCELLO-. Nada se aplica sin enseñar antes que va a pasar. v98: LA APROBACION SE DESHACIA SOLA. Reportado por Elkin: acepta una solicitud, desaparece y despues vuelve a salir, y bodega termina creando la misma orden varias veces. Encontrado y REPRODUCIDO paso a paso. Al recibir un snapshot, _protegerSnapshotInv mete en el array entrante los registros que esta sesion edito y aun no ha guardado -eso esta bien, si no el snapshot los borraria de la pantalla-. Pero acto seguido se guardaba ESE MISMO array como la foto de referencia de lo que hay en la nube, con el cambio local adentro. A partir de ahi _sesionTocoInv, que es quien decide los conflictos, comparaba lo local contra una foto que ya traia lo local: respondia que la sesion NO habia tocado nada, y en el siguiente guardado la fusion dejaba entrar el valor VIEJO de la nube. Medido: aprobar dejaba el material en 1, llegaba un snapshot cualquiera y al fusionar volvia a 0. Nada avisaba, porque en pantalla el cambio se veia aplicado; por eso bodega pedia lo mismo otra vez. En los datos hay tres casos repetidos, separados 6, 39 y 49 minutos, todos de DONCELLO. Ahora la foto se toma ANTES de proteger, asi que retrata la NUBE y no la pantalla. Comprobado en los dos sentidos: la aprobacion propia sobrevive, y el cambio hecho por otra oficina sigue entrando cuando esta sesion no toco nada. Nota aparte: el sintoma tambien lo producia el limite de 1 MB, resuelto en la v97; el archivador esta funcionando (historial 15%, datos 48%). v97: LOS CUATRO REPORTES DE HOY. [1] TIEMPO REAL EN TODOS LOS DISPOSITIVOS. Los escuchas de Firebase ya estaban puestos: lo que fallaba era el GUARDADO. Medido sobre los datos reales de hoy, inventario/datos pesaba 790 KB y inventario/historial 747 KB, del maximo de 1 MB que admite Firestore. Pasado ese tope Firebase RECHAZA la escritura entera, asi que el cambio no salia del equipo y los demas no lo veian nunca. El archivador de la v90 no podia ayudar: sus plazos fijos (45, 120, 180 dias) no alcanzaban a NADA, porque lo que llena el documento son 389 consumos y 339 instalaciones RECIENTES. Ahora el archivador se regula solo: si un documento pasa del 70% del limite, acorta los plazos por escalones (30, 20, 14, 7 dias) hasta dejarlo por debajo del 60%, y nunca los alarga. Ademas archiva siete listas mas que antes (solicitudes de cambio y de borrado ya decididas, entregas, transferencias, ventas, logs). Probado hoy: 1.271 registros y 913 KB al archivo, historial 73%->15% y datos 77%->44%. Lo PENDIENTE no se archiva nunca y nada sale de la base sin haberlo leido antes en el archivo. [2] LA RECARGA YA NO PIDE LA CLAVE. La sesion se recuerda en sessionStorage, que vive solo en esa pestana y muere al cerrarla, asi que el equipo compartido de la bodega no amanece con la sesion abierta. Caduca a las 12 horas, no guarda la contrasena y se comprueba contra la base al volver: si a la bodega le cambiaron la clave o la borraron, se pide entrar de nuevo. [3] LA SOLICITUD DECIDIDA YA NO REAPARECE. El blindaje de la v79 caducaba a los 3 minutos; si el guardado fallaba por lo del punto [1], al minuto 4 el snapshot la devolvia a pendiente. Ahora la decision se sostiene SIN PLAZO y solo se suelta cuando la nube ya la trae con ese mismo estado. Se guarda tambien en el navegador, asi que sobrevive a una recarga, y se limpia a los 30 dias. [4] UN SERIAL, UN SITIO. modalAddSN solo miraba dentro del mismo articulo, asi que el mismo equipo podia quedar en dos bodegas, o en una bodega y una cuadrilla a la vez. Medido: 31 seriales estaban en dos sitios (un ONT figuraba en FLORENCIA y en DONCELLO). Ahora se BLOQUEA en vez de avisar, y en la Auditoria hay 🔧 Seriales repetidos para arreglar los que ya estaban: se elige donde esta de verdad el equipo y se quita de los demas, ajustando la cantidad. Los rellenos que no son seriales (N/A, SN, guiones) se siguen aceptando repetidos. v91: LECTURA DE FECHAS UNIFICADA. Ademas del texto, ahora se guarda una marca de tiempo NUMERICA (confirmadoMs, rechazadoMs) y la logica la prefiere. El texto se conserva sin tocar porque bodega lo muestra tal cual en pantalla, asi que el usuario no ve ningun cambio. El motivo: tanto TECNICOS como esta app guardaban las fechas con toLocaleDateString(), que en Colombia da DD/MM/AAAA, y new Date() lo interpreta como MM/DD: 17/8/2026 daba fecha invalida y 5/8/2026 se leia como 8 de MAYO. Un numero no admite interpretacion. Los registros anteriores siguen resolviendose con _msDeFechaInv. v90: EL ARCHIVADO YA ES AUTOMATICO, como en OFICINAS. Alla se resolvio asi en la v170 tras chocar con el limite de 1 MB; bodega se habia quedado solo con el boton manual, y por eso el historial viejo se acumulaba. Ahora corre dentro del guardado, antes de armar el documento. Es barato: _calcularAligerado() es puro en memoria y devuelve vacio casi siempre, asi que un guardado normal no cuesta nada extra; solo hay lecturas y escrituras cuando de verdad hay historial viejo, y una vez movido no se repite. Seguridad: escribe el archivo, lo vuelve a LEER para confirmar y solo entonces saca los registros de la base; si la escritura o la verificacion fallan, no se quita nada. El boton manual sigue existiendo y ahora comparte el mismo nucleo (_archivarInv) en vez de duplicar la logica. v89: EL ARCHIVADOR NO PODIA LEER LAS FECHAS. El boton Aligerar la base existia y sus reglas eran correctas, pero _diasDeInv usaba new Date() sobre fechas en formato colombiano DD/MM/AAAA que TECNICOS escribe con toLocaleDateString(). new Date() espera MM/DD, asi que 17/8/2026 daba Invalid Date y el registro quedaba invisible para el archivador PARA SIEMPRE, y 5/8/2026 se leia como 8 de MAYO, con la antiguedad mal calculada. Por eso habia 639 consumos ya resueltos (solo 12 seguian pendientes) ocupando el 48% de un documento al 80% de su limite. Ahora _msDeFechaInv resuelve DD/MM/AAAA a mano antes de Date.parse. Medido sobre los datos reales: los registros archivables pasaron de 1 a 458, unos 216 KB. El archivado sigue siendo manual. v88: CONFLICTOS DE CUADRILLAS Y BODEGAS RESUELTOS POR QUIEN TOCO EL REGISTRO. Habia dos reglas fijas y ninguna era correcta en ambos sentidos: el listener hacia Object.assign y la nube pisaba una edicion local sin guardar; y la fusion al guardar se quedaba con la copia local, revirtiendo el descuento que un tecnico acababa de hacer (el material quedaba en recuperados Y en la cuadrilla, contado dos veces). Ahora se guarda el contenido de cada registro en la ultima sincronia y se compara: si esta sesion no lo toco entra lo de la nube, si lo toco se conserva lo local. Sin base o registro desconocido gana lo local, igual que antes, para que un camino no cubierto degrade en vez de perder datos. Solo aplica a cuadrillas y bodegas. v87: GUARDA CONTRA CANTIDADES INVALIDAS. integrarRecuperado SUMA r.cant al stock de la bodega; si ese valor era negativo, cero o texto, restaba o corrompia el stock en silencio y lo registraba como entrada. Ahora se rechaza con un aviso claro. Se pone aqui ademas de en la app de Tecnicos porque un registro guardado ANTES de acotar la entrada seguiria causando el dano al integrarlo. Tambien se acoto la cantidad de equipos del cliente, que sin || guardaba NaN al vaciar el campo. v86: DIAGRAMA DEL CUARTO. Se restauro el boton IMPRIMIR, que estaba perdido: la funcion existia pero apuntaba al id diagSvg y el modal actual crea diagramaSVG, asi que aunque alguien la llamara no hacia nada, y ademas ningun boton la llamaba. Al imprimir se fuerza el color (print-color-adjust): sin eso el navegador omite los fondos y, como el diagrama es oscuro, salia una hoja practicamente en blanco. Se elimino descargarDiagramaSVG, que quedo redundante frente a descargarDiagrama (esta ultima si funciona y ademas agrega el xmlns al archivo). Y en la descarga: la fecha del nombre venia en UTC (de noche ponia la de manana) y la URL temporal se liberaba en el mismo instante del clic, lo que puede cortar la descarga. v85: solo comentarios. Se elimino la constante CAMPOS_DE_TECNICOS, que estaba declarada y NUNCA se usaba: era residuo del enfoque de la v72, reemplazado despues por la fusion universal _fusionarConNubeInv. El comentario del nucleo de guardado describia esa proteccion vieja, asi que enganaba a quien lo leyera. Ahora describe la fusion real y documenta su limite conocido: para un registro que ya existe en ambos lados gana la copia LOCAL, y como una cuadrilla no tiene campo 'estado', un descuento de stock hecho por un tecnico puede revertirse si esta sesion guarda antes de que el listener la refresque. Sin cambios de comportamiento. v84: limpieza de modalDiagramaCompleto duplicada. v83: MENSAJE DEL DIA al iniciar sesion. Ademas del saludo aparece una frase corta para arrancar labores, elegida segun el DIA DE LA SEMANA y estable durante toda la jornada (cambia al dia siguiente, no en cada recarga). Escritas para el trabajo de bodega: material, cuadrillas, seriales, consumos. Uno de cada tres dias se suma un recordatorio practico (anotar serial al entregar, confirmar consumos, revisar la Auditoria, registrar lo que entra, recibir devoluciones el mismo dia). Se editan en FRASES_DIA_INV y TIPS_DIA_INV. Incluye v82: COHERENCIA CON LA APP DE TECNICOS. La app de Tecnicos v71 corrigio que las devoluciones de material NO descontaban del stock del tecnico (quedaba contado dos veces). Aqui: [1] al integrar un recuperado que vino de una cuadrilla con una version anterior, se AVISA si ese material todavia figura a nombre del tecnico, para no contarlo doble. [2] La 🩺 Auditoria detecta ahora tres problemas del cruce con Tecnicos: material contado DOS veces (devuelto a la bodega pero aun en poder del tecnico), equipos danados que siguen en el stock del tecnico, tecnicos SIN CEDULA (la app de Tecnicos los busca por cedula: sin ella no pueden devolver material ni reportar consumos) y un mismo tecnico registrado en DOS cuadrillas (sus reportes irian a la cuadrilla equivocada). Incluye v81: (v81: CAUSA REAL DEL PROBLEMA DE GUARDADO — la base llego a 0.98 MB del maximo de 1 MB que permite Firestore, y pasado ese tope Firebase deja de guardar: por eso las solicitudes aprobadas reaparecian. El diagnostico de la v79 mostro que lo mas pesado NO son las fotos sino las listas de historial que crecen sin parar: consumosPendientes 370KB, bodegas 348KB, instalaciones 161KB, recuperados 81KB. NUEVO en 🩺 Auditoria: panel de espacio con barra de uso y desglose por seccion, boton ARCHIVAR HISTORIAL VIEJO (mueve a documentos por año los consumos ya resueltos de mas de 45 dias, las instalaciones de mas de 120 y los recuperados ya integrados; lo PENDIENTE nunca se archiva), boton para mover las fotos, y boton VER ARCHIVO para consultar lo guardado. Nada se borra y todo se verifica en la nube ANTES de sacarlo de la base. Incluye v80: (v80: LAS FOTOS DE MATERIALES SALEN DE LA BASE PRINCIPAL — esta era la causa de fondo de que los guardados fallaran y las solicitudes reaparecieran. Las fotos se guardaban DENTRO de inventario/datos como texto base64; entre todas hacian que el documento pasara el limite de 1 MB de Firestore, y a partir de ahi NINGUN cambio se guardaba. Ahora cada foto vive en su propio documento (inventario/foto_XXX) y el material solo guarda su codigo; se ven exactamente igual, se cargan solas al abrir la pantalla y las fotos nuevas ya no engordan la base. NUEVO en 🩺 Auditoria: panel de espacio que muestra cuanto pesa la base y cuantos MB ocupan las fotos incrustadas, con boton para MOVERLAS todas: va una por una, comprueba que quedo guardada ANTES de sacarla (ninguna se pierde), guarda bodega por bodega y se puede retomar si se interrumpe. Incluye v79: (v79: LAS SOLICITUDES APROBADAS/RECHAZADAS YA NO REAPARECEN. Causa: el snapshot de Firebase REEMPLAZA la lista completa con lo que hay en la nube; si el guardado aun no habia terminado —o FALLO, como cuando Firebase responde 'write stream exhausted maximum allowed queued writes'— la solicitud volvia a salir como pendiente. Tres correcciones: [1] BLINDAJE DE DECISIONES: toda decision tomada en esta sesion (aprobar, rechazar, aceptar/rechazar transferencia) se vuelve a imponer sobre el snapshot durante 3 minutos, hasta que quede confirmada en la nube. [2] EL GUARDADO FALLIDO YA NO ES INVISIBLE: antes solo se pintaba un indicador chiquito y se escribia en la consola, asi que el usuario creia que su cambio habia quedado; ahora avisa claro que NO se guardo y REINTENTA solo hasta 3 veces. [3] DIAGNOSTICO DE TAMANO: Firestore rechaza documentos de mas de 1 MB y no habia forma de enterarse; ahora se mide en cada guardado, se avisa en consola desde 800 KB y con alerta si pasa el limite, indicando que seccion pesa mas. Incluye v78: (v78: AUDITORIA GENERAL DEL INVENTARIO + correcciones de flujo. NUEVA PANTALLA 🩺 Auditoria (admin): revisa TUS datos reales y reporta stock negativo, seriales repetidos dentro de un articulo, el MISMO equipo registrado en dos lugares a la vez, desajustes entre cantidad y seriales, articulos duplicados en una bodega, cuadrillas con material sin bodega asignada, y material EN EL LIMBO (transferencias sin aceptar, consumos de tecnicos sin confirmar, recuperados sin integrar, solicitudes sin decidir), ordenado por gravedad y exportable a Excel. CORRECCIONES: [1] enviar transferencia validaba articulo por articulo mientras descontaba — si el stock habia cambiado quedaba NEGATIVO, y si el articulo ya no existia reventaba a mitad dejando material descontado SIN transferencia creada (perdido); ahora valida todo primero y no toca nada si algo falla. [2] aceptar/rechazar transferencia agregaba los seriales con push SIN comprobar si ya estaban (el mismo equipo dos veces en la bodega), reventaba si la bodega destino u origen ya no existia (material en el limbo) y al rechazar buscaba por NOMBRE creando duplicados si lo habian renombrado. [3] misma duplicacion de seriales corregida en recuperados integrados, devoluciones de cuadrilla y entregas. [4] KARDEX: ventas, transferencias, entregas, devoluciones y recuperados no dejaban NINGUN rastro en el historial del articulo; ahora si. [5] agregar seriales avisa si estan repetidos o si superan el stock. Incluye v77: (v77: SOLICITUDES DE CAMBIO Y ELIMINACION CORREGIDAS — cuatro fallas: [1] la EDICION de una bodega se aplicaba al material ANTES de mirar el rol, asi que el cambio quedaba hecho sin aprobacion y RECHAZARLO no revertia nada (la aprobacion era decorativa); ahora la bodega solo PROPONE y el material no se toca hasta que el admin apruebe. [2] ELIMINAR UNA VENTA no devolvia el material a la bodega aunque vender SI lo descuenta: el stock desaparecia sin venta que lo justificara; ahora se devuelve cantidad y seriales, con registro en el kardex, y si el articulo ya no existe se vuelve a crear (aplica tambien al borrado directo del admin). [3] RECHAZAR una eliminacion RESUCITABA material fantasma con la cantidad vieja cuando el articulo ya no estaba (agotado, transferido o borrado aparte); ahora rechazar no toca la bodega y, si el articulo falta, se le PREGUNTA al admin. [4] Aprobar eliminacion borraba el articulo SIN dejar rastro en el kardex y sin avisar si la cantidad habia cambiado desde la solicitud; ahora registra la salida y avisa. Ademas approveEdit avisa si la cantidad cambio antes de pisarla, y ya no cierra solicitudes en silencio cuando la bodega o el articulo ya no existen. Incluye v76: CUARTOS DE EQUIPOS — puertos huerfanos y conexiones protegidas: aviso ambar en el equipo cuando hay puertos OCUPADOS sin conexion que los respalde + boton 🧹 Liberarlos (respeta enlaces inter-sede); boton ✏️ para EDITAR conexiones (mover puertos con selector real, cable, color, notas); y TODA modificacion de conexiones (crear/editar/eliminar/liberar) va por TRANSACCION con validacion fresca — dos sesiones ya no se pisan y un puerto no puede ocuparse dos veces. Incluye v75: GUARDADO MAS RAPIDO — la fusion usa la copia del listener cuando tiene <15s (cero descargas extra, misma proteccion); si esta vieja, lee de la red como siempre. Incluye v74: FUSION UNIVERSAL ENTRE SESIONES — el trabajo simultaneo de varias bodegas y tecnicos ya no se pisa: al guardar se fusiona con la nube fresca (datos + historial), lo de otras sesiones se incorpora, los borrados propios dejan LAPIDA y no reviven, las decisiones ajenas (confirmados/integrados/aceptados) se respetan, y un snapshot ya no borra de la pantalla lo recien creado (se conserva y reenvia solo). ENTREGAS ahora con TRANSACCION multi-documento: valida el stock y los seriales sobre datos FRESCOS (si otra sesion entrego mientras tanto, avisa claro), descuenta bodega + suma cuadrilla + registra la entrega de forma atomica. Incluye v73: al CONFIRMAR un consumo de cliente, el material queda anotado AUTOMATICAMENTE en la ficha del cliente — seccion "🧰 Material instalado" — emparejando primero por CEDULA (que ahora envia el tecnico v69) y si no por nombre; si no se encuentra el cliente, avisa claro y el boton "Sincronizar material con clientes" (tambien mejorado con cedula) queda como red de seguridad. Incluye v72: [1] confirmación de consumos con TRANSACCIÓN — el descuento a la cuadrilla ya no se puede revertir por una sincronización cruzada; [2] config Firebase integrada — no vuelve a pedirla; [3] login con ojito 👁️ y Enter; [4] BLINDAJE: guardas anti-borrado de clientes (carga incompleta o encogimiento drástico NO reescriben la nube), firma para no reescribir chunks sin cambios, carga de clientes en paralelo con reintentos, COLA de guardado (nunca se solapan), fusión de envíos recientes de técnicos antes de guardar, y fotos pequeñas ya no se recomprimen)
 /* ════════════════════════════════════════════════════════════════════
    v111 (16 sep 2026) — MODO MANTENIMIENTO.
    El administrador lo activa desde el panel de OFICINAS. Queda en el documento
@@ -10298,6 +10670,58 @@ async function prepareDbCopy() {
     const historial = {};
     HISTORIAL_FIELDS.forEach(f => { historial[f] = Array.isArray(dbCopy[f]) ? dbCopy[f] : []; delete dbCopy[f]; });
     return { dbCopy, clientes, historial };
+}
+
+/* v112 — Las dos mitades de prepareDbCopy, para el guardado por transacción:
+   lo que hace E/S (archivar, achicar fotos) va ANTES, sobre la memoria misma
+   (así lo que queda en pantalla es lo que se escribe); armar la copia es
+   sincrónico y va DENTRO de la transacción, después de fusionar con la nube. */
+async function _comprimirFotosGrandesInv(){
+    for(const b of (DB.bodegas||[])) for(const m of (b.materiales||[])){
+        if(!Array.isArray(m.fotos) || !m.fotos.some(f=>f && typeof f==='string' && f.startsWith('data:') && f.length>=60000)) continue;
+        const nuevas=[];
+        for(const foto of m.fotos){
+            if(foto && typeof foto==='string' && foto.startsWith('data:')) nuevas.push(foto.length<60000 ? foto : await compressImage(foto));
+        }
+        m.fotos=nuevas;
+    }
+}
+function _armarCopiaInv(){
+    const dbCopy = JSON.parse(JSON.stringify(DB));
+    const clientes = dbCopy.clientes || [];
+    dbCopy.clientes = [];
+    const historial = {};
+    HISTORIAL_FIELDS.forEach(f => { historial[f] = Array.isArray(dbCopy[f]) ? dbCopy[f] : []; delete dbCopy[f]; });
+    return { dbCopy, clientes, historial };
+}
+/* Campos de primer nivel que cambiaron respecto a lo que hay en la nube: solo esos se
+   escriben. Un guardado que solo agrega una línea al registro ya no reescribe los ~800 KB. */
+function _camposCambiadosInv(nuevo, remoto){
+    const out={};
+    const canon=window._canonInv || (x=>JSON.stringify(x));
+    Object.keys(nuevo||{}).forEach(k=>{
+        if(nuevo[k]===undefined) return;
+        if(!remoto || !(k in remoto) || canon(nuevo[k])!==canon(remoto[k])) out[k]=nuevo[k];
+    });
+    return out;
+}
+window._armarCopiaInv=_armarCopiaInv; window._camposCambiadosInv=_camposCambiadosInv;   // PRUEBAS.html los usa con los datos reales, sin escribir
+/* 📏 v79 — DIAGNÓSTICO DE TAMAÑO (mismo aviso de siempre, en una función para los dos caminos) */
+function _revisarTamanoInv(dbCopy){
+    try{
+        const _bytes = new Blob([JSON.stringify(dbCopy)]).size;
+        window._tamDocInv = _bytes;
+        if(_bytes > 800*1024){
+            const _pesos = Object.keys(dbCopy||{})
+                .map(k=>({k, kb: Math.round((new Blob([JSON.stringify(dbCopy[k]||null)]).size)/1024)}))
+                .filter(x=>x.kb>20).sort((a,b)=>b.kb-a.kb).slice(0,6);
+            console.warn(`⚠️ inventario/datos pesa ${(_bytes/1048576).toFixed(2)} MB (el límite de Firestore es 1 MB). Más pesados: ${_pesos.map(p=>p.k+' '+p.kb+'KB').join(' · ')}`);
+            if(_bytes > 1000*1024 && !window._avisoTamInv){
+                window._avisoTamInv = true;
+                setTimeout(()=>alert(`🚨 ATENCIÓN: la base del inventario pesa ${(_bytes/1048576).toFixed(2)} MB y el límite de Firebase es 1 MB.\n\nPor eso los cambios NO se están guardando (aprobar solicitudes, mover material...).\n\nLo más pesado: ${_pesos.map(p=>p.k+' ('+p.kb+' KB)').join(', ')}.\n\nAvísale a soporte con este dato para aligerarlo.`), 600);
+            }
+        }
+    }catch(eT){}
 }
 
 // Guardar los campos de historial en su propio documento (separado de inventario/datos)
@@ -10530,11 +10954,29 @@ window._fbSaveImmediate = async function() {
 //     tiempo real), pero existe. Cerrarla requiere sellar los registros de
 //     'cuadrillas'/'bodegas' con una marca de tiempo en AMBAS apps y que gane
 //     el más reciente; hacerlo a medias descartaría el trabajo de la bodega.
+//     ✅ v112: CERRADO de otra forma, sin marcas de tiempo: el guardado va por
+//     transacción (lee fresco, fusiona y escribe atómico) y en cuadrillas/bodegas
+//     lo tocado en los dos lados se fusiona fila por fila (_fusion3RegistroInv).
 // ════════════════════════════════════════════════════════════════════
 let _saveEnCursoInv = false;
 let _saveEncoladoInv = null;
 
+/* v112 (W-6) — UNA PANTALLA VIEJA YA NO GUARDA ENCIMA. Hasta la v111 el aviso de
+   "hay versión nueva" solo tapaba la pantalla: los guardados y reenvíos seguían
+   corriendo con la lógica vieja y podían deshacer lo que la nueva ya arregló.
+   Ahora, si la nube tiene una versión mayor, esta pantalla no escribe (se recarga
+   y listo). ?ignorarVersion en la dirección lo salta, para soporte. */
+function _ignorarVersionInv(){ try{ return new URLSearchParams(location.search).has('ignorarVersion'); }catch(e){ return false; } }
+function _pantallaViejaInv(){ return !!window._versionViejaInv && !_ignorarVersionInv(); }
+const MSG_VERSION_VIEJA_INV='Hay una versión nueva del inventario. Recarga la página (Ctrl+F5) para seguir; esta pantalla ya no guarda para no deshacer lo nuevo.';
+window._pantallaViejaInv=_pantallaViejaInv;
+
 function _ejecutarSaveInv(conOverlay){
+    if(_pantallaViejaInv()){
+        console.warn('⛔ '+MSG_VERSION_VIEJA_INV);
+        showSync('err','Versión vieja: recarga');
+        return conOverlay ? Promise.reject(new Error(MSG_VERSION_VIEJA_INV)) : Promise.resolve();
+    }
     if(_saveEnCursoInv){
         if(!_saveEncoladoInv){
             _saveEncoladoInv = (async()=>{
@@ -10555,55 +10997,67 @@ async function _fbSaveCore(conOverlay) {
     if(conOverlay && window.mostrarOverlayGuardado) window.mostrarOverlayGuardado('Guardando...');
     window._pendingClienteSave = 'active';
     try {
-        // 🤝 v74: FUSIÓN UNIVERSAL con la nube fresca (datos + historial en paralelo).
-        // Cubre y supera la antigua fusión de técnicos: lo que otras sesiones o
-        // técnicos crearon se incorpora, los borrados propios dejan lápida (no
-        // reviven en ningún lado) y las decisiones ajenas ya tomadas se respetan.
         // 🛡️ v75: foto previa para marcar creaciones MÍAS de este guardado (90s de protección)
         const _fotoAntesInv = window._idsRemotosInv
             ? { d:Object.fromEntries(Object.entries(window._idsRemotosInv.d||{}).map(([k,s])=>[k,new Set(s)])),
                 h:Object.fromEntries(Object.entries(window._idsRemotosInv.h||{}).map(([k,s])=>[k,new Set(s)])) }
             : null;
-        try {
-            // ⚡ v75: si los listeners entregaron el estado remoto hace <15s, se fusiona
-            // con ESA copia (misma protección, cero descargas). Si no, se lee de la red.
-            const _cd=window._cacheRemDatosInv, _ch=window._cacheRemHistInv;
-            const _okD=!!(_cd && (Date.now()-_cd.ts)<15000), _okH=!!(_ch && (Date.now()-_ch.ts)<15000);
-            let _fd=null, _fh=null;
-            if(_okD && _okH){ _fd=_cd.data; _fh=_ch.data; console.log('⚡ Fusión con caché del listener (sin descargas)'); }
-            else {
-                const [frescoSnap, frescoHistSnap] = await Promise.all([
-                    getDoc(doc(fsDB, DB_DOC)),
-                    getDoc(doc(fsDB, HISTORIAL_DOC))
-                ]);
-                _fd=frescoSnap.exists()?frescoSnap.data():null;
-                _fh=frescoHistSnap.exists()?frescoHistSnap.data():null;
-            }
-            window._fusionarConNubeInv(_fd, _fh);
-        } catch(eM){ console.warn('Fusión universal (no crítico):', eM); }
-
-        const { dbCopy, clientes, historial } = await prepareDbCopy();
-        // 📏 v79 — DIAGNÓSTICO DE TAMAÑO: Firestore RECHAZA cualquier documento de
-        // más de 1 MB. Si inventario/datos se pasa, TODOS los guardados fallan y los
-        // cambios (aprobar solicitudes, mover material) se pierden en silencio.
-        // Antes no había forma de enterarse; ahora se avisa antes de que sea tarde.
-        try{
-            const _bytes = new Blob([JSON.stringify(dbCopy)]).size;
-            window._tamDocInv = _bytes;
-            if(_bytes > 800*1024){
-                const _pesos = Object.keys(dbCopy||{})
-                    .map(k=>({k, kb: Math.round((new Blob([JSON.stringify(dbCopy[k]||null)]).size)/1024)}))
-                    .filter(x=>x.kb>20).sort((a,b)=>b.kb-a.kb).slice(0,6);
-                console.warn(`⚠️ inventario/datos pesa ${(_bytes/1048576).toFixed(2)} MB (el límite de Firestore es 1 MB). Más pesados: ${_pesos.map(p=>p.k+' '+p.kb+'KB').join(' · ')}`);
-                if(_bytes > 1000*1024 && !window._avisoTamInv){
-                    window._avisoTamInv = true;
-                    setTimeout(()=>alert(`🚨 ATENCIÓN: la base del inventario pesa ${(_bytes/1048576).toFixed(2)} MB y el límite de Firebase es 1 MB.\n\nPor eso los cambios NO se están guardando (aprobar solicitudes, mover material...).\n\nLo más pesado: ${_pesos.map(p=>p.k+' ('+p.kb+' KB)').join(', ')}.\n\nAvísale a soporte con este dato para aligerarlo.`), 600);
+        let dbCopy, clientes, historial;
+        if(MODO_PRUEBA){
+            // Modo prueba: el camino de siempre (fusión con la caché o una lectura, y escrituras bloqueadas)
+            try {
+                const _cd=window._cacheRemDatosInv, _ch=window._cacheRemHistInv;
+                const _okD=!!(_cd && (Date.now()-_cd.ts)<15000), _okH=!!(_ch && (Date.now()-_ch.ts)<15000);
+                let _fd=null, _fh=null;
+                if(_okD && _okH){ _fd=_cd.data; _fh=_ch.data; }
+                else {
+                    const [frescoSnap, frescoHistSnap] = await Promise.all([ getDoc(doc(fsDB, DB_DOC)), getDoc(doc(fsDB, HISTORIAL_DOC)) ]);
+                    _fd=frescoSnap.exists()?frescoSnap.data():null;
+                    _fh=frescoHistSnap.exists()?frescoHistSnap.data():null;
                 }
-            }
-        }catch(eT){}
-        await _setDoc(doc(fsDB, DB_DOC), dbCopy);
+                window._fusionarConNubeInv(_fd, _fh);
+            } catch(eM){ console.warn('Fusión universal (no crítico):', eM); }
+            ({ dbCopy, clientes, historial } = await prepareDbCopy());
+            _revisarTamanoInv(dbCopy);
+            await _setDoc(doc(fsDB, DB_DOC), dbCopy);
+            await saveHistorial(historial);
+        } else {
+            /* ════════════════════════════════════════════════════════════════
+               v112 (I-5) — EL GUARDADO GENERAL VA POR TRANSACCIÓN.
+               Hasta la v111 leía la nube (o usaba la copia del oyente, de hasta
+               15 s), fusionaba y reescribía el documento COMPLETO. Lo que un
+               técnico enviara en ese intervalo —un consumo, una devolución— se
+               borraba sin rastro: la orden quedaba finalizada y la bodega nunca
+               veía el material.
+               Ahora: lectura fresca, fusión y escritura en UNA transacción. Si
+               alguien escribe en medio, Firebase la repite con los datos nuevos.
+               Y solo se escriben los campos que cambiaron. Archivar y achicar
+               fotos (que leen y escriben otros documentos) va antes, afuera.
+               ════════════════════════════════════════════════════════════════ */
+            try{ await _aligerarAutoInv(); }catch(eAl){ console.warn('aligerado automático:', eAl); }
+            try{ await _comprimirFotosGrandesInv(); }catch(eFo){ console.warn('fotos:', eFo); }
+            const refD=doc(fsDB, DB_DOC), refH=doc(fsDB, HISTORIAL_DOC);
+            const r = await _runTransaction(fsDB, async (tx)=>{
+                const sD=await tx.get(refD), sH=await tx.get(refH);
+                const fd=sD.exists()?sD.data():null, fh=sH.exists()?sH.data():null;
+                try{ window._fusionarConNubeInv(fd, fh); }catch(eM){ console.warn('Fusión universal (no crítico):', eM); }
+                // La base pasa a ser lo que se acaba de leer: si la transacción se repite, lo que
+                // entró de la nube en este intento no se confunde con un cambio de esta pantalla.
+                try{ window._fotoIdsRemotosInv(fd, fh); }catch(eF){}
+                const copia=_armarCopiaInv();
+                _revisarTamanoInv(copia.dbCopy);
+                const cd=_camposCambiadosInv(copia.dbCopy, fd), ch=_camposCambiadosInv(copia.historial, fh);
+                if(!fd) tx.set(refD, copia.dbCopy);
+                else if(Object.keys(cd).length) tx.update(refD, cd);
+                if(!fh) tx.set(refH, { ...copia.historial, _actualizado: Date.now() });
+                else if(Object.keys(ch).length) tx.update(refH, { ...ch, _actualizado: Date.now() });
+                copia.escritos=Object.keys(cd).concat(Object.keys(ch).map(k=>'historial.'+k));
+                return copia;
+            });
+            ({ dbCopy, clientes, historial } = r);
+            if(r.escritos && r.escritos.length) console.log('💾 Guardado (transacción): '+r.escritos.join(', '));
+        }
         await saveClienteChunks(clientes);
-        await saveHistorial(historial);
         showSync('ok','Guardado ✓');
         window._fallosSaveInv=0; // v79: se guardó bien → se reinicia el contador de fallos
         try{ window._fotoIdsRemotosInv(dbCopy, historial); }catch(eF){} // v74: lo recién escrito ES el estado remoto
@@ -10691,6 +11145,7 @@ async function startFirebase(config) {
     // o null para abortar sin escribir. Puede lanzar Error con mensaje claro.
     // ════════════════════════════════════════════════════════════════
     window._fbTransaccionInv = async function(modifFn){
+        if(_pantallaViejaInv()) throw new Error(MSG_VERSION_VIEJA_INV);   // v112 (W-6)
         return await _runTransaction(fsDB, async (tx)=>{
             const snap = await tx.get(ref);
             if(!snap.exists()) throw new Error('No se encontró inventario/datos en la nube');
@@ -10736,6 +11191,10 @@ async function startFirebase(config) {
         try{ const s=await getDoc(doc(fsDB, 'inventario/'+nombre)); return s.exists()? (s.data()||{}) : {}; }
         catch(e){ throw new Error('No se pudo leer el archivo histórico: '+(e.message||e)); }
     };
+    // v112: lectura de un documento cualquiera (la revisión de órdenes lee oficinas_sistema/main)
+    window._fbLeerDocInv = async function(ruta){
+        const s=await getDoc(doc(fsDB, ruta)); return s.exists()? (s.data()||{}) : null;
+    };
     window._fbGuardarArchivoInv = async function(nombre, datos){
         await _setDoc(doc(fsDB, 'inventario/'+nombre), { ...datos, actualizado:Date.now() });
         return true;
@@ -10769,6 +11228,7 @@ async function startFirebase(config) {
     }catch(e){} }).catch(()=>{});
 
     window._fbTransaccionInvMulti = async function(modifFn){
+        if(_pantallaViejaInv()) throw new Error(MSG_VERSION_VIEJA_INV);   // v112 (W-6)
         return await _runTransaction(fsDB, async (tx)=>{
             const [sD, sH] = [await tx.get(ref), await tx.get(refHist)];
             if(!sD.exists()) throw new Error('No se encontró inventario/datos en la nube');
@@ -10830,6 +11290,8 @@ async function startFirebase(config) {
        ENTRAR cambios ajenos que antes se descartaban: si yo lo edité, sigue
        ganando lo mío. */
     const COLS_STOCK_INV = COLS_DATOS_INV.concat(COLS_HIST_INV);
+    // v112: en estas dos, lo tocado en los dos lados se fusiona fila por fila (_fusion3RegistroInv)
+    const _COLS_FINAS_INV = ['cuadrillas','bodegas'];
 
     window._baseStockInv = window._baseStockInv || {};
 
@@ -10919,6 +11381,11 @@ async function startFirebase(config) {
                     // decisión ajena ya tomada (pendiente → confirmado/integrado/aceptado) se respeta
                     if(loc.estado==='pendiente' && item.estado && item.estado!=='pendiente') Object.assign(loc, item);
                     else if(!window._sesionTocoInv(col, loc)) Object.assign(loc, item); // intacto aquí → vale lo de la nube
+                    // v112: en cuadrillas y bodegas, lo tocado aquí se fusiona fila por fila con la nube
+                    // (antes ganaba la copia completa y devolvía a la cuadrilla un equipo ya confirmado)
+                    else if(_COLS_FINAS_INV.indexOf(col)>-1 && window._baseConoceInv(col, loc.id)){
+                        try{ window._enSitioInv(loc, window._fusion3RegistroInv(JSON.parse(window._baseStockInv[col][loc.id]), loc, item)); }catch(eF){ console.warn('fusión fina:', eF); }
+                    }
                     return; // demás conflictos: gana esta sesión (acaba de actuar)
                 }
                 if(_tumbaInv(tumbas,col,item.id)) return;
@@ -11031,6 +11498,18 @@ async function startFirebase(config) {
                     if(!ent || !ent.id) continue;
                     const loc = porId.get(ent.id);
                     if(loc && window._sesionTocoInv(col, loc)){
+                        // v112: cuadrillas y bodegas se fusionan fila por fila (lo que esta sesión no
+                        // tocó entra de la nube; ver _fusion3RegistroInv). Lo demás, como siempre.
+                        if(_COLS_FINAS_INV.indexOf(col)>-1 && window._baseConoceInv(col, loc.id)){
+                            let unido=null;
+                            try{ unido=window._fusion3RegistroInv(JSON.parse(window._baseStockInv[col][loc.id]), loc, ent); }catch(eF){ console.warn('fusión fina:', eF); }
+                            if(unido){
+                                window._enSitioInv(loc, unido);
+                                arrEnt[i] = loc;
+                                if(!window._igualF3(unido, ent)) preservados++;   // solo se reenvía si queda algo propio por subir
+                                continue;
+                            }
+                        }
                         arrEnt[i] = loc;
                         // v109: solo cuenta como "en vuelo" si consta que esta sesión lo
                         // editó. Sin base se conserva lo local, pero NO se reenvía.
@@ -11058,6 +11537,27 @@ async function startFirebase(config) {
         }
         return preservados;
     };
+    /* v112 — LO QUE DEVUELVE UNA TRANSACCIÓN ENTRA COMO UN SNAPSHOT, NO A MARTILLAZO.
+       Confirmar, rechazar o entregar hacían DB.cuadrillas = <lo de la nube>: un cambio
+       de esta pantalla aún sin guardar en OTRA cuadrilla (o bodega) se perdía. Ahora
+       pasa por la misma protección del oyente (_protegerSnapshotInv, con la fusión
+       fina) y se toman la foto y la base solo de esas listas. lado: 'd' datos, 'h' historial. */
+    window._aplicarNubeParcialInv = function(parcial, lado){
+        lado = lado==='h' ? 'h' : 'd';
+        const permitidas = lado==='h' ? COLS_HIST_INV : COLS_DATOS_INV;
+        const cols = Object.keys(parcial||{}).filter(c=>permitidas.indexOf(c)>-1 && Array.isArray(parcial[c]));
+        if(!cols.length) return;
+        const ent={}; cols.forEach(c=>{ ent[c]=JSON.parse(JSON.stringify(parcial[c])); });
+        const crudo=JSON.parse(JSON.stringify(ent));
+        try{ window._protegerSnapshotInv(ent, cols, (window._idsRemotosInv||{})[lado], window.DB._tumbas); }catch(eP){ console.warn('proteger (parcial):', eP); }
+        cols.forEach(c=>{ window.DB[c]=ent[c]; });
+        const foto=window._idsRemotosInv || {d:{}, h:{}};
+        if(!foto[lado]) foto[lado]={};
+        cols.forEach(c=>{ foto[lado][c]=new Set(crudo[c].map(x=>x&&x.id).filter(Boolean)); });
+        window._idsRemotosInv=foto;
+        try{ window._guardarBaseStockInv(crudo); }catch(eB){}
+        if(window.fixDB) window.fixDB();
+    };
 
     // ── CONTROL DE VERSIÓN (bloqueo total si hay versión nueva) ──
     try {
@@ -11065,11 +11565,22 @@ async function startFirebase(config) {
         const vref = doc(fsDB, 'inventario/app_version');
         const vsnap = await getDoc(vref);
         const remota = vsnap.exists() ? (vsnap.data().version||0) : 0;
-        if(APP_VERSION_INV > remota){ await _setDoc(vref, {version:APP_VERSION_INV, actualizadoEn:Date.now()}); }
+        /* v112 (V-5): una copia abierta desde este computador (localhost, 127.0.0.1,
+           la red de la casa o file://) es una PRUEBA, no una publicación: si anunciara
+           su versión, todas las bodegas verían "hay versión nueva" y al recargar
+           seguirían con la vieja, porque en el servidor aún no existe. Igual que OFICINAS. */
+        if(APP_VERSION_INV > remota){
+            if(_esEntornoLocalInv()) console.log('🧪 Copia de prueba: no se anuncia la versión', APP_VERSION_INV);
+            else await _setDoc(vref, {version:APP_VERSION_INV, actualizadoEn:Date.now()});
+        }
+        if(remota > APP_VERSION_INV) window._versionViejaInv = true;
         onSnapshot(vref, (s)=>{
             if(!s.exists()) return;
             const rem = s.data().version||0;
-            if(rem > APP_VERSION_INV){ const b=document.getElementById('versionBlock'); if(b) b.style.display='flex'; }
+            if(rem > APP_VERSION_INV){
+                window._versionViejaInv = true;   // v112 (W-6): desde aquí esta pantalla ya no guarda
+                const b=document.getElementById('versionBlock'); if(b) b.style.display='flex';
+            }
         });
     } catch(e){ console.warn('versión inv:', e); }
     // v111: modo mantenimiento (lo activa el administrador desde OFICINAS)

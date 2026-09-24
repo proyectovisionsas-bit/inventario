@@ -1004,7 +1004,7 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION = 313; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 314; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -1025,7 +1025,7 @@ const APP_VERSION = 313; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '21 Sep 2026 (v313: un abono o préstamo anulado con su reverso no suma en Entró ni en Salió. v312: Préstamos «una cuenta por persona». v311: «Antes de llamar al ingeniero». v310: un pago de WispHub, un solo registro. Historial en git y en docs/01-firestore-limites.md)';
+const APP_VERSION_FECHA = '24 Sep 2026 (v314: el pago de una factura vieja entra solo el mismo día y lo que no tiene oficina clara queda para el admin. v313: un abono o préstamo anulado con su reverso no suma. v312: Préstamos «una cuenta por persona». v311: «Antes de llamar al ingeniero». v310: un pago de WispHub, un solo registro. Historial en git y en docs/04-wisphub.md)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -1061,7 +1061,7 @@ let _sigIdxClientes = null; // firma del índice de clientes
 function _hashStr(s){ let h=5381; for(let i=0;i<s.length;i++){ h=((h<<5)+h) ^ s.charCodeAt(i); } return (h>>>0).toString(36); }
 
 // Acota la caché del barrido (gapsFacturas) para que su documento no crezca sin límite.
-// Conserva primero las útiles ('ok'/'pend') y rellena con el resto hasta un tope por cuenta.
+// Conserva primero las útiles ('ok'/'pend'/'asig') y rellena con el resto hasta un tope por cuenta.
 function _acotarGapsFacturas(gaps, capPorCuenta=8000){
     if(!gaps || typeof gaps!=='object') return {};
     const out={};
@@ -1074,7 +1074,7 @@ function _acotarGapsFacturas(gaps, capPorCuenta=8000){
         const m=gaps[cuenta]||{}; const keys=Object.keys(m).filter(_claveOk);
         if(keys.length<=capPorCuenta){ const o0={}; keys.forEach(k=>o0[k]=m[k]); out[cuenta]=o0; continue; }
         const o={}; let n=0;
-        for(const k of keys){ if((m[k]==='ok'||m[k]==='pend') && n<capPorCuenta){ o[k]=m[k]; n++; } }
+        for(const k of keys){ if((m[k]==='ok'||m[k]==='pend'||m[k]==='asig') && n<capPorCuenta){ o[k]=m[k]; n++; } }   // v314: 'asig' = pagada sin oficina (la vigila el rastreador)
         for(const k of keys){ if(n>=capPorCuenta) break; if(o[k]===undefined){ o[k]=m[k]; n++; } }
         out[cuenta]=o;
     }
@@ -11299,6 +11299,16 @@ function renderDash(){
         </div>`;
     })() : ''}
 
+    ${USER.role==='admin' ? (()=>{   /* v314: pagos de WispHub que el rastreador no pudo meter a ninguna caja */
+        const _r=window._rastreoResumen||{}; const _n=_totalSinAsignarRastreo(); if(!_n) return '';
+        const _v=Object.values(_r).reduce((s,x)=>s+((x&&x.valorSin)||0),0);
+        return `<div style="background:rgba(14,165,233,0.1);border:1.5px solid rgba(14,165,233,0.45);border-radius:10px;padding:12px 16px;margin-bottom:18px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+            <div><div style="font-weight:800;color:#0ea5e9;font-size:0.9rem;">🧾 ${_n} pago(s) de WispHub por ${fmtShort(_v)} no entraron a ninguna caja</div>
+            <div style="font-size:0.76rem;color:var(--muted);margin-top:3px;">Están pagados en WispHub, pero la app no sabe de qué oficina son (o se pagaron hace muchos días). Decide a qué caja van.</div></div>
+            <button class="btn btn-sm" onclick="modalPagosSinAsignar()" style="background:#0ea5e9;color:#fff;border:none;flex-shrink:0;">Revisar</button>
+        </div>`;
+    })() : ''}
+
     ${USER.role==='admin' ? (()=>{
         const _cf=(DB.alertasCambioForma||[]).filter(a=>!a.resuelta);
         if(!_cf.length) return '';
@@ -11932,6 +11942,7 @@ function renderRegistro(){
         <button class="btn btn-primary" onclick="modalRegistroComprobantes('${oid}')" style="background:#f97316;">✨ Cargar Comprobantes (IA)</button>
         <button class="btn btn-outline btn-sm" onclick="modalDetectarDuplicados('${oid}')" title="Buscar ingresos repetidos del mismo día y valor">🔍 Revisar duplicados</button>
         <button class="btn btn-outline btn-sm" onclick="forzarPagosOcultos()" title="Rescatar pagos de facturas que WispHub no muestra en sus listados">🕵️ Buscar pagos ocultos</button>
+        ${USER.role==='admin' ? `<button class="btn btn-outline btn-sm" onclick="modalPagosSinAsignar()" title="Pagos de WispHub que no entraron a ninguna caja porque no se sabe de qué oficina son" style="border-color:#0ea5e9;color:#0ea5e9;">🧾 Pagos sin oficina${_totalSinAsignarRastreo()?` (${_totalSinAsignarRastreo()})`:''}</button>` : ''}
         <button class="btn btn-outline btn-sm" onclick="modalDiagnosticoRecuperacion()" title="Ver el estado de tus datos (memoria vs nube) y recuperar movimientos perdidos" style="border-color:#f97316;color:#f97316;">🛠️ Diagnóstico</button>
     </div>
 
@@ -33641,8 +33652,8 @@ function _rescatarFacturasDeMisClientes(o, facturasRaw, facturas){
             if(!zf && !compartida){ facturas.push(f); ya.add(idf); nSolos++; return; }
             // Cuenta compartida y sin forma de saber de quién es: se REPORTA (antes: silencio)
             const est=String(f.estado||'').toLowerCase();
-            if(est.includes('pagad') && (parseFloat(f.total_cobrado||f.total||0)>0)){
-                window._sinAsignarWisp.push({ n:idf, cliente:((f.cliente&&f.cliente.nombre)||'—'), valor:(parseFloat(f.total_cobrado||f.total||0)||0), motivo:(zf?'zona de otra oficina':'sin zona y cliente desconocido') });
+            if(est.includes('pagad') && (_valorCobradoWH(f)>0)){
+                window._sinAsignarWisp.push({ n:idf, cliente:((f.cliente&&f.cliente.nombre)||'—'), valor:_valorCobradoWH(f), motivo:(zf?'zona de otra oficina':'sin zona y cliente desconocido') });
             }
         });
         if(n>0) console.log('🛟 Facturas rescatadas (clientes de esta oficina, sin zona o con zona propia, ej. cancelados): '+n);
@@ -34137,58 +34148,415 @@ function _syncToastRapida(txt){
     }catch(e){}
 }
 // ════════════════════════════════════════════════════════════════════
-// 🕵️ RASTREADOR DE PAGOS OCULTOS (v248)
+// 🕵️ RASTREADOR DE PAGOS DE FACTURAS VIEJAS (v248) — REHECHO EN LA v314
 //
-// EL PROBLEMA: WispHub NO devuelve en sus listados las facturas emitidas fuera
-// de su ventana (unos dos meses), NI SIQUIERA filtrando por fecha de pago. Si
-// hoy alguien paga una factura de junio, el listado del día no la incluye y la
-// sincronización nunca la ve. Comprobado el 20 ago 2026 con la factura #13313
-// (PUNTO CREATIVO, $1.100.000, emitida el 19 jun, pagada ese día a las 10:59):
-// el listado ?fecha_pago=2026-08-20 devolvía 2 facturas y esa no estaba, pero
-// /api/facturas/13313/ la entrega perfectamente.
+// EL PROBLEMA DE FONDO (v248): WispHub NO devuelve en sus listados las facturas
+// emitidas fuera de su ventana (unos dos meses) ni las de servicios archivados,
+// NI SIQUIERA filtrando por fecha de pago. Si hoy alguien paga una factura de
+// junio, el listado del día no la trae y la sincronización nunca la ve. Su
+// ficha directa (/api/facturas/<n>/) sí la entrega. Comprobado el 20 ago 2026
+// con la factura #13313 (PUNTO CREATIVO, $1.100.000).
 //
-// El código anterior daba por hecho lo contrario ("entra de una por su fecha de
-// pago, sin importar su número"). No es así.
+// POR QUÉ SE REHIZO (Elkin, 23 sep 2026: "cuando pagan una factura muy vieja no
+// la sincroniza, es más no muestra el ingreso en el día"). Medido ese día con
+// los datos reales:
+//   · La cola se armaba UNA vez, cuando estaba vacía. Como las facturas sin pagar
+//     vuelven siempre a la cola, nunca se vaciaba y no se volvió a armar: toda
+//     factura que salió del listado DESPUÉS (las que envejecen sin pagarse) jamás
+//     entró. El barrido manual conocía 366 pendientes viejas de Cartagena que el
+//     rastreador no vigilaba, 107 de Florencia, 90 de Paujil y 41 de Montañita.
+//   · Lo que encontraba lo filtraba solo por ZONA, sin el rescate por cédula de la
+//     sincronización. Quien paga una factura vieja suele ser un cliente retirado,
+//     y WispHub le quita la zona al retirado: el pago se botaba sin aviso.
+//   · Aplicaba sobre la oficina que tomó al empezar; si mientras revisaba otra
+//     pantalla recargaba, el pago quedaba en una copia que nadie guardaba.
+//   · Todas las pantallas abiertas repetían la MISMA revisión: Paujil llevaba
+//     352.009 consultas a WispHub para vigilar 258 facturas.
 //
-// LA SOLUCIÓN: los números de factura son CONSECUTIVOS, así que los que faltan
-// en el listado son exactamente las ocultas. Se consultan una por una por su
-// ficha directa. Medido: de 60 huecos, 59 eran facturas reales.
-//
-// Para que no sea eterno, cada número revisado se CLASIFICA y solo se vuelve a
-// mirar lo que puede cambiar (una factura sin pagar puede pagarse mañana; una ya
-// registrada, no). Así la lista se encoge sola.
+// AHORA, cada 20 minutos y en UNA sola pantalla por cuenta (turno en la nube):
+//   [1] Se trae el listado. Todo número que no está en él ni en ninguna lista
+//       conocida (se salió del listado, o es una oculta nueva) se mira YA por
+//       su ficha. La primera vez, lo desconocido se "descubre" de a 400.
+//   [2] Toda factura vieja SIN PAGAR que se conoce se vuelve a mirar por turnos:
+//       cada una más o menos cada hora.
+//   [3] Se mira hacia arriba del último número (ocultas nuevas).
+//   [4] Lo pagado se reparte con las MISMAS reglas de la sincronización (zona +
+//       rescate por cédula), sobre las oficinas VIVAS, y se guarda en la nube
+//       ANTES de darlo por resuelto. Lo que ninguna oficina reclama (o reclaman
+//       dos), lo que no trae fecha de pago y lo que se pagó hace más de 35 días
+//       NO se bota: queda en "Pagos sin oficina" para que el administrador decida.
+//   [5] Si el pago quedó en un día anterior, se avisa con su fecha.
+// El estado vive en oficinas_sistema/rastreo_wisp_<cuenta> y el turno en
+// oficinas_sistema/rastreo_turnos. Nada de esto va en el documento principal.
 // ════════════════════════════════════════════════════════════════════
-const HUECOS_POR_TANDA = 400;   // cuántos se revisan en cada sincronización
+const RASTREO_TURNO_MS        = 25*60*1000; // el turno de una pantalla dura 25 min (la vuelta es cada 20)
+const RASTREO_ROTACION        = 3;          // las pendientes viejas se cubren en 3 vueltas (≈ 1 hora)
+const RASTREO_MIN_ROT         = 60;         // …pero nunca menos de 60 por vuelta
+const RASTREO_DESCUBRIR       = 400;        // números nunca revisados que se descubren por vuelta
+const RASTREO_DESCUBRIR_TODOS = 3000;       // …y cuando una persona lo pide con el botón
+const RASTREO_NUEVOS_MAX      = 1500;       // desaparecidas del listado que se miran en la misma vuelta
+const RASTREO_SIN_VERIF       = 30;         // "sin oficina" que se vuelven a consultar por vuelta
+const RASTREO_ARRIBA_TOL      = 12;         // números inexistentes seguidos para dejar de subir
+const RASTREO_ARRIBA_MAX      = 300;        // tope de números a probar hacia arriba por vuelta
+const RASTREO_SIN_ASIG_MAX    = 500;        // tope de la lista "sin oficina" por cuenta
+const RASTREO_DIAS_AUTO       = 35;         // un pago más viejo que esto no entra solo a la caja
 
-// v249: la revision de facturas ocultas corre POR SU CUENTA, con su propia
-// bandera. Nunca toma el candado de las sincronizaciones: si hay uno corriendo
-// (automatico o manual), simplemente se salta el turno y lo intenta luego. Asi
-// no vuelve a bloquear el boton de sincronizar.
+// ── Rangos compactos "1-5,9,12-40": miles de números en poco espacio ──
+function _rangosDeNumeros(nums){
+    const v=[...new Set((nums||[]).map(Number).filter(n=>Number.isFinite(n) && n>0 && Math.floor(n)===n))].sort((a,b)=>a-b);
+    const out=[]; let a=null, b=null;
+    for(const n of v){ if(a===null){ a=b=n; } else if(n===b+1){ b=n; } else { out.push([a,b]); a=b=n; } }
+    if(a!==null) out.push([a,b]);
+    return out;
+}
+function _rangosATexto(r){ return (r||[]).map(([a,b])=>a===b?String(a):a+'-'+b).join(','); }
+function _unirRangos(){
+    const todos=[];
+    for(const r of arguments) for(const x of (r||[])){ if(x && x[0]>0 && x[1]>=x[0]) todos.push([x[0],x[1]]); }
+    todos.sort((p,q)=>p[0]-q[0]);
+    const out=[];
+    for(const x of todos){ const u=out[out.length-1]; if(u && x[0]<=u[1]+1){ if(x[1]>u[1]) u[1]=x[1]; } else out.push([x[0],x[1]]); }
+    return out;
+}
+function _textoARangos(s){
+    const out=[];
+    String(s||'').split(',').forEach(p=>{ const t=p.trim(); if(!t) return;
+        const m=t.match(/^(\d+)(?:-(\d+))?$/); if(!m) return;
+        const a=Number(m[1]), b=m[2]!==undefined?Number(m[2]):a; if(a>0 && b>=a) out.push([a,b]); });
+    return _unirRangos(out);
+}
+function _enRangos(r, n){
+    n=Number(n); let lo=0, hi=(r||[]).length-1;
+    while(lo<=hi){ const mid=(lo+hi)>>1, x=r[mid]; if(n<x[0]) hi=mid-1; else if(n>x[1]) lo=mid+1; else return true; }
+    return false;
+}
+// a − b (los dos ordenados y unidos, como los deja _unirRangos)
+function _restarRangos(a, b){
+    a=_unirRangos(a); b=_unirRangos(b);
+    const out=[]; let j=0;
+    for(const [ini,fin] of a){
+        let s=ini;
+        while(j<b.length && b[j][1]<s) j++;
+        let k=j;
+        while(k<b.length && b[k][0]<=fin){
+            if(b[k][0]>s) out.push([s, b[k][0]-1]);
+            s=Math.max(s, b[k][1]+1);
+            if(s>fin) break;
+            k++;
+        }
+        if(s<=fin) out.push([s,fin]);
+    }
+    return out;
+}
+// Los huecos de r entre desde y hasta
+function _complementoRangos(r, desde, hasta){
+    if(!(hasta>=desde)) return [];
+    return _restarRangos([[desde,hasta]], r);
+}
+function _contarRangos(r){ return (r||[]).reduce((s,[a,b])=>s+(b-a+1),0); }
+function _numerosDeRangos(r, tope){
+    const out=[]; for(const [a,b] of (r||[])){ for(let n=a;n<=b;n++){ out.push(n); if(tope && out.length>=tope) return out; } }
+    return out;
+}
+// De la más nueva a la más vieja, con filtro y tope
+function _numerosDeRangosDesc(r, tope, filtro){
+    const out=[]; r=r||[];
+    for(let i=r.length-1;i>=0;i--){ for(let n=r[i][1];n>=r[i][0];n--){ if(filtro && !filtro(n)) continue; out.push(n); if(tope && out.length>=tope) return out; } }
+    return out;
+}
+
+// ── Valor cobrado de una factura de WispHub ──
+// total_cobrado es lo que de verdad entró (puede ser menor que total si fue un abono).
+// Antes se hacía `total_cobrado || total`: si WispHub mandaba total_cobrado = 0 como
+// número (pagada con saldo a favor), se registraba el TOTAL como si hubiera entrado plata.
+function _valorCobradoWH(f){
+    if(!f) return 0;
+    const tc=f.total_cobrado;
+    if(tc!==undefined && tc!==null && String(tc).trim()!==''){ const v=parseFloat(tc); return Number.isFinite(v)?v:0; }
+    const t=parseFloat(f.total); return Number.isFinite(t)?t:0;
+}
+// Día local (Colombia) "AAAA-MM-DD". toISOString() da el día en UTC: desde las 7 p. m.
+// ya es "mañana", y la sincronización rápida pedía un día que todavía no existe.
+function _diaLocalISO(ms){ const d=new Date(ms==null?Date.now():ms); const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`; }
+
+// ── Qué hacer con la ficha de una factura: 'pagada' (entra) · 'pend' (vigilarla) · 'no' (nunca más) ──
+function _clasificarFichaWisp(f, desde){
+    if(!f) return 'no';
+    const est=String(f.estado||'').toLowerCase();
+    if(est.includes('pagad')){
+        if(!(_valorCobradoWH(f)>0)) return 'no';           // pagada con saldo a favor / $0: no es plata
+        const fp=f.fecha_pago ? _fechaPagoWisphubISO(f.fecha_pago).slice(0,10) : '';
+        if(fp && desde && fp<desde) return 'no';             // se pagó antes de que la app sincronizara
+        return 'pagada';
+    }
+    if(est.includes('anulad') || est.includes('cancel')) return 'no';
+    return 'pend';
+}
+
+// Turno fijo de un número (0..RASTREO_ROTACION-1). Se mezcla el número para que las facturas
+// consecutivas o de a saltos queden repartidas parejo entre los turnos.
+function _turnoRastreo(n){ return ((Math.imul(Number(n)>>>0, 0x9E3779B1)>>>16) % RASTREO_ROTACION); }
+
+// ── La cola de una vuelta (función pura: sin red ni memoria global) ──
+// x: {resueltos, pend, urgentes, descubrir, sinClasificar (todos en rangos),
+//     sinAsignar:[{f,vistoEn}], cursor, todos}
+function _planVueltaRastreo(x){
+    const res=x.resueltos||[];
+    const sinA=new Set((x.sinAsignar||[]).map(i=>Number(i&&i.f&&i.f.id_factura)).filter(n=>n>0));
+    const libre=n=>n>0 && !_enRangos(res,n) && !sinA.has(n);
+    // 1) urgentes: todas, siempre (pagos que alguien entregó o que no alcanzaron a quedar en la nube)
+    const urg=_numerosDeRangos(x.urgentes||[]).filter(libre);
+    const urgSet=new Set(urg);
+    // 2) sin clasificar: desaparecidas del listado y ocultas nuevas, de la más nueva a la más vieja
+    const nuevos=_numerosDeRangosDesc(x.sinClasificar||[], x.todos?0:RASTREO_NUEVOS_MAX, n=>libre(n) && !urgSet.has(n));
+    const nuevosSet=new Set(nuevos);
+    const aDescubrir=x.todos ? [] : _restarRangos(x.sinClasificar||[], _rangosDeNumeros(nuevos));   // lo que no cupo se descubre después
+    // 3) las "sin oficina" que hace más tiempo no se consultan (¿la anularon? ¿cambió algo?)
+    const verificar=(x.sinAsignar||[]).slice().sort((a,b)=>(a.vistoEn||0)-(b.vistoEn||0))
+        .slice(0, x.todos?undefined:RASTREO_SIN_VERIF).map(i=>Number(i&&i.f&&i.f.id_factura)).filter(n=>n>0);
+    // 4) pendientes conocidas: por turnos. Cada número tiene SU turno fijo (sale de mezclar el número),
+    //    así ninguna se salta aunque la lista crezca entre una vuelta y otra: cada una se mira una vez
+    //    cada RASTREO_ROTACION vueltas (≈1 hora). Con pocas, todas en cada vuelta.
+    const pendOrden=_numerosDeRangos(x.pend||[]).filter(n=>libre(n) && !urgSet.has(n) && !nuevosSet.has(n)).sort((a,b)=>b-a);
+    const K=RASTREO_ROTACION;
+    let cursor=((Math.floor(Number(x.cursor)||0)%K)+K)%K;
+    const rotacion=(x.todos || pendOrden.length<=RASTREO_MIN_ROT) ? pendOrden.slice() : pendOrden.filter(n=>_turnoRastreo(n)===cursor);
+    cursor=(cursor+1)%K;
+    const rotSet=new Set(rotacion);
+    // 5) descubrir: números nunca revisados, los más nuevos primero
+    const descubiertas=_numerosDeRangosDesc(x.descubrir||[], x.todos?RASTREO_DESCUBRIR_TODOS:RASTREO_DESCUBRIR,
+        n=>libre(n) && !urgSet.has(n) && !nuevosSet.has(n) && !rotSet.has(n));
+    const revisar=[...new Set([...urg, ...nuevos, ...verificar, ...rotacion, ...descubiertas])];
+    return {revisar, cursor, pendTotal:pendOrden.length, urgentes:urg, nuevos, aDescubrir, verificar, rotacion, descubiertas};
+}
+
+// ── Reparto de lo encontrado entre las oficinas de la cuenta (función pura) ──
+// candidatasPorOficina: {oid:[facturas que esa oficina reclama por zona o por rescate]}
+function _repartirEncontradasWisp(encontradas, candidatasPorOficina){
+    const quien={};
+    Object.keys(candidatasPorOficina||{}).forEach(oid=>{
+        (candidatasPorOficina[oid]||[]).forEach(f=>{ const k=String(f.id_factura||f.id); (quien[k]=quien[k]||new Set()).add(oid); });
+    });
+    const porOficina={}, sinAsignar=[];
+    (encontradas||[]).forEach(f=>{
+        const k=String(f.id_factura||f.id); const s=quien[k];
+        if(s && s.size===1){ const oid=[...s][0]; (porOficina[oid]=porOficina[oid]||[]).push(f); }
+        else sinAsignar.push({f, motivo: s && s.size>1 ? 'la reclaman dos oficinas' : 'ninguna oficina la reclama', oficinas: s?[...s]:[]});
+    });
+    return {porOficina, sinAsignar};
+}
+
+// Lo mínimo de una factura para poder meterla después a mano (sin guardar todo el JSON).
+// La zona vacía queda en null: así el rescate por cédula la sigue viendo "sin zona".
+function _stubFacturaWisp(f){
+    f=f||{};
+    const s=v=>(v==null || typeof v==='object') ? '' : String(v);
+    const cli=(f.cliente && typeof f.cliente==='object') ? f.cliente : {};
+    const zn=s((f.zona && typeof f.zona==='object') ? f.zona.nombre : f.zona).trim();
+    return {
+        id_factura:s(f.id_factura!=null?f.id_factura:f.id), estado:s(f.estado),
+        total_cobrado:(f.total_cobrado==null || typeof f.total_cobrado==='object')?null:f.total_cobrado,
+        total:(f.total==null || typeof f.total==='object')?null:f.total,
+        fecha_pago:s(f.fecha_pago), fecha_emision:s(f.fecha_emision), fecha_vencimiento:s(f.fecha_vencimiento),
+        cliente:{nombre:s(cli.nombre), cedula:s(cli.cedula), servicio:s(cli.servicio), id_servicio:s(cli.id_servicio)},
+        id_servicio:s(f.id_servicio), servicio:s(f.servicio),
+        zona: zn ? {nombre:zn} : null,
+        forma_pago:{nombre:s(f.forma_pago && f.forma_pago.nombre)},
+        cajero:{nombre:s(f.cajero && f.cajero.nombre)},
+        articulos:[{descripcion:s(f.articulos && f.articulos[0] && f.articulos[0].descripcion).slice(0,300)}],
+        tipo:(f.tipo==null || typeof f.tipo==='object')?null:f.tipo
+    };
+}
+
+// ── Estado del rastreador (un documento por cuenta) ──
+function _rastreoVacio(){ return {resueltos:[], pend:[], descubrir:[], urgentes:[], sinAsignar:[], cursor:0, listadoN:0, rangoMin:0, rangoMax:0, maxExiste:0, revisados:0, ultimaRevision:0, sembrado:false, version:0}; }
+function _rastreoDesdeNube(d){
+    d=d||{}; const e=_rastreoVacio();
+    e.resueltos=_textoARangos(d.resueltos); e.pend=_textoARangos(d.pend); e.descubrir=_textoARangos(d.descubrir); e.urgentes=_textoARangos(d.urgentes);
+    let sa=d.sinAsignar; if(sa && !Array.isArray(sa) && typeof sa==='object') sa=Object.values(sa);
+    e.sinAsignar=(Array.isArray(sa)?sa:[]).filter(x=>x && x.f && x.f.id_factura!=null && String(x.f.id_factura)!=='');
+    ['cursor','listadoN','rangoMin','rangoMax','maxExiste','revisados','ultimaRevision','version'].forEach(k=>{ const v=Number(d[k]); e[k]=Number.isFinite(v)?v:0; });
+    e.sembrado=!!d.sembrado;
+    return e;
+}
+function _rastreoANube(e){
+    return JSON.parse(JSON.stringify({   // sin undefined: Firestore rechaza el documento entero si aparece uno
+        resueltos:_rangosATexto(e.resueltos), pend:_rangosATexto(e.pend), descubrir:_rangosATexto(e.descubrir), urgentes:_rangosATexto(e.urgentes),
+        sinAsignar:(e.sinAsignar||[]), cursor:e.cursor||0, listadoN:e.listadoN||0, rangoMin:e.rangoMin||0, rangoMax:e.rangoMax||0,
+        maxExiste:e.maxExiste||0, revisados:e.revisados||0, ultimaRevision:e.ultimaRevision||0, sembrado:!!e.sembrado,
+        version:APP_VERSION, actualizadoEn:Date.now()
+    }));
+}
+// Une lo que hay en la nube con lo que dejó esta vuelta (función pura). Lo resuelto
+// solo crece; lo pendiente sale solo cuando se resuelve. Así dos pantallas que
+// escriban casi al tiempo no se pisan: se escribe dentro de una transacción.
+function _fusionarRastreo(cur, c){
+    c=c||{};
+    const e=Object.assign(_rastreoVacio(), cur||{});
+    const R=a=>_rangosDeNumeros(a||[]);
+    const res=_unirRangos(e.resueltos, R(c.resueltosMas));
+    let pend=_restarRangos(_restarRangos(_unirRangos(e.pend, R(c.pendMas)), R(c.pendMenos)), res);
+    let urg=_restarRangos(_restarRangos(_unirRangos(e.urgentes, R(c.urgentesMas)), R(c.urgentesMenos)), res);
+    let desc=(e.sembrado || !c.descubrirSemilla) ? e.descubrir : c.descubrirSemilla;
+    desc=_unirRangos(desc, c.descubrirMasRangos||[]);
+    desc=_restarRangos(_restarRangos(desc, R(c.descubrirMenos)), res);
+    // Pagos sin oficina: por número de factura; lo resuelto sale solo
+    const mapa=new Map();
+    (e.sinAsignar||[]).forEach(x=>{ if(x && x.f && x.f.id_factura!=null) mapa.set(String(x.f.id_factura), x); });
+    (c.sinAsigQuitar||[]).forEach(n=>mapa.delete(String(n)));
+    (c.sinAsigPoner||[]).forEach(x=>{ if(!x || !x.f || x.f.id_factura==null) return; const k=String(x.f.id_factura); const p=mapa.get(k);
+        mapa.set(k, Object.assign({}, x, {detectadoEn:(p && p.detectadoEn!=null) ? p.detectadoEn : (x.detectadoEn!=null ? x.detectadoEn : Date.now())})); });
+    let sin=[...mapa.values()].filter(x=>!_enRangos(res, Number(x.f.id_factura)));
+    sin.sort((a,b)=>(a.detectadoEn||0)-(b.detectadoEn||0));
+    if(sin.length>RASTREO_SIN_ASIG_MAX){   // no se bota nada: lo que no cabe vuelve a vigilarse
+        const sobra=sin.slice(RASTREO_SIN_ASIG_MAX); sin=sin.slice(0, RASTREO_SIN_ASIG_MAX);
+        pend=_unirRangos(pend, R(sobra.map(x=>Number(x.f.id_factura))));
+    }
+    const nsa=R(sin.map(x=>Number(x.f.id_factura)));
+    pend=_restarRangos(pend, nsa); urg=_restarRangos(urg, nsa);
+    desc=_restarRangos(_restarRangos(_restarRangos(desc, nsa), pend), urg);
+    return Object.assign(e, {
+        resueltos:res, pend, descubrir:desc, urgentes:urg, sinAsignar:sin,
+        cursor:(c.cursor!=null ? c.cursor : e.cursor),
+        listadoN:(c.listadoN!=null ? c.listadoN : e.listadoN),
+        rangoMin:(c.rangoMin!=null ? c.rangoMin : e.rangoMin),
+        rangoMax:Math.max(e.rangoMax||0, c.rangoMax||0),
+        maxExiste:Math.max(e.maxExiste||0, c.maxExiste||0),
+        revisados:(e.revisados||0)+(c.revisadosMas||0),
+        ultimaRevision:Math.max(e.ultimaRevision||0, c.ultimaRevision||0),
+        sembrado:!!(e.sembrado || c.descubrirSemilla)
+    });
+}
+
+function _docRastreo(cuenta){ return db.collection('oficinas_sistema').doc('rastreo_wisp_'+String(cuenta||'').replace(/[^A-Za-z0-9_-]/g,'_')); }
+async function _leerRastreoWisp(cuenta){
+    if(MODO_PRUEBA && window._rastreoPrueba && window._rastreoPrueba[cuenta]) return _rastreoDesdeNube(_rastreoANube(window._rastreoPrueba[cuenta]));
+    const s=await _docRastreo(cuenta).get();
+    return s.exists ? _rastreoDesdeNube(s.data()) : null;
+}
+// Escribe los cambios de una vuelta DENTRO de una transacción (lee lo último y une).
+// En modo prueba no escribe: guarda el resultado en memoria para que la siguiente vuelta siga desde ahí.
+async function _escribirRastreoWisp(cuenta, cambios){
+    if(MODO_PRUEBA){
+        let base=window._rastreoPrueba && window._rastreoPrueba[cuenta];
+        if(!base){ try{ base=await _leerRastreoWisp(cuenta); }catch(e){ base=null; } }
+        const n=_fusionarRastreo(base||_rastreoVacio(), cambios);
+        (window._rastreoPrueba=window._rastreoPrueba||{})[cuenta]=n;
+        try{ _bloquear('rastreo_wisp_'+cuenta); }catch(e){}
+        return n;
+    }
+    const ref=_docRastreo(cuenta);
+    return db.runTransaction(async tx=>{
+        const s=await tx.get(ref);
+        const n=_fusionarRastreo(s.exists ? _rastreoDesdeNube(s.data()) : _rastreoVacio(), cambios);
+        tx.set(ref, _rastreoANube(n));
+        return n;
+    });
+}
+// Una sola pantalla por cuenta hace la revisión. El turno dura 25 min y se renueva
+// en cada vuelta; si esa pantalla se cierra, otra lo toma solo al vencerse.
+async function _tomarTurnoRastreo(cuenta){
+    if(MODO_PRUEBA) return true;   // en prueba no se escribe: esta pantalla trabaja sola
+    if(!db) return false;
+    const ref=db.collection('oficinas_sistema').doc('rastreo_turnos');
+    const yo=_idPestana(), ahora=Date.now();
+    try{
+        return await db.runTransaction(async tx=>{
+            const s=await tx.get(ref); const d=(s.exists && s.data()) || {};
+            const t=d[cuenta];
+            if(t && t.pestana!==yo && Number(t.hasta)>ahora && (Number(t.version)||0)>=APP_VERSION) return false;
+            tx.set(ref, {[cuenta]:{pestana:yo, hasta:ahora+RASTREO_TURNO_MS, version:APP_VERSION,
+                quien:String((USER && (USER.nombre||USER.id)) || ''), desde:(t && t.pestana===yo && t.desde) || ahora}}, {merge:true});
+            return true;
+        });
+    }catch(e){ console.warn('🕵️ No se pudo tomar el turno del rastreador ('+cuenta+'):', e.message||e); return false; }
+}
+// Suelta el turno (si es de esta pantalla): una pantalla que no puede aplicar no lo retiene.
+async function _soltarTurnoRastreo(cuenta){
+    if(MODO_PRUEBA || !db) return;
+    const ref=db.collection('oficinas_sistema').doc('rastreo_turnos'); const yo=_idPestana();
+    try{ await db.runTransaction(async tx=>{ const s=await tx.get(ref); const t=((s.exists && s.data()) || {})[cuenta];
+        if(t && t.pestana===yo) tx.set(ref, {[cuenta]:{hasta:0}}, {merge:true}); }); }catch(e){}
+}
+// ¿Esta pantalla tiene TODO lo que hace falta para repartir pagos de esa cuenta?
+// (movimientos de todas sus oficinas y clientes completos). Si no, ni pide el turno.
+function _datosListosRastreo(cuenta){
+    if(window._cargaMovsIncompleta===true || window._clientesCargadosOk!==true) return false;
+    return !(DB.oficinas||[]).some(o=>o && o.cuentaWisphub===cuenta && window._cargaCompletaPorOficina && window._cargaCompletaPorOficina[o.id]===false);
+}
+// Dónde está cada factura de la cuenta que ya tiene pago en alguna caja: número → {oid, movId}
+function _dondeEstaFacturaCuenta(cuenta){
+    const donde=new Map();
+    (DB.oficinas||[]).filter(o=>o && o.cuentaWisphub===cuenta).forEach(o=>(o.movimientos||[]).forEach(m=>{
+        if(!m || m.facturaWisphub==null) return; const k=String(m.facturaWisphub).trim();
+        if(k && !donde.has(k)) donde.set(k, {oid:o.id, movId:m.id}); }));
+    return donde;
+}
+// La ficha de una factura: {n, f} · {n, noExiste:true} · {n, fallo:true}
+// Una respuesta rara (sin número, o de otra factura) NO se toma como "no existe": se reintenta otro día.
+async function _fichaFacturaWisp(cuenta, n, intentos){
+    intentos=intentos||2;
+    for(let i=0;i<intentos;i++){
+        try{
+            const r=await fetch(`${WISPHUB_INTERMEDIARIO}/api/facturas/${n}/`,{headers:{'X-Cuenta':cuenta}});
+            if(r.status===404) return {n, noExiste:true};
+            if(r.ok){
+                const f=await r.json();
+                const id=f && (f.id_factura!=null ? f.id_factura : f.id);
+                if(id!=null && String(id).trim()===String(n)) return {n, f};
+                if(!window._avisoFichaRara){ window._avisoFichaRara=true;
+                    console.warn('🕵️ WispHub devolvió una ficha que no corresponde a la factura pedida (#'+n+'); no se toma como "no existe" y se reintenta en otra vuelta. Campos que llegaron:', (f && typeof f==='object') ? Object.keys(f).slice(0,25) : f); }
+            }
+        }catch(e){}
+        if(i<intentos-1) await new Promise(s=>setTimeout(s, 500+Math.floor(Math.random()*400)));
+    }
+    return {n, fallo:true};
+}
+// v314: una pantalla que quedó con una versión vieja (ya hay otra publicada) no corre
+// procesos automáticos: muestra el aviso de actualizar y nada más. Antes seguía
+// sincronizando y guardando por detrás con el código viejo.
+function _pestanaDesactualizada(){
+    try{
+        if(new URLSearchParams(location.search).has('ignorarVersion')) return false;
+        const pub=Math.max(parseInt((DB.config && DB.config.appVersionPublicada)||0,10)||0, parseInt(window._mantVersionOficinasNube||0,10)||0);
+        return pub>APP_VERSION;
+    }catch(e){ return false; }
+}
+window._pestanaDesactualizada=_pestanaDesactualizada;
+
+// v249: la revisión corre POR SU CUENTA y nunca toma el candado de las
+// sincronizaciones: si hay una corriendo, espera un minuto y vuelve a intentar.
+// v314: además pide el turno de la cuenta; si otra pantalla lo tiene, no repite su trabajo.
 function _programarRevisionHuecos(){
     if(window._huecosTimer) return;
-    const correr=async()=>{
+    const correr=async(reintento)=>{
         try{
-            if(!USER||!USER.role||USER.role==='sgsst') return;
-            if(window._syncEnCursoWisp) return;   // hay una sync: le cedemos el paso
-            if(window._huecosEnCurso) return;     // ya estamos en una revision
+            if(!USER || !USER.role || USER.role==='sgsst') return;
+            if(_pestanaDesactualizada() || window._mantBloqueando) return;
+            if(window._huecosEnCurso) return;
+            if(_syncOcupado()){
+                if(!reintento){ clearTimeout(window._huecosReintento); window._huecosReintento=setTimeout(()=>correr(true), 60000); }
+                return;
+            }
             window._huecosEnCurso=true;
             try{
                 const cuentas=[...new Set((DB.oficinas||[])
-                    .filter(o=>o.cuentaWisphub && (USER.role==='admin' || String(o.id)===String(USER.id)))
+                    .filter(o=>o && o.cuentaWisphub && (USER.role==='admin' || String(o.id)===String(USER.id)))
                     .map(o=>o.cuentaWisphub))];
                 for(const c of cuentas){
-                    if(window._syncEnCursoWisp) break;   // llegó una sync: parar aquí
-                    const h=await _revisarHuecosWisphub(c, {tanda:HUECOS_POR_TANDA});
-                    if(h && h.creados>0){
-                        _syncToastRapida(`🕵️ ${h.creados} pago(s) OCULTO(S) rescatado(s) — cuenta ${c}`);
-                        try{ if(typeof _recargarVistaSilenciosa==='function') _recargarVistaSilenciosa(); }catch(eR){}
-                    }
+                    if(_syncOcupado() || _pestanaDesactualizada() || window._mantBloqueando) break;   // llegó una sync: le cedemos el paso
+                    if(!_datosListosRastreo(c)) continue;                                              // con datos a medio cargar, que la revise otra pantalla
+                    if(!(await _tomarTurnoRastreo(c))) continue;                                       // otra pantalla la está revisando
+                    const h=await _revisarHuecosWisphub(c, {});
+                    if(h && h.incompleta){ await _soltarTurnoRastreo(c); continue; }                   // no pudo aplicar: suelta el turno
+                    if(h && h.ok && h.creados>0){ try{ _recargarVistaSilenciosa(); }catch(eR){} }
                 }
+                if(USER.role==='admin'){ try{ await _refrescarResumenRastreo(); }catch(eQ){} }
             } finally { window._huecosEnCurso=false; }
-        }catch(e){ window._huecosEnCurso=false; console.warn('revisión de facturas ocultas (no crítico):', e); }
+        }catch(e){ window._huecosEnCurso=false; console.warn('🕵️ Rastreador de pagos (no crítico, sigue en la próxima vuelta):', e); }
     };
-    setTimeout(correr, 90000);                                  // 90s después de abrir
-    window._huecosTimer=setInterval(correr, 20*60*1000);        // y cada 20 minutos
+    setTimeout(()=>correr(false), 90000);                          // 90 s después de abrir
+    window._huecosTimer=setInterval(()=>correr(false), 20*60*1000); // y cada 20 minutos
 }
 window._programarRevisionHuecos=_programarRevisionHuecos;
 
@@ -34210,143 +34578,492 @@ function _syncOcupado(){
     return true;
 }
 function _tomarSync(){ window._syncEnCursoWisp=true; window._syncEnCursoDesde=Date.now(); }
-function _soltarSync(){ window._syncEnCursoWisp=false; window._syncEnCursoDesde=0; }
+// v314: al soltar el candado se olvida también el "⛔ Cancelar". Antes la bandera quedaba en true hasta
+// abrir otra sincronización a mano, y mientras tanto la automática de cada 12 minutos fallaba en silencio
+// (_fetchWispJson lanzaba CANCELADO_POR_USUARIO): los pagos dejaban de entrar solos hasta recargar.
+function _soltarSync(){ window._syncEnCursoWisp=false; window._syncEnCursoDesde=0; window._syncCancelarWisp=false; }
 window._syncOcupado=_syncOcupado;
 
-function _estadoHuecos(cuenta){
-    if(!DB.config) DB.config={};
-    if(!DB.config._huecosWisp) DB.config._huecosWisp={};
-    if(!DB.config._huecosWisp[cuenta]) DB.config._huecosWisp[cuenta]={pendientes:[], revisados:0, ultimaRevision:0, barridoCompleto:false};
-    return DB.config._huecosWisp[cuenta];
+// ── Reparto de facturas PAGADAS entre las oficinas VIVAS de una cuenta ──
+// Síncrono a propósito: entre mirar y aplicar no hay ninguna espera, así ningún
+// snapshot puede cambiar las oficinas por debajo. Mismas reglas que la
+// sincronización: zona de la oficina + rescate de sus clientes (cédula/servicio).
+function _repartoRastreo(cuenta, facturas){
+    const out={aplicar:{}, yaEstan:[], borrados:[], sinAsignar:[], incompleta:false};
+    const ofis=(DB.oficinas||[]).filter(o=>o && o.cuentaWisphub===cuenta);
+    if(!(facturas||[]).length) return out;
+    if(!ofis.length){ facturas.forEach(f=>out.sinAsignar.push({f, motivo:'la cuenta no tiene oficinas', oficinas:[]})); return out; }
+    // Con los datos a medio cargar no se decide nada: se vuelve a intentar en la próxima vuelta
+    if(!_datosListosRastreo(cuenta)){ out.incompleta=true; return out; }
+    // ¿Ya está en la caja de alguna oficina de la cuenta? (así nunca se duplica entre oficinas)
+    const donde=_dondeEstaFacturaCuenta(cuenta);
+    const nuevas=[], vistas=new Set();
+    facturas.forEach(f=>{
+        const k=String(f && (f.id_factura!=null?f.id_factura:f.id) || '').trim(); if(!k || vistas.has(k)) return; vistas.add(k);
+        const d=donde.get(k); if(d){ out.yaEstan.push({n:Number(k), oid:d.oid, movId:d.movId}); return; }
+        nuevas.push(f);
+    });
+    if(!nuevas.length) return out;
+    const cand={}; const _sinAntes=window._sinAsignarWisp;   // el rescate reescribe esa lista (la usa la vista previa manual)
+    try{ ofis.forEach(o=>{ const mias=_filtrarPorZonaOficina(o, nuevas, f=>f.zona?.nombre || f.zona); _rescatarFacturasDeMisClientes(o, nuevas, mias); cand[o.id]=mias; }); }
+    finally{ window._sinAsignarWisp=_sinAntes; }
+    const rep=_repartirEncontradasWisp(nuevas, cand);
+    const limite=_diaLocalISO(Date.now()-RASTREO_DIAS_AUTO*86400000);
+    const nombreOfi=id=>(((DB.oficinas||[]).find(o=>o && o.id===id))||{}).nombre||id;
+    Object.keys(rep.porOficina).forEach(oid=>{
+        rep.porOficina[oid].forEach(f=>{
+            const n=String(f.id_factura!=null?f.id_factura:f.id).trim();
+            if(!String(f.fecha_pago||'').trim()){ out.sinAsignar.push({f, motivo:'WispHub no trae la fecha de pago', oficinas:[oid]}); return; }
+            const fp=_fechaPagoWisphubISO(f.fecha_pago).slice(0,10);
+            if(fp<limite){ out.sinAsignar.push({f, motivo:'se pagó hace más de '+RASTREO_DIAS_AUTO+' días', oficinas:[oid]}); return; }
+            if(_esBorradoPermanente(oid, n, null)){ out.borrados.push(Number(n)); return; }   // el admin lo borró para siempre: se respeta
+            (out.aplicar[oid]=out.aplicar[oid]||[]).push(f);
+        });
+    });
+    rep.sinAsignar.forEach(x=>{
+        let motivo;
+        if(x.oficinas.length>1) motivo='la reclaman dos oficinas ('+x.oficinas.map(nombreOfi).join(' y ')+')';
+        else { const z=String((x.f.zona && typeof x.f.zona==='object') ? (x.f.zona.nombre||'') : (x.f.zona||'')).trim();
+               motivo = z ? 'la zona «'+z+'» no es de ninguna oficina' : 'sin zona y el cliente no está en ninguna oficina'; }
+        out.sinAsignar.push({f:x.f, motivo, oficinas:x.oficinas});
+    });
+    return out;
+}
+window._repartoRastreo=_repartoRastreo;
+
+// Facturas PAGADAS que ninguna oficina de la cuenta reclama (o que reclaman dos) y que
+// no están en ninguna caja. Las sincronizaciones se las entregan al rastreador en vez
+// de botarlas en silencio.
+function _pagadasSinDueno(cuenta, facturas){
+    const ofis=(DB.oficinas||[]).filter(o=>o && o.cuentaWisphub===cuenta); if(!ofis.length) return [];
+    const DESDE=(DB.config && DB.config.sincPagosDesde)||'2026-05-01';
+    const ya=new Set(); ofis.forEach(o=>(o.movimientos||[]).forEach(m=>{ if(m && m.facturaWisphub!=null) ya.add(String(m.facturaWisphub).trim()); }));
+    const pag=(facturas||[]).filter(f=>f && String(f.estado||'').toLowerCase().includes('pagad') && _valorCobradoWH(f)>0
+        && !ya.has(String(f.id_factura!=null?f.id_factura:f.id).trim())
+        && !(f.fecha_pago && _fechaPagoWisphubISO(f.fecha_pago).slice(0,10)<DESDE));
+    if(!pag.length) return [];
+    const cand={}; const _sinAntes=window._sinAsignarWisp;
+    try{ ofis.forEach(o=>{ const m=_filtrarPorZonaOficina(o, pag, f=>f.zona?.nombre || f.zona); _rescatarFacturasDeMisClientes(o, pag, m); cand[o.id]=m; }); }
+    finally{ window._sinAsignarWisp=_sinAntes; }
+    return _repartirEncontradasWisp(pag, cand).sinAsignar.map(x=>Number(x.f.id_factura!=null?x.f.id_factura:x.f.id)).filter(n=>n>0);
+}
+window._pagadasSinDueno=_pagadasSinDueno;
+// Entrega números al rastreador (quedan "urgentes": se miran en su próxima vuelta).
+async function _rastreoEntregarUrgentes(cuenta, nums, origen){
+    nums=[...new Set((nums||[]).map(Number).filter(n=>n>0 && Math.floor(n)===n))];
+    if(!cuenta || !nums.length) return true;
+    window._rastreoEntregados=window._rastreoEntregados||{};
+    const ya=window._rastreoEntregados[cuenta]=window._rastreoEntregados[cuenta]||new Set();
+    const nuevos=nums.filter(n=>!ya.has(n)); if(!nuevos.length) return true;
+    if(window._mantBloqueando) return false;   // en mantenimiento no se escribe; la próxima sincronización lo vuelve a entregar
+    try{
+        await _escribirRastreoWisp(cuenta, {urgentesMas:nuevos});
+        nuevos.forEach(n=>ya.add(n));
+        console.log(`🕵️ ${nuevos.length} pago(s) de ${cuenta} sin oficina quedaron en manos del rastreador (${origen||'sincronización'}): ${nuevos.slice(0,20).join(', ')}${nuevos.length>20?'…':''}`);
+        return true;
+    }catch(e){ console.warn('🕵️ No se pudo avisar al rastreador (se vuelve a intentar en la próxima sincronización):', e.message||e); return false; }
+}
+window._rastreoEntregarUrgentes=_rastreoEntregarUrgentes;
+
+function _anotarResumenRastreo(cuenta, e){
+    if(!e) return;
+    window._rastreoResumen=window._rastreoResumen||{};
+    window._rastreoResumen[cuenta]={
+        sinAsignar:(e.sinAsignar||[]).length, valorSin:(e.sinAsignar||[]).reduce((s,x)=>s+_valorCobradoWH(x.f),0),
+        pend:_contarRangos(e.pend), descubrir:_contarRangos(e.descubrir), urgentes:_contarRangos(e.urgentes),
+        ultimaRevision:e.ultimaRevision||0, revisados:e.revisados||0
+    };
+}
+function _totalSinAsignarRastreo(){ const r=window._rastreoResumen||{}; return Object.values(r).reduce((s,x)=>s+((x && x.sinAsignar)||0),0); }
+window._totalSinAsignarRastreo=_totalSinAsignarRastreo;
+async function _refrescarResumenRastreo(){
+    const antes=_totalSinAsignarRastreo();
+    const cuentas=[...new Set((DB.oficinas||[]).map(o=>o && o.cuentaWisphub).filter(Boolean))];
+    for(const c of cuentas){ try{ const e=await _leerRastreoWisp(c); if(e) _anotarResumenRastreo(c, e); }catch(err){} }
+    if(_totalSinAsignarRastreo()!==antes){ try{ _recargarVistaSilenciosa(); }catch(e){} }
 }
 
-// Números que el listado NO devuelve dentro de su propio rango.
-async function _huecosDeCuenta(cuenta, onProgreso){
-    const facturas=await _wisphubTraerTodasFacturas(cuenta, onProgreso);
-    const enLista=new Set(); let min=Infinity, max=0;
-    facturas.forEach(f=>{ const n=Number(f.id_factura||f.id); if(isNaN(n)) return;
-        enLista.add(n); if(n<min) min=n; if(n>max) max=n; });
-    if(!isFinite(min)) return {huecos:[], min:0, max:0, enLista};
-    const huecos=[];
-    for(let n=min;n<=max;n++) if(!enLista.has(n)) huecos.push(n);
-    // Los más NUEVOS primero: son los que acaban de salir de la ventana y los
-    // que más probablemente se paguen pronto.
-    huecos.reverse();
-    return {huecos, min, max, enLista};
+function _avisarPagosRastreados(aplicados, nuevosSin){
+    try{
+        if(aplicados.length){
+            const hoy=_diaLocalISO();
+            const porOfi={};
+            aplicados.forEach(a=>{ const nom=(((DB.oficinas||[]).find(o=>o && o.id===a.oid))||{}).nombre||a.oid; const p=porOfi[nom]=porOfi[nom]||{n:0,v:0}; p.n++; p.v+=a.valor||0; });
+            const tard=aplicados.filter(a=>a.fecha && a.fecha<hoy);
+            let txt=`🕵️ ${aplicados.length} pago(s) de facturas viejas entraron solos — `+Object.entries(porOfi).map(([k,v])=>`${k}: ${v.n} (${fmtShort(v.v)})`).join(' · ');
+            if(tard.length) txt+=` · ${tard.length} con su fecha real de pago (${[...new Set(tard.map(a=>a.fecha.slice(8,10)+'/'+a.fecha.slice(5,7)))].slice(0,4).join(', ')})`;
+            _syncToastRapida(txt);
+        }
+        if(nuevosSin>0 && USER && USER.role==='admin')
+            setTimeout(()=>_syncToastRapida(`🧾 ${nuevosSin} pago(s) de WispHub no tienen oficina: revísalos en el Dashboard`), aplicados.length?6500:0);
+    }catch(e){}
 }
 
-// Revisa una tanda de huecos y mete los pagos que encuentre. Devuelve el resumen.
-// opts: {tanda, todos:true para barrer sin tope, onProgreso}
+// ── UNA VUELTA DEL RASTREADOR PARA UNA CUENTA ──
+// opts: {todos:true cuando lo pide una persona (sin topes de rotación), onProgreso}
 async function _revisarHuecosWisphub(cuenta, opts){
     opts=opts||{};
-    const oficinas=(DB.oficinas||[]).filter(o=>o.cuentaWisphub===cuenta);
-    if(!oficinas.length) return {ok:false, motivo:"sin_oficinas"};
+    const todos=!!opts.todos;
+    const prog=(t,p)=>{ try{ if(opts.onProgreso) opts.onProgreso(t,p); }catch(e){} };
+    if(!(DB.oficinas||[]).some(o=>o && o.cuentaWisphub===cuenta)) return {ok:false, motivo:'sin_oficinas'};
+    const DESDE=(DB.config && DB.config.sincPagosDesde)||'2026-05-01';
 
-    const est=_estadoHuecos(cuenta);
-    let lista=est.pendientes;
-    // Primera vez (o cuando ya se agotó la lista): recalcular los huecos.
-    if(!lista.length){
-        if(opts.onProgreso) opts.onProgreso("Averiguando qué facturas no aparecen en el listado...", 5);
-        const r=await _huecosDeCuenta(cuenta, null);
-        lista=r.huecos;
-        est.rango=r.min+"-"+r.max;
+    // [0] Lo que ya se sabe, leído de la nube. Sin eso no se trabaja a ciegas.
+    prog('Leyendo lo que ya se revisó...', 2);
+    let est;
+    try{ est=(await _leerRastreoWisp(cuenta)) || _rastreoVacio(); }
+    catch(e){ return {ok:false, motivo:'no se pudo leer el estado del rastreador ('+(e.message||e)+')'}; }
+    // Lo que dejó el barrido de la sincronización completa (caché) y la cola de la versión anterior
+    const cacheC=(DB.gapsFacturas && DB.gapsFacturas[cuenta]) || {};
+    const cNo=[], cOk=[], cPend=[], cAsig=[];
+    Object.keys(cacheC).forEach(k=>{ const n=Number(k); if(!(n>0) || Math.floor(n)!==n) return; const v=cacheC[k];
+        if(v==='no') cNo.push(n); else if(v==='ok') cOk.push(n); else if(v==='pend') cPend.push(n); else if(v==='asig') cAsig.push(n); });
+    // 'ok' del barrido manual = "ya quedó en una caja". Solo cuenta como resuelta si ese pago YA está en
+    // la nube; si solo está en memoria, se vigila como urgente; si no está en ninguna caja, se revisa.
+    const dondeC=_dondeEstaFacturaCuenta(cuenta), okNube=[], okMemoria=[];
+    cOk.forEach(n=>{ const d=dondeC.get(String(n)); if(!d) return;
+        if(_baseMovs[d.oid] && _baseMovs[d.oid][d.movId]!==undefined) okNube.push(n); else okMemoria.push(n); });
+    const hv=DB.config && DB.config._huecosWisp && DB.config._huecosWisp[cuenta];
+    const viejas=(hv && Array.isArray(hv.pendientes)) ? hv.pendientes.map(Number).filter(n=>n>0) : [];
+    const resueltos=_unirRangos(est.resueltos, _rangosDeNumeros(cNo), _rangosDeNumeros(okNube));
+    const pendientes=_restarRangos(_unirRangos(est.pend, _rangosDeNumeros(cPend), _rangosDeNumeros(viejas)), resueltos);
+    const urgentes=_restarRangos(_unirRangos(est.urgentes, _rangosDeNumeros(cAsig), _rangosDeNumeros(okMemoria)), resueltos);
+    const sinAsigNums=est.sinAsignar.map(x=>Number(x.f.id_factura)).filter(n=>n>0);
+
+    // [1] El listado de la cuenta. Si no llega, igual se vigila lo ya conocido.
+    prog('Trayendo el listado de facturas de WispHub...', 5);
+    if(!_syncOcupado()) window._syncCancelarWisp=false;   // un "Cancelar" de antes no debe frenar el trabajo de fondo
+    let listaOk=false, listMin=0, listMax=0; const enLista=new Set();
+    try{
+        const lista=await _wisphubTraerTodasFacturas(cuenta, null);
+        (lista||[]).forEach(f=>{ const n=Number(f && (f.id_factura||f.id)); if(n>0 && Math.floor(n)===n) enLista.add(n); });
+        if(enLista.size){ listaOk=true; listMin=Infinity; enLista.forEach(n=>{ if(n<listMin) listMin=n; if(n>listMax) listMax=n; }); }
+    }catch(e){ console.warn('🕵️ '+cuenta+': no llegó el listado de WispHub ('+(e.message||e)+'); esta vuelta solo revisa lo ya conocido.'); }
+    // Un listado que llega con menos del 90 % de la vuelta ANTERIOR no se usa para buscar desaparecidas
+    // en ESTA vuelta (puede venir recortado). Igual queda como referencia: si la baja era real (la
+    // ventana soltó un mes, archivaron un lote), la vuelta siguiente ya la compara consigo y las mira.
+    const confiable=listaOk && !(est.listadoN>0 && enLista.size < Math.floor(est.listadoN*0.9));
+    if(listaOk && !confiable) console.warn(`🕵️ ${cuenta}: el listado trajo ${enLista.size} facturas y la vuelta anterior ${est.listadoN}; las que faltan se miran en la próxima vuelta.`);
+
+    // [2] Todo número que no está en el listado ni en ninguna lista: se salió del listado
+    //     (envejeció, o archivaron el servicio) o es una oculta nueva. La primera vez es
+    //     TODO lo desconocido y va a "descubrir", que se recorre de a poco.
+    let semilla=null, sinClasificar=[];
+    if(confiable){
+        const conocidas=_unirRangos(resueltos, pendientes, urgentes, est.descubrir, _rangosDeNumeros(sinAsigNums), _rangosDeNumeros([...enLista]));
+        const huecos=_complementoRangos(conocidas, 1, listMax);
+        if(!est.sembrado) semilla=huecos; else sinClasificar=huecos;
     }
 
-    const tanda = opts.todos ? lista.length : Math.min(opts.tanda||HUECOS_POR_TANDA, lista.length);
-    const aRevisar = lista.slice(0, tanda);
-    const quedan   = lista.slice(tanda);
+    // [3] La cola de esta vuelta
+    const plan=_planVueltaRastreo({resueltos, pend:pendientes, urgentes, descubrir:(semilla||est.descubrir), sinClasificar,
+        sinAsignar:est.sinAsignar, cursor:est.cursor, todos});
 
-    // Suelo de fecha de PAGO: la emisión no importa (esa es justo la gracia),
-    // pero no se traen pagos anteriores a cuando la app empezó a sincronizar.
-    const DESDE=(DB.config&&DB.config.sincPagosDesde)||"2026-05-01";
-
-    const encontradas=[]; const siguenPendientes=[]; let noExisten=0, fueraDeAlcance=0, fallos=0;
-    for(let k=0;k<aRevisar.length;k+=8){
-        if(window._syncCancelarWisp) break;
-        const lote=aRevisar.slice(k,k+8);
-        const res=await Promise.all(lote.map(async n=>{
-            try{
-                const r=await fetch(`${WISPHUB_INTERMEDIARIO}/api/facturas/${n}/`,{headers:{"X-Cuenta":cuenta}});
-                if(r.status===404) return {n, noExiste:true};
-                if(!r.ok) return {n, fallo:true};
-                return {n, f:await r.json()};
-            }catch(e){ return {n, fallo:true}; }
-        }));
-        res.forEach(x=>{
-            if(x.fallo){ fallos++; siguenPendientes.push(x.n); return; }   // reintentar luego
-            if(x.noExiste || !x.f || !(x.f.id_factura||x.f.id)){ noExisten++; return; } // nunca más
-            const f=x.f;
-            const pagada=String(f.estado||"").toLowerCase().includes("pagad");
-            const valor=parseFloat(f.total_cobrado||f.total||0);
-            if(!pagada || !(valor>0)){ siguenPendientes.push(x.n); return; }  // puede pagarse mañana
-            const fpago=String(f.fecha_pago||"").slice(0,10);
-            if(fpago && fpago < DESDE){ fueraDeAlcance++; return; }           // vieja: fuera de alcance
-            encontradas.push(f);                                              // ¡esta es!
+    // [4] Fichas, de a 8
+    const res=new Map(); let cortado=false, fallosSeguidos=0;
+    const cola=plan.revisar;
+    for(let k=0;k<cola.length;k+=8){
+        if((todos && window._syncCancelarWisp) || window._mantBloqueando){ cortado=true; break; }
+        const lote=cola.slice(k,k+8);
+        const rs=await Promise.all(lote.map(n=>_fichaFacturaWisp(cuenta, n, 2)));
+        let fl=0;
+        rs.forEach(x=>{
+            if(x.fallo){ fl++; res.set(x.n,{t:'fallo'}); return; }
+            if(x.noExiste){ res.set(x.n,{t:'noExiste'}); return; }
+            res.set(x.n,{t:_clasificarFichaWisp(x.f, DESDE), f:x.f});
         });
-        if(opts.onProgreso){
-            const hechos=Math.min(k+8, aRevisar.length);
-            opts.onProgreso(`Revisando facturas ocultas... ${hechos} de ${aRevisar.length} · encontradas ${encontradas.length}`,
-                            10 + 80*hechos/Math.max(1,aRevisar.length));
+        if(fl===lote.length){
+            if(++fallosSeguidos>=3){ cortado=true; console.warn('🕵️ '+cuenta+': WispHub no está respondiendo; se sigue en la próxima vuelta.'); break; }
+            await new Promise(s=>setTimeout(s,3000));
+        } else fallosSeguidos=0;
+        if(k%64===0 || k+8>=cola.length) prog(`Revisando facturas viejas... ${Math.min(k+8,cola.length)} de ${cola.length}`, 8+72*Math.min(k+8,cola.length)/Math.max(1,cola.length));
+    }
+
+    // [5] Hacia arriba del último número conocido: ocultas NUEVAS (p. ej. creadas con fecha de emisión vieja)
+    let maxExiste=Math.max(est.maxExiste||0, listMax||0);
+    if(listaOk && !cortado){
+        prog('Buscando facturas nuevas que no salen en el listado...', 82);
+        let n=maxExiste+1, seguidos=0, probados=0;
+        while(seguidos<RASTREO_ARRIBA_TOL && probados<RASTREO_ARRIBA_MAX){
+            const lote=[n,n+1,n+2,n+3]; n+=4;
+            const rs=await Promise.all(lote.map(m=>_fichaFacturaWisp(cuenta, m, 1)));
+            if(rs.every(x=>x.fallo)) break;
+            for(const x of rs){
+                probados++;
+                if(x.fallo) continue;
+                if(x.noExiste){ seguidos++; continue; }
+                seguidos=0; if(x.n>maxExiste) maxExiste=x.n;
+                if(!res.has(x.n)) res.set(x.n,{t:_clasificarFichaWisp(x.f, DESDE), f:x.f, arriba:true});
+            }
         }
     }
 
-    // Aplicar a la oficina que corresponda por ZONA (una cuenta puede ser de dos).
-    let creados=0; const detalle=[];
-    for(const o of oficinas){
-        const mias=_filtrarPorZonaOficina(o, encontradas, f=>f.zona?.nombre || f.zona);
-        if(!mias.length) continue;
-        const r=_aplicarPagosWisphub(o, mias);
-        creados+=r.creados;
-        if(r.creados>0) detalle.push({oficina:o.nombre, creados:r.creados});
+    // [6] Reparto sobre las oficinas VIVAS y aplicación (sin esperas en medio)
+    prog('Repartiendo lo encontrado...', 88);
+    const pagadas=[]; res.forEach(r=>{ if(r.t==='pagada') pagadas.push(r.f); });
+    const reintento=est.sinAsignar.filter(x=>!res.has(Number(x.f.id_factura))).map(x=>x.f);   // se reintenta con lo guardado, sin red
+    const rep=_repartoRastreo(cuenta, pagadas.concat(reintento));
+    let creados=0; const aplicados=[];
+    if(!rep.incompleta){
+        Object.keys(rep.aplicar).forEach(oid=>{
+            const o=(DB.oficinas||[]).find(x=>x && x.id===oid); if(!o) return;
+            if(!Array.isArray(o.movimientos)) o.movimientos=[];
+            const r=_aplicarPagosWisphub(o, rep.aplicar[oid]);
+            creados+=(r && r.creados)||0;
+            rep.aplicar[oid].forEach(f=>aplicados.push({n:Number(f.id_factura), oid, valor:_valorCobradoWH(f),
+                fecha:_fechaPagoWisphubISO(f.fecha_pago||'').slice(0,10), cliente:String((f.cliente && f.cliente.nombre)||'')}));
+        });
     }
+    const nuevosSin=rep.sinAsignar.filter(x=>!sinAsigNums.includes(Number(x.f.id_factura)));
 
-    est.pendientes = siguenPendientes.concat(quedan);
-    est.revisados  = (est.revisados||0) + aRevisar.length;
-    est.ultimaRevision = Date.now();
-    if(!quedan.length) est.barridoCompleto = true;
+    // [7] Primero la NUBE, después "resuelto": si el guardado no llega, la factura se
+    //     vuelve a mirar en la próxima vuelta (y no se duplica: ya está en la caja).
+    let guardado=true;
+    if(creados>0){
+        try{
+            const hoy=_diaLocalISO();
+            registrarLog('PAGOS_OCULTOS',{cuenta, creados, revisados:res.size, facturas:aplicados.slice(0,25).map(a=>a.n)});
+            const tard=aplicados.filter(a=>a.fecha && a.fecha<hoy);
+            if(tard.length) registrarLog('PAGOS_TARDIOS',{cuenta, n:tard.length, pagos:tard.slice(0,10).map(a=>({n:a.n, fecha:a.fecha, v:a.valor}))});
+        }catch(e){}
+        if(nuevosSin.length){ try{ registrarLog('PAGOS_SIN_OFICINA',{cuenta, n:nuevosSin.length, pagos:nuevosSin.slice(0,8).map(x=>({n:x.f.id_factura, v:_valorCobradoWH(x.f)}))}); }catch(e){} }
+        try{ await save({silencioso:!todos}); guardado=(window._ultimoGuardadoOk===true); }catch(e){ guardado=false; }
+    } else if(nuevosSin.length){ try{ registrarLog('PAGOS_SIN_OFICINA',{cuenta, n:nuevosSin.length, pagos:nuevosSin.slice(0,8).map(x=>({n:x.f.id_factura, v:_valorCobradoWH(x.f)}))}); }catch(e){} }
+    const enNube=(oid, n)=>{ try{
+        const b=_baseMovs[oid]; if(!b) return false;
+        const o=(DB.oficinas||[]).find(x=>x && x.id===oid);
+        const m=o && (o.movimientos||[]).find(mm=>mm && mm.facturaWisphub!=null && String(mm.facturaWisphub).trim()===String(n));
+        return !!(m && b[m.id]!==undefined);
+    }catch(e){ return false; } };
 
-    // v249: el estado se guarda SIEMPRE, no solo cuando encuentra pagos. Antes,
-    // si una tanda no hallaba nada, la lista de pendientes no se persistia y el
-    // siguiente ciclo volvia a traer el listado ENTERO de la cuenta: lentisimo y
-    // repetido para siempre.
-    if(creados>0) registrarLog("PAGOS_OCULTOS",{cuenta, creados, revisados:aRevisar.length});
-    // Esta revision corre SOLA cada 20 minutos y guarda siempre, encuentre o no.
-    // Si pusiera la cortina, saldria cada 20 minutos sin que nadie la haya pedido.
-    // Cuando la dispara una persona desde el panel (opts.todos) si se ve.
-    try{ await save({silencioso: !(opts&&opts.todos)}); }
-    catch(eS){ console.warn("no se pudo guardar el avance de huecos:", eS); }
-    return {ok:true, revisados:aRevisar.length, encontradas:encontradas.length, creados, detalle,
-            pendientes:est.pendientes.length, noExisten, fueraDeAlcance, fallos};
+    // [8] Qué pasó con cada número
+    const salida=new Map();
+    const topeNoExiste=Math.max(listMax||0, est.rangoMax||0);
+    res.forEach((r,n)=>{
+        if(r.t==='fallo') salida.set(n,'fallo');
+        else if(r.t==='noExiste') salida.set(n, n<topeNoExiste ? 'resuelto' : 'fallo');   // por encima del último número puede existir mañana
+        else if(r.t==='no') salida.set(n,'resuelto');
+        else if(r.t==='pend') salida.set(n,'pend');
+    });
+    if(rep.incompleta){ pagadas.forEach(f=>salida.set(Number(f.id_factura),'urgente')); }
+    else {
+        aplicados.forEach(a=>salida.set(a.n, (guardado && enNube(a.oid, a.n)) ? 'resuelto' : 'urgente'));
+        rep.yaEstan.forEach(y=>salida.set(y.n, enNube(y.oid, y.n) ? 'resuelto' : 'urgente'));
+        rep.borrados.forEach(n=>salida.set(n,'resuelto'));
+        rep.sinAsignar.forEach(x=>salida.set(Number(x.f.id_factura),'sin'));
+    }
+    const c={resueltosMas:cNo.concat(okNube), pendMas:cPend.concat(viejas), pendMenos:[], urgentesMas:okMemoria.slice(), urgentesMenos:[], descubrirMenos:[], sinAsigPoner:[], sinAsigQuitar:[]};
+    salida.forEach((s,n)=>{
+        if(s==='fallo') return;
+        c.descubrirMenos.push(n);
+        if(s==='resuelto') c.resueltosMas.push(n);
+        else if(s==='pend'){ c.pendMas.push(n); c.urgentesMenos.push(n); }
+        else if(s==='urgente'){ c.urgentesMas.push(n); c.pendMenos.push(n); }
+        else if(s==='sin'){ c.pendMenos.push(n); c.urgentesMenos.push(n); }
+    });
+    const ahora=Date.now();
+    const prevSin=new Map(est.sinAsignar.map(x=>[String(x.f.id_factura), x]));
+    // vistoEn = última vez que se CONSULTÓ en WispHub (las que solo se repartieron de nuevo con lo guardado conservan la suya)
+    if(!rep.incompleta) rep.sinAsignar.forEach(x=>{ const n=Number(x.f.id_factura); const p=prevSin.get(String(n));
+        c.sinAsigPoner.push({f:_stubFacturaWisp(x.f), motivo:x.motivo, oficinas:x.oficinas||[], detectadoEn:(p && p.detectadoEn)||ahora, vistoEn:res.has(n) ? ahora : ((p && p.vistoEn)||0)}); });
+    est.sinAsignar.forEach(x=>{ const n=Number(x.f.id_factura); const s=salida.get(n); if(s==='resuelto' || s==='urgente' || s==='pend') c.sinAsigQuitar.push(n); });
+    if(semilla) c.descubrirSemilla=semilla;
+    if(plan.aDescubrir && plan.aDescubrir.length) c.descubrirMasRangos=plan.aDescubrir;
+    c.cursor=plan.cursor;
+    if(listaOk){ c.listadoN=enLista.size; c.rangoMin=listMin; c.rangoMax=listMax; }   // la referencia es SIEMPRE la vuelta anterior
+    c.maxExiste=maxExiste; c.revisadosMas=res.size; c.ultimaRevision=ahora;
+    prog('Guardando el avance...', 94);
+    let estNuevo=null;
+    if(window._mantBloqueando) console.warn('🛠️ '+cuenta+': mantenimiento: el avance del rastreador se guarda en la próxima vuelta.');   // en mantenimiento esta pantalla no escribe
+    else {
+        try{ estNuevo=await _escribirRastreoWisp(cuenta, c); }
+        catch(e){ console.warn('🕵️ '+cuenta+': no se pudo guardar el avance del rastreador (se repite en la próxima vuelta):', e.message||e); }
+    }
+    const final=estNuevo || _fusionarRastreo(est, c);
+    _anotarResumenRastreo(cuenta, final);
+
+    // [9] Avisos
+    const entraron=aplicados.filter(a=>salida.get(a.n)==='resuelto' || salida.get(a.n)==='urgente');
+    if(!opts.silencioso) _avisarPagosRastreados(entraron, nuevosSin.length);
+    const r={ok:true, cuenta, revisados:res.size, encontradas:pagadas.length, creados, aplicados:entraron,
+        sinAsignar:final.sinAsignar.length, sinAsignarNuevos:nuevosSin.length,
+        pendientes:_contarRangos(final.pend), porDescubrir:_contarRangos(final.descubrir), urgentes:_contarRangos(final.urgentes),
+        fallos:[...salida.values()].filter(s=>s==='fallo').length, cortado, incompleta:!!rep.incompleta, guardado, estadoGuardado:!!estNuevo};
+    window._rastreoUltimaVuelta=window._rastreoUltimaVuelta||{}; window._rastreoUltimaVuelta[cuenta]=Object.assign({en:ahora}, r, {aplicados:entraron.slice(0,50)});
+    console.log(`🕵️ ${cuenta}: ${r.revisados} revisadas · ${r.creados} pago(s) entraron · ${r.sinAsignar} sin oficina · ${r.pendientes} viejas sin pagar vigiladas · ${r.porDescubrir} por descubrir${r.fallos?` · ${r.fallos} sin respuesta`:''}${r.incompleta?' · datos a medio cargar: se reintenta':''}`);
+    return r;
 }
 window._revisarHuecosWisphub=_revisarHuecosWisphub;
 
-// ── Barrido COMPLETO a demanda, con panel de avance ──────────────────
+// ── Revisión COMPLETA a demanda, con panel de avance ──
 async function forzarPagosOcultos(cuenta){
     if(_syncOcupado()){ alert("⏳ Hay una sincronización corriendo. Espera a que termine."); return; }
-    if(window._huecosEnCurso){ alert("⏳ Ya hay una revisión de facturas ocultas en curso. Espera a que termine."); return; }
-    const cuentas = cuenta ? [cuenta] : [...new Set((DB.oficinas||[]).map(o=>o.cuentaWisphub).filter(Boolean))];
+    if(window._huecosEnCurso){ alert("⏳ Ya hay una revisión de facturas viejas en curso. Espera a que termine."); return; }
+    const esAdmin=USER && USER.role==='admin';
+    const cuentas = cuenta ? [cuenta] : [...new Set((DB.oficinas||[]).filter(o=>o && o.cuentaWisphub && (esAdmin || String(o.id)===String(USER && USER.id))).map(o=>o.cuentaWisphub))];
     if(!cuentas.length){ alert("Ninguna oficina tiene cuenta de WispHub configurada."); return; }
-    if(!confirm("Se revisarán TODAS las facturas que WispHub no devuelve en sus listados, para rescatar pagos que no entraron.\n\n"+
-                "Puede tardar varios minutos. Puedes seguir trabajando mientras tanto.\n\n¿Continuar?")) return;
-
+    if(!confirm("Se revisarán ya mismo las facturas viejas que WispHub no muestra en sus listados (todas las que siguen sin pagar y las que aún no se han mirado), para rescatar pagos que no entraron.\n\n"+
+                "Puede tardar unos minutos. Puedes seguir trabajando mientras tanto.\n\n¿Continuar?")) return;
     _tomarSync(); window._syncCancelarWisp=false; window._huecosEnCurso=true;
-    _syncPanelAbrir("🕵️ Buscando pagos ocultos");
-    let totalCreados=0; const resumen=[];
+    _syncPanelAbrir("🕵️ Buscando pagos de facturas viejas");
+    let totalCreados=0, totalSin=0; const resumen=[];
     try{
         for(const c of cuentas){
             _syncPanelSt(`Cuenta ${c}...`, 2);
-            const r=await _revisarHuecosWisphub(c, {todos:true, onProgreso:(txt,pct)=>_syncPanelSt(`${c}: ${txt}`, pct)});
-            if(r.ok){ totalCreados+=r.creados; resumen.push(`${c}: ${r.creados} pago(s) rescatado(s) de ${r.revisados} revisados`); }
-            else resumen.push(`${c}: no se pudo (${r.motivo})`);
+            const r=await _revisarHuecosWisphub(c, {todos:true, silencioso:true, onProgreso:(txt,pct)=>_syncPanelSt(`${c}: ${txt}`, pct)});
+            if(r.ok){
+                totalCreados+=r.creados; totalSin+=r.sinAsignarNuevos;
+                resumen.push(`• ${c}: ${r.creados} pago(s) entraron · ${r.revisados} facturas revisadas · ${r.pendientes} viejas sin pagar quedan vigiladas`
+                    +(r.sinAsignarNuevos?` · ${r.sinAsignarNuevos} sin oficina (míralos en el Dashboard)`:'')
+                    +(r.porDescubrir?` · faltan ${r.porDescubrir} por mirar por primera vez (siguen solas, de a poco)`:'')
+                    +(r.incompleta?' · ⚠️ los datos no terminaron de cargar: lo encontrado se aplica en la próxima vuelta':'')
+                    +(r.cortado?' · ⏸️ se detuvo antes de terminar':''));
+            } else resumen.push(`• ${c}: no se pudo (${r.motivo})`);
+            if(window._syncCancelarWisp) break;
         }
     }catch(e){ resumen.push("Error: "+(e.message||e)); }
     finally{ _soltarSync(); window._huecosEnCurso=false; _syncPanelCerrar(); }
-
-    alert((totalCreados>0 ? `✅ Se rescataron ${totalCreados} pago(s) que no habían entrado.` : "✔️ No quedó ningún pago oculto sin registrar.")
+    await _avisoSync((totalCreados>0 ? `✅ Entraron ${totalCreados} pago(s) de facturas viejas que no habían entrado.` : "✔️ No quedó ningún pago de factura vieja sin registrar.")
+          + (totalSin>0 ? `\n🧾 ${totalSin} pago(s) no tienen oficina clara: el administrador los ve en el Dashboard.` : '')
           + "\n\n" + resumen.join("\n"));
     if(totalCreados>0){ try{ renderRegistro(); }catch(e){} }
 }
 window.forzarPagosOcultos=forzarPagosOcultos;
+
+// ── 🧾 Pagos sin oficina (solo administrador) ──
+const TITULO_SIN_OFICINA='🧾 Pagos de WispHub sin oficina';
+function _idSeguroCuenta(c){ return String(c||'').replace(/[^A-Za-z0-9_]/g,'_'); }
+function _modalSinOficinaAbierto(){ const m=document.getElementById('modal'), t=document.getElementById('mTitle'); return !!(m && m.classList.contains('show') && t && t.textContent===TITULO_SIN_OFICINA); }
+async function modalPagosSinAsignar(){
+    if(!USER || USER.role!=='admin'){ alert('Solo el administrador puede decidir sobre estos pagos.'); return; }
+    const cuentas=[...new Set((DB.oficinas||[]).map(o=>o && o.cuentaWisphub).filter(Boolean))];
+    openModal(TITULO_SIN_OFICINA, '<p style="color:var(--muted);font-size:0.85rem;">Cargando...</p>', '<button class="btn btn-outline" onclick="closeModal()">Cerrar</button>');
+    const estados={};
+    for(const c of cuentas){ try{ estados[c]=(await _leerRastreoWisp(c)) || _rastreoVacio(); _anotarResumenRastreo(c, estados[c]); }catch(e){ estados[c]=null; } }
+    window._sinAsigModal=estados;
+    _pintarPagosSinAsignar();
+}
+window.modalPagosSinAsignar=modalPagosSinAsignar;
+// Grupos por motivo Y por la oficina que (según WispHub) reclama el pago: así nunca se mezclan en
+// un mismo grupo pagos de dos oficinas, y la oficina que sugiere WispHub viene ya escogida.
+function _gruposSinOficina(items){
+    const g=new Map();
+    (items||[]).forEach(x=>{ const ofs=(x.oficinas||[]).filter(Boolean); const k=(x.motivo||'sin motivo')+'|'+ofs.join(',');
+        if(!g.has(k)) g.set(k, {motivo:x.motivo||'sin motivo', oficinas:ofs, items:[]}); g.get(k).items.push(x); });
+    return [...g.values()];
+}
+function _pintarPagosSinAsignar(){
+    const cuerpo=document.getElementById('mBody'); if(!cuerpo || !_modalSinOficinaAbierto()) return;   // si ya se abrió otra ventana, no se le pinta encima
+    const estados=window._sinAsigModal||{};
+    const e=x=>String(x==null?'':x).replace(/[&<>"']/g, ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+    const nomOfi=id=>(((DB.oficinas||[]).find(o=>o && o.id===id))||{}).nombre||id;
+    let html='<p style="font-size:0.8rem;color:var(--muted);margin-bottom:12px;line-height:1.5;">Estos pagos <b>sí están en WispHub</b>, pero la app no los metió sola a ninguna caja: no pudo saber de qué oficina son, WispHub no trae su fecha de pago, o se pagaron hace más de '+RASTREO_DIAS_AUTO+' días y es mejor que alguien los mire. Marca los que quieras, revisa la oficina y mételos; o descártalos si no deben entrar. Nada se borra de WispHub.</p>';
+    let total=0;
+    Object.keys(estados).forEach(c=>{
+        const est=estados[c];
+        if(!est){ html+=`<div style="color:#f59e0b;font-size:0.8rem;margin-bottom:8px;">⚠️ No se pudo leer la cuenta ${e(c)}. Cierra y vuelve a abrir.</div>`; return; }
+        const items=est.sinAsignar||[]; if(!items.length) return; total+=items.length;
+        const ofis=(DB.oficinas||[]).filter(o=>o && o.cuentaWisphub===c);
+        const cid=_idSeguroCuenta(c);
+        const suma=items.reduce((s,x)=>s+_valorCobradoWH(x.f),0);
+        html+=`<div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:14px;">
+            <div style="font-weight:800;font-size:0.9rem;margin-bottom:4px;">Cuenta WispHub «${e(c)}» · ${items.length} pago(s) · ${fmtShort(suma)}</div>`;
+        _gruposSinOficina(items).forEach((g,gi)=>{
+            const gid=`sa_${cid}_g${gi}`;
+            const sug=g.oficinas.length===1 ? g.oficinas[0] : '';
+            html+=`<div style="margin:12px 0 4px;font-size:0.78rem;font-weight:700;color:#f59e0b;"><label style="cursor:pointer;"><input type="checkbox" onchange="document.querySelectorAll('.${gid}').forEach(x=>x.checked=this.checked)"> ${e(g.motivo)} (${g.items.length})</label>${sug?` <span style="color:var(--text);font-weight:600;">· según WispHub es de <b>${e(nomOfi(sug))}</b></span>`:''}</div>`;
+            html+='<div style="overflow-x:auto;"><table style="width:100%;font-size:0.74rem;border-collapse:collapse;">'
+                +g.items.map(x=>{ const f=x.f||{}; const n=String(f.id_factura);
+                    return `<tr style="border-top:1px solid var(--border);">
+                        <td style="padding:4px 6px;width:22px;"><input type="checkbox" class="${gid} sa_${cid}" data-n="${e(n)}" data-g="${gi}"></td>
+                        <td style="padding:4px 6px;white-space:nowrap;">#${e(n)}</td>
+                        <td style="padding:4px 6px;">${e((f.cliente&&f.cliente.nombre)||'—')}${f.cliente&&f.cliente.cedula?' · CC '+e(f.cliente.cedula):''}</td>
+                        <td style="padding:4px 6px;text-align:right;white-space:nowrap;font-weight:700;">${fmtShort(_valorCobradoWH(f))}</td>
+                        <td style="padding:4px 6px;white-space:nowrap;">${e(String(f.fecha_pago||'').slice(0,10)||'sin fecha')}</td>
+                        <td style="padding:4px 6px;">${e((f.forma_pago&&f.forma_pago.nombre)||'')}</td>
+                        <td style="padding:4px 6px;">${e((f.zona&&f.zona.nombre)||'sin zona')}</td></tr>`; }).join('')
+                +'</table></div>';
+            html+=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;">
+                <span style="font-size:0.78rem;">Las marcadas van a:</span>
+                <select id="sa_ofi_${gid}" class="form-control" style="width:auto;">${ofis.map(o=>`<option value="${e(o.id)}"${o.id===sug?' selected':''}>${e(o.nombre)}</option>`).join('')}</select>
+                <button class="btn btn-primary btn-sm" onclick="_asignarPagosSinOficina('${cid}',${gi})">➡️ Meter a esa caja</button>
+                <button class="btn btn-outline btn-sm" onclick="_descartarPagosSinOficina('${cid}',${gi})" style="border-color:#ef4444;color:#ef4444;">✖ Descartar</button>
+            </div>`;
+        });
+        html+='</div>';
+    });
+    if(!total) html+='<p style="font-size:0.9rem;">✅ No hay pagos esperando oficina.</p>';
+    cuerpo.innerHTML=html;
+}
+function _cuentaDeIdSeguro(cid){ return Object.keys(window._sinAsigModal||{}).find(c=>_idSeguroCuenta(c)===cid); }
+function _marcadosSinOficina(cid, gi){ return [...document.querySelectorAll('.sa_'+cid+'_g'+gi+':checked')].map(x=>String(x.dataset.n)); }
+async function _asignarPagosSinOficina(cid, gi){
+    const cuenta=_cuentaDeIdSeguro(cid); if(!cuenta) return;
+    const ids=_marcadosSinOficina(cid, gi);
+    if(!ids.length){ alert('Marca primero los pagos que quieres meter.'); return; }
+    const sel=document.getElementById('sa_ofi_sa_'+cid+'_g'+gi); const oid=sel && sel.value;
+    const o=(DB.oficinas||[]).find(x=>x && x.id===oid && x.cuentaWisphub===cuenta);
+    if(!o){ alert('Elige una oficina de esa cuenta.'); return; }
+    if(window._cargaMovsIncompleta===true || (window._cargaCompletaPorOficina && window._cargaCompletaPorOficina[o.id]===false)){
+        alert('⚠️ Los datos de '+o.nombre+' no terminaron de cargar. Recarga la página (F5) y vuelve a intentarlo.'); return; }
+    const est=(window._sinAsigModal||{})[cuenta]; if(!est) return;
+    const items=(est.sinAsignar||[]).filter(x=>ids.includes(String(x.f.id_factura)));
+    if(!items.length) return;
+    const nomOfi=id=>(((DB.oficinas||[]).find(x=>x && x.id===id))||{}).nombre||id;
+    // ¿Alguno es, según WispHub, de OTRA oficina? Se pregunta antes: meterlo en la caja equivocada no se deshace solo
+    const deOtra=items.filter(x=>(x.oficinas||[]).length && !(x.oficinas||[]).includes(oid));
+    if(deOtra.length && !confirm(`⚠️ Según WispHub, ${deOtra.length} de estos pagos son de ${[...new Set(deOtra.flatMap(x=>x.oficinas||[]))].map(nomOfi).join(' / ')}, no de ${o.nombre}.\n\n¿Meterlos igual a la caja de ${o.nombre}?`)) return;
+    // Los que WispHub no trae con fecha de pago: la fecha la escribe quien los mete (nunca la de emisión)
+    const sinFecha=items.filter(x=>!String(x.f.fecha_pago||'').trim());
+    let fechaSin='';
+    if(sinFecha.length){
+        const r=prompt(`${sinFecha.length} de estos pagos no traen fecha de pago en WispHub.\n\n¿Con qué fecha entran a la caja? (escríbela así: ${_diaLocalISO()})`, _diaLocalISO());
+        if(r===null) return;
+        fechaSin=String(r).trim();
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(fechaSin) || isNaN(new Date(fechaSin+'T12:00:00').getTime())){ alert('Esa fecha no es válida. Escríbela así: '+_diaLocalISO()); return; }
+        if(fechaSin>_diaLocalISO()){ alert('La fecha no puede ser de un día que todavía no llega.'); return; }
+    }
+    const suma=items.reduce((s,x)=>s+_valorCobradoWH(x.f),0);
+    if(!confirm(`¿Meter ${items.length} pago(s) por ${fmtShort(suma)} a la caja de ${o.nombre}?\n\nCada uno entra con su fecha de pago de WispHub${sinFecha.length?` (los ${sinFecha.length} que no la traen, con el ${fechaSin})`:''}.`)) return;
+    // Nunca duplicar: lo que ya esté en la caja de alguna oficina de la cuenta no se vuelve a crear
+    const ya=new Set(_dondeEstaFacturaCuenta(cuenta).keys());
+    const bloq=items.filter(x=>_esBorradoPermanente(o.id, String(x.f.id_factura), null));
+    const aMeter=items.filter(x=>!ya.has(String(x.f.id_factura)) && !bloq.includes(x))
+        .map(x=>{ const f=Object.assign({}, x.f); if(!String(f.fecha_pago||'').trim()) f.fecha_pago=fechaSin+' 12:00:00'; return f; });
+    const oViva=(DB.oficinas||[]).find(x=>x && x.id===oid); if(!Array.isArray(oViva.movimientos)) oViva.movimientos=[];
+    const r=_aplicarPagosWisphub(oViva, aMeter);
+    registrarLog('PAGOS_SIN_OFICINA_METIDOS',{cuenta, oficina:o.nombre, n:items.length, creados:r.creados, facturas:items.slice(0,25).map(x=>x.f.id_factura), fechaManual:fechaSin||null});
+    await save();
+    if(window._ultimoGuardadoOk!==true){
+        alert('⚠️ Los pagos quedaron en pantalla, pero la nube todavía no los recibió. NO los vuelvas a meter: la app reintenta sola, y cuando lleguen salen de esta lista.');
+        return;
+    }
+    const listos=items.filter(x=>!bloq.includes(x));   // los bloqueados siguen en la lista: se desbloquean con "Recuperar factura por número"
+    try{ await _escribirRastreoWisp(cuenta, {resueltosMas:listos.map(x=>Number(x.f.id_factura)), sinAsigQuitar:listos.map(x=>x.f.id_factura)}); }
+    catch(e){ console.warn('rastreo: no se pudo marcar como resueltos (salen solos en la próxima vuelta):', e.message||e); }
+    try{ window._sinAsigModal[cuenta]=(await _leerRastreoWisp(cuenta)) || est; _anotarResumenRastreo(cuenta, window._sinAsigModal[cuenta]); }catch(e){}
+    _pintarPagosSinAsignar();
+    const yaEstaban=items.filter(x=>ya.has(String(x.f.id_factura))).length;
+    let msg=`✅ ${r.creados} pago(s) entraron a la caja de ${o.nombre}.`;
+    if(yaEstaban) msg+=`\n${yaEstaban} ya estaban en una caja (no se repitieron).`;
+    if(bloq.length) msg+=`\n⛔ ${bloq.length} están en «borrados para siempre» de esa oficina y no se metieron. Si sí deben entrar, usa «Recuperar factura por número»: te ofrece desbloquearlos.`;
+    alert(msg);
+    try{ _recargarVistaSilenciosa(); }catch(e){}
+}
+async function _descartarPagosSinOficina(cid, gi){
+    const cuenta=_cuentaDeIdSeguro(cid); if(!cuenta) return;
+    const ids=_marcadosSinOficina(cid, gi);
+    if(!ids.length){ alert('Marca primero los pagos que quieres descartar.'); return; }
+    const motivo=prompt(`Vas a descartar ${ids.length} pago(s): NO entrarán a ninguna caja (en WispHub no cambia nada).\n\n¿Por qué? (queda en el registro de auditoría)`, '');
+    if(motivo===null) return;
+    try{ await _escribirRastreoWisp(cuenta, {resueltosMas:ids.map(Number), sinAsigQuitar:ids}); }
+    catch(e){ alert('No se pudo guardar la decisión. Revisa la conexión e intenta de nuevo.\n\n'+(e.message||e)); return; }
+    registrarLog('PAGOS_SIN_OFICINA_DESCARTADOS',{cuenta, n:ids.length, facturas:ids.slice(0,25), motivo:String(motivo).slice(0,200)});
+    save({silencioso:true});
+    try{ window._sinAsigModal[cuenta]=(await _leerRastreoWisp(cuenta)) || window._sinAsigModal[cuenta]; _anotarResumenRastreo(cuenta, window._sinAsigModal[cuenta]); }catch(e){}
+    _pintarPagosSinAsignar();
+    try{ _recargarVistaSilenciosa(); }catch(e){}
+}
 async function sincronizarRapidaPagos(oid, opts){
     opts=opts||{};
     const o=(DB.oficinas||[]).find(x=>x.id===oid);
@@ -34359,7 +35076,7 @@ async function sincronizarRapidaPagos(oid, opts){
         if(!DB.config._diasSyncPend) DB.config._diasSyncPend={};
         const N=opts.dias||4;
         const dias=[];
-        for(let k=0;k<N;k++) dias.push(new Date(Date.now()-k*86400000).toISOString().slice(0,10));
+        for(let k=0;k<N;k++) dias.push(_diaLocalISO(Date.now()-k*86400000));   // v314: día de Colombia (toISOString daba el de UTC: desde las 7 p. m. ya era mañana)
         (DB.config._diasSyncPend[o.cuentaWisphub]||[]).forEach(d=>{ if(!dias.includes(d)) dias.push(d); });
         // no volver a traer facturas que ya están aplicadas en el registro
         const conocidos=new Set();
@@ -34378,8 +35095,11 @@ async function sincronizarRapidaPagos(oid, opts){
         _rescatarFacturasDeMisClientes(o, traidas, filtradas);
         const pagadas=filtradas.filter(f=>{
             const est=String(f.estado||'').toLowerCase();
-            return est.includes('pagad') && (parseFloat(f.total_cobrado||f.total||0)>0);
+            return est.includes('pagad') && (_valorCobradoWH(f)>0);
         });
+        // v314: lo PAGADO que ninguna oficina de la cuenta reclama (o reclaman dos) no se bota callado: pasa al rastreador,
+        // que lo deja en "Pagos sin oficina" para el administrador. Se entrega fuera del candado.
+        try{ const _huerf=_pagadasSinDueno(o.cuentaWisphub, traidas); if(_huerf.length) setTimeout(()=>{ _rastreoEntregarUrgentes(o.cuentaWisphub, _huerf, 'sincronización rápida'); }, 0); }catch(eH){}
         const oVivo=(DB.oficinas||[]).find(x=>x.id===oid)||o; if(!Array.isArray(oVivo.movimientos)) oVivo.movimientos=[];   // v310: la oficina viva (un snapshot pudo reemplazar el objeto mientras se esperaba a WispHub)
         const r=_aplicarPagosWisphub(oVivo, pagadas);
         if(r.creados>0){
@@ -34450,6 +35170,8 @@ window._debeBarridoProfundo=_debeBarridoProfundo; window._listaClientesCompleta=
 
 async function _conciliarClientesAutomatico(oids){
     const res={agregados:0, actualizados:0, nombres:[]};
+    // v314: con los clientes a medio cargar, "conciliar" agregaría como nuevos a los que no alcanzaron a llegar
+    if(window._clientesCargadosOk!==true) return res;
     const ofis=(DB.oficinas||[]).filter(o=>oids.includes(o.id) && o.cuentaWisphub);
     const cuentas=[...new Set(ofis.map(o=>o.cuentaWisphub))];
     if(!DB.config) DB.config={}; if(!DB.config._wispClientesConteo) DB.config._wispClientesConteo={};
@@ -34464,12 +35186,17 @@ async function _conciliarClientesAutomatico(oids){
             const previo=DB.config._wispClientesConteo[cuenta]||0;
             if(!_listaClientesCompleta(raw.length, previo)){ console.warn('👥 '+cuenta+': llegaron '+raw.length+' clientes y la última vez fueron '+previo+'; se ignora esta pasada por si vino incompleta.'); continue; }
             DB.config._wispClientesConteo[cuenta]=raw.length;
-            for(const o of ofis.filter(x=>x.cuentaWisphub===cuenta)){
+            // v314: las oficinas VIVAS. Mientras llegaba el listado (segundos) un snapshot pudo reemplazar
+            // los objetos, y lo aplicado sobre los viejos no se guardaba nunca.
+            if(window._clientesCargadosOk!==true) continue;
+            for(const o of (DB.oficinas||[]).filter(x=>x && oids.includes(x.id) && x.cuentaWisphub===cuenta)){
                 try{
                     const plan=conciliarOficina(o, raw, {[cuenta]:raw});
                     const h=aplicarConciliacion(_planClientesSeguro(plan));
-                    const suyos=_filtrarPorZonaOficina(o, raw, c=>_zonaDe(c));
-                    const est=_actualizarEstadosClientesWisphub(o, suyos)||{};
+                    // v314: la lista COMPLETA de la cuenta, como la sincronización manual (v214/v257): WispHub le quita
+                    // la zona al cliente cancelado, y filtrada por zona su estado no se actualizaba nunca. El emparejamiento
+                    // es por llave/servicio, así que solo toca clientes que YA son de esta oficina.
+                    const est=_actualizarEstadosClientesWisphub(o, raw)||{};
                     const cambios=(h.agregados||0)+(h.servicio||0)+(h.reactivados||0)+(est.actualizados||0);
                     if(cambios){
                         res.agregados+=h.agregados||0; res.actualizados+=(est.actualizados||0)+(h.servicio||0)+(h.reactivados||0); res.nombres.push(o.nombre);
@@ -34488,6 +35215,7 @@ function _programarSyncRapida(){
     const correr=async()=>{
         try{
             if(!USER||!USER.role||USER.role==='sgsst') return;
+            if(_pestanaDesactualizada() || window._mantBloqueando) return;   // v314: una pantalla vieja no sincroniza por detrás
             if(_syncOcupado()) return; // hay una sync grande corriendo
             let objetivos=[];
             if(USER.role==='oficina'){ const o=(DB.oficinas||[]).find(x=>x.id===USER.id); if(o&&o.cuentaWisphub) objetivos=[o.id]; }
@@ -34533,7 +35261,7 @@ function _aplicarPagosWisphub(o, pagadas){
         // ⛔ Borrado permanente por el admin → no volver a crearlo
         if(_esBorradoPermanente(o.id, numero, null)){ continue; }
 
-        const valor=parseFloat(f.total_cobrado||f.total||0)||0;
+        const valor=_valorCobradoWH(f);   // v314
         const formaW=(f.forma_pago && f.forma_pago.nombre) ? f.forma_pago.nombre : 'Efectivo';
         const forma=_mapearFormaPago(formaW);
         const fechaISO=_fechaPagoWisphubISO(f.fecha_pago || f.fecha_emision || f.fecha_vencimiento || '');
@@ -34615,7 +35343,7 @@ async function sincronizarPagosWisphub(oid){
         // Quedarnos solo con las PAGADAS que tengan forma de pago y monto
         const pagadas = facturas.filter(f=>{
             const est=String(f.estado||'').toLowerCase();
-            return est.includes('pagad') && (parseFloat(f.total_cobrado||f.total||0)>0);
+            return est.includes('pagad') && (_valorCobradoWH(f)>0);
         });
 
         const {creados, duplicados, porForma} = _aplicarPagosWisphub(o, pagadas);
@@ -34675,7 +35403,7 @@ function _aplicarPagosWisphubEnMemoria(o, facturas){
     }
     const pagadas = facturas.filter(f=>{
         const est=String(f.estado||'').toLowerCase();
-        return est.includes('pagad') && (parseFloat(f.total_cobrado||f.total||0)>0);
+        return est.includes('pagad') && (_valorCobradoWH(f)>0);
     });
     let creados=0, duplicados=0, corregidos=0, reubicados=0; const porForma={};
     const _diagClasif=[];
@@ -34687,7 +35415,7 @@ function _aplicarPagosWisphubEnMemoria(o, facturas){
     };
     for(const f of pagadas){
         const numero=String(f.id_factura||'').trim();
-        const valor=parseFloat(f.total_cobrado||f.total||0)||0;
+        const valor=_valorCobradoWH(f);   // v314
         const formaW=(f.forma_pago && f.forma_pago.nombre) ? f.forma_pago.nombre : 'Efectivo';
         const forma=_mapearFormaPago(formaW);
         const fechaISO=_fechaPagoWisphubISO(f.fecha_pago || f.fecha_emision || f.fecha_vencimiento || '');
@@ -34777,7 +35505,7 @@ async function recuperarFacturaPorNumero(oid){
         f=await r.json();
     }catch(e){ alert('Error de conexión al consultar la factura. Intenta de nuevo.'); return; }
     const est=String(f.estado||'').toLowerCase();
-    const valor=parseFloat(f.total_cobrado||f.total||0)||0;
+    const valor=_valorCobradoWH(f);   // v314
     if(!est.includes('pagad')){ alert(`La factura #${num} no está pagada (estado: ${f.estado||'?'}). No hay nada que reflejar en la caja — debe aparecer en cartera/pendientes.`); return; }
     if(valor<=0){ alert(`La factura #${num} está pagada pero con valor 0 (saldo a favor). No genera movimiento de caja.`); return; }
     const cliente=(f.cliente&&f.cliente.nombre)?f.cliente.nombre:'(sin nombre)';
@@ -34892,7 +35620,7 @@ function _actualizarEstadosClientesWisphub(o, clientesW){
 }
 
 async function sincronizarTodoWisphub(oid){
-    const o=DB.oficinas.find(x=>x.id===oid);
+    let o=DB.oficinas.find(x=>x.id===oid);   // v314: let — tras confirmar se toma la oficina VIVA
     if(!o){ alert('Oficina no encontrada'); return; }
     if(!o.cuentaWisphub){
         alert('⚠️ Esta oficina no tiene cuenta de WispHub configurada.\n\nVe a Admin → Editar oficina y elige una cuenta.');
@@ -35003,7 +35731,11 @@ async function sincronizarTodoWisphub(oid){
             const cache=DB.gapsFacturas[o.cuentaWisphub];
             // Lo que YA conocemos (no re-pedir): listado + lo recuperado por fecha + lo reflejado a caja.
             const conocidos=new Set(facturasRaw.map(f=>String(f.id_factura||f.id)));
-            (DB.oficinas||[]).forEach(of=>(of.movimientos||[]).forEach(m=>{ if(m.facturaWisphub) conocidos.add(String(m.facturaWisphub)); }));
+            // v314: solo las oficinas de ESTA cuenta. Los números de factura son la secuencia de cada cuenta: la
+            // #12345 de Florencia no es la #12345 de Cartagena, y antes una tapaba a la otra (nunca se revisaba).
+            (DB.oficinas||[]).filter(of=>of && of.cuentaWisphub===o.cuentaWisphub).forEach(of=>(of.movimientos||[]).forEach(m=>{ if(m.facturaWisphub) conocidos.add(String(m.facturaWisphub)); }));
+            // v314: lo que el rastreador ya dejó resuelto para siempre (no existe, anulada, ya en caja, decidida por el admin) no se vuelve a preguntar
+            let _resRastreo=[]; try{ const _er=await _leerRastreoWisp(o.cuentaWisphub); if(_er) _resRastreo=_er.resueltos||[]; }catch(eR){}
             const idsNum=facturasRaw.map(f=>parseInt(f.id_factura||f.id,10)).filter(n=>Number.isFinite(n));
             if(idsNum.length>5){
                 const maxId=Math.max(...idsNum), minId=Math.min(...idsNum);
@@ -35025,7 +35757,8 @@ async function sincronizarTodoWisphub(oid){
                     const k=String(n);
                     if(conocidos.has(k)) continue;
                     const c=cache[k];
-                    if(c==='no'||c==='ok'||c==='libre') continue; // ya resuelto
+                    if(c==='no'||c==='ok'||c==='libre'||c==='asig') continue; // ya resuelto (v314: 'asig' lo vigila el rastreador)
+                    if(_resRastreo.length && _enRangos(_resRastreo, n)) continue;   // v314
                     const _rec = n>_techoVentana;
                     if(c==='pend'){ (_rec?pendRec:pendProf).push(n); } else { (_rec?nuevosRec:nuevosProf).push(n); }
                 }
@@ -35176,11 +35909,11 @@ async function sincronizarTodoWisphub(oid){
         });
         const _fechaInvalida=f=>{const s=String(f==null?'':f);return f===0||f==='0'||!s||s.length<8||!/^\d{4}-\d{2}-\d{2}/.test(s);};
         const presentesValidos = new Set(o.movimientos.filter(m=>m.facturaWisphub && !(m.origen==='cierre_wisphub' && _fechaInvalida(m.fecha))).map(m=>String(m.facturaWisphub)));
-        const pagadas = facturas.filter(f=>{ const est=String(f.estado||'').toLowerCase(); return est.includes('pagad') && (parseFloat(f.total_cobrado||f.total||0)>0); });
+        const pagadas = facturas.filter(f=>{ const est=String(f.estado||'').toLowerCase(); return est.includes('pagad') && (_valorCobradoWH(f)>0); });
         const nuevosPagos = pagadas.filter(f=> !presentesValidos.has(String(f.id_factura||'').trim()) );
         const aReemplazar = o.movimientos.filter(m=>m.origen==='cierre_wisphub' && _fechaInvalida(m.fecha)).length;
         const porFormaPrev={};
-        nuevosPagos.forEach(f=>{ const fm=_mapearFormaPago((f.forma_pago&&f.forma_pago.nombre)?f.forma_pago.nombre:'Efectivo'); const v=parseFloat(f.total_cobrado||f.total||0)||0; if(!porFormaPrev[fm])porFormaPrev[fm]={n:0,v:0}; porFormaPrev[fm].n++; porFormaPrev[fm].v+=v; });
+        nuevosPagos.forEach(f=>{ const fm=_mapearFormaPago((f.forma_pago&&f.forma_pago.nombre)?f.forma_pago.nombre:'Efectivo'); const v=_valorCobradoWH(f); if(!porFormaPrev[fm])porFormaPrev[fm]={n:0,v:0}; porFormaPrev[fm].n++; porFormaPrev[fm].v+=v; });
 
         _syncPanelSt('¡Datos completos! Preparando vista previa...', 100);
         _syncPanelCerrar();
@@ -35208,6 +35941,15 @@ async function sincronizarTodoWisphub(oid){
             + ((window._clientesFueraDeZona||[]).length ? `\n🔎 IMPORTANTE — ${window._clientesFueraDeZona.reduce((s,x)=>s+x.n,0)} cliente(s) de WispHub están en ZONAS que NO pertenecen a ${o.nombre}, por eso NO se agregan:\n${window._clientesFueraDeZona.slice(0,8).map(x=>`   • Zona "${x.zona}": ${x.n} (ej. ${x.ejemplos.join(', ')})`).join('\n')}\n   👉 Si alguna de esas zonas SÍ es de ${o.nombre}, agrégala en Admin → Editar oficina → Zonas y vuelve a sincronizar. (Si son de otra oficina, ignóralo: se agregarán al sincronizar la otra.)\n` : '')
             + `\n¿Confirmas que aplique estos cambios y guarde?`;
         if(!await _confirmSync(resumen)) return;
+        // v314: la oficina VIVA. Mientras se esperaba la confirmación (pueden ser minutos) un snapshot o una recarga
+        // de movimientos pudo reemplazar el objeto, y lo aplicado sobre el viejo no se guardaba: "sincronicé y no quedó".
+        { const _oV=(DB.oficinas||[]).find(x=>x && x.id===oid); if(_oV && _oV!==o){ console.log('🔁 La oficina se recargó mientras confirmabas: se aplica sobre la versión viva'); o=_oV; } }
+        if(!o.clientes) o.clientes=[];
+        if(!o.movimientos) o.movimientos=[];
+        if(window._cargaMovsIncompleta===true || (window._cargaCompletaPorOficina && window._cargaCompletaPorOficina[oid]===false)){
+            await _avisoSync('⚠️ Mientras confirmabas, los datos se recargaron y no quedaron completos. No se aplicó nada, para no dañar lo que hay: recarga (F5) y vuelve a sincronizar.');
+            return;
+        }
 
         // 5) APLICAR todo EN MEMORIA (sin guardar entre pasos).
         // Antes esto SOLO agregaba. Ahora concilia: agrega, actualiza el servicio
@@ -35227,15 +35969,24 @@ async function sincronizarTodoWisphub(oid){
         // 🔁 Clasificar los recuperados: 'ok' si ya quedó importado (en cualquier oficina) o está en
         // borrados permanentes; 'libre' si su cliente es de OTRA oficina de la misma cuenta (esa
         // oficina lo tomará en SU sincronización; mientras tanto no estorba ni se pierde).
+        // v314: solo cuenta lo de las oficinas de ESTA cuenta, y lo pagado que no tomó nadie ya no queda 'libre'
+        // (definitivo: nadie lo volvía a mirar y la otra oficina tampoco lo recibía): queda 'asig' y se le entrega
+        // al rastreador, que lo reparte con las mismas reglas o lo deja en "Pagos sin oficina" para el admin.
+        const _paraRastreo=[];
         try{
             const cacheG=(DB.gapsFacturas||{})[o.cuentaWisphub];
             if(cacheG && _idsRecuperados.length){
+                const _idsCuenta=new Set((DB.oficinas||[]).filter(of=>of && of.cuentaWisphub===o.cuentaWisphub).map(of=>of.id));
+                const _porId=new Map(facturasRaw.map(f=>[String(f.id_factura||f.id), f]));
                 _idsRecuperados.forEach(idf=>{
-                    const resuelto=(DB.oficinas||[]).some(of=>(of.movimientos||[]).some(m=>String(m.facturaWisphub)===String(idf)))
-                        || (DB.borradosPermanentes||[]).some(b=>String(b.facturaWisphub)===String(idf));
-                    cacheG[idf]= resuelto ? 'ok' : 'libre';
+                    const resuelto=(DB.oficinas||[]).some(of=>_idsCuenta.has(of.id) && (of.movimientos||[]).some(m=>String(m.facturaWisphub)===String(idf)))
+                        || (DB.borradosPermanentes||[]).some(b=>_idsCuenta.has(b.oid) && String(b.facturaWisphub)===String(idf));
+                    if(resuelto){ cacheG[idf]='ok'; return; }
+                    const _f=_porId.get(String(idf));
+                    if(_f && _valorCobradoWH(_f)>0){ cacheG[idf]='asig'; _paraRastreo.push(Number(idf)); } else cacheG[idf]='no';
                 });
             }
+            _pagadasSinDueno(o.cuentaWisphub, facturasRaw).forEach(n=>_paraRastreo.push(n));
         }catch(e){}
 
         // FASE 2 — cruce de facturas + estados de clientes existentes (en memoria, sin guardar).
@@ -35246,6 +35997,7 @@ async function sincronizarTodoWisphub(oid){
         // 6) UN SOLO guardado (optimizado + en lotes, como tu guardado de siempre).
         registrarLog('SYNC_TODO_WISPHUB',{ oficinaId:o.id, cuenta:o.cuentaWisphub, clientesNuevos:resCli.agregados, clientesActualizados:resEst.actualizados, pagosNuevos:resPag.creados, pagosCorregidos:resPag.aReemplazar, serviciosFact:resFact.serviciosActualizados });
         await save();
+        if(_paraRastreo.length){ try{ await _rastreoEntregarUrgentes(o.cuentaWisphub, _paraRastreo, 'sincronización completa'); }catch(eP){} }   // v314
 
         // 7) Refrescar UNA vez.
         if(typeof renderClientes==='function') renderClientes();
@@ -35469,7 +36221,7 @@ function _aplicarFacturasWisphub(oficinaId, facturasW){
             estado: _mapearEstadoFacturaWisphub(fw.estado),
             tipoWisphub: (fw.tipo!=null ? Number(fw.tipo) : null), // 1=mensualidad, 2=Otro Ingreso (traslado/saldo/reconexión)
             total: parseFloat(fw.total || 0) || 0,
-            totalCobrado: parseFloat(fw.total_cobrado||fw.total||0) || 0, // 💰 lo REALMENTE pagado (puede ser < total si fue abono parcial). El recaudo del panel debe usar esto, igual que la caja.
+            totalCobrado: _valorCobradoWH(fw),   // v314: un total_cobrado de 0 (saldo a favor) ya no se vuelve el total // 💰 lo REALMENTE pagado (puede ser < total si fue abono parcial). El recaudo del panel debe usar esto, igual que la caja.
             // 📊 Datos para Reportes: concepto (instalación/mensualidad/etc.), forma de pago y cajero
             concepto: (fw.articulos && fw.articulos[0] && fw.articulos[0].descripcion) ? String(fw.articulos[0].descripcion).trim() : '',
             formaPago: (fw.forma_pago && fw.forma_pago.nombre) ? fw.forma_pago.nombre : '',
