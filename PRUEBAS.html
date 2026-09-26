@@ -1610,8 +1610,8 @@ const PRUEBAS = [
       +'\nLa lista de RRHH que ve el rol SG-SST trae a todos los empleados y ninguno lleva salario, auxilio ni contraseña ✓'
      : JSON.stringify(r)};}},
 {app:'ofi', titulo:'SG-SST: la matriz de 60 estándares calcula como la tabla oficial del Ministerio',
- porque:'Fase 1 del plan SG-SST (11 sep 2026). La empresa tiene técnicos en riesgo V, así que le aplican los 60 '
-       +'estándares del art. 16 de la Res. 0312/2019, no los 21 con los que nació el módulo. Aquí se comprueba la '
+ porque:'Fase 1 del plan SG-SST (11 sep 2026). La matriz de 60 es la tabla oficial completa del art. 16 de la Res. 0312/2019; '
+       +'cuántos se exigen (7, 21 o 60) lo fija el régimen de cada vigencia (v315, Decreto 768/2022), no el riesgo de cada técnico. Aquí se comprueba la '
        +'matriz (60 ítems, 100 puntos, ciclos 25/60/5/10), la calificación del art. 27 (no aplica sin justificación '
        +'vale 0, parcial no suma), los rangos del art. 28 en los bordes, el mapeo de los 21 ítems viejos sin perder '
        +'adjuntos, la lectura del Excel oficial, las columnas del exporte y los avisos del registro en SGRL.',
@@ -1651,6 +1651,323 @@ const PRUEBAS = [
       +'\nEl exporte tiene las 60 filas con las mismas columnas de la tabla oficial (ciclo, estándar, sub-estándar, ítem, valor, peso) ✓'
       +'\nAvisos de SGRL: vencido el plazo con plataforma abierta, plataforma cerrada, pendiente, registrada y sin fechas ✓'
      : JSON.stringify(r)};}},
+{app:'ofi', titulo:'SG-SST v315: el régimen de 21 calcula como el art. 27 y no toca los 60',
+ porque:'Decisión del dueño (26 sep 2026, Decreto 768/2022): el capítulo de estándares mínimos lo fija la clase de riesgo de la '
+       +'actividad económica principal ante la ARL, no la de cada técnico. Con 11 a 50 trabajadores en riesgo I, II o III se '
+       +'exigen 21 ítems (art. 9, Res. 0312/2019) y los otros 39 se reportan como "No aplica" sumando su valor por ley (art. 27). '
+       +'Aquí se comprueba que la lista de 21 es la correcta (suma 37,75), que con régimen 21 el puntaje sale como en la '
+       +'herramienta de la ARL (todo sin cumplir = 62,25; solo 6.1.3 sin cumplir = 98,75) y que sin régimen todo sigue igual.',
+ correr:W=>{ const r=E(W,
+     'const falta=["SGSST_ITEMS_21","SGSST_MATRIZ_60","_sgCalcular","_sgItemsVacios","_sgKey"].filter(n=>eval("typeof "+n)==="undefined"); if(falta.length) return {falta};'
+   +'const L=SGSST_ITEMS_21, M=SGSST_MATRIZ_60; const r2=x=>Math.round(x*100)/100;'
+   +'const suma=r2(L.reduce((s,k)=>s+((M.find(d=>d.k===k)||{}).v||0),0)); const porCiclo={}; L.forEach(k=>{ const d=M.find(x=>x.k===k); if(d) porCiclo[d.c]=r2((porCiclo[d.c]||0)+d.v); });'
+   +'const todo=(cal)=>{ const o=_sgItemsVacios(); Object.keys(o).forEach(k=>{ o[k].calificacion=cal; if(cal==="no_aplica") o[k].justificacion="porque si"; }); return o; };'
+   +'const s60={ c100:_sgCalcular(todo("cumple")).total, c0:_sgCalcular(todo("no_cumple")).total, faltan:_sgCalcular(_sgItemsVacios()).faltan, sinReg:_sgCalcular(todo("cumple")).regimen };'
+   +'const nc=todo("no_cumple"); const antes=JSON.stringify(nc); const c21nc=_sgCalcular(nc,"21"); const mut=antes===JSON.stringify(nc);'
+   +'const c21ok=_sgCalcular(todo("cumple"),"21");'
+   +'const casi=todo("cumple"); casi[_sgKey("6.1.3")].calificacion="no_cumple"; const c21casi=_sgCalcular(casi,"21");'
+   +'const c21vacio=_sgCalcular(_sgItemsVacios(),"21");'
+   +'const dos=_sgItemsVacios(); dos[_sgKey("5.1.1")].calificacion="cumple"; dos[_sgKey("5.1.2")].calificacion="cumple"; const c21dos=_sgCalcular(dos,"21");'
+   +'const nx=todo("cumple"); nx[_sgKey("1.1.7")].calificacion="no_cumple"; nx[_sgKey("4.1.1")].calificacion="no_cumple"; const c21nx=_sgCalcular(nx,"21");'
+   +'const extra=todo("cumple"); extra.iA_1={calificacion:"cumple"}; const c21extra=_sgCalcular(extra,"21"), c60extra=_sgCalcular(extra);'
+   +'return { n:L.length, unicos:new Set(L).size, existen:L.every(k=>M.some(d=>d.k===k)), suma, ciclos:[porCiclo.PLANEAR||0, porCiclo.HACER||0, porCiclo.VERIFICAR||0, porCiclo.ACTUAR||0], s60, nc:{t:c21nc.total, texto:c21nc.texto, reg:c21nc.regimen}, mut, ok21:{t:c21ok.total, pc:[c21ok.porCiclo.PLANEAR.exigible, c21ok.porCiclo.HACER.obtenidoExigible, c21ok.porCiclo.VERIFICAR.exigible, c21ok.porCiclo.ACTUAR.exigible]}, casi:c21casi.total, vacio:{cal:c21vacio.calificados, faltan:c21vacio.faltan, noEx:c21vacio.noExigibles, ex:c21vacio.exigibles, pEx:c21vacio.puntosExigibles, pNoEx:c21vacio.puntosNoExigibles, pct:c21vacio.pctExigible, vol:c21vacio.voluntarios}, dos:{ob:c21dos.obtenidoExigible, pct:c21dos.pctExigible}, nx:{t:c21nx.total, vol:c21nx.voluntarios}, extra:[c21extra.total, c60extra.total] };');
+   if(r.falta) return {ok:false, detalle:'Faltan en OFICINAS: '+r.falta.join(', ')};
+   const bien = r.n===21 && r.unicos===21 && r.existen===true && r.suma===37.75 && JSON.stringify(r.ciclos)==='[9.5,27,1.25,0]'
+     && r.s60.c100===100 && r.s60.c0===0 && r.s60.faltan===60 && (r.s60.sinReg===undefined || r.s60.sinReg==='60')
+     && r.nc.t===62.25 && r.nc.texto==='MODERADAMENTE ACEPTABLE' && r.nc.reg==='21' && r.mut===true
+     && r.ok21.t===100 && JSON.stringify(r.ok21.pc)==='[9.5,27,1.25,0]' && r.casi===98.75
+     && r.vacio.cal===0 && r.vacio.faltan===21 && r.vacio.noEx===39 && r.vacio.ex===21 && r.vacio.pEx===37.75 && r.vacio.pNoEx===62.25 && r.vacio.pct===0 && r.vacio.vol===0
+     && r.dos.ob===10 && r.dos.pct===26 && r.nx.t===100 && r.nx.vol===39 && JSON.stringify(r.extra)==='[100,100]';
+   return {ok:bien, detalle: bien
+     ? 'Los 21 ítems del art. 9 existen en la matriz, no se repiten y suman 37,75 (Planear 9,5 · Hacer 27 · Verificar 1,25 · Actuar 0) ✓'
+      +'\nSin régimen, _sgCalcular sigue igual: todo cumple 100, todo no cumple 0, vacío faltan 60 ✓'
+      +'\nCon régimen 21: todo sin cumplir da 62,25 (los 39 que no se exigen suman por ley, art. 27) y queda moderadamente aceptable; todo cumple 100; solo 6.1.3 sin cumplir 98,75 ✓'
+      +'\nVacío en 21: 0 calificados, faltan 21, 39 no exigibles, 37,75 puntos exigibles, 0 % de cumplimiento; con 5.1.1 y 5.1.2 cumplidos: 10 de 37,75 = 26 % ✓'
+      +'\n1.1.7 y 4.1.1 (los que la migración vieja creía exigibles) no bajan el puntaje en 21 y cuentan como voluntarios; la lista de ítems no se modifica y una llave extraña no estorba ✓'
+     : JSON.stringify(r)};}},
+{app:'ofi', titulo:'SG-SST v315: el exporte oficial con régimen 21 marca los 39 como No aplica, y sin régimen es idéntico',
+ porque:'El Excel y el PDF que se suben a SGRL son un documento público firmado. Con régimen 21 la tabla oficial debe llevar los 39 '
+       +'ítems que no se exigen con X en "No aplica" y la justificación legal (arts. 9 y 27), aunque la oficina no los haya '
+       +'calificado o los lleve por control interno; los 21 exigibles van como se calificaron y el puntaje del grupo incluye lo '
+       +'que entra por ley. El plan de mejoramiento solo lista lo exigible que falla, más cualquier ítem que ya tenga acciones. '
+       +'Sin régimen, filas y plan quedan exactamente como hoy.',
+ correr:W=>{ const r=E(W,
+     'const falta=["SGSST_ITEMS_21","SGSST_MATRIZ_60","_sgFilasOficiales","_sgFilasPlan","_sgEncabezadoExport","_sgItemsVacios","_sgKey","_sgMezclar"].filter(n=>eval("typeof "+n)==="undefined"); if(falta.length) return {falta};'
+   +'const M=SGSST_MATRIZ_60; const ex=new Set(SGSST_ITEMS_21);'
+   +'const todo=(cal)=>{ const o=_sgItemsVacios(); Object.keys(o).forEach(k=>{ o[k].calificacion=cal; }); return o; };'
+   +'const of=_sgFilasOficiales({items:todo("cumple")}); const esp0=[M[0].c, M[0].e, M[0].s, M[0].k+" "+M[0].n, M[0].v, M[0].p], esp1=["","","", M[1].k+" "+M[1].n, M[1].v, ""];'
+   +'const mix=_sgItemsVacios(); SGSST_ITEMS_21.forEach(k=>{ mix[_sgKey(k)].calificacion="cumple"; }); mix[_sgKey("6.1.3")].calificacion="no_cumple"; mix[_sgKey("1.1.2")].calificacion="cumple"; mix[_sgKey("1.1.5")].calificacion="no_cumple";'
+   +'const o60=_sgFilasOficiales({items:mix}), o21=_sgFilasOficiales({items:mix},"21");'
+   +'const noEx=o21.filter((f,i)=>!ex.has(M[i].k)); const i613=M.findIndex(d=>d.k==="6.1.3"), i112=M.findIndex(d=>d.k==="1.1.2"), i115=M.findIndex(d=>d.k==="1.1.5"), i117=M.findIndex(d=>d.k==="1.1.7");'
+   +'const cal=f=>f.slice(6,9).join("|");'
+   +'const pl=_sgItemsVacios(); pl[_sgKey("1.1.5")].calificacion="no_cumple"; pl[_sgKey("1.1.7")].plan=[{id:"p1", accion:"Capacitar al COPASST", responsable:"Ana", fecha:"2026-10-01", estado:"pendiente"}]; pl[_sgKey("6.1.3")].calificacion="no_cumple"; pl[_sgKey("1.1.1")].calificacion="no_aplica";'
+   +'const p60=_sgFilasPlan({items:pl}).map(x=>x.def.k), p21=_sgFilasPlan({items:pl},"21").map(x=>x.def.k);'
+   +'const sg=window._sg; const gC=sg.config; let enc21="", enc60="", enc0="";'
+   +'try{ sg.config=_sgMezclar(gC||{}, {vigencias:{"2099":{regimen:"21", alcance:{trabajadores:20, claseRiesgoPrincipal:"III"}}, "2098":{}}}); enc21=_sgEncabezadoExport("2099").join(" | "); enc60=_sgEncabezadoExport("2098").join(" | "); enc0=String(_sgEncabezadoExport("2098")[0]); } finally { sg.config=gC; }'
+   +'return { n:[of.length, o21.length], f0:JSON.stringify(of[0].slice(0,6))===JSON.stringify(esp0), f1:JSON.stringify(of[1].slice(0,6))===JSON.stringify(esp1), f0b:JSON.stringify(o21[0].slice(0,6))===JSON.stringify(esp0), noExN:noEx.length, noExOk:noEx.every(f=>cal(f)==="||X" && /arts?\\. 9/.test(String(f[10]))), c613:cal(o21[i613]), c111:cal(o21[0]), j111:String(o21[0][10]), g21:o21[0][9], g60:o60[0][9], s112:cal(o60[i112]), s115:cal(o60[i115]), s117:cal(o60[i117]), j117:String(o60[i117][10]), p60:JSON.stringify(p60), p21:JSON.stringify(p21), enc:{reg21:/Régimen/.test(enc21) && /21 estándares/.test(enc21), trab:/Trabajadores: 20/.test(enc21), reg60:/60 estándares/.test(enc60), primera:/^Razón social/.test(enc0)} };');
+   if(r.falta) return {ok:false, detalle:'Faltan en OFICINAS: '+r.falta.join(', ')};
+   const bien = JSON.stringify(r.n)==='[60,60]' && r.f0===true && r.f1===true && r.f0b===true
+     && r.noExN===39 && r.noExOk===true && r.c613==='|X|' && r.c111==='X||' && r.j111==='' && r.g21===4 && r.g60===3
+     && r.s112==='X||' && r.s115==='|X|' && r.s117==='||' && r.j117===''
+     && r.p60==='["1.1.1","1.1.5","1.1.7","6.1.3"]' && r.p21==='["1.1.1","1.1.7","6.1.3"]'
+     && r.enc.reg21===true && r.enc.trab===true && r.enc.reg60===true && r.enc.primera===true;
+   return {ok:bien, detalle: bien
+     ? 'Sin régimen: 60 filas con las mismas seis primeras columnas de siempre (ciclo, estándar, sub-estándar, ítem, valor, peso) ✓'
+      +'\nCon régimen 21: 60 filas; los 39 no exigibles llevan "" / "" / X (cumple / no cumple / no aplica) y una justificación que cita el art. 9, aunque estén sin calificar o calificados por control interno ✓'
+      +'\nLos exigibles conservan lo guardado (1.1.1 cumple → X en cumple; 6.1.3 no cumple → X en no cumple); el grupo 1.1 suma 4 con lo que entra por ley (sin régimen, 3) ✓'
+      +'\nSin régimen, las filas siguen mostrando lo calificado (1.1.2 cumple, 1.1.5 no cumple, 1.1.7 en blanco) ✓'
+      +'\nPlan de mejoramiento: sin régimen trae 1.1.1, 1.1.5, 1.1.7 y 6.1.3; con 21 saca el 1.1.5 (no exigible sin acciones) y conserva el 1.1.7 porque ya tiene acciones ✓'
+      +'\nEl encabezado del exporte dice el régimen (21 estándares con sus trabajadores, o 60 estándares) y sigue empezando por la razón social ✓'
+     : JSON.stringify(r)};}},
+{app:'ofi', titulo:'SG-SST v315: el capítulo sugerido sigue los arts. 3, 9, 15 y 16 y el régimen se guarda sin pisar el historial',
+ porque:'Res. 0312/2019: hasta 10 trabajadores en riesgo I-III son 7 estándares (art. 3); de 11 a 50 en riesgo I-III son 21 (art. 9); '
+       +'más de 50, o riesgo IV o V, son 60 (arts. 15 y 16). La clase que manda es la de la actividad económica principal '
+       +'(Decreto 768/2022). Sin régimen fijado la vigencia se calcula con 60, como hoy; una vigencia cerrada o ya registrada '
+       +'en SGRL no cambia de régimen; el historial es un mapa por id para que dos sesiones no se pisen; y lo que se guarda '
+       +'lleva el rol, nunca el nombre de la persona, porque la colección se lee desde internet.',
+ correr:async W=>{ const r=await E(W,
+     'const falta=["SGSST_ITEMS_21","SGSST_REGIMENES","_sgCapituloSugerido","_sgRegimenDe","_sgExigiblesDe","_sgExigible","_sgRegimenBloqueado","_sgMezclar","sgGuardarRegimenSG","modalRegimenSG","sgImportarOficial","_sgItemsImportados","_sgItemsTrasImportar","_sgItemsVacios","_sgKey","_sgLeer","_sgTraducirError","_sgRefrescarConfig"].filter(n=>eval("typeof "+n)==="undefined"); if(falta.length) return {falta};'
+   +'const cap=[[8,"II"],[20,"III"],[50,"III"],[51,"I"],[20,"IV"],[5,"V"],[null,""]].map(a=>_sgCapituloSugerido(a[0],a[1]));'
+   +'const sg=window._sg; const gC=sg.config, gV=sg.vig; const R={};'
+   +'try{'
+   +'  sg.vig=Object.assign({}, gV); ["2095","2096","2097","2098"].forEach(a=>{ sg.vig[a]={vigencia:a, items:{}}; }); sg.vig["2098"].cerrada=true;'
+   +'  sg.config=_sgMezclar(gC||{}, {vigencias:{"2097":{}, "2098":{regimen:"21"}, "2096":{regimen:"21", exigibles:["1.1.1","2.1.1"]}, "2095":{regimen:"21", registradaEn:"2026-05-01"}}});'
+   +'  R.reg=[_sgRegimenDe("2097"), _sgRegimenDe("2098"), _sgRegimenDe("2094")];'
+   +'  R.ex=[JSON.stringify(_sgExigiblesDe("2096")), JSON.stringify(_sgExigiblesDe("2098"))===JSON.stringify(SGSST_ITEMS_21), _sgExigiblesDe("2097")];'
+   +'  const b=[_sgRegimenBloqueado("2098"), _sgRegimenBloqueado("2095"), _sgRegimenBloqueado("2097")]; R.bl=b.map(x=>!!(x&&x.bloqueado)); R.blMotivo=[String((b[0]||{}).motivo||""), String((b[1]||{}).motivo||"")];'
+   +'  R.exi=[_sgExigible("1.1.1","60",null), _sgExigible("1.1.2","60",null), _sgExigible("1.1.1","21",SGSST_ITEMS_21), _sgExigible("1.1.2","21",SGSST_ITEMS_21), _sgExigible("1.1.2","",null)];'
+   +'} finally { sg.config=gC; sg.vig=gV; }'
+   +'const mz=_sgMezclar({vigencias:{"2026":{regimen:"60", regimenHistorial:{a:{de:"60", a:"21"}}}}}, {vigencias:{"2026":{regimen:"21", regimenHistorial:{b:{de:"21", a:"60"}}}}}); const h=(mz.vigencias["2026"]||{}).regimenHistorial||{};'
+   +'const src=sgGuardarRegimenSG.toString();'
+   +'const itX=_sgItemsVacios(); const kX=_sgKey("1.1.6"); Object.assign(itX[kX], { calificacion:"cumple", plan:[{id:"p1"}], adjuntos:[{id:"a1"}], responsable:"Ana", fechaObjetivo:"2026-12-01", evidencia:"acta", trabajo:"parcial", actualizadoEn:"2026-09-26" }); Object.assign(itX[_sgKey("7.1.2")], { calificacion:"no_cumple", trabajo:"parcial", actualizadoEn:"2026-09-26" });'
+   +'const kNA=_sgKey("1.1.3"), kNB=_sgKey("1.1.4"); Object.assign(itX[kNA], { calificacion:"no_aplica", justificacion:"Importado (texto fijo)", actualizadoEn:"2026-09-26" }); Object.assign(itX[kNB], { calificacion:"no_aplica", justificacion:"Importado (texto fijo)", actualizadoEn:"2026-09-26" });'
+   +'const prevX={ [kNA]:{ calificacion:"no_aplica", justificacion:"La empresa no tiene sede propia" }, [kNB]:{ calificacion:"cumple", justificacion:"" }, [_sgKey("1.1.1")]:{ calificacion:"cumple", actualizadoEn:"2026-01-01", plan:[{id:"p9"}] } };'
+   +'const impE=_sgItemsImportados(itX, true, prevX), impN=_sgItemsImportados(itX, false, prevX); const llavesE=Object.values(impE).flatMap(i=>Object.keys(i)); const imp={ n:Object.keys(impE).length, sinPlan:!llavesE.some(k=>["plan","adjuntos","responsable","fechaObjetivo","evidencia"].includes(k)), cal:impE[kX].calificacion, trabajo:impE[kX].trabajo, trabajoNC:("trabajo" in impE[_sgKey("7.1.2")]), nuevo:impN===itX, intacto:(itX[kX].plan||[]).length===1, ausente:!(_sgKey("1.1.1") in impE), justCumple:("justificacion" in impE[kX]), justPrev:impE[kNA].justificacion, justFija:impE[kNB].justificacion };'
+   +'const fusX=_sgItemsTrasImportar(prevX, impE); imp.fusion=!!(fusX[_sgKey("1.1.1")].calificacion==="cumple" && (fusX[_sgKey("1.1.1")].plan||[]).length===1 && fusX[kX].calificacion==="cumple" && fusX[kNA].justificacion==="La empresa no tiene sede propia" && fusX[kNB].calificacion==="no_aplica" && Object.keys(prevX).length===3 && !("plan" in impE[kNA]));'
+   +'const srcImp=sgImportarOficial.toString(); const impSrc={ fija60:/regI=.60./.test(srcImp), usaHelper:/_sgItemsImportados\\(/.test(srcImp), cierraSiempre:/origen:.excel., cerrada:true/.test(srcImp), bloqueo:/_sgRegimenBloqueado\\(/.test(srcImp), capitulo:/capituloSugerido/.test(srcImp), exigibles:/_sgExigiblesDe\\(/.test(srcImp), leePrev:/_sgLeer\\(_sgDocVig\\(anio\\)\\)/.test(srcImp), leeConfig:/_sgRefrescarConfig\\(/.test(srcImp), traduce:/No se pudo importar: .\\+_sgTraducirError\\(e\\)/.test(srcImp), crudo:/e\\.message\\)\\|\\|e\\)/.test(srcImp) };'
+   +'const gd={ vig:sg.vig, config:sg.config, user:USER, leer:_sgLeer, esc:_sgEscribir, alert:window.alert }; const R2={};'
+   +'return (async function(){ try{'
+   +'  USER={role:"sgsst", id:"prueba", nombre:"Prueba"}; sg.vig=Object.assign({}, gd.vig); delete sg.vig["2093"]; sg.config=_sgMezclar(gd.config||{}, {vigencias:{"2093":{regimen:"60"}}});'
+   +'  const escritas=[], avisos=[]; _sgEscribir=async(d,x)=>{ escritas.push(d); }; window.alert=t=>{ avisos.push(String(t)); };'
+   +'  _sgLeer=async n=>({ vigencia:"2093", cerrada:true, items:{} });'
+   +'  await sgGuardarRegimenSG("2093"); R2.cerradaNube={ escritas:escritas.length, aviso:avisos.some(t=>/cerrada/.test(t)), enMemoria:!!(sg.vig["2093"]&&sg.vig["2093"].cerrada===true) };'
+   +'  delete sg.vig["2093"]; escritas.length=0; avisos.length=0; _sgLeer=async n=>{ throw new Error("sin red simulada"); };'
+   +'  await sgGuardarRegimenSG("2093"); R2.sinRed={ escritas:escritas.length, aviso:avisos.some(t=>/No se pudo comprobar/.test(t)) };'
+   +'  delete sg.vig["2093"]; escritas.length=0; avisos.length=0; sg.config=_sgMezclar(gd.config||{}, {vigencias:{"2093":{regimen:"60", registradaEn:""}}}); _sgLeer=async n=>(n==="sgsst_config"?{ vigencias:{"2093":{regimen:"60", registradaEn:"2026-05-01"}} }:{ vigencia:"2093", cerrada:false, items:{} });'
+   +'  await sgGuardarRegimenSG("2093"); R2.registradaNube={ escritas:escritas.length, aviso:avisos.some(t=>/SGRL/.test(t)), enMemoria:String((((sg.config||{}).vigencias||{})["2093"]||{}).registradaEn||"")==="2026-05-01" };'
+   +'} finally { sg.vig=gd.vig; sg.config=gd.config; USER=gd.user; _sgLeer=gd.leer; _sgEscribir=gd.esc; window.alert=gd.alert; }'
+   +'return { cap, reg:R.reg, ex:R.ex, bl:R.bl, blMotivo:R.blMotivo, exi:R.exi, hist:{a:!!(h.a&&h.a.a==="21"), b:!!(h.b&&h.b.a==="60"), reg:mz.vigencias["2026"].regimen}, regs:Object.keys(SGSST_REGIMENES).sort().join(","), src:{role:/USER\\.role/.test(src), nombre:/USER\\.nombre/.test(src), cfg:/_sgRefrescarConfig\\(/.test(src)}, imp, impSrc, regBl:R2 }; })();');
+   if(r.falta) return {ok:false, detalle:'Faltan en OFICINAS: '+r.falta.join(', ')};
+   const bien = JSON.stringify(r.cap)==='["7","21","21","60","60","60","sin_datos"]'
+     && JSON.stringify(r.reg)==='["60","21","60"]'
+     && r.ex[0]==='["1.1.1","2.1.1"]' && r.ex[1]===true && r.ex[2]===null
+     && JSON.stringify(r.bl)==='[true,true,false]' && r.blMotivo[0].length>0 && r.blMotivo[1].length>0
+     && JSON.stringify(r.exi)==='[true,true,true,false,true]'
+     && r.hist.a===true && r.hist.b===true && r.hist.reg==='21' && r.regs==='21,60'
+     && r.src.role===true && r.src.nombre===false
+     && r.imp.n===4 && r.imp.sinPlan===true && r.imp.cal==='cumple' && r.imp.trabajo==='' && r.imp.trabajoNC===false && r.imp.nuevo===true && r.imp.intacto===true
+     && r.imp.ausente===true && r.imp.justCumple===false && r.imp.justPrev==='La empresa no tiene sede propia' && r.imp.justFija==='Importado (texto fijo)' && r.imp.fusion===true
+     && r.impSrc.fija60===false && r.impSrc.usaHelper===true && r.impSrc.cierraSiempre===false && r.impSrc.bloqueo===true && r.impSrc.capitulo===true && r.impSrc.exigibles===true && r.impSrc.leePrev===true
+     && r.regBl.cerradaNube.escritas===0 && r.regBl.cerradaNube.aviso===true && r.regBl.cerradaNube.enMemoria===true && r.regBl.sinRed.escritas===0 && r.regBl.sinRed.aviso===true
+     && r.regBl.registradaNube.escritas===0 && r.regBl.registradaNube.aviso===true && r.regBl.registradaNube.enMemoria===true && r.src.cfg===true
+     && r.impSrc.leeConfig===true && r.impSrc.traduce===true && r.impSrc.crudo===false;
+   return {ok:bien, detalle: bien
+     ? 'Capítulo sugerido: 8 personas en II → 7; 20 y 50 en III → 21; 51 en I → 60; 20 en IV → 60; 5 en V → 60; sin datos → sin_datos ✓'
+      +'\nUna vigencia sin régimen fijado (o que no existe) se calcula con 60; con régimen 21 devuelve 21 ✓'
+      +'\nLos exigibles salen de lo guardado en la vigencia si existe, de la constante SGSST_ITEMS_21 si no, y son "todos" (null) en régimen 60 ✓'
+      +'\nNo se puede cambiar el régimen de una vigencia cerrada ni de una ya registrada en SGRL (con motivo en pantalla); una abierta sí ✓'
+      +'\n_sgExigible: en 60 todo es exigible; en 21 solo lo de la lista ✓'
+      +'\nEl historial del régimen es un mapa por id: la fusión conserva la entrada a de una sesión y la b de otra, y el régimen nuevo pisa al viejo ✓'
+      +'\nLo que guarda sgGuardarRegimenSG lleva USER.role y nunca USER.nombre ✓'
+      +'\nImportar el Excel sobre una vigencia que ya existe solo escribe la calificación de los ítems que trae el archivo (el que no viene conserva la suya; plan, documentos, responsable, fecha objetivo y evidencia se conservan), la justificación solo va en "no aplica" y si ya había una propia se conserva; no la cierra a la fuerza y no fija régimen 60 por sí solo ✓'
+      +'\nEl importador lee lo guardado antes de escribir, respeta el candado de vigencia cerrada o registrada y el capítulo que dice el alcance, y calcula con los exigibles guardados en la vigencia ✓'
+      +'\nGuardar el régimen relee la vigencia y sgsst_config en la nube: si allá está cerrada o ya registrada en SGRL bloquea aunque la memoria no lo supiera, y si no se puede leer avisa y no guarda ✓'
+      +'\nEl importador también relee sgsst_config antes de decidir, y si falla la nube avisa en español (no con el texto técnico de Firebase) ✓'
+     : JSON.stringify(r)};}},
+{app:'ofi', titulo:'SG-SST v315: la batería psicosocial vence según el nivel y nunca guarda datos por persona',
+ porque:'Res. 2764/2022, art. 3: si la Forma A o la Forma B dan riesgo alto o muy alto, la batería se repite cada año; si no, '
+       +'como mínimo cada dos años. Art. 5: la empresa solo conserva el informe consolidado por grupos, nunca cuestionarios ni '
+       +'resultados por persona, y menos en una colección que se lee desde internet. Por eso el registro pasa por una lista '
+       +'blanca, un grupo con menos de 5 evaluados no guarda su nivel, y la periodicidad sale del nivel máximo.',
+ correr:W=>{ const r=E(W,
+     'const falta=["SGSST_PSICO_NIVELES","SGSST_CONFIG_DEF","_sgMezclar","_sgPsicoPeriodicidadMeses","_sgPsicoRegistroDe","_sgPsicoNivelMax","_sgPsicoVivas","_sgPsicoUltima","_sgPsicoEstado","_sgPsicoResumenTexto","modalPsicosocialSG","sgGuardarPsicosocialSG","sgArchivarPsicoSG","_sgPsicoHeredarReservado"].filter(n=>eval("typeof "+n)==="undefined"); if(falta.length) return {falta};'
+   +'const cfg=_sgMezclar(SGSST_CONFIG_DEF, {}); const cfgN=m=>_sgMezclar(SGSST_CONFIG_DEF, {periodicidades:{psicosocialMeses:m}});'
+   +'const per=[_sgPsicoPeriodicidadMeses({anualObligatoria:true}, cfg), _sgPsicoPeriodicidadMeses({nivelMax:"alto"}, cfg), _sgPsicoPeriodicidadMeses({nivelMax:"medio"}, cfgN(24)), _sgPsicoPeriodicidadMeses({nivelMax:"medio"}, cfgN(36)), _sgPsicoPeriodicidadMeses({nivelMax:"medio"}, cfgN(6)), _sgPsicoPeriodicidadMeses(null, cfgN(18))];'
+   +'const app=_sgPsicoRegistroDe({fecha:"2026-01-10", evaluadosA:2, nivelA:"alto", evaluadosB:8, nivelB:"bajo", pid:"x", documento:"1", persona:"y", puntaje:9, aplicador:{nombre:"Dra. P", licencia:"L-1"}});'
+   +'const reg={ sinPersona:!["pid","documento","persona","puntaje"].some(k=>k in app), nivelA:app.nivelA, resA:(app.reservados||[]).includes("A"), nivelB:app.nivelB, resB:(app.reservados||[]).includes("B"), max:app.nivelMax, anual:app.anualObligatoria, fecha:app.fecha, id:typeof app.id==="string"&&app.id.length>2, evA:app.evaluadosA, arch:app.archivada };'
+   +'const nm=[_sgPsicoNivelMax({nivelA:"bajo", nivelB:"", nivelExtralaboral:"muy_alto", nivelEstres:"medio"}), _sgPsicoNivelMax({nivelA:"medio", nivelB:"bajo"}), _sgPsicoNivelMax({})];'
+   +'const mk=(fecha, nivel, extra)=>Object.assign({ id:"ps"+fecha.replace(/-/g,""), fecha, nivelMax:nivel, anualObligatoria:(nivel==="alto"||nivel==="muy_alto"), archivada:false, aplicador:{nombre:"Dra. P", licencia:"L-1"}, consentimiento:true, reservaExperto:true, fechaInforme:fecha, planIntervencion:"Pausas activas", adjuntos:[] }, extra||{});'
+   +'const hoy="2026-09-26";'
+   +'const eAlto=_sgPsicoEstado({ aplicaciones:{ a1:mk("2025-09-01","alto") } }, hoy, cfg);'
+   +'const eBajo=_sgPsicoEstado({ aplicaciones:{ a1:mk("2025-09-01","bajo") } }, hoy, cfg);'
+   +'const eArch=_sgPsicoEstado({ aplicaciones:{ a1:mk("2025-09-01","bajo"), a2:mk("2026-06-01","bajo",{archivada:true}) } }, hoy, cfg);'
+   +'const eLeg=_sgPsicoEstado({ ultimaBateria:"2026-03-01", aplicaciones:{} }, hoy, cfg);'
+   +'const eNada=_sgPsicoEstado({ aplicaciones:{} }, hoy, cfg);'
+   +'const eFalta=_sgPsicoEstado({ aplicaciones:{ a1:{ id:"a1", fecha:"2026-08-01", nivelMax:"", archivada:false, aplicador:{nombre:"X"}, adjuntos:[] } } }, hoy, cfg); const ft=(eFalta.faltantes||[]).join(" / ");'
+   +'const vivas=_sgPsicoVivas({ aplicaciones:{ a1:mk("2025-09-01","bajo"), a2:mk("2026-06-01","bajo",{archivada:true}), a3:mk("2026-02-01","medio") } }).map(a=>a.fecha);'
+   +'const ult=_sgPsicoUltima({ ultimaBateria:"2026-03-01", acciones:"Plan X", resultado:"Nivel máximo: medio", aplicaciones:{} })||{};'
+   +'const psLeg={ ultimaBateria:"2026-03-01", adjuntos:[{id:"ad1", nombre:"informe.pdf", docId:"df1"}], aplicaciones:{} }; const ultAdj=_sgPsicoUltima(psLeg)||{}; const eLegAdj=_sgPsicoEstado(psLeg, hoy, cfg);'
+   +'const antRes=_sgPsicoRegistroDe({ fecha:"2025-08-10", evaluadosA:3, nivelA:"muy_alto", evaluadosB:9, nivelB:"bajo", aplicador:{nombre:"Dra. P"} }); const fV={ fecha:"2025-08-10", evaluadosA:3, nivelA:"", evaluadosB:9, nivelB:"bajo", aplicador:{nombre:"Dra. P", licencia:"L-1"} };'
+   +'const hV=_sgPsicoHeredarReservado(_sgPsicoRegistroDe(fV), fV, antRes); const fL=Object.assign({}, fV, {nivelA:"bajo"}); const hL=_sgPsicoHeredarReservado(_sgPsicoRegistroDe(fL), fL, antRes);'
+   +'const antSin=_sgPsicoRegistroDe({ fecha:"2025-08-10", evaluadosA:3, nivelA:"", evaluadosB:9, nivelB:"alto" }); const fB=Object.assign({}, fV, {nivelB:"bajo"}); const hB=_sgPsicoHeredarReservado(_sgPsicoRegistroDe(fB), fB, antSin);'
+   +'const antEmp=_sgPsicoRegistroDe({ fecha:"2025-08-10", evaluadosA:2, nivelA:"alto", evaluadosB:9, nivelB:"alto" }); const fE={ fecha:"2025-08-10", evaluadosA:2, nivelA:"", evaluadosB:9, nivelB:"bajo", aplicador:{nombre:"Dra. P"} }; const hE=_sgPsicoHeredarReservado(_sgPsicoRegistroDe(fE), fE, antEmp); const fE2=Object.assign({}, fE, {nivelA:"bajo"}); const hE2=_sgPsicoHeredarReservado(_sgPsicoRegistroDe(fE2), fE2, antEmp);'
+   +'const her={ antMax:antRes.nivelMax, antA:antRes.nivelA, vacio:[hV.nivelMax, hV.anualObligatoria, hV.id!==antRes.id], lleno:[hL.nivelMax, hL.anualObligatoria], visible:[hB.nivelMax, hB.anualObligatoria], empate:[antEmp.nivelMax, antEmp.anualObligatoria, hE.nivelMax, hE.anualObligatoria, hE2.nivelMax, hE2.anualObligatoria] };'
+   +'const txt=String(_sgPsicoResumenTexto(app)||"");'
+   +'const src=[modalPsicosocialSG, sgGuardarPsicosocialSG, _sgPsicoRegistroDe, sgArchivarPsicoSG].map(f=>f.toString()).join("\\n");'
+   +'return { per, reg, nm, eAlto:{e:eAlto.estado, v:eAlto.vence, m:eAlto.meses, f:(eAlto.faltantes||[]).length}, eBajo:{e:eBajo.estado, v:eBajo.vence, m:eBajo.meses}, eArch:{v:eArch.vence, f:eArch.app&&eArch.app.fecha}, eLeg:{e:eLeg.estado, v:eLeg.vence, f:eLeg.app&&eLeg.app.fecha}, eNada:eNada.estado, ft, vivas:JSON.stringify(vivas), ult:{legacy:ult.legacy===true, fecha:ult.fecha, plan:ult.planIntervencion}, niveles:Object.keys(SGSST_PSICO_NIVELES).join(","), txt:{max:/nivel máximo: alto/i.test(txt), res:/reservado/i.test(txt)}, src:{ficha:/sgsst_ficha/.test(src), persona:/_sgPersona\\(/.test(src), role:/USER\\.role/.test(src), hereda:/_sgPsicoHeredarReservado\\(/.test(sgGuardarPsicosocialSG.toString())}, ultAdj:(ultAdj.adjuntos||[]).length, ftLeg:(eLegAdj.faltantes||[]).join(" / "), her };');
+   if(r.falta) return {ok:false, detalle:'Faltan en OFICINAS: '+r.falta.join(', ')};
+   const bien = JSON.stringify(r.per)==='[12,12,24,24,12,18]'
+     && r.reg.sinPersona===true && r.reg.nivelA==='' && r.reg.resA===true && r.reg.nivelB==='bajo' && r.reg.resB===false && r.reg.max==='alto' && r.reg.anual===true && r.reg.fecha==='2026-01-10' && r.reg.id===true && r.reg.evA===2 && r.reg.arch===false
+     && JSON.stringify(r.nm)==='["muy_alto","medio",""]'
+     && r.eAlto.e==='vencido' && r.eAlto.v==='2026-09-01' && r.eAlto.m===12 && r.eAlto.f===0
+     && r.eBajo.e==='ok' && r.eBajo.v==='2027-09-01' && r.eBajo.m===24
+     && r.eArch.v==='2027-09-01' && r.eArch.f==='2025-09-01'
+     && r.eLeg.e==='ok' && r.eLeg.v==='2028-03-01' && r.eLeg.f==='2026-03-01'
+     && r.eNada==='sin'
+     && /licencia/.test(r.ft) && /consentimiento/.test(r.ft) && /reserva/.test(r.ft) && /informe/.test(r.ft) && /plan/.test(r.ft) && /nivel/.test(r.ft)
+     && r.vivas==='["2026-02-01","2025-09-01"]'
+     && r.ult.legacy===true && r.ult.fecha==='2026-03-01' && r.ult.plan==='Plan X'
+     && r.niveles==='sin_riesgo,bajo,medio,alto,muy_alto'
+     && r.txt.max===true && r.txt.res===true
+     && r.src.ficha===false && r.src.persona===false && r.src.role===true && r.src.hereda===true
+     && r.ultAdj===1 && /licencia/.test(r.ftLeg) && !/informe/.test(r.ftLeg)
+     && r.her.antMax==='muy_alto' && r.her.antA==='' && JSON.stringify(r.her.vacio)==='["muy_alto",true,true]' && JSON.stringify(r.her.lleno)==='["bajo",false]' && JSON.stringify(r.her.visible)==='["alto",true]' && JSON.stringify(r.her.empate)==='["alto",true,"alto",true,"bajo",false]';
+   return {ok:bien, detalle: bien
+     ? 'Periodicidad: anual obligatoria → 12; nivel alto → 12; medio con 24 configurados → 24; 36 se recorta a 24; 6 sube a 12; sin aplicación → lo configurado (18) ✓'
+      +'\nEl registro descarta pid, documento, persona y puntaje (lista blanca); la Forma A con 2 evaluados no guarda su nivel (queda reservada) pero el nivel máximo sigue siendo alto y obliga a evaluación anual ✓'
+      +'\nEl nivel máximo es el mayor de A, B, extralaboral y estrés; sin niveles queda vacío ✓'
+      +'\nAplicada el 1/09/2025 con nivel alto: venció el 1/09/2026; con nivel bajo vence el 1/09/2027; una aplicación archivada no cuenta; sin aplicaciones usa la fecha vieja (ultimaBateria); sin nada, "sin" ✓'
+      +'\nFaltantes: licencia del aplicador, consentimiento, reserva del experto, informe consolidado, plan de intervención y nivel de riesgo ✓'
+      +'\nLas vivas salen de la más reciente a la más vieja; el dato viejo se lee como aplicación heredada; el resumen dice nivel máximo y "reservado" ✓'
+      +'\nEl código de la batería no toca sgsst_ficha ni busca personas, y lo que registra lleva USER.role ✓'
+      +'\nUn dato viejo (v314) con el informe en la lista general no reclama "informe consolidado" ✓'
+      +'\nAl corregir una aplicación cuyo grupo A quedó reservado (3 evaluados, muy alto): si el nivel de A se deja vacío se conservan el máximo muy alto y la evaluación anual, en una aplicación nueva; si se escribe bajo, se recalcula (bajo, sin anualidad). Si el grupo reservado se deja vacío se heredan el máximo y la anualidad de la anterior aunque un grupo visible hubiera empatado en el máximo (con lo guardado no se distingue de dónde venía): A oculto alto y B alto que baja a bajo sigue alto y anual; escribiendo A bajo, se recalcula ✓'
+     : JSON.stringify(r)};}},
+{app:'ofi', titulo:'SG-SST v315: alertas, evidencia y pantalla leen la batería nueva sin romperse',
+ porque:'La batería psicosocial pasa de un solo campo de fecha a un mapa de aplicaciones con nivel y periodicidad. Las alertas '
+       +'del Panel, los chips de evidencia de los ítems que respalda (4.1.2, 3.1.1, 3.1.2, 1.1.8) y la fila anexa PS de '
+       +'Estándares deben leer lo nuevo; y si los comités todavía no llegaron de la nube, la pantalla dice "leyendo" en vez '
+       +'de romperse. Con régimen 21 la pestaña cuenta sobre 21 y la tabla separa exigibles de no exigibles. Nada se escribe.',
+ correr:async W=>{ const r=await E(W,
+     'const falta=["SGSST_ITEMS_21","_sgAlertas","_sgEvidenciaItem","_sgCuerpoEstandares","renderSGSST","_sgMezclar","_sgItemsVacios","_sgKey","_sgCargarComites","eliminarAdjuntoSGSST","modalAdjuntosSGSST","_sgAdjuntosDe","_sgEscribir","_borrarDocfile","openModal","registrarLog"].filter(n=>eval("typeof "+n)==="undefined"); if(falta.length) return {falta};'
+   +'const sg=window._sg; const cont=document.getElementById("appContent"); const R={};'
+   +'const g={ com:sg.com, config:sg.config, vig:sg.vig, sel:sg.sel, leidoEn:sg.leidoEn, filtros:sg.filtros, todoCargando:sg.todoCargando, todoError:sg.todoError, error:sg.error, tab:window._sgTab, user:USER, html:cont?cont.innerHTML:"", cargarCom:_sgCargarComites, confirm:window.confirm, alert:window.alert, esc:_sgEscribir, borrar:_borrarDocfile, openModal:openModal, log:registrarLog };'
+   +'const comBase={ copasst:{ tipo:"", integrantes:[], eleccion:"", vence:"", actas:[], capacitacion:{} }, convivencia:{ integrantes:[], eleccion:"", vence:"", actas:[], quejas:[], informes:[] }, brigada:{ integrantes:[], simulacros:[], inspecciones:[] }, direccion:{ revisiones:[], auditorias:[], rendiciones:[] }, psicosocial:{ ultimaBateria:"", resultado:"", proxima:"", acciones:"", adjuntos:[], aplicaciones:{} } };'
+   +'const app={ id:"psPrueba1", fecha:"2025-09-01", modalidad:"presencial", aplicador:{nombre:"Dra. P", licencia:"L-1", posgrado:"Esp. SST", entidad:"IPS"}, arlAcompana:true, totalTrabajadores:24, evaluadosA:6, evaluadosB:12, nivelA:"alto", nivelB:"medio", nivelExtralaboral:"bajo", nivelEstres:"medio", nivelMax:"alto", anualObligatoria:true, reservados:[], consentimiento:true, reservaExperto:true, custodia:"ips", fechaInforme:"2025-09-15", dominiosPrioritarios:"Demandas del trabajo", planIntervencion:"Pausas activas", adjuntos:[], registradoPor:"admin", registradoEn:"", archivada:false, archivadoEn:"", archivadoPor:"", motivoArchivo:"" };'
+   +'const comSim=_sgMezclar(comBase, { psicosocial:{ ultimaBateria:"2025-09-01", resultado:"Nivel máximo: alto", aplicaciones:{ psPrueba1:app } } });'
+   +'const items=_sgItemsVacios(); SGSST_ITEMS_21.forEach(k=>{ items[_sgKey(k)].calificacion="cumple"; }); items[_sgKey("6.1.3")].calificacion="no_cumple";'
+   +'const cfg21=_sgMezclar(g.config||{}, { vigenciaActiva:"2099", vigencias:{ "2099":{ regimen:"21", exigibles:SGSST_ITEMS_21.slice() } } }), cfg60=_sgMezclar(g.config||{}, { vigenciaActiva:"2099", vigencias:{ "2099":{ regimen:"60" } } });'
+   +'const intenta=f=>{ try{ return String(f()||""); }catch(e){ return "ERROR: "+String((e&&e.message)||e); } };'
+   +'return (async function(){ try{'
+   +'  USER={role:"admin", id:"prueba", nombre:"Prueba"}; sg.todoCargando=true; sg.error=""; _sgCargarComites=()=>new Promise(()=>{});'
+   +'  sg.com=comSim;'
+   +'  const al=_sgAlertas("2026-09-26")||[];'
+   +'  R.al={ psico:al.some(a=>a.clave==="psicosocial"), anual:al.some(a=>a.clave!=="psicosocial" && /anual/i.test(a.texto) && /psicosocial/i.test(a.texto)), textos:al.filter(a=>/psicosocial/i.test(a.texto)).map(a=>a.clave+": "+a.texto) };'
+   +'  const chip=k=>(_sgEvidenciaItem(k)||[]).find(x=>/🧠/.test(x.txt))||null; const c412=chip("4.1.2"), c118=chip("1.1.8"), c311=chip("3.1.1");'
+   +'  R.ev={ c412:!!c412, c118:!!c118, c311:!!c311, leyendo:!!c412 && /leyendo/i.test(c412.txt), est:c412&&c412.est, ir:!!c412 && /comites/.test(c412.ir), txt:c412&&c412.txt };'
+   +'  sg.vig=Object.assign({}, g.vig); sg.sel="2099"; sg.vig["2099"]={ vigencia:"2099", items, adicionales:[], puntaje:{} }; sg.filtros={ciclo:"", estado:"", texto:""}; sg.config=cfg21;'
+   +'  sg.com=null; const hNull=intenta(()=>_sgCuerpoEstandares());'
+   +'  R.nulo={ error:/^ERROR:/.test(hNull)?hNull.slice(0,200):"", leyendo:/leyendo/i.test(hNull) };'
+   +'  sg.com=comSim; const h21=intenta(()=>_sgCuerpoEstandares());'
+   +'  R.h21={ error:/^ERROR:/.test(h21)?h21.slice(0,200):"", ex21:/21 exigibles/.test(h21), noEx:/no exigibles/i.test(h21), ps:/\\bPS\\b/.test(h21), de60:/de 60/.test(h21) };'
+   +'  sg.config=cfg60; const h60=intenta(()=>_sgCuerpoEstandares());'
+   +'  R.h60={ error:/^ERROR:/.test(h60)?h60.slice(0,200):"", de60:/de 60/.test(h60) };'
+   +'  if(cont){ sg.leidoEn=sg.leidoEn||Date.now(); window._sgTab="estandares";'
+   +'    sg.config=cfg21; renderSGSST(); const p21=cont.innerHTML; sg.config=cfg60; renderSGSST(); const p60=cont.innerHTML;'
+   +'    R.render={ t21:/Estándares \\(\\d+\\/21\\)/.test(p21), t60:/Estándares \\(\\d+\\/60\\)/.test(p60), roto:/No se pudo mostrar esta pestaña/.test(p21+p60) }; }'
+   +'  else R.render={ t21:false, t60:false, roto:true, sinContenedor:true };'
+   +'  sg.com=_sgMezclar(comBase, { psicosocial:{ adjuntos:[{id:"adG", nombre:"general.pdf", docId:"dfG"}], aplicaciones:{ psViva:Object.assign({}, app, { id:"psViva", fecha:"2026-08-10", adjuntos:[{id:"ad1", nombre:"informe.pdf", docId:"df1"}, {id:"ad2", nombre:"anexo.pdf", docId:"df2"}] }), psArch:Object.assign({}, app, { id:"psArch", fecha:"2025-08-10", archivada:true, motivoArchivo:"Corregida por una aplicación nueva", adjuntos:[{id:"ad1", nombre:"informe.pdf", docId:"df1"}] }) } } });'
+   +'  const borrados=[], escritos=[], modales=[]; window.confirm=()=>true; window.alert=t=>{ modales.push("ALERT:"+t); }; _borrarDocfile=async id=>{ borrados.push(id); }; _sgEscribir=async(doc, datos)=>{ escritos.push(doc); }; openModal=(t,h)=>{ modales.push(String(h)); }; registrarLog=()=>{};'
+   +'  const PS=()=>sg.com.psicosocial; const ids=id=>((PS().aplicaciones[id]||{}).adjuntos||[]).map(a=>a.id).join(",");'
+   +'  await eliminarAdjuntoSGSST("psico","psViva","ad1"); R.comp={ borrados:borrados.slice(), viva:ids("psViva"), arch:ids("psArch"), escritos:escritos.length };'
+   +'  await eliminarAdjuntoSGSST("psico","psViva","ad2"); R.solo={ borrados:borrados.slice(), viva:ids("psViva") };'
+   +'  modales.length=0; await eliminarAdjuntoSGSST("psico","psArch","ad1"); R.archEl={ arch:ids("psArch"), borrados:borrados.length, aviso:modales.some(m=>/^ALERT:/.test(m) && /archivad[ao]/i.test(m)) };'
+   +'  modales.length=0; modalAdjuntosSGSST("psico","psArch"); const hA=modales.filter(m=>!/^ALERT:/.test(m)).join(""); modales.length=0; modalAdjuntosSGSST("psico","psViva"); const hV=modales.filter(m=>!/^ALERT:/.test(m)).join("");'
+   +'  R.modal={ archBorrar:/eliminarAdjuntoSGSST/.test(hA), archCargar:/agregarAdjuntoSGSST/.test(hA), archAbrir:/abrirAdjuntoSGSST/.test(hA), vivaCargar:/agregarAdjuntoSGSST/.test(hV) };'
+   +'} finally { sg.com=g.com; sg.config=g.config; sg.vig=g.vig; sg.sel=g.sel; sg.leidoEn=g.leidoEn; sg.filtros=g.filtros; sg.todoCargando=g.todoCargando; sg.todoError=g.todoError; sg.error=g.error; window._sgTab=g.tab; USER=g.user; _sgCargarComites=g.cargarCom; window.confirm=g.confirm; window.alert=g.alert; _sgEscribir=g.esc; _borrarDocfile=g.borrar; openModal=g.openModal; registrarLog=g.log; if(cont) cont.innerHTML=g.html; }'
+   +'return R; })();');
+   if(r.falta) return {ok:false, detalle:'Faltan en OFICINAS: '+r.falta.join(', ')};
+   const bien = r.al.psico===true && r.al.anual===true
+     && r.ev.c412===true && r.ev.c118===true && r.ev.c311===true && r.ev.leyendo===false && r.ev.est==='vencido' && r.ev.ir===true
+     && r.nulo.error==='' && r.nulo.leyendo===true
+     && r.h21.error==='' && r.h21.ex21===true && r.h21.noEx===true && r.h21.ps===true && r.h21.de60===false
+     && r.h60.error==='' && r.h60.de60===true
+     && r.render.t21===true && r.render.t60===true && r.render.roto===false
+     && JSON.stringify(r.comp.borrados)==='[]' && r.comp.viva==='ad2' && r.comp.arch==='ad1' && r.comp.escritos===1 && JSON.stringify(r.solo.borrados)==='["df2"]' && r.solo.viva===''
+     && r.archEl.arch==='ad1' && r.archEl.borrados===1 && r.archEl.aviso===true && r.modal.archBorrar===false && r.modal.archCargar===false && r.modal.archAbrir===true && r.modal.vivaCargar===true;
+   return {ok:bien, detalle: bien
+     ? 'Con una aplicación de nivel alto del 1/09/2025, las alertas traen la batería vencida (clave psicosocial) y el aviso aparte de evaluación anual y vigilancia con la ARL ✓'
+      +'\nLos ítems 4.1.2, 1.1.8 y 3.1.1 muestran el chip 🧠 de la batería con estado vencido y llevan a Comités, sin decir "leyendo" cuando los comités ya están ✓'
+      +'\nCon los comités sin leer, la pestaña Estándares no se rompe y la fila PS dice "leyendo" ✓'
+      +'\nEn régimen 21 la pestaña cuenta 21 exigibles, separa los no exigibles, trae la fila anexa PS y no dice "de 60"; en régimen 60 sigue diciendo "de 60" ✓'
+      +'\nrenderSGSST pinta la pestaña "Estándares (n/21)" en régimen 21 y "(n/60)" en 60, sin error de pantalla; todo quedó como estaba ✓'
+      +'\nAl quitar de la aplicación viva un informe que la archivada sigue usando (mismo archivo), el archivo se conserva en la nube y solo sale de esa lista; uno que nadie más usa sí se borra; en la archivada no se quita ni se carga nada, solo se abre ✓'
+     : JSON.stringify(r)};}},
+{app:'ofi', titulo:'SG-SST v315: los ítems adicionales se archivan, no se borran',
+ porque:'Regla 5 de CLAUDE.md: nunca borrar datos. Hasta la v314 el botón de quitar un ítem adicional lo sacaba de la lista y '
+       +'borraba sus documentos de la nube. Ahora se archiva con motivo (mínimo 5 letras), quién (el rol) y cuándo; conserva '
+       +'sus adjuntos; sale de la tabla y queda plegado en "Archivados". La función vieja de eliminar no debe existir.',
+ correr:async W=>{
+   const leer=async f=>{ try{ const x=await fetch(f,{cache:'no-store'}); return x.ok ? await x.text() : ''; }catch(e){ return ''; } };
+   const ofi=await leer('OFICINAS_PTOVISION.html');
+   const r=await E(W,
+     'const falta=["archivarAdicionalSG","guardarAdicionalSG","_sgGuardarAdicionales","_sgCuerpoEstandares","_sgVigActual","_sgItemsVacios","_sgMezclar","registrarLog","renderSGSST","_borrarDocfile","_sgCargarComites","_sgAdjuntosDe","modalAdjuntosSGSST","eliminarAdjuntoSGSST","openModal","closeModal"].filter(n=>eval("typeof "+n)==="undefined"); if(falta.length) return {falta};'
+   +'const sg=window._sg; const R={}; const g={ vig:sg.vig, sel:sg.sel, config:sg.config, com:sg.com, todoCargando:sg.todoCargando, filtros:sg.filtros, user:USER, prompt:window.prompt, confirm:window.confirm, alert:window.alert, guardar:_sgGuardarAdicionales, log:registrarLog, render:renderSGSST, borrar:_borrarDocfile, cargarCom:_sgCargarComites, esc:_sgEscribir, open:openModal, closeM:closeModal }; let dom=null;'
+   +'const guardadas=[], logs=[], alertas=[]; let prompts=0, borrados=0, renders=0, k=0; const L=()=>((sg.vig||{})["2099"]||{}).adicionales||[];'
+   +'return (async function(){ try{'
+   +'  USER={role:"sgsst", id:"prueba", nombre:"Prueba"}; sg.todoCargando=true; _sgCargarComites=()=>new Promise(()=>{});'
+   +'  sg.vig=Object.assign({}, g.vig); sg.sel="2099";'
+   +'  sg.vig["2099"]={ vigencia:"2099", items:_sgItemsVacios(), adicionales:[ { id:"sgaP1", nombre:"Permiso para trabajo en postes ZZPRUEBA", estado:"cumple", responsable:"Ana", fechaObjetivo:"", evidencia:"", adjuntos:[{id:"ad1", nombre:"acta.pdf", docId:"df1"}] }, { id:"sgaP2", nombre:"Auditoría del cliente QQPRUEBA", estado:"no_cumple", responsable:"", fechaObjetivo:"", evidencia:"", adjuntos:[] }, { id:"sgaP3", nombre:"Certificación del proveedor RRPRUEBA", estado:"no_cumple", responsable:"", fechaObjetivo:"", evidencia:"", adjuntos:[] } ] };'
+   +'  sg.config=_sgMezclar(g.config||{}, { vigenciaActiva:"2099", vigencias:{ "2099":{} } }); sg.filtros={ciclo:"", estado:"", texto:""}; sg.com=null;'
+   +'  window.prompt=()=>{ prompts++; return "El cliente cerró el contrato y ya no exige este control"; }; window.confirm=()=>true; window.alert=t=>{ alertas.push(String(t)); };'
+   +'  _sgGuardarAdicionales=async lista=>{ guardadas.push(JSON.parse(JSON.stringify(lista))); const v=_sgVigActual(); if(v) v.adicionales=lista; };'
+   +'  registrarLog=(a,d)=>{ logs.push(a); }; renderSGSST=()=>{ renders++; }; _borrarDocfile=async()=>{ borrados++; };'
+   +'  await archivarAdicionalSG("sgaP1");'
+   +'  const a=L().find(x=>x.id==="sgaP1")||{}, b=L().find(x=>x.id==="sgaP2")||{};'
+   +'  R.arch={ n:L().length, archivada:a.archivada===true, en:!!a.archivadoEn, por:a.archivadoPor, motivo:String(a.motivoArchivo||""), adj:(a.adjuntos||[]).length, otro:!b.archivada, guardadas:guardadas.length, guardadaArchivada:!!(guardadas[0]&&(guardadas[0].find(x=>x.id==="sgaP1")||{}).archivada), log:logs.includes("SGSST_ADICIONAL_ARCHIVADO"), borrados, prompts, renders, alertas:alertas.slice(0,3) };'
+   +'  const ctxA=_sgAdjuntosDe("adicional","sgaP1")||{}; let htmlAdj=""; openModal=(t,b)=>{ htmlAdj=String(t)+String(b); }; let escritosAdj=0; _sgEscribir=async()=>{ escritosAdj++; }; alertas.length=0;'
+   +'  try{ modalAdjuntosSGSST("adicional","sgaP1"); await eliminarAdjuntoSGSST("adicional","sgaP1","ad1"); } finally { openModal=g.open; _sgEscribir=g.esc; }'
+   +'  R.adj={ soloLectura:ctxA.soloLectura===true, titulo:/solo lectura/.test(String(ctxA.titulo||"")), sinBorrar:!/eliminarAdjuntoSGSST\\(/.test(htmlAdj), sinCargar:!/agregarAdjuntoSGSST\\(/.test(htmlAdj), abrir:/abrirAdjuntoSGSST\\(/.test(htmlAdj), avisoArchivado:/archivad/i.test(htmlAdj), quedan:(((L().find(x=>x.id==="sgaP1")||{}).adjuntos)||[]).length, borrados, escritos:escritosAdj, aviso:alertas.some(t=>/archivad/i.test(t)), vivoEditable:(_sgAdjuntosDe("adicional","sgaP2")||{}).soloLectura!==true };'
+   +'  window.prompt=()=>(k++===0?"abc":null); await archivarAdicionalSG("sgaP2"); R.corto={ archivada:!!(L().find(x=>x.id==="sgaP2")||{}).archivada, guardadas:guardadas.length };'
+   +'  window.prompt=()=>null; await archivarAdicionalSG("sgaP2"); R.cancel={ archivada:!!(L().find(x=>x.id==="sgaP2")||{}).archivada, guardadas:guardadas.length };'
+   +'  let html=""; try{ html=String(_sgCuerpoEstandares()||""); }catch(e){ R.htmlError=String((e&&e.message)||e); }'
+   +'  const i=html.search(/Archivados \\(\\d+\\)/); const antes=i>=0?html.slice(0,i):html, dentro=i>=0?html.slice(i):"";'
+   +'  R.html={ bloque:i>=0, vivo:/QQPRUEBA/.test(antes), archFuera:/ZZPRUEBA/.test(antes), archDentro:/ZZPRUEBA/.test(dentro), motivo:/cerró el contrato/.test(dentro), boton:/archivarAdicionalSG\\(/.test(html), viejo:/eliminarAdicionalSG/.test(html) };'
+   +'  _sgGuardarAdicionales=g.guardar; _sgEscribir=async()=>{ throw new Error("falla simulada"); }; window.prompt=()=>"La ARL retiró esta exigencia del plan"; alertas.length=0;'
+   +'  await archivarAdicionalSG("sgaP3"); const c3=L().find(x=>x.id==="sgaP3")||{}; let h3=""; try{ h3=String(_sgCuerpoEstandares()||""); }catch(e){} const i3=h3.search(/Archivados \\(\\d+\\)/);'
+   +'  R.falla={ archivada:c3.archivada===true, aviso:alertas.some(t=>/No se guardó/.test(t)), enTabla:/RRPRUEBA/.test(i3>=0?h3.slice(0,i3):h3), enArchivados:i3>=0 && /RRPRUEBA/.test(h3.slice(i3)) };'
+   +'  const escritas=[]; _sgEscribir=async(doc, datos)=>{ escritas.push({ doc, n:(datos.adicionales||[]).length, arch:!!((datos.adicionales||[]).find(x=>x.id==="sgaP3")||{}).archivada }); };'
+   +'  await archivarAdicionalSG("sgaP3"); R.exito={ archivada:!!(L().find(x=>x.id==="sgaP3")||{}).archivada, escritas:escritas.length, doc:escritas[0]&&escritas[0].doc, n:escritas[0]&&escritas[0].n, arch:escritas[0]&&escritas[0].arch };'
+   +'  dom=document.createElement("div"); dom.id="sgaPruebaDom"; ["sga_nom","sga_resp","sga_fecha"].forEach(i=>{ const e=document.createElement("input"); e.id=i; dom.appendChild(e); }); const se=document.createElement("select"); se.id="sga_est"; se.innerHTML="<option value=cumple>c</option><option value=no_cumple>n</option>"; dom.appendChild(se); const ta=document.createElement("textarea"); ta.id="sga_evi"; dom.appendChild(ta); document.body.appendChild(dom);'
+   +'  document.getElementById("sga_nom").value="Auditoría del cliente QQPRUEBA EDITADA"; se.value="cumple"; _sgEscribir=async()=>{ throw new Error("falla simulada"); }; alertas.length=0; closeModal=()=>{};'
+   +'  await guardarAdicionalSG("sgaP2"); const e2=L().find(x=>x.id==="sgaP2")||{}; R.editaFalla={ nombre:e2.nombre, estado:e2.estado, aviso:alertas.some(t=>/No se guardó/.test(t)), n:L().length };'
+   +'  const escritasE=[]; _sgEscribir=async(doc, datos)=>{ escritasE.push(JSON.parse(JSON.stringify(datos.adicionales||[]))); };'
+   +'  await guardarAdicionalSG("sgaP2"); document.getElementById("sga_nom").value="Nuevo ítem TTPRUEBA"; await guardarAdicionalSG("");'
+   +'  const e3=L().find(x=>x.id==="sgaP2")||{}; R.editaOk={ nombre:e3.nombre, estado:e3.estado, escritas:escritasE.length, nube:String(((escritasE[0]||[]).find(x=>x.id==="sgaP2")||{}).nombre||""), n:L().length, nuevo:L().some(x=>/TTPRUEBA/.test(String(x.nombre||""))), nubeN:(escritasE[1]||[]).length };'
+   +'} finally { sg.vig=g.vig; sg.sel=g.sel; sg.config=g.config; sg.com=g.com; sg.todoCargando=g.todoCargando; sg.filtros=g.filtros; USER=g.user; window.prompt=g.prompt; window.confirm=g.confirm; window.alert=g.alert; _sgGuardarAdicionales=g.guardar; registrarLog=g.log; renderSGSST=g.render; _borrarDocfile=g.borrar; _sgCargarComites=g.cargarCom; _sgEscribir=g.esc; openModal=g.open; closeModal=g.closeM; if(dom) dom.remove(); }'
+   +'  const src=archivarAdicionalSG.toString(); R.src={ borra:/_borrarDocfile/.test(src), role:/USER\\.role/.test(src) }; R.existeViejo=typeof eliminarAdicionalSG!=="undefined";'
+   +'  return R; })();');
+   if(r.falta) return {ok:false, detalle:'Faltan en OFICINAS: '+r.falta.join(', ')};
+   const enFuente=ofi ? ofi.split('eliminarAdicionalSG(').length-1 : -1;
+   const bien = r.arch.n===3 && r.arch.archivada===true && r.arch.en===true && r.arch.por==='sgsst' && r.arch.motivo.length>=5 && r.arch.adj===1 && r.arch.otro===true
+     && r.arch.guardadas===1 && r.arch.guardadaArchivada===true && r.arch.log===true && r.arch.borrados===0 && r.arch.prompts===1
+     && r.corto.archivada===false && r.corto.guardadas===1 && r.cancel.archivada===false && r.cancel.guardadas===1
+     && !r.htmlError && r.html.bloque===true && r.html.vivo===true && r.html.archFuera===false && r.html.archDentro===true && r.html.motivo===true && r.html.boton===true && r.html.viejo===false
+     && r.src.borra===false && r.src.role===true && r.existeViejo===false && enFuente===0
+     && r.falla.archivada===false && r.falla.aviso===true && r.falla.enTabla===true && r.falla.enArchivados===false
+     && r.exito.archivada===true && r.exito.escritas===1 && r.exito.doc==='sgsst_estandares_2099' && r.exito.n===3 && r.exito.arch===true
+     && r.adj.soloLectura===true && r.adj.titulo===true && r.adj.sinBorrar===true && r.adj.sinCargar===true && r.adj.abrir===true && r.adj.avisoArchivado===true && r.adj.quedan===1 && r.adj.borrados===0 && r.adj.escritos===0 && r.adj.aviso===true && r.adj.vivoEditable===true
+     && r.editaFalla.nombre==='Auditoría del cliente QQPRUEBA' && r.editaFalla.estado==='no_cumple' && r.editaFalla.aviso===true && r.editaFalla.n===3
+     && r.editaOk.nombre==='Auditoría del cliente QQPRUEBA EDITADA' && r.editaOk.estado==='cumple' && r.editaOk.escritas===2 && r.editaOk.nube==='Auditoría del cliente QQPRUEBA EDITADA' && r.editaOk.n===4 && r.editaOk.nuevo===true && r.editaOk.nubeN===4;
+   return {ok:bien, detalle: bien
+     ? 'Archivar pide el motivo, marca archivada, cuándo y quién (el rol sgsst, no el nombre), conserva el adjunto, guarda la lista con los dos ítems y deja registro SGSST_ADICIONAL_ARCHIVADO; no borra ningún documento de la nube ✓'
+      +'\nCon un motivo de menos de 5 letras, o cancelando, no se archiva ni se guarda nada ✓'
+      +'\nEn la pestaña Estándares el ítem vivo sigue en la tabla con su botón de archivar; el archivado solo aparece, con su motivo, dentro de "Archivados (n)" ✓'
+      +'\nOFICINAS ya no tiene eliminarAdicionalSG y archivarAdicionalSG no llama a _borrarDocfile ✓'
+      +'\nSi la nube rechaza el guardado, el ítem no queda archivado en memoria: sigue en la tabla, no aparece en "Archivados" y el aviso dice que no se guardó; cuando la nube confirma, lo escrito es la lista con el ítem archivado ✓'
+      +'\nLos documentos de un ítem archivado son solo lectura: la ventana no ofrece cargar ni borrar (sí abrir), y eliminar no borra de la nube ni escribe; los de un ítem vivo siguen editables ✓'
+      +'\nEditar un ítem adicional con la nube fallando deja el registro como estaba y avisa; cuando la nube confirma, memoria y nube quedan con la edición, y crear uno nuevo lo suma a la lista ✓'
+     : JSON.stringify(Object.assign({enFuente}, r))};}},
 {app:'ofi', titulo:'Un comprobante recién adjuntado no desaparece al recargar los movimientos',
  porque:'Elkin (11 sep 2026): los comprobantes se ven un momento y desaparecen. Los movimientos de cada oficina viven '
        +'en bloques aparte y se cargaban REEMPLAZANDO la lista local entera: si otra sesión guardaba mientras se subía '

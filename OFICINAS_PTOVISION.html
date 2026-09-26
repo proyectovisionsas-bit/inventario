@@ -1004,7 +1004,7 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION = 314; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 315; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -1025,7 +1025,7 @@ const APP_VERSION = 314; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '24 Sep 2026 (v314: el pago de una factura vieja entra solo el mismo día y lo que no tiene oficina clara queda para el admin. v313: un abono o préstamo anulado con su reverso no suma. v312: Préstamos «una cuenta por persona». v311: «Antes de llamar al ingeniero». v310: un pago de WispHub, un solo registro. Historial en git y en docs/04-wisphub.md)';
+const APP_VERSION_FECHA = '26 Sep 2026 (v315: SG-SST con régimen de 21 o 60 estándares por vigencia, ítem anexo de riesgo psicosocial y adicionales que se archivan. v314: pagos de facturas viejas y equipo instalado fuera de la cuadrilla. Historial en git y en docs/)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -6568,6 +6568,12 @@ function guardarFichaSGSST(empId){
 // (certificado de curso de alturas, entrega de dotación firmada, exámenes...).
 // Archivos ≤650KB directos a la nube (misma infraestructura del módulo
 // Documentos) o enlace de Drive para los pesados.
+// v315 · al corregir una aplicación de la batería, la nueva hereda las mismas entradas de adjuntos (mismo docId) que la que queda
+// archivada. Antes de borrar un docfile hay que saber si otra aplicación (o la lista general) lo sigue usando; mira la memoria (window._sg.com).
+function _sgPsicoDocIdCompartido(ps, refId, docId){
+    ps=ps||{}; if(!docId) return false; const tiene=l=>(l||[]).some(y=>y&&y.docId===docId);
+    return Object.entries(ps.aplicaciones||{}).some(([k,x])=>k!==refId && x && tiene(x.adjuntos)) || (refId!=='x' && tiene(ps.adjuntos));
+}
 function _sgAdjuntosDe(tipo, refId){
     // v298: sección de la hoja de vida SST (vive en sgsst_ficha_<pid>). refId = 'pid|seccion|idItem'
     if(tipo==='fichaSec'){
@@ -6595,8 +6601,11 @@ function _sgAdjuntosDe(tipo, refId){
         return { titulo:((SGSST_ESQUEMAS[esquema]||{}).titulo||'Registro')+' · '+(x.nombre||x.codigo||_sgFechaCO(x.fecha||x.fechaRadicacion)||''), arr:x.adjuntos, persistir:async()=>{ await R.guardar(R.mapa?x:undefined); }, volver:()=>modalRegistroSG(esquema, ruta, id) };
     }
     if(tipo==='psico'){
-        const ps=window._sg.com.psicosocial=window._sg.com.psicosocial||{}; ps.adjuntos=ps.adjuntos||[];
-        return { titulo:'🧠 Batería de riesgo psicosocial', arr:ps.adjuntos, persistir:async()=>{ await _sgEscribir('sgsst_comites', { psicosocial:{ adjuntos:ps.adjuntos } }); }, volver:()=>{ closeModal(); renderSGSST(); } };
+        if(!window._sg.com) return null;   // v315: todavía no se ha leído sgsst_comites (el modal lo avisa)
+        const ps=window._sg.com.psicosocial=window._sg.com.psicosocial||{};
+        if(!refId || refId==='x'){ ps.adjuntos=ps.adjuntos||[]; return { titulo:'🧠 Batería de riesgo psicosocial · documentos generales', arr:ps.adjuntos, compartido:docId=>_sgPsicoDocIdCompartido(ps, 'x', docId), persistir:async()=>{ await _sgEscribir('sgsst_comites', { psicosocial:{ adjuntos:ps.adjuntos } }); }, volver:()=>{ closeModal(); renderSGSST(); } }; }
+        const app=(ps.aplicaciones||{})[refId]; if(!app) return null; app.adjuntos=app.adjuntos||[];   // v315: informe consolidado de UNA aplicación
+        return { titulo:'🧠 Batería · aplicación del '+_sgFechaCO(app.fecha)+' · informe consolidado'+(app.archivada?' (archivada: solo lectura)':''), arr:app.adjuntos, soloLectura:!!app.archivada, compartido:docId=>_sgPsicoDocIdCompartido(ps, refId, docId), persistir:async()=>{ await _sgEscribir('sgsst_comites', { psicosocial:{ aplicaciones:{ [refId]:{ adjuntos:app.adjuntos } } } }); }, volver:()=>{ closeModal(); renderSGSST(); } };   // v315: una archivada es historial, no se cambia
     }
     // v300: fotos de un acta de entrega o de una inspección (viven en sgsst_dotacion_<año>)
     if(tipo==='entrega'){
@@ -6626,7 +6635,7 @@ function _sgAdjuntosDe(tipo, refId){
         const a=(v.adicionales||[]).find(x=>x.id===refId); if(!a) return null;
         if(!a.adjuntos) a.adjuntos=[];
         const anio=window._sg.sel;
-        return { titulo:'➕ '+(a.nombre||''), arr:a.adjuntos, persistir:async()=>{ await _sgEscribir(_sgDocVig(anio), { adicionales:v.adicionales }); } };
+        return { titulo:'➕ '+(a.nombre||'')+(a.archivada?' (archivado: solo lectura)':''), arr:a.adjuntos, soloLectura:!!a.archivada, persistir:async()=>{ await _sgEscribir(_sgDocVig(anio), { adicionales:v.adicionales }); } };   // v315: un ítem archivado es historial, no se cambia
     }
     if(tipo==='item'){
         const i=_sgItems().find(x=>x.id===refId); if(!i) return null;
@@ -6641,7 +6650,7 @@ function _sgAdjuntosDe(tipo, refId){
 }
 function modalAdjuntosSGSST(tipo, refId){
     if(!_sgPuede()) return;
-    const ctx=_sgAdjuntosDe(tipo, refId); if(!ctx) return;
+    const ctx=_sgAdjuntosDe(tipo, refId); if(!ctx){ if(tipo==='psico' && !window._sg.com) alert('Todavía se está leyendo la información; intente en un momento.'); return; }   // v315
     window._sgAdjVolver=ctx.volver||null;   // v298: a dónde volver al cerrar (hoja de vida) 
     const fila=(a)=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:0.78rem;">
         <div style="flex:1;min-width:0;">
@@ -6649,13 +6658,13 @@ function modalAdjuntosSGSST(tipo, refId){
             <div style="color:var(--muted);font-size:0.68rem;">${(a.fecha||'').slice(0,10)}${a.tam?' · '+(a.tam/1024).toFixed(0)+' KB':''}</div>
         </div>
         <button class="btn btn-outline btn-sm" onclick="abrirAdjuntoSGSST('${tipo}','${refId}','${a.id}')">👁️ Abrir</button>
-        <button class="btn btn-danger btn-sm" onclick="eliminarAdjuntoSGSST('${tipo}','${refId}','${a.id}')">🗑️</button>
+        ${ctx.soloLectura?'':`<button class="btn btn-danger btn-sm" onclick="eliminarAdjuntoSGSST('${tipo}','${refId}','${a.id}')">🗑️</button>`}
     </div>`;
     openModal('📎 Documentos — '+ctx.titulo, `
         <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;">
             ${ctx.arr.length?ctx.arr.map(fila).join(''):'<p style="color:var(--muted);text-align:center;font-size:0.8rem;padding:8px;">Aún no hay documentos cargados.</p>'}
         </div>
-        <div style="background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.35);border-radius:10px;padding:10px 12px;">
+        ${ctx.soloLectura?'<div style="font-size:0.76rem;color:var(--muted);padding:6px 2px;">🗄️ Este registro está archivado: sus documentos se conservan como historial y no se cambian.</div>':`<div style="background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.35);border-radius:10px;padding:10px 12px;">
             <div style="font-weight:800;font-size:0.82rem;margin-bottom:6px;">➕ Cargar documento</div>
             <div class="form-group-dark"><label>Nombre del documento *</label><input id="sga_nombre" class="form-control" placeholder="${tipo==='item'?'Ej: Acta de conformación COPASST 2026':'Ej: Certificado curso de alturas 2026'}"></div>
             <div class="form-group-dark"><label>Origen</label><select id="sga_tipo" class="form-control" onchange="document.getElementById('sga_zarch').style.display=this.value==='archivo'?'block':'none';document.getElementById('sga_zlink').style.display=this.value==='link'?'block':'none';">
@@ -6664,16 +6673,18 @@ function modalAdjuntosSGSST(tipo, refId){
             </select></div>
             <div id="sga_zarch"><input type="file" id="sga_arch" class="form-control" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"></div>
             <div id="sga_zlink" style="display:none;"><input type="url" id="sga_url" class="form-control" placeholder="https://drive.google.com/..."></div>
-            <button class="btn btn-primary btn-sm" style="margin-top:8px;" onclick="agregarAdjuntoSGSST('${tipo}','${refId}')">⬆️ Cargar</button>
-        </div>
+            ${tipo==='psico'?'<label style="display:flex;gap:6px;align-items:flex-start;font-size:0.76rem;margin-top:8px;font-weight:400;"><input type="checkbox" id="sga_psico_ok"> <span>Este archivo es el informe consolidado por grupos y NO contiene resultados por persona</span></label>':''}<button class="btn btn-primary btn-sm" style="margin-top:8px;" onclick="agregarAdjuntoSGSST('${tipo}','${refId}')">⬆️ Cargar</button>
+        </div>`}
     `, `<button class="btn btn-primary" onclick="closeModal();(window._sgAdjVolver||renderSGSST)()">Cerrar</button>`);
 }
 async function agregarAdjuntoSGSST(tipo, refId){
     if(!_sgPuede()) return;
     const ctx=_sgAdjuntosDe(tipo, refId); if(!ctx) return;
+    if(ctx.soloLectura) return alert('Este registro está archivado: sus documentos se conservan como historial y no se cambian.');   // v315
     const nombre=(document.getElementById('sga_nombre')?.value||'').trim();
     if(!nombre) return alert('Ponle un nombre al documento (ej: "Certificado curso de alturas 2026").');
     const origen=document.getElementById('sga_tipo')?.value||'archivo';
+    if(tipo==='psico' && !(document.getElementById('sga_psico_ok')||{}).checked) return alert('Marca la casilla: el archivo debe ser el informe consolidado por grupos, sin resultados por persona (Res. 2764/2022, art. 5).');   // v315
     try{
         const adj={ id:'ad'+Date.now(), nombre, fecha:new Date().toISOString() };
         if(origen==='link'){
@@ -6714,8 +6725,10 @@ async function eliminarAdjuntoSGSST(tipo, refId, adjId){
     if(!_sgPuede()) return;
     const ctx=_sgAdjuntosDe(tipo, refId); if(!ctx) return;
     const a=ctx.arr.find(x=>x.id===adjId); if(!a) return;
-    if(!confirm(`¿Eliminar "${a.nombre}"?`)) return;
-    if(a.docId) await _borrarDocfile(a.docId);
+    if(ctx.soloLectura) return alert('Este registro está archivado: sus documentos se conservan como historial y no se cambian.');   // v315
+    const compartido=!!(a.docId && ctx.compartido && ctx.compartido(a.docId));   // v315: otra aplicación de la batería sigue usando el mismo archivo
+    if(!confirm(compartido?`¿Quitar "${a.nombre}" de esta lista? El archivo se conserva en la nube porque otra aplicación de la batería lo sigue usando.`:`¿Eliminar "${a.nombre}"?`)) return;
+    if(a.docId && !compartido) await _borrarDocfile(a.docId);
     ctx.arr.splice(ctx.arr.indexOf(a),1);
     registrarLog('SGSST_DOC_ELIMINADO', a.nombre);
     if(ctx.persistir) await ctx.persistir(); else await save();   // v297
@@ -6744,17 +6757,25 @@ function guardarAccesoSGSST(){
 // ════════════════════════════════════════════════════════════════════════════
 // 🦺 SG-SST v297 — FASE 1: LA MATRIZ DE 60 ESTÁNDARES MÍNIMOS
 // ────────────────────────────────────────────────────────────────────────────
-// La empresa tiene técnicos en clase de riesgo V. El artículo 16 de la
-// Resolución 0312 de 2019 dice que a las empresas de 50 o menos trabajadores
-// con riesgo IV o V les aplican los 60 estándares completos, no los 21 con los
-// que nació este módulo (v185). La autoevaluación que ya se reporta al
-// Ministerio (EstandaresMinimos.xlsx) usa esa tabla de 60 con valores.
+// La matriz de 60 es la tabla oficial COMPLETA de la Resolución 0312 de 2019,
+// la misma del Excel que se reporta al Ministerio (EstandaresMinimos.xlsx).
+// Cuántos ítems se EXIGEN (7, 21 o 60) depende del número de trabajadores y de
+// la clase de riesgo de la ACTIVIDAD ECONÓMICA PRINCIPAL de la empresa ante la
+// ARL (Decreto 768 de 2022; Decreto-ley 1295 de 1994, art. 25): que haya técnicos
+// afiliados en clase V no cambia el capítulo. Se fija por vigencia con «⚖️ Régimen»
+// en 🗓️ Vigencias (v315). En régimen 21 los otros 39 ítems se reportan como
+// "No aplica" y suman su máximo por ley (art. 27); la lista está en SGSST_ITEMS_21.
+// Anexo psicosocial (v315): la batería de riesgo psicosocial NO es un ítem de la tabla. Se registra en
+// sgsst_comites.psicosocial.aplicaciones (solo el informe consolidado por grupos: nunca nombres ni
+// resultados por persona, Res. 2764/2022 art. 5) y se ve como fila anexa "PS" bajo la tabla de
+// estándares; su evidencia respalda 4.1.2, 3.1.1, 3.1.2 y 1.1.8 (Res. 2646/2008, Ley 2460/2025).
 //
 // Dónde viven los datos (nada nuevo entra a oficinas_sistema/main):
 //   sgsst_config                → vigencia activa, fechas del registro en SGRL
 //   sgsst_estandares_<vigencia> → los 60 ítems calificados de ese año (+ plan
 //                                 de mejoramiento, adjuntos e ítems adicionales)
 //   sgsst_archivo_v1            → copia íntegra de los 21 ítems y fichas viejas
+//   sgsst_comites               → comités, brigada, alta dirección y el anexo psicosocial (v315)
 // Se leen UNA vez al abrir el módulo (window._sg) y se escriben por campos con
 // set({...},{merge:true}) y reintento; la cuota de Firebase es limitada.
 //
@@ -6847,8 +6868,175 @@ const SGSST_MATRIZ_60 = (function(){
 })();
 // Los 21 ítems de la v185 → ítems de la matriz de 60 (por su número original)
 const SGSST_MAPA_V1 = {1:['1.1.1'],2:['1.1.3'],3:['1.1.4'],4:['1.1.6','1.1.7'],5:['1.1.8'],6:['1.2.1'],7:['2.1.1'],8:['2.4.1'],9:['2.5.1'],10:['3.1.1'],11:['3.1.2'],12:['3.1.4'],13:['3.1.6'],14:['3.2.1'],15:['3.2.2'],16:['4.1.1','4.1.2'],17:['4.2.5'],18:['4.2.6'],19:['5.1.1'],20:['5.1.2'],21:['6.1.3']};
+// v315 · Los 21 ítems que exige el art. 9 de la Res. 0312/2019 (11 a 50 trabajadores, riesgo I, II o III),
+// en los códigos de la tabla de 60. Suman 37,75 (Planear 9,5 · Hacer 27 · Verificar 1,25 · Actuar 0).
+// Es la ÚNICA lista: si la plataforma SGRL habilita otros ítems para la empresa, se ajusta aquí con la
+// captura de SGRL a la vista (agregar o quitar el código). Las vigencias nuevas toman la lista corregida;
+// las ya fijadas conservan su copia en sgsst_config.vigencias[año].exigibles y su puntaje no cambia.
+// (La migración vieja SGSST_MAPA_V1 usó además 1.1.7 y 4.1.1: quedan como NO exigibles y su calificación
+// heredada se conserva como control voluntario.)
+const SGSST_ITEMS_21 = ['1.1.1','1.1.3','1.1.4','1.1.6','1.1.8','1.2.1','2.1.1','2.4.1','2.5.1','3.1.1','3.1.2','3.1.4','3.1.6','3.2.1','3.2.2','4.1.2','4.2.5','4.2.6','5.1.1','5.1.2','6.1.3'];
+const SGSST_REGIMENES = { '21':{ l:'21 estándares (art. 9)', desc:'11 a 50 trabajadores, riesgo I, II o III' }, '60':{ l:'60 estándares (art. 16)', desc:'más de 50 trabajadores, o riesgo IV o V' } };
+// v315 · Guía en español llano por ítem (por ahora los 21 exigibles del art. 9). Va aparte de la matriz para no tocarla.
+const SGSST_GUIA_60 = {
+    '1.1.1':{ pide:'Nombrar por escrito a la persona responsable del SG-SST. Debe tener licencia en SST (tecnólogo con 2 años de experiencia, o profesional o posgrado) y el curso de 50 horas.', evidencia:'Documento de asignación firmado y hoja de vida con la licencia, el certificado del curso de 50 horas y los soportes de experiencia.' },
+    '1.1.3':{ pide:'Destinar recursos (dinero, tiempo y personas) para que el SG-SST funcione durante el año.', evidencia:'Presupuesto del año o documento donde la gerencia asigna esos recursos.' },
+    '1.1.4':{ pide:'Tener a todos los trabajadores afiliados a salud, pensión y ARL, con los pagos al día.', evidencia:'Planillas de pago (PILA) y certificados de afiliación.' },
+    '1.1.6':{ pide:'Tener el COPASST conformado y funcionando: elección de representantes, reuniones mensuales y actas.', evidencia:'Actas de conformación y de reuniones del COPASST.' },
+    '1.1.8':{ pide:'Tener el Comité de Convivencia Laboral conformado y funcionando (Res. 3461/2025).', evidencia:'Acta de conformación, actas de reunión e informes del comité.' },
+    '1.2.1':{ pide:'Tener un programa de capacitación anual en promoción y prevención que incluya los riesgos prioritarios de la empresa.', evidencia:'El programa del año y las planillas de asistencia firmadas.' },
+    '2.1.1':{ pide:'Tener la política de SST escrita, firmada por la gerencia, con fecha y divulgada a todo el personal.', evidencia:'La política firmada y los soportes de divulgación (cartelera, planilla, correo).' },
+    '2.4.1':{ pide:'Tener el plan anual de trabajo firmado, con objetivos, metas, responsables, recursos y cronograma.', evidencia:'El plan anual firmado por el empleador y por el responsable del SG-SST.' },
+    '2.5.1':{ pide:'Conservar ordenados los documentos del sistema durante el tiempo que manda la norma (varios se guardan 20 años después del retiro).', evidencia:'El archivo del SG-SST, físico o digital, ordenado y fácil de ubicar.' },
+    '3.1.1':{ pide:'Tener el perfil sociodemográfico del personal y el diagnóstico de condiciones de salud, actualizados.', evidencia:'El documento con el perfil y el diagnóstico (lo entrega la IPS o el médico laboral).' },
+    '3.1.2':{ pide:'Hacer actividades de medicina del trabajo y de promoción y prevención según lo que dijo el diagnóstico de salud.', evidencia:'Registros de las actividades: campañas, jornadas y listas de asistencia.' },
+    '3.1.4':{ pide:'Hacer los exámenes médicos ocupacionales de ingreso, periódicos y de retiro según los riesgos del cargo (Res. 1843/2025).', evidencia:'Conceptos de aptitud con recomendaciones y restricciones; nunca la historia clínica.' },
+    '3.1.6':{ pide:'Cumplir las recomendaciones y restricciones médicas que llegan de los exámenes o de la EPS y la ARL.', evidencia:'La recomendación y el soporte de lo que hizo la empresa, con recibido del trabajador.' },
+    '3.2.1':{ pide:'Reportar a la ARL y a la EPS todos los accidentes y enfermedades laborales; los graves y mortales también al Ministerio.', evidencia:'Formatos FURAT y FUREL radicados, con fecha.' },
+    '3.2.2':{ pide:'Investigar los incidentes, accidentes y enfermedades laborales con participación del COPASST.', evidencia:'Informes de investigación firmados por el equipo investigador.' },
+    '4.1.2':{ pide:'Identificar los peligros y valorar los riesgos con participación de todos los niveles de la empresa, incluido el riesgo psicosocial (batería).', evidencia:'Matriz de peligros actualizada y soportes de la participación del personal.' },
+    '4.2.5':{ pide:'Hacer mantenimiento periódico a instalaciones, equipos y herramientas.', evidencia:'Reportes o fichas de mantenimiento con fecha.' },
+    '4.2.6':{ pide:'Entregar los elementos de protección personal que pide cada oficio y capacitar en su uso.', evidencia:'Actas de entrega de EPP firmadas y registros de la capacitación.' },
+    '5.1.1':{ pide:'Tener el plan de prevención, preparación y respuesta ante emergencias.', evidencia:'El plan escrito y los soportes de su divulgación y de los simulacros.' },
+    '5.1.2':{ pide:'Tener la brigada de emergencias conformada, capacitada y dotada.', evidencia:'Acta de conformación, certificados de capacitación y registro de la dotación entregada.' },
+    '6.1.3':{ pide:'Que la alta dirección revise una vez al año los resultados del sistema y deje constancia escrita.', evidencia:'Acta o informe de la revisión por la dirección, con fecha y firmas.' }
+};
+function _sgGuiaItemHTML(codigo, modo){
+    const g=SGSST_GUIA_60[codigo]; if(!g) return '';
+    if(modo==='largo') return `<div style="font-size:0.76rem;line-height:1.45;margin:0 0 8px;padding:8px 10px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);"><div><b>Qué pide:</b> ${_sgEsc(g.pide)}</div><div style="margin-top:3px;"><b>Sirve como evidencia:</b> ${_sgEsc(g.evidencia)}</div></div>`;
+    return `<details style="font-size:0.68rem;color:var(--muted);margin-top:2px;"><summary style="cursor:pointer;">❔ ¿Qué pide?</summary><div style="padding:3px 0 0 4px;line-height:1.4;"><b>Pide:</b> ${_sgEsc(g.pide)}<br><b>Evidencia:</b> ${_sgEsc(g.evidencia)}</div></details>`;
+}
+// v315 · Régimen de la vigencia: cuántos estándares se exigen. Ausente = 60 (lo de siempre).
+function _sgRegimenDe(anio){ return _sgInfoVig(anio).regimen==='21' ? '21' : '60'; }
+function _sgExigiblesDe(anio){ if(_sgRegimenDe(anio)!=='21') return null; const ex=_sgInfoVig(anio).exigibles; return (Array.isArray(ex)&&ex.length) ? ex : SGSST_ITEMS_21; }
+function _sgExigible(codigo, regimen, exigibles){ if(regimen!=='21') return true; const ex=(Array.isArray(exigibles)&&exigibles.length)?exigibles:SGSST_ITEMS_21; return ex.includes(codigo); }
+// Arts. 3, 9, 15 y 16 de la Res. 0312/2019: la clase es la de la actividad económica principal ante la ARL.
+function _sgCapituloSugerido(trabajadores, clase){
+    const n=Number(trabajadores); const c=String(clase||'').trim().toUpperCase();
+    if(!(n>0) || !['I','II','III','IV','V'].includes(c)) return 'sin_datos';
+    if(c==='IV' || c==='V' || n>50) return '60';
+    if(n<=10) return '7';
+    return '21';
+}
+function _sgRegimenBloqueado(anio){
+    const sg=window._sg||{}; const v=(sg.vig||{})[String(anio)]; const info=_sgInfoVig(anio);
+    if(v && v.cerrada===true) return { bloqueado:true, motivo:'La vigencia '+anio+' está cerrada. Para cambiar el régimen hay que reabrirla en 🗓️ Vigencias.' };
+    if(info.registradaEn) return { bloqueado:true, motivo:'La vigencia '+anio+' ya se registró en SGRL el '+_sgFechaCO(info.registradaEn)+' con este régimen: no se cambia. Si hubo un error, consúltelo con la ARL.' };
+    return { bloqueado:false, motivo:'' };
+}
+// El Excel oficial de una empresa de 21 trae los otros 39 como "No aplica" y al menos un exigible calificado.
+function _sgDetectarRegimenImportado(items){
+    items=items||{}; let otra=false;
+    for(const d of SGSST_MATRIZ_60){ const cal=(items[_sgKey(d.k)]||{}).calificacion||''; if(SGSST_ITEMS_21.includes(d.k)){ if(cal && cal!=='no_aplica') otra=true; } else if(cal!=='no_aplica') return '60'; }
+    return otra ? '21' : '60';
+}
+function _sgToast(msg){ if(typeof showToast==='function') showToast(msg); else if(typeof showToastMini==='function') showToastMini(msg); else console.log('SG-SST:', msg); }
+// ─── v315 · Riesgo psicosocial: la batería NO es un ítem de la tabla de 60 (Res. 2646/2008, Res. 2764/2022) ───
+// Se guarda en sgsst_comites.psicosocial.aplicaciones como MAPA por id. SOLO el informe consolidado por grupos:
+// nunca nombres, cédulas, pid, cuestionarios ni puntajes por persona (Res. 2764/2022, art. 5). Nada psicosocial
+// entra a la hoja de vida SST de la persona. La lista blanca de _sgPsicoRegistroDe es lo único que llega a la nube.
+const SGSST_PSICO_NIVELES = { sin_riesgo:'Sin riesgo o despreciable', bajo:'Bajo', medio:'Medio', alto:'Alto', muy_alto:'Muy alto' };
+const SGSST_PSICO_ORDEN = ['sin_riesgo','bajo','medio','alto','muy_alto'];
+const SGSST_PSICO_MODALIDADES = { presencial:'Presencial (papel o computador en la empresa)', virtual_ministerio:'Virtual, plataforma del Ministerio del Trabajo', virtual_otra:'Virtual, otra plataforma autorizada' };
+const SGSST_PSICO_CUSTODIA = { ips:'IPS o entidad de salud', interno:'Psicólogo de la empresa', psicologo_externo:'Psicólogo externo contratado' };
+function _sgPsicoNivelMax(app){
+    app=app||{}; let max='';
+    ['nivelA','nivelB','nivelExtralaboral','nivelEstres'].forEach(k=>{ const n=String(app[k]||''); if(SGSST_PSICO_ORDEN.includes(n) && (max==='' || SGSST_PSICO_ORDEN.indexOf(n)>SGSST_PSICO_ORDEN.indexOf(max))) max=n; });
+    return max;
+}
+// Arma la aplicación desde un objeto plano (el modal recoge los inputs y se lo pasa). Lista blanca: cualquier otra
+// llave se descarta. nivelMax y anualObligatoria se calculan ANTES de reservar y siempre se guardan: es lo único
+// que necesita la periodicidad. Regla de privacidad: un grupo con menos de 5 evaluados no deja rastro de su nivel.
+function _sgPsicoRegistroDe(form, base){
+    const src=Object.assign({}, base||{}, form||{});
+    const txt=x=>String(x==null?'':x).trim();
+    const num=x=>{ const n=Number(x); return (isFinite(n)&&n>0)?Math.round(n):0; };
+    const niv=x=>{ x=String(x||''); return SGSST_PSICO_NIVELES[x]?x:''; };
+    const ap=(src.aplicador&&typeof src.aplicador==='object')?src.aplicador:{};
+    const app={
+        id: txt(src.id)||('ps'+Date.now().toString(36)+Math.random().toString(36).slice(2,6)),
+        fecha: txt(src.fecha).slice(0,10),
+        modalidad: SGSST_PSICO_MODALIDADES[src.modalidad]?String(src.modalidad):'',
+        aplicador:{ nombre:txt(ap.nombre), licencia:txt(ap.licencia), posgrado:txt(ap.posgrado), entidad:txt(ap.entidad) },
+        arlAcompana: !!src.arlAcompana,
+        totalTrabajadores: num(src.totalTrabajadores),
+        evaluadosA: num(src.evaluadosA), evaluadosB: num(src.evaluadosB),
+        nivelA: niv(src.nivelA), nivelB: niv(src.nivelB), nivelExtralaboral: niv(src.nivelExtralaboral), nivelEstres: niv(src.nivelEstres),
+        nivelMax:'', anualObligatoria:false, reservados:[],
+        consentimiento: !!src.consentimiento, reservaExperto: !!src.reservaExperto,
+        custodia: SGSST_PSICO_CUSTODIA[src.custodia]?String(src.custodia):'',
+        fechaInforme: txt(src.fechaInforme).slice(0,10),
+        dominiosPrioritarios: txt(src.dominiosPrioritarios), planIntervencion: txt(src.planIntervencion),
+        adjuntos: Array.isArray(src.adjuntos)?src.adjuntos.filter(a=>a&&typeof a==='object').map(a=>Object.assign({}, a)):[],
+        registradoPor: txt(src.registradoPor), registradoEn: src.registradoEn?String(src.registradoEn):'',
+        archivada: !!src.archivada, archivadoEn: src.archivadoEn?String(src.archivadoEn):'', archivadoPor: txt(src.archivadoPor), motivoArchivo: txt(src.motivoArchivo)
+    };
+    app.nivelMax=_sgPsicoNivelMax(app);
+    const alto=n=>n==='alto'||n==='muy_alto';
+    app.anualObligatoria=alto(app.nivelA)||alto(app.nivelB);   // Res. 2764/2022 art. 3: mandan las formas A y B
+    if(app.evaluadosA<5){ app.nivelA=''; app.reservados.push('A'); }
+    if(app.evaluadosB<5){ app.nivelB=''; app.reservados.push('B'); }
+    if(app.evaluadosA+app.evaluadosB<5){ app.nivelExtralaboral=''; app.nivelEstres=''; app.reservados.push('extra','estres'); }
+    return app;
+}
+// v315 · Al corregir, un grupo que quedó reservado (menos de 5 evaluados) ya no tiene nivel guardado, así que su select llega vacío.
+// Si se deja vacío, se heredan de la anterior el nivel máximo (cuando es mayor que el recalculado) y la evaluación anual (Res. 2764/2022,
+// art. 3), vengan del grupo que vengan: con lo que se guarda no se puede saber si el máximo lo puso el grupo reservado o uno visible que
+// empató con él. Si se escribe el nivel de todos los grupos reservados, se recalcula puro: nada se hereda.
+function _sgPsicoHeredarReservado(app, form, anterior){
+    if(!app || !anterior || !Array.isArray(anterior.reservados) || !anterior.reservados.length) return app;
+    const campo={ A:'nivelA', B:'nivelB', extra:'nivelExtralaboral', estres:'nivelEstres' }; form=form||{};
+    const vacios=anterior.reservados.filter(g=>campo[g] && !SGSST_PSICO_NIVELES[String(form[campo[g]]||'')]);
+    if(!vacios.length) return app;
+    const ix=n=>SGSST_PSICO_ORDEN.indexOf(String(n||''));
+    if(ix(anterior.nivelMax)>ix(app.nivelMax)) app.nivelMax=String(anterior.nivelMax);
+    if(anterior.anualObligatoria===true && vacios.some(g=>g==='A'||g==='B')) app.anualObligatoria=true;   // la anualidad solo la deciden las formas A y B
+    return app;
+}
+// Cada cuánto se repite: 12 meses si A o B dio alto/muy alto (o el máximo lo es); si no, lo configurado entre 12 y 24.
+function _sgPsicoPeriodicidadMeses(app, cfg){
+    const base=Number(((cfg||{}).periodicidades||{}).psicosocialMeses)||24;
+    if(!app) return base;
+    const max=app.nivelMax||_sgPsicoNivelMax(app);
+    if(app.anualObligatoria || max==='alto' || max==='muy_alto') return 12;
+    return Math.min(24, Math.max(12, base));
+}
+function _sgPsicoVivas(ps){ const m=(ps&&ps.aplicaciones)||{}; return Object.values(m).filter(a=>a&&a.id&&!a.archivada).sort((a,b)=>String(b.fecha||'').localeCompare(String(a.fecha||''))||String(b.registradoEn||'').localeCompare(String(a.registradoEn||''))); }
+function _sgPsicoArchivadas(ps){ const m=(ps&&ps.aplicaciones)||{}; return Object.values(m).filter(a=>a&&a.id&&a.archivada).sort((a,b)=>String(b.fecha||'').localeCompare(String(a.fecha||''))); }
+function _sgPsicoUltima(ps){
+    ps=ps||{}; const v=_sgPsicoVivas(ps); if(v.length) return v[0];
+    if(ps.ultimaBateria) return { fecha:String(ps.ultimaBateria).slice(0,10), legacy:true, planIntervencion:ps.acciones||'', resultado:ps.resultado||'', adjuntos:ps.adjuntos||[] };   // dato viejo (v314): sus documentos generales cuentan como informe
+    return null;
+}
+function _sgPsicoEstado(ps, hoy, cfg){
+    hoy=hoy||_sgHoyISO(); cfg=cfg||_sgCfg(); ps=ps||{};
+    const app=_sgPsicoUltima(ps); const meses=_sgPsicoPeriodicidadMeses(app, cfg);
+    const v=app?_sgVenceDesde(app.fecha, meses, hoy):{ estado:'sin', vence:'' };
+    const faltantes=[];
+    if(app){
+        if(!((app.aplicador||{}).licencia)) faltantes.push('aplicador con licencia');
+        if(!app.consentimiento) faltantes.push('consentimiento informado');
+        if(!app.reservaExperto) faltantes.push('compromiso de reserva del experto');
+        if(!app.fechaInforme && !(app.adjuntos||[]).length) faltantes.push('informe consolidado');
+        if(!app.planIntervencion) faltantes.push('plan de intervención');
+        if((app.nivelMax||'')==='') faltantes.push('nivel de riesgo');
+    }
+    return { estado:v.estado||'sin', vence:v.vence||'', meses, app, faltantes };
+}
+function _sgPsicoResumenTexto(app){
+    if(!app) return ''; if(app.legacy) return String(app.resultado||'');
+    const L=k=>(SGSST_PSICO_NIVELES[k]||'').toLowerCase(); const res=app.reservados||[]; const nEv=(app.evaluadosA||0)+(app.evaluadosB||0);
+    const g=(clave, nivel, evaluados, nombre)=>nombre+': '+(res.includes(clave)?(evaluados>0?'reservado (menos de 5)':'sin aplicar'):(nivel?L(nivel):'sin dato'));
+    return 'Nivel máximo: '+(app.nivelMax?L(app.nivelMax):'sin dato')+' · '+g('A', app.nivelA, app.evaluadosA||0, 'Forma A')+' · '+g('B', app.nivelB, app.evaluadosB||0, 'Forma B')+' · '+g('extra', app.nivelExtralaboral, nEv, 'Extralaboral')+' · '+g('estres', app.nivelEstres, nEv, 'Estrés');
+}
+function _sgPsicoEstadoTexto(pe){ const s=(SGSST_SEM[pe.estado]||SGSST_SEM.na).i; return pe.estado==='ok'?s+' Vigente hasta el '+_sgFechaCO(pe.vence):pe.estado==='pronto'?s+' Por vencer: '+_sgFechaCO(pe.vence):pe.estado==='vencido'?s+' Vencida el '+_sgFechaCO(pe.vence):s+' Sin aplicar'; }
+// Los campos viejos (ultimaBateria, resultado, acciones, proxima) se siguen escribiendo para las sesiones v314: son un espejo de la última viva.
+function _sgPsicoCamposViejos(ps, cfg){
+    const app=_sgPsicoVivas(ps)[0]||null; if(!app) return { ultimaBateria:'', resultado:'', acciones:'', proxima:'' };
+    return { ultimaBateria:app.fecha, resultado:_sgPsicoResumenTexto(app), acciones:app.planIntervencion||'', proxima:_sgSumarMeses(app.fecha, _sgPsicoPeriodicidadMeses(app, cfg||_sgCfg())) };
+}
 const SGSST_CAL = { cumple:{l:'✅ Cumple totalmente', c:'#10b981'}, no_cumple:{l:'❌ No cumple', c:'#ef4444'}, no_aplica:{l:'➖ No aplica', c:'#6b7280'} };
-window._sg = window._sg || { config:null, vig:{}, leidoEn:0, cargando:false, sel:null, error:'', filtros:{ciclo:'',estado:'',texto:''} };
+window._sg = window._sg || { config:null, vig:{}, leidoEn:0, cargando:false, sel:null, error:'', filtros:{ciclo:'',estado:'',texto:'',exigibles:''} };
 
 function _sgKey(codigo){ return 'i'+String(codigo).replace(/\./g,'_'); }
 function _sgDef(codigo){ return SGSST_MATRIZ_60.find(d=>d.k===codigo)||null; }
@@ -6914,6 +7102,15 @@ async function _sgCargar(forzar){
     finally{ sg.cargando=false; }
 }
 async function _sgCargarVigencia(anio){ const sg=window._sg; anio=String(anio); if(sg.vig[anio]===undefined) sg.vig[anio]=await _sgLeer(_sgDocVig(anio)); return sg.vig[anio]; }
+// v315 · antes de decidir sobre una vigencia, la copia en memoria de sgsst_config retrata la nube: "Ya la registré", el régimen o el alcance
+// fijados desde otra pantalla (la memoria solo se refresca con _sgCargar(true)). Los mapas se fusionan; el arreglo de exigibles se toma tal cual
+// (null = todos), porque _sgMezclar conserva un arreglo viejo cuando encima viene null. Si la nube no tiene el documento, no toca nada.
+async function _sgRefrescarConfig(){
+    const cfgF=await _sgLeer('sgsst_config'); if(!cfgF) return null;
+    window._sg.config=_sgMezclar(window._sg.config||{}, cfgF);
+    Object.entries(cfgF.vigencias||{}).forEach(([a,vc])=>{ if(vc && typeof vc==='object' && ('exigibles' in vc) && window._sg.config.vigencias && window._sg.config.vigencias[a]) window._sg.config.vigencias[a].exigibles=vc.exigibles; });
+    return cfgF;
+}
 function _sgVigActual(){ const sg=window._sg; return sg.sel ? (sg.vig[sg.sel]||null) : null; }
 function _sgInfoVig(anio){ const sg=window._sg; return ((sg.config&&sg.config.vigencias)||{})[String(anio)]||{}; }
 function _sgSoloLectura(){ const v=_sgVigActual(); return !v || v.cerrada===true; }
@@ -6931,19 +7128,27 @@ function _sgPuntosItem(def, it){
     if(cal==='no_aplica') return _sgJust(it) ? def.v : 0;   // sin justificación no suma (art. 27)
     return 0;
 }
-function _sgCalcular(items){
+function _sgCalcular(items, regimen, exigibles){
     items=items||{};
-    const porCiclo={}; Object.keys(SGSST_CICLOS).forEach(c=>{ porCiclo[c]={obtenido:0, posible:SGSST_CICLOS[c]}; });
+    // v315 · régimen '21' (art. 9): los ítems que no se exigen suman su máximo por ley (art. 27) y no cuentan como calificados.
+    // Sin régimen (o '60') el resultado es exactamente el de siempre.
+    const reg=(regimen==='21')?'21':'60';
+    const ex=reg==='21' ? ((Array.isArray(exigibles)&&exigibles.length)?exigibles:SGSST_ITEMS_21) : null;
+    const porCiclo={}; Object.keys(SGSST_CICLOS).forEach(c=>{ porCiclo[c]={obtenido:0, posible:SGSST_CICLOS[c]}; if(ex){ porCiclo[c].exigible=0; porCiclo[c].obtenidoExigible=0; } });
     const porEstandar={}, porGrupo={};
     let total=0, calificados=0, sinJustificar=0, parciales=0, noCumplen=0;
+    let nExigibles=0, noExigibles=0, puntosExigibles=0, puntosNoExigibles=0, obtenidoExigible=0, voluntarios=0;
     SGSST_MATRIZ_60.forEach(def=>{
         const it=items[_sgKey(def.k)]||{};
-        const p=_sgPuntosItem(def, it);
+        const exig=!ex || ex.includes(def.k);
+        const p=exig ? _sgPuntosItem(def, it) : def.v;
         total+=p; porCiclo[def.c].obtenido+=p;
         if(!porEstandar[def.e]) porEstandar[def.e]={obtenido:0, posible:0};
         porEstandar[def.e].obtenido+=p; porEstandar[def.e].posible+=def.v;
         if(!porGrupo[def.s]) porGrupo[def.s]={obtenido:0, posible:0, peso:def.p};
         porGrupo[def.s].obtenido+=p; porGrupo[def.s].posible+=def.v;
+        if(!exig){ noExigibles++; puntosNoExigibles+=def.v; if(it.calificacion) voluntarios++; return; }
+        if(ex){ nExigibles++; puntosExigibles+=def.v; obtenidoExigible+=p; porCiclo[def.c].exigible+=def.v; porCiclo[def.c].obtenidoExigible+=p; }
         if(it.calificacion) calificados++;
         if(it.calificacion==='no_cumple') noCumplen++;
         if(it.calificacion==='no_aplica' && !_sgJust(it)) sinJustificar++;
@@ -6951,12 +7156,19 @@ function _sgCalcular(items){
     });
     const r=x=>Math.round(x*100)/100;
     total=r(total);
-    Object.values(porCiclo).forEach(c=>{ c.obtenido=r(c.obtenido); });
+    Object.values(porCiclo).forEach(c=>{ c.obtenido=r(c.obtenido); if(ex){ c.exigible=r(c.exigible); c.obtenidoExigible=r(c.obtenidoExigible); } });
     Object.values(porEstandar).forEach(c=>{ c.obtenido=r(c.obtenido); c.posible=r(c.posible); });
     Object.values(porGrupo).forEach(c=>{ c.obtenido=r(c.obtenido); c.posible=r(c.posible); });
-    return Object.assign({ total, porCiclo, porEstandar, porGrupo, calificados, noCumplen, sinJustificar, parciales, faltan:SGSST_MATRIZ_60.length-calificados }, _sgRango(total));
+    const base={ total, porCiclo, porEstandar, porGrupo, calificados, noCumplen, sinJustificar, parciales, faltan:(ex?nExigibles:SGSST_MATRIZ_60.length)-calificados };
+    if(ex){
+        puntosExigibles=r(puntosExigibles); obtenidoExigible=r(obtenidoExigible);
+        Object.assign(base, { regimen:'21', exigibles:nExigibles, noExigibles, puntosExigibles, puntosNoExigibles:r(puntosNoExigibles), obtenidoExigible, pctExigible:puntosExigibles?Math.round(100*obtenidoExigible/puntosExigibles):0, voluntarios });
+    }
+    return Object.assign(base, _sgRango(total));
 }
-function _sgResumenPuntaje(c){ return { total:c.total, planear:c.porCiclo.PLANEAR.obtenido, hacer:c.porCiclo.HACER.obtenido, verificar:c.porCiclo.VERIFICAR.obtenido, actuar:c.porCiclo.ACTUAR.obtenido, rango:c.texto, calculadoEn:now() }; }
+function _sgResumenPuntaje(c){ return { total:c.total, planear:c.porCiclo.PLANEAR.obtenido, hacer:c.porCiclo.HACER.obtenido, verificar:c.porCiclo.VERIFICAR.obtenido, actuar:c.porCiclo.ACTUAR.obtenido, rango:c.texto, calculadoEn:now(), regimen:c.regimen||'60', exigibles:c.exigibles||60, obtenidoExigible:(c.obtenidoExigible!=null?c.obtenidoExigible:c.total), pctExigible:(c.pctExigible!=null?c.pctExigible:Math.round(c.total)) }; }
+// v315 · el cálculo con el régimen de la vigencia (lo que pintan todas las pantallas y guardan los puntajes)
+function _sgCalcularVig(v){ return _sgCalcular((v&&v.items)||{}, _sgRegimenDe(v&&v.vigencia), _sgExigiblesDe(v&&v.vigencia)); }
 
 // ─── Migración de los 21 ítems (v185) a la matriz de 60 — sin borrar nada ───
 function _sgMapearV1(viejos){
@@ -7033,7 +7245,7 @@ async function _sgGuardarItem(codigo, cambios){
     v.items=v.items||{};
     const it=Object.assign(_sgItemVacio(), v.items[key]||{}, cambios, {actualizadoEn:now()});
     v.items[key]=it;
-    v.puntaje=_sgResumenPuntaje(_sgCalcular(v.items));
+    v.puntaje=_sgResumenPuntaje(_sgCalcularVig(v));
     await _sgEscribir(_sgDocVig(anio), { items:{ [key]: it }, puntaje: v.puntaje });
     _sgAvisoTamano(_sgDocVig(anio), v);
     return it;
@@ -7042,8 +7254,13 @@ async function sgCalificar(codigo, valor){
     if(!_sgPuede()) return;
     if(_sgSoloLectura()){ alert('Esta vigencia está cerrada: es de solo lectura.'); renderSGSST(); return; }
     const v=_sgVigActual(); const it=((v&&v.items)||{})[_sgKey(codigo)]||{};
+    const reg=_sgRegimenDe(v&&v.vigencia); const exig=_sgExigible(codigo, reg, _sgExigiblesDe(v&&v.vigencia));   // v315: régimen de la vigencia
     const cambios={ calificacion:valor||'' };
     if(valor!=='no_cumple') cambios.trabajo='';
+    if(reg==='21' && !exig) _sgToast('Este ítem no se exige en su régimen: la calificación queda como control interno y no cambia el puntaje oficial');
+    if(valor==='no_aplica' && reg==='21' && exig){
+        if(!confirm('Ojo: en su régimen este ítem SÍ se exige. "No aplica" solo vale cuando la norma excluye el ítem; sin una razón legal es una manifestación falsa en un documento público (art. 27). ¿Seguir?')){ renderSGSST(); return; }
+    }
     if(valor==='no_aplica' && !_sgJust(it)){
         const j=prompt('"No aplica" solo suma puntos con una justificación escrita (art. 27, Res. 0312/2019).\n\n¿Por qué no aplica este ítem en la empresa?', '');
         if(j===null){ renderSGSST(); return; }
@@ -7062,15 +7279,16 @@ function modalItemSG(codigo){
     if(!_sgPuede()) return;
     const def=_sgDef(codigo); if(!def) return;
     const v=_sgVigActual(); const it=Object.assign(_sgItemVacio(), ((v&&v.items)||{})[_sgKey(codigo)]||{});
-    const ro=_sgSoloLectura();
+    const ro=_sgSoloLectura(); const regM=_sgRegimenDe(v&&v.vigencia); const exigM=_sgExigible(codigo, regM, _sgExigiblesDe(v&&v.vigencia));   // v315
     openModal(`${codigo} · ${_sgEsc(def.n)}`, `
-        <p style="font-size:0.74rem;color:var(--muted);margin:0 0 8px;">${_sgEsc(def.c)} · ${_sgEsc(def.e)} · ${_sgEsc(def.s)} · <b>Vale ${def.v} punto(s)</b> · Vigencia ${window._sg.sel}${ro?' · 🔒 solo lectura':''}</p>
+        <p style="font-size:0.74rem;color:var(--muted);margin:0 0 8px;">${_sgEsc(def.c)} · ${_sgEsc(def.e)} · ${_sgEsc(def.s)} · <b>Vale ${def.v} punto(s)</b> · Vigencia ${window._sg.sel}${ro?' · 🔒 solo lectura':''} · ${exigM?'<span style="color:#10b981;font-weight:700;">Exigible en su régimen</span>':'<span style="color:#f59e0b;font-weight:700;">No exigible (suma por ley)</span>'}</p>
+        ${_sgGuiaItemHTML(codigo, 'largo')}
         ${(()=>{ const h=_sgEvidenciaHTML(codigo); return h?`<div style="margin:0 0 8px;"><span style="font-size:0.7rem;color:var(--muted);">Evidencia que sale sola del sistema:</span><br>${h}</div>`:''; })()}
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px;">
             <div class="form-group-dark"><label>Calificación</label><select id="sgi_cal" class="form-control" ${ro?'disabled':''} onchange="document.getElementById('sgi_zj').style.display=this.value==='no_aplica'?'block':'none';document.getElementById('sgi_zp').style.display=this.value==='no_cumple'?'block':'none'">
                 <option value="" ${!it.calificacion?'selected':''}>— Sin calificar</option>
                 ${Object.entries(SGSST_CAL).map(([k,x])=>`<option value="${k}" ${it.calificacion===k?'selected':''}>${x.l}</option>`).join('')}
-            </select></div>
+            </select><div style="font-size:0.68rem;color:var(--muted);margin-top:3px;line-height:1.4;">Cumple = tiene la evidencia hoy · No cumple = falta algo, vale 0 · No aplica = solo si la norma lo excluye, con justificación</div></div>
             <div class="form-group-dark" id="sgi_zp" style="${it.calificacion==='no_cumple'?'':'display:none;'}"><label>Marca de trabajo <span title="Solo para llevar el control interno: para la autoevaluación oficial un ítem parcial NO suma puntos." style="cursor:help;">❔</span></label><label style="font-weight:400;font-size:0.82rem;"><input type="checkbox" id="sgi_par" ${it.trabajo==='parcial'?'checked':''} ${ro?'disabled':''}> 🟡 Va en parte (no suma puntos)</label></div>
         </div>
         <div class="form-group-dark" id="sgi_zj" style="${it.calificacion==='no_aplica'?'':'display:none;'}"><label>Justificación del "No aplica" * <span title="Sin justificación escrita el ítem vale 0 (art. 27, Res. 0312/2019)." style="cursor:help;">❔</span></label><textarea id="sgi_jus" class="form-control" rows="2" ${ro?'disabled':''}>${_sgEsc(it.justificacion)}</textarea></div>
@@ -7098,10 +7316,13 @@ async function guardarItemSG(codigo){
 }
 
 // ─── Plan de mejoramiento (art. 28) ─────────────────────────────────────────
-function _sgFilasPlan(v){
+function _sgFilasPlan(v, regimen, exigibles){
+    // v315 · en régimen 21 entran los exigibles que fallan; un ítem no exigible entra solo si ya tiene plan (p. ej. 7.1.2 con acciones derivadas).
+    const ex=(regimen==='21') ? ((Array.isArray(exigibles)&&exigibles.length)?exigibles:SGSST_ITEMS_21) : null;
     return SGSST_MATRIZ_60.map(d=>({def:d, it:((v&&v.items)||{})[_sgKey(d.k)]||{}}))
-        .filter(x=>x.it.calificacion==='no_cumple' || (x.it.calificacion==='no_aplica' && !_sgJust(x.it)) || (x.it.plan||[]).length);
+        .filter(x=>(ex && !ex.includes(x.def.k)) ? (x.it.plan||[]).length : (x.it.calificacion==='no_cumple' || (x.it.calificacion==='no_aplica' && !_sgJust(x.it)) || (x.it.plan||[]).length));
 }
+function _sgFilasPlanVig(v){ return _sgFilasPlan(v, _sgRegimenDe(v&&v.vigencia), _sgExigiblesDe(v&&v.vigencia)); }
 const SGSST_ACCION_ESTADOS={ pendiente:'⏳ Pendiente', en_curso:'🔧 En curso', hecha:'✅ Hecha' };
 function modalPlanSG(codigo){
     if(!_sgPuede()) return;
@@ -7157,8 +7378,8 @@ async function sgBorrarAccion(codigo, idx){
 // ─── Ítems adicionales de la empresa (no cuentan en el puntaje oficial) ─────
 async function _sgGuardarAdicionales(lista){
     const sg=window._sg, v=_sgVigActual(); if(!v) return;
-    v.adicionales=lista;
     await _sgEscribir(_sgDocVig(sg.sel), { adicionales:lista });
+    v.adicionales=lista;   // v315: la memoria solo cambia si la nube recibió el guardado
 }
 function modalAdicionalSG(id){
     if(!_sgPuede()) return;
@@ -7178,18 +7399,21 @@ async function guardarAdicionalSG(id){
     if(!_sgPuede()||_sgSoloLectura()) return;
     const nom=(document.getElementById('sga_nom').value||'').trim(); if(!nom) return alert('Escribe el nombre.');
     const v=_sgVigActual(); const lista=(v.adicionales||[]).slice();
-    let a=id?lista.find(x=>x.id===id):null;
-    if(!a){ a={ id:'sga'+Date.now(), adjuntos:[] }; lista.push(a); }
-    Object.assign(a, { nombre:nom, estado:document.getElementById('sga_est').value, responsable:(document.getElementById('sga_resp').value||'').trim(), fechaObjetivo:document.getElementById('sga_fecha').value||'', evidencia:(document.getElementById('sga_evi').value||'').trim(), actualizadoEn:now() });
-    try{ await _sgGuardarAdicionales(lista); registrarLog('SGSST_ADICIONAL', nom); closeModal(); }catch(e){ alert('⚠️ No se guardó: '+((e&&e.message)||e)); }
+    const prev=id?lista.find(x=>x.id===id):null;
+    const a=Object.assign({}, prev||{ id:'sga'+Date.now(), adjuntos:[] }, { nombre:nom, estado:document.getElementById('sga_est').value, responsable:(document.getElementById('sga_resp').value||'').trim(), fechaObjetivo:document.getElementById('sga_fecha').value||'', evidencia:(document.getElementById('sga_evi').value||'').trim(), actualizadoEn:now() });
+    const listaNueva=prev?lista.map(x=>x.id===id?a:x):lista.concat([a]);   // v315: el registro en memoria no se toca hasta que la nube confirme
+    try{ await _sgGuardarAdicionales(listaNueva); registrarLog('SGSST_ADICIONAL', nom); closeModal(); }catch(e){ alert('⚠️ No se guardó: '+((e&&e.message)||e)); }
     renderSGSST();
 }
-async function eliminarAdicionalSG(id){
+// v315 · los ítems adicionales se archivan con motivo; nada se borra y sus documentos se conservan
+async function archivarAdicionalSG(id){
     if(!_sgPuede()||_sgSoloLectura()) return;
-    const v=_sgVigActual(); const a=(v.adicionales||[]).find(x=>x.id===id); if(!a) return;
-    if(!confirm(`¿Quitar el ítem adicional "${a.nombre}"?${(a.adjuntos||[]).length?`\n\nSus ${a.adjuntos.length} documento(s) también se borran de la nube.`:''}`)) return;
-    (a.adjuntos||[]).forEach(x=>{ if(x.docId) _borrarDocfile(x.docId); });
-    try{ await _sgGuardarAdicionales((v.adicionales||[]).filter(x=>x.id!==id)); registrarLog('SGSST_ADICIONAL_ELIMINADO', a.nombre); }catch(e){ alert('⚠️ No se guardó: '+((e&&e.message)||e)); }
+    const v=_sgVigActual(); const lista=((v&&v.adicionales)||[]).slice(); const a=lista.find(x=>x.id===id); if(!a) return;
+    const m=prompt(`¿Por qué se archiva el ítem adicional "${a.nombre}"? (mínimo 5 letras; no se borra nada y sus documentos se conservan)`, ''); if(m===null) return;
+    if(m.trim().length<5) return alert('Escribe el motivo (al menos 5 letras).');
+    const marca={ archivada:true, archivadoEn:now(), archivadoPor:(USER&&USER.role)||'?', motivoArchivo:m.trim() };
+    const listaNueva=lista.map(x=>x.id===id?Object.assign({}, x, marca):x);   // v315: el registro en memoria no se toca hasta que la nube confirme
+    try{ await _sgGuardarAdicionales(listaNueva); registrarLog('SGSST_ADICIONAL_ARCHIVADO', a.nombre+' · '+m.trim()); }catch(e){ alert('⚠️ No se guardó: '+((e&&e.message)||e)); }
     renderSGSST();
 }
 
@@ -7214,22 +7438,22 @@ async function modalVigenciasSG(){
     const anios=Object.keys(vigs).sort();
     openModal('🗓️ Vigencias de la autoevaluación', `<div style="text-align:center;color:var(--muted);padding:16px;">Leyendo vigencias…</div>`, `<button class="btn btn-outline" onclick="closeModal();renderSGSST()">Cerrar</button>`);
     for(const a of anios){ try{ await _sgCargarVigencia(a); }catch(e){} }
-    const filas=anios.map(a=>{ const v=sg.vig[a]; const c=v?_sgCalcular(v.items):null; const r=_sgEstadoRegistroSGRL(vigs[a], a);
+    const filas=anios.map(a=>{ const v=sg.vig[a]; const c=v?_sgCalcularVig(v):null; const r=_sgEstadoRegistroSGRL(vigs[a], a); const rgi=vigs[a]||{}; const rgH=Object.values(rgi.regimenHistorial||{}).sort((p,q)=>String(p.en||'').localeCompare(String(q.en||''))); const rgF=rgH.length?String(rgH[rgH.length-1].en||'').slice(0,10):'';
         return `<tr>
             <td style="font-weight:800;">${a}${String(cfg.vigenciaActiva)===a?' <span style="color:#10b981;font-size:0.7rem;">● activa</span>':''}${v&&v.cerrada?' 🔒':''}</td>
-            <td>${c?`<b style="color:${c.color}">${c.total.toFixed(2)}</b> · ${c.texto}`:'<span style="color:var(--muted)">sin datos</span>'}</td>
+            <td>${c?`<b style="color:${c.color}">${c.total.toFixed(2)}</b> · ${c.texto}`:'<span style="color:var(--muted)">sin datos</span>'}</td><td style="font-size:0.72rem;white-space:nowrap;">${rgi.regimen?`<b>${_sgRegimenDe(a)}</b> ítems${rgF?'<br><span style="color:var(--muted);">fijado el '+_sgFechaCO(rgF)+'</span>':''}`:'<span style="color:#f59e0b;">sin confirmar (60)</span>'}</td>
             <td style="font-size:0.72rem;">${r.icono} ${_sgEsc(r.texto)}</td>
             <td style="white-space:nowrap;">
                 <button class="btn btn-outline btn-sm" onclick="closeModal();sgSeleccionarVigencia('${a}')">👁️ Ver</button>
                 ${String(cfg.vigenciaActiva)===a?'':`<button class="btn btn-outline btn-sm" onclick="sgActivarVigencia('${a}')" title="La vigencia activa es la que se muestra al abrir el módulo">⭐ Activa</button>`}
                 ${v?`<button class="btn btn-outline btn-sm" onclick="sgCerrarVigencia('${a}',${v.cerrada?'false':'true'})">${v.cerrada?'🔓 Reabrir':'🔒 Cerrar'}</button>`:''}
-                <button class="btn btn-outline btn-sm" onclick="sgFechasVigencia('${a}')" title="Plazo de la circular y cierre de la plataforma SGRL">🗓️ Fechas</button>
+                <button class="btn btn-outline btn-sm" onclick="sgFechasVigencia('${a}')" title="Plazo de la circular y cierre de la plataforma SGRL">🗓️ Fechas</button> <button class="btn btn-outline btn-sm" onclick="modalRegimenSG('${a}')" title="Cuántos estándares se exigen: 7, 21 o 60">⚖️ Régimen</button>
                 ${vigs[a].registradaEn?'':`<button class="btn btn-outline btn-sm" onclick="sgRegistradaSGRL('${a}')">✅ Ya la registré</button>`}
             </td></tr>`; }).join('');
-    const datos=anios.map(a=>({a, t:sg.vig[a]?_sgCalcular(sg.vig[a].items).total:null})).filter(x=>x.t!==null);
+    const datos=anios.map(a=>({a, t:sg.vig[a]?_sgCalcularVig(sg.vig[a]).total:null})).filter(x=>x.t!==null);
     openModal('🗓️ Vigencias de la autoevaluación', `
         <p style="font-size:0.75rem;color:var(--muted);margin:0 0 8px;">Cada año es una autoevaluación distinta. La <b>activa</b> se edita; las cerradas quedan de solo lectura con su puntaje. <a href="${SGSST_SGRL_URL}" target="_blank" rel="noopener">Plataforma SGRL ↗</a></p>
-        <div class="card" style="padding:0;overflow-x:auto;margin-bottom:10px;"><table class="tabla" style="width:100%;font-size:0.78rem;"><thead><tr><th>Vigencia</th><th>Puntaje</th><th>Registro en SGRL</th><th></th></tr></thead><tbody>${filas||'<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:12px;">Aún no hay vigencias.</td></tr>'}</tbody></table></div>
+        <div class="card" style="padding:0;overflow-x:auto;margin-bottom:10px;"><table class="tabla" style="width:100%;font-size:0.78rem;"><thead><tr><th>Vigencia</th><th>Puntaje</th><th>Régimen</th><th>Registro en SGRL</th><th></th></tr></thead><tbody>${filas||'<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:12px;">Aún no hay vigencias.</td></tr>'}</tbody></table></div>
         ${datos.length>1?'<div class="card" style="padding:10px;"><canvas id="sgGrafVig" height="120"></canvas></div>':''}
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
             <button class="btn btn-primary btn-sm" onclick="sgNuevaVigencia()">➕ Nueva vigencia</button>
@@ -7247,7 +7471,7 @@ async function sgActivarVigencia(anio){
 async function sgCerrarVigencia(anio, cerrar){
     if(!_sgPuede()) return;
     if(cerrar && !confirm(`¿Cerrar la vigencia ${anio}? Queda de solo lectura con su puntaje actual. Se puede reabrir.`)) return;
-    try{ const v=await _sgCargarVigencia(anio); if(!v) return; const p=_sgResumenPuntaje(_sgCalcular(v.items)); await _sgEscribir(_sgDocVig(anio), { cerrada:!!cerrar, puntaje:p, cerradaEn:cerrar?now():'' }); v.cerrada=!!cerrar; v.puntaje=p; registrarLog(cerrar?'SGSST_VIGENCIA_CERRADA':'SGSST_VIGENCIA_REABIERTA', anio); }
+    try{ const v=await _sgCargarVigencia(anio); if(!v) return; const p=_sgResumenPuntaje(_sgCalcularVig(v)); await _sgEscribir(_sgDocVig(anio), { cerrada:!!cerrar, puntaje:p, cerradaEn:cerrar?now():'' }); v.cerrada=!!cerrar; v.puntaje=p; registrarLog(cerrar?'SGSST_VIGENCIA_CERRADA':'SGSST_VIGENCIA_REABIERTA', anio); }
     catch(e){ alert('⚠️ No se guardó: '+((e&&e.message)||e)); }
     modalVigenciasSG();
 }
@@ -7269,6 +7493,69 @@ async function sgFechasVigencia(anio){
     catch(e){ alert('⚠️ No se guardó: '+((e&&e.message)||e)); }
     modalVigenciasSG();
 }
+// ─── v315 · Régimen de la vigencia: cuántos estándares se exigen (7, 21 o 60) ───
+function _sgTextoCapitulo(cap){ return cap==='7'?'7 estándares (art. 3)':cap==='21'?'21 estándares (art. 9)':cap==='60'?'60 estándares (arts. 15 y 16)':''; }
+function _sgRegimenPintarSugerido(){
+    const n=parseInt((document.getElementById('sgr_trab')||{}).value,10); const cl=(document.getElementById('sgr_clase')||{}).value||'';
+    const cap=_sgCapituloSugerido(n, cl); const out=document.getElementById('sgr_sug'); const sel=document.getElementById('sgr_reg'); if(!out||!sel) return;
+    const op21=sel.querySelector('option[value="21"]');
+    if(cap==='sin_datos') out.innerHTML='<span style="color:var(--muted);">Escribe cuántas personas trabajan y la clase de riesgo para saber qué capítulo le corresponde. Mientras no se fije, se calcula con 60.</span>';
+    else out.innerHTML=`Con esos datos, la ley le pide <b>${_sgTextoCapitulo(cap)}</b>.`+(cap==='60'?' <span style="color:#ef4444;">El régimen de 21 no se puede escoger: la autoevaluación es un documento público firmado (arts. 15 y 16, Res. 0312 de 2019).</span>':cap==='7'?' <span style="color:#f59e0b;">El módulo aún no maneja los 7 estándares; consúltelo con la ARL. Mientras tanto queda en 60.</span>':' Puede escoger 21 o, si prefiere exigirse más, 60.');
+    if(op21){ op21.disabled=(cap!=='21'); if(op21.disabled && sel.value==='21') sel.value='60'; if(cap==='21' && sel.dataset.auto==='1') sel.value='21'; }
+}
+async function modalRegimenSG(anio){
+    if(!_sgPuede()) return; anio=String(anio||window._sg.sel||''); if(!anio) return;
+    try{ await _sgCargarVigencia(anio); }catch(e){}   // v315: si la vigencia no estaba en memoria se lee, para que el candado de "cerrada" se vea; el candado definitivo está en el guardado
+    const info=_sgInfoVig(anio); const al=info.alcance||{}; const reg=_sgRegimenDe(anio); const bl=_sgRegimenBloqueado(anio);
+    let nAct=0; try{ nAct=_sgTodasPersonas().filter(p=>p.activo!==false).length; }catch(e){}
+    const trab=al.trabajadores||nAct||'';
+    const hist=Object.values(info.regimenHistorial||{}).sort((p,q)=>String(p.en||'').localeCompare(String(q.en||'')));
+    const cuerpo=`
+        ${_sgAyuda('La tabla oficial tiene 60 ítems, pero la Res. 0312 de 2019 no se los exige a todas las empresas: <b>7</b> (art. 3) a las de 10 o menos trabajadores en riesgo I, II o III; <b>21</b> (art. 9) a las de 11 a 50 trabajadores en riesgo I, II o III; <b>60</b> (arts. 15 y 16) a las de más de 50 trabajadores o de riesgo IV o V. La clase de riesgo que decide es la de la <b>actividad económica principal</b> de la empresa en su afiliación a la ARL (Decreto 768 de 2022; Decreto-ley 1295 de 1994, art. 25), no la de cada trabajador ni la de cada centro de trabajo: que haya técnicos afiliados en clase V no cambia el capítulo. Los ítems que no se exigen se reportan como "No aplica" y suman su valor por ley (art. 27).')}
+        <p style="font-size:0.78rem;margin:0 0 8px;">Vigencia <b>${anio}</b> · régimen actual: <b>${SGSST_REGIMENES[reg].l}</b>${info.regimen?'':' <span style="color:#f59e0b;">(sin confirmar: se calcula con 60)</span>'}</p>
+        ${bl.bloqueado?`<div style="padding:8px 10px;border-radius:8px;border:1px solid rgba(245,158,11,0.5);font-size:0.8rem;line-height:1.45;">🔒 ${_sgEsc(bl.motivo)}</div>`:`
+        <div class="form-group-dark"><label>1. ¿Cuántas personas trabajan para la empresa? <span style="font-weight:400;color:var(--muted);">Cuenta planta, contratistas por prestación de servicios y personal en misión.</span></label><input id="sgr_trab" type="number" min="1" class="form-control" value="${_sgEsc(trab)}" oninput="_sgRegimenPintarSugerido()"></div>
+        <div class="form-group-dark"><label>2. ¿En qué clase de riesgo está la ACTIVIDAD ECONÓMICA PRINCIPAL de la empresa en la afiliación a la ARL? <span style="font-weight:400;color:var(--muted);">(I mínimo … V máximo). Está en el certificado de afiliación o en la planilla PILA.</span></label><select id="sgr_clase" class="form-control" onchange="_sgRegimenPintarSugerido()"><option value="">— Elige la clase</option>${['I','II','III','IV','V'].map(x=>`<option value="${x}" ${al.claseRiesgoPrincipal===x?'selected':''}>Clase ${x}</option>`).join('')}</select></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px;">
+            <div class="form-group-dark"><label>Actividad principal (código o descripción)</label><input id="sgr_act" class="form-control" value="${_sgEsc(al.actividadPrincipal||'')}" placeholder="Ej: 6110 telecomunicaciones alámbricas"></div>
+            <div class="form-group-dark"><label>Nota: ¿hay trabajadores afiliados en otra clase? <span style="font-weight:400;color:var(--muted);">(p. ej. técnicos en clase V; solo informativo, no cambia el capítulo)</span></label><input id="sgr_nota" class="form-control" value="${_sgEsc(al.notaCentros||'')}"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:2fr 1fr;gap:0 12px;">
+            <div class="form-group-dark"><label>3. ¿De dónde sale el dato? <span style="font-weight:400;color:var(--muted);">Certificado de la ARL o carta del asesor.</span></label><input id="sgr_fuente" class="form-control" value="${_sgEsc(al.fuente||'')}" placeholder="Ej: certificado de afiliación de la ARL"></div>
+            <div class="form-group-dark"><label>Fecha del certificado</label><input id="sgr_fcert" type="date" class="form-control" value="${_sgEsc(al.fechaCertificado||'')}"></div>
+        </div>
+        <div id="sgr_sug" style="font-size:0.8rem;padding:8px 10px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);margin-bottom:8px;line-height:1.45;"></div>
+        <div class="form-group-dark"><label>Régimen a fijar para la vigencia ${anio}</label><select id="sgr_reg" class="form-control" data-auto="${info.regimen?'0':'1'}" onchange="this.dataset.auto='0'"><option value="21" ${reg==='21'?'selected':''}>${SGSST_REGIMENES['21'].l} · ${SGSST_REGIMENES['21'].desc}</option><option value="60" ${reg==='60'?'selected':''}>${SGSST_REGIMENES['60'].l} · ${SGSST_REGIMENES['60'].desc}</option></select></div>`}
+        ${hist.length?`<details style="font-size:0.72rem;color:var(--muted);"><summary style="cursor:pointer;">Historial del régimen (${hist.length})</summary>${hist.map(h=>`<div style="padding:2px 0;">${_sgEsc(String(h.en||'').slice(0,16).replace('T',' '))} · ${_sgEsc(h.de||'sin fijar')} → <b>${_sgEsc(h.a)}</b>${h.motivo?' · '+_sgEsc(h.motivo):''} · ${_sgEsc(h.por||'')}</div>`).join('')}</details>`:''}`;
+    openModal('⚖️ Régimen de estándares · vigencia '+anio, cuerpo, `<button class="btn btn-outline" onclick="closeModal();modalVigenciasSG()">Cerrar</button>${bl.bloqueado?'':`<button class="btn btn-primary" onclick="sgGuardarRegimenSG('${anio}')">💾 Guardar régimen</button>`}`);
+    if(!bl.bloqueado) _sgRegimenPintarSugerido();
+}
+async function sgGuardarRegimenSG(anio){
+    if(!_sgPuede()) return; anio=String(anio);
+    let vF; try{ vF=await _sgLeer(_sgDocVig(anio)); await _sgRefrescarConfig(); }catch(e){ return alert('No se pudo comprobar el estado de la vigencia '+anio+' en la nube ('+_sgTraducirError(e)+'). Intenta de nuevo cuando haya conexión.'); }   // v315: el candado (cerrada, registrada en SGRL) se decide con la nube, no con la copia en memoria
+    window._sg.vig=window._sg.vig||{}; if(window._sg.vig[anio]==null) window._sg.vig[anio]=vF; else if(vF) window._sg.vig[anio].cerrada=(vF.cerrada===true);
+    const bl=_sgRegimenBloqueado(anio); if(bl.bloqueado) return alert(bl.motivo);
+    const n=parseInt(document.getElementById('sgr_trab').value,10); const clase=document.getElementById('sgr_clase').value||'';
+    const fuente=(document.getElementById('sgr_fuente').value||'').trim(); const regimen=document.getElementById('sgr_reg').value==='21'?'21':'60';
+    if(!(n>0)) return alert('Escribe cuántas personas trabajan para la empresa (un número mayor que 0).');
+    if(!clase) return alert('Elige la clase de riesgo de la actividad económica principal.');
+    if(!fuente) return alert('Escribe de dónde sale el dato (certificado de la ARL o carta del asesor).');
+    const cap=_sgCapituloSugerido(n, clase);
+    if(regimen==='21' && cap!=='21') return alert('Con esos datos la ley no permite el régimen de 21 estándares: queda en 60.');
+    const alcance={ trabajadores:n, claseRiesgoPrincipal:clase, actividadPrincipal:(document.getElementById('sgr_act').value||'').trim(), fuente, fechaCertificado:document.getElementById('sgr_fcert').value||'', notaCentros:(document.getElementById('sgr_nota').value||'').trim(), capituloSugerido:cap };
+    const de=_sgInfoVig(anio).regimen||''; const id=uid();
+    const datos={ regimen, exigibles:(regimen==='21'?SGSST_ITEMS_21.slice():null), alcance, regimenHistorial:{ [id]:{ de, a:regimen, motivo:'', por:(USER&&USER.role)||'?', en:now(), alcance } } };
+    try{
+        await _sgEscribir('sgsst_config', { vigencias:{ [anio]:datos } });
+        window._sg.config=_sgMezclar(window._sg.config||{}, { vigencias:{ [anio]:datos } });
+        window._sg.config.vigencias[anio].exigibles=datos.exigibles;
+        const vR=window._sg.vig&&window._sg.vig[anio]; if(vR && vR.cerrada!==true){ try{ vR.puntaje=_sgResumenPuntaje(_sgCalcularVig(vR)); await _sgEscribir(_sgDocVig(anio), { puntaje:vR.puntaje }); }catch(e){ console.warn('SG-SST: el resumen de puntaje de '+anio+' se actualizará en la próxima calificación', e); } }   // v315: el resumen de la vigencia queda coherente con el régimen; solo si la vigencia está cargada, para no crear el documento a medias
+        registrarLog('SGSST_REGIMEN', anio+': '+(de||'sin fijar')+' → '+regimen);
+        _sgToast('Régimen de la vigencia '+anio+' guardado: '+SGSST_REGIMENES[regimen].l);
+        closeModal();
+    }catch(e){ alert('⚠️ No se guardó: '+((e&&e.message)||e)); }
+    renderSGSST();
+}
 async function sgNuevaVigencia(){
     if(!_sgPuede()) return;
     const a=prompt('¿Qué año? (AAAA)', String(new Date().getFullYear()+1)); if(a===null) return;
@@ -7276,9 +7563,14 @@ async function sgNuevaVigencia(){
     if(_sgInfoVig(anio).plazoCircular!==undefined || (window._sg.config&&window._sg.config.vigencias&&window._sg.config.vigencias[String(anio)])) return alert(`La vigencia ${anio} ya existe.`);
     try{
         const existe=await _sgLeer(_sgDocVig(anio));
-        if(!existe){ const vac=_sgItemsVacios(); await _sgEscribir(_sgDocVig(anio), { vigencia:anio, origen:'nueva', cerrada:false, items:vac, adicionales:[], puntaje:_sgResumenPuntaje(_sgCalcular(vac)), creadoEn:now() }); }
-        await _sgEscribir('sgsst_config', { vigencias:{ [String(anio)]:{ plazoCircular:'', cierrePlataforma:'', registradaEn:'', registradaPor:'', nota:'' } } });
-        window._sg.config=window._sg.config||{}; window._sg.config.vigencias=window._sg.config.vigencias||{}; window._sg.config.vigencias[String(anio)]={ plazoCircular:'', cierrePlataforma:'', registradaEn:'', registradaPor:'', nota:'' };
+        // v315 · la vigencia nueva hereda el régimen y el alcance de la activa (con entrada en el historial); los exigibles salen de la constante vigente
+        const activa=String((window._sg.config&&window._sg.config.vigenciaActiva)||''); const infoA=activa?_sgInfoVig(activa):{};
+        const regH=infoA.regimen==='21'?'21':(infoA.regimen?'60':''); const exH=regH==='21'?SGSST_ITEMS_21.slice():null;
+        const infoN={ plazoCircular:'', cierrePlataforma:'', registradaEn:'', registradaPor:'', nota:'' };
+        if(regH){ const alc=JSON.parse(JSON.stringify(infoA.alcance||{})); infoN.regimen=regH; infoN.exigibles=exH; infoN.alcance=alc; infoN.regimenHistorial={ [uid()]:{ de:'', a:regH, motivo:'heredado de '+activa, por:(USER&&USER.role)||'?', en:now(), alcance:alc } }; }
+        if(!existe){ const vac=_sgItemsVacios(); await _sgEscribir(_sgDocVig(anio), { vigencia:anio, origen:'nueva', cerrada:false, items:vac, adicionales:[], puntaje:_sgResumenPuntaje(_sgCalcular(vac, regH||'60', exH)), creadoEn:now() }); }
+        await _sgEscribir('sgsst_config', { vigencias:{ [String(anio)]:infoN } });
+        window._sg.config=window._sg.config||{}; window._sg.config.vigencias=window._sg.config.vigencias||{}; window._sg.config.vigencias[String(anio)]=infoN;
         delete window._sg.vig[String(anio)];
         registrarLog('SGSST_VIGENCIA_NUEVA', anio);
     }catch(e){ alert('⚠️ No se creó: '+((e&&e.message)||e)); }
@@ -7312,6 +7604,27 @@ function modalImportarSG(){
         <div class="form-group-dark"><label>Año (si el archivo no lo trae)</label><input type="number" id="sgimp_anio" class="form-control" placeholder="Ej: 2023"></div>
     `, `<button class="btn btn-outline" onclick="closeModal();modalVigenciasSG()">Cancelar</button><button class="btn btn-primary" onclick="sgImportarOficial()">📥 Importar</button>`);
 }
+// v315 · sobre una vigencia que ya existe, el Excel solo decide la calificación de los ítems que TRAE (los que no vienen conservan la suya):
+// plan, adjuntos, responsable, fecha objetivo y evidencia no se escriben (set merge fusiona mapas y conserva lo demás). "trabajo" se limpia
+// salvo en no_cumple, como en sgCalificar. La justificación solo se escribe en no_aplica, y si el ítem ya tenía una propia, se conserva esa.
+function _sgItemsImportados(items, yaExiste, prevItems){
+    if(!yaExiste) return items;
+    prevItems=prevItems||{}; const out={};
+    Object.entries(items||{}).forEach(([k,it])=>{
+        if(!it || !it.actualizadoEn) return;   // el archivo no trae este ítem: no se toca
+        const o={ calificacion:it.calificacion||'', actualizadoEn:it.actualizadoEn };
+        if(o.calificacion!=='no_cumple') o.trabajo='';
+        if(o.calificacion==='no_aplica') o.justificacion=_sgJust(prevItems[k])?String(prevItems[k].justificacion):(it.justificacion||'');
+        out[k]=o;
+    });
+    return out;
+}
+// Lo que quedará en el documento tras el set merge: lo guardado, con encima lo que trae el archivo (para calcular el puntaje real).
+function _sgItemsTrasImportar(prevItems, importados){
+    const out=Object.assign({}, prevItems||{});
+    Object.entries(importados||{}).forEach(([k,o])=>{ out[k]=Object.assign({}, out[k]||{}, o); });
+    return out;
+}
 function sgImportarOficial(){
     if(!_sgPuede()) return;
     const f=document.getElementById('sgimp_arch')?.files?.[0]; if(!f) return alert('Elige el archivo .xlsx.');
@@ -7324,53 +7637,84 @@ function sgImportarOficial(){
             const r=_sgParsearFilasOficial(filas);
             const anio=r.vigencia||anioManual; if(!anio) return alert('El archivo no dice la vigencia. Escribe el año.');
             if(r.n<50) return alert(`Solo se reconocieron ${r.n} ítems de 60 en la hoja "${nombreHoja}". ¿Es el archivo correcto?`);
+            await _sgRefrescarConfig();   // v315 · si la vigencia existe, su régimen y "Ya la registré" se deciden con lo que hay en la nube, no con una memoria vieja
             if(window._sg.config&&window._sg.config.vigencias&&window._sg.config.vigencias[String(anio)]){ if(!confirm(`La vigencia ${anio} ya existe. ¿Reemplazar sus calificaciones con las del archivo?`)) return; }
             const items=_sgItemsVacios();
             Object.entries(r.calificaciones).forEach(([k,c])=>{ const it=items[_sgKey(k)]; it.calificacion=c; if(c==='no_aplica') it.justificacion='Importado de la autoevaluación oficial (el archivo no trae la justificación).'; it.actualizadoEn=now(); });
-            const calc=_sgCalcular(items);
-            if(!confirm(`Vigencia ${anio}: ${r.n} ítems leídos · puntaje ${calc.total.toFixed(2)} (${calc.texto}).\n\n¿Crear la vigencia cerrada con estos datos?`)) return;
+            const yaExiste=!!(window._sg.config&&window._sg.config.vigencias&&window._sg.config.vigencias[String(anio)]);
+            // v315 · sobre una vigencia que ya existe se lee lo guardado ANTES de escribir: los ítems que el archivo no trae conservan su
+            // calificación, los "no aplica" conservan su justificación propia y el puntaje se calcula sobre lo que quedará en el documento
+            const prevDoc=yaExiste?(await _sgLeer(_sgDocVig(anio))):null; const prevItems=(prevDoc&&prevDoc.items)||{};
+            if(prevDoc){ if(window._sg.vig[String(anio)]) window._sg.vig[String(anio)].cerrada=(prevDoc.cerrada===true); else window._sg.vig[String(anio)]=prevDoc; }   // el candado del régimen mira la memoria: que retrate la nube
+            const itemsW=_sgItemsImportados(items, yaExiste, prevItems); const itemsCalc=yaExiste?_sgItemsTrasImportar(prevItems, itemsW):items;
+            // v315 · si los 39 no exigibles vienen "No aplica", el archivo es de una empresa de 21 estándares. El régimen se respeta igual que en
+            // ⚖️ Régimen: no se cambia el de una vigencia cerrada o registrada en SGRL que ya lo tiene fijado, ni se ofrece 21 si el alcance dice otra cosa
+            let regI='';
+            if(_sgDetectarRegimenImportado(items)==='21' && _sgRegimenDe(anio)!=='21'){
+                const infoR=_sgInfoVig(anio); const alR=infoR.alcance||{}; const blI=yaExiste?_sgRegimenBloqueado(anio):{ bloqueado:false, motivo:'' }; const capR=String(alR.capituloSugerido||'');
+                if(blI.bloqueado && infoR.regimen) alert(`El archivo parece de una empresa de 21 estándares. ${blI.motivo} Las calificaciones se importan con el régimen actual de ${_sgRegimenDe(anio)} estándares.`);
+                else if(capR==='7' || capR==='60') alert(`El archivo parece de una empresa de 21 estándares, pero con los datos registrados (${alR.trabajadores||'?'} trabajadores, clase ${alR.claseRiesgoPrincipal||'?'}) la ley pide ${_sgTextoCapitulo(capR)}. Corrige primero el alcance en ⚖️ Régimen; se importa con el régimen actual de ${_sgRegimenDe(anio)} estándares.`);
+                else if(confirm(`El archivo parece de una empresa de 21 estándares (los otros 39 ítems vienen como "No aplica"). ¿Guardar la vigencia ${anio} con régimen 21?`)) regI='21';
+            }
+            const regC=regI||_sgRegimenDe(anio); const exC=regI?SGSST_ITEMS_21.slice():_sgExigiblesDe(anio);   // en 21 ya fijado, la copia de exigibles guardada en la vigencia
+            const calc=_sgCalcular(itemsCalc, regC, exC);
+            const noVienen=yaExiste?SGSST_MATRIZ_60.filter(d=>!itemsW[_sgKey(d.k)]).length:0;
+            if(!confirm(`Vigencia ${anio}: ${r.n} ítems leídos · régimen de ${regC} estándares · puntaje ${calc.total.toFixed(2)} (${calc.texto}).\n\n¿${yaExiste?'Reemplazar las calificaciones de la vigencia con estos datos (se conservan planes, documentos y responsables'+(noVienen?'; '+noVienen+' ítems no vienen en el archivo y conservan su calificación':'')+'; los "no aplica" que ya tenían justificación propia la conservan)':'Crear la vigencia cerrada con estos datos'}?`)) return;
             mostrarSaveOverlay('saving','Importando...','');
-            await _sgEscribir(_sgDocVig(anio), { vigencia:anio, origen:'excel', cerrada:true, items, adicionales:[], puntaje:_sgResumenPuntaje(calc), importadoDe:f.name, creadoEn:now() });
-            await _sgEscribir('sgsst_config', { vigencias:{ [String(anio)]:Object.assign({ plazoCircular:'', cierrePlataforma:'', registradaEn:'', registradaPor:'', nota:'Importada del Excel oficial' }, _sgInfoVig(anio)) } });
-            window._sg.config=window._sg.config||{}; window._sg.config.vigencias=window._sg.config.vigencias||{}; window._sg.config.vigencias[String(anio)]=window._sg.config.vigencias[String(anio)]||{ plazoCircular:'', cierrePlataforma:'', registradaEn:'', registradaPor:'', nota:'Importada del Excel oficial' };
+            const docV={ vigencia:anio, origen:'excel', items:itemsW, puntaje:_sgResumenPuntaje(calc), importadoDe:f.name, importadoEn:now() };
+            if(!yaExiste){ docV.cerrada=true; docV.creadoEn=now(); docV.adicionales=[]; }   // v315: sobre una vigencia que ya existe no se pisan sus ítems adicionales, planes ni documentos, y no se fuerza el cierre
+            await _sgEscribir(_sgDocVig(anio), docV);
+            const infoI=Object.assign({ plazoCircular:'', cierrePlataforma:'', registradaEn:'', registradaPor:'', nota:'Importada del Excel oficial' }, _sgInfoVig(anio));
+            if(regI){ infoI.regimen=regI; infoI.exigibles=exC; infoI.regimenHistorial=Object.assign({}, infoI.regimenHistorial||{}, { [uid()]:{ de:_sgInfoVig(anio).regimen||'', a:regI, motivo:'importado del Excel oficial', por:(USER&&USER.role)||'?', en:now(), alcance:infoI.alcance||{} } }); }
+            await _sgEscribir('sgsst_config', { vigencias:{ [String(anio)]:infoI } });
+            window._sg.config=window._sg.config||{}; window._sg.config.vigencias=window._sg.config.vigencias||{}; window._sg.config.vigencias[String(anio)]=infoI;
             delete window._sg.vig[String(anio)];
             registrarLog('SGSST_IMPORTAR_OFICIAL', {anio, items:r.n, archivo:f.name});
             mostrarSaveOverlay('done');
             modalVigenciasSG();
-        }catch(e){ mostrarSaveOverlay('error','No se importó',''); alert('⚠️ No se pudo importar: '+((e&&e.message)||e)); }
+        }catch(e){ mostrarSaveOverlay('error','No se importó',''); alert('⚠️ No se pudo importar: '+_sgTraducirError(e)); }
     });
 }
 
 // ─── Exportar la autoevaluación (mismas columnas de la tabla oficial) ───────
-function _sgFilasOficiales(v){
-    const c=_sgCalcular((v&&v.items)||{});
+function _sgFilasOficiales(v, regimen, exigibles){
+    // v315 · régimen 21: las filas no exigibles van con X en "No aplica" y la justificación legal (arts. 9 y 27), pase lo que pase en items.
+    const ex=(regimen==='21') ? ((Array.isArray(exigibles)&&exigibles.length)?exigibles:SGSST_ITEMS_21) : null;
+    const c=_sgCalcular((v&&v.items)||{}, ex?'21':'60', ex);
+    const JUST='No aplica: empresa de 11 a 50 trabajadores clasificada en riesgo I, II o III (arts. 9 y 27, Res. 0312 de 2019). Ítem no exigible en el régimen del art. 9.';
     let pC='', pE='', pS='';
     return SGSST_MATRIZ_60.map(d=>{
         const it=((v&&v.items)||{})[_sgKey(d.k)]||{};
-        const primero=d.s!==pS;
-        const fila=[ d.c!==pC?d.c:'', d.e!==pE?d.e:'', primero?d.s:'', d.k+' '+d.n, d.v, primero?d.p:'', it.calificacion==='cumple'?'X':'', it.calificacion==='no_cumple'?'X':'', it.calificacion==='no_aplica'?'X':'', primero?(c.porGrupo[d.s]||{}).obtenido:'', it.calificacion==='no_aplica'?(it.justificacion||''):'' ];
+        const primero=d.s!==pS; const exig=!ex || ex.includes(d.k);
+        const fila=[ d.c!==pC?d.c:'', d.e!==pE?d.e:'', primero?d.s:'', d.k+' '+d.n, d.v, primero?d.p:'', exig?(it.calificacion==='cumple'?'X':''):'', exig?(it.calificacion==='no_cumple'?'X':''):'', exig?(it.calificacion==='no_aplica'?'X':''):'X', primero?(c.porGrupo[d.s]||{}).obtenido:'', exig?(it.calificacion==='no_aplica'?(it.justificacion||''):''):JUST ];
         pC=d.c; pE=d.e; pS=d.s; return fila;
     });
 }
-function _sgEncabezadoExport(anio){ return [ `Razón social: ${SGSST_EMPRESA.razonSocial} - Nit: ${SGSST_EMPRESA.nit}`, `Vigencia: ${anio}`, `Fecha de Elaboración: ${_sgFechaCO(_sgHoyISO())}`, 'ESTÁNDARES MÍNIMOS SG-SST', 'TABLA DE VALORES Y CALIFICACIÓN' ]; }
+function _sgEncabezadoExport(anio){
+    const reg=_sgRegimenDe(anio); const al=_sgInfoVig(anio).alcance||{};   // v315: línea de régimen
+    const lineaReg='Régimen: '+(reg==='21'?'21 estándares (art. 9, Res. 0312/2019)':'60 estándares (art. 16, Res. 0312/2019)')+(al.trabajadores?' · Trabajadores: '+al.trabajadores:'')+(al.claseRiesgoPrincipal?' · Clase de riesgo de la actividad principal: '+al.claseRiesgoPrincipal:'');
+    return [ `Razón social: ${SGSST_EMPRESA.razonSocial} - Nit: ${SGSST_EMPRESA.nit}`, `Vigencia: ${anio}`, `Fecha de Elaboración: ${_sgFechaCO(_sgHoyISO())}`, 'ESTÁNDARES MÍNIMOS SG-SST', 'TABLA DE VALORES Y CALIFICACIÓN', lineaReg ];
+}
 function sgExportarExcel(){
     const v=_sgVigActual(); if(!v) return alert('No hay vigencia cargada.');
-    const anio=window._sg.sel; const c=_sgCalcular(v.items);
+    const anio=window._sg.sel; const c=_sgCalcularVig(v); const regX=_sgRegimenDe(anio), exX=_sgExigiblesDe(anio);   // v315: régimen de la vigencia
     _sgConExcel(()=>{
         const wb=XLSX.utils.book_new();
         const hoja=_sgEncabezadoExport(anio).map(t=>[t]).concat([
             ['CICLO','ESTÁNDAR','','ÍTEM DEL ESTÁNDAR','VALOR DEL ÍTEM DEL ESTÁNDAR','PESO PORCENTUAL','PUNTAJE POSIBLE','','','CALIFICACIÓN DE LA EMPRESA O CONTRATANTE','JUSTIFICACIÓN (No aplica)'],
             ['','','','','','','CUMPLE TOTALMENTE','NO CUMPLE','NO APLICA','','']
-        ], _sgFilasOficiales(v), [['TOTALES','','','','',100,'','','',c.total,'']]);
+        ], _sgFilasOficiales(v, regX, exX), [['TOTALES','','','','',100,'','','',c.total,'']]);
         const ws=XLSX.utils.aoa_to_sheet(hoja);
         ws['!cols']=[{wch:11},{wch:34},{wch:44},{wch:70},{wch:10},{wch:10},{wch:11},{wch:10},{wch:10},{wch:14},{wch:40}];
         XLSX.utils.book_append_sheet(wb, ws, 'Estandares Minimos');
         const ws2=XLSX.utils.aoa_to_sheet([['PORCENTAJE DE CALIFICACION POR CICLO'],['CICLO','RESULTADO','% DE CALIFICACIÓN']].concat(Object.keys(SGSST_CICLOS).map(k=>[k, c.porCiclo[k].obtenido, Math.round(100*c.porCiclo[k].obtenido/c.porCiclo[k].posible)]), [['TOTAL', c.total, c.texto]]));
         XLSX.utils.book_append_sheet(wb, ws2, 'Ciclos');
         const plan=[['ÍTEM','ESTÁNDAR','CALIFICACIÓN','ACCIÓN','RESPONSABLE','FECHA','RECURSOS','ESTADO']];
-        _sgFilasPlan(v).forEach(x=>{ const acc=(x.it.plan||[]); if(!acc.length) plan.push([x.def.k+' '+x.def.n, x.def.e, (SGSST_CAL[x.it.calificacion]||{l:'sin calificar'}).l, '(sin acciones)', '', '', '', '']); acc.forEach(a=>plan.push([x.def.k+' '+x.def.n, x.def.e, (SGSST_CAL[x.it.calificacion]||{l:'sin calificar'}).l, a.accion, a.responsable||'', a.fecha||'', a.recursos||'', SGSST_ACCION_ESTADOS[a.estado]||a.estado||''])); });
+        _sgFilasPlanVig(v).forEach(x=>{ const acc=(x.it.plan||[]); if(!acc.length) plan.push([x.def.k+' '+x.def.n, x.def.e, (SGSST_CAL[x.it.calificacion]||{l:'sin calificar'}).l, '(sin acciones)', '', '', '', '']); acc.forEach(a=>plan.push([x.def.k+' '+x.def.n, x.def.e, (SGSST_CAL[x.it.calificacion]||{l:'sin calificar'}).l, a.accion, a.responsable||'', a.fecha||'', a.recursos||'', SGSST_ACCION_ESTADOS[a.estado]||a.estado||''])); });
         const ws3=XLSX.utils.aoa_to_sheet(plan); ws3['!cols']=[{wch:60},{wch:30},{wch:18},{wch:50},{wch:20},{wch:12},{wch:20},{wch:12}];
         XLSX.utils.book_append_sheet(wb, ws3, 'Plan de mejoramiento');
+        const ws4=XLSX.utils.aoa_to_sheet(_sgPsicoFilasExport()); ws4['!cols']=[{wch:12},{wch:28},{wch:14},{wch:34},{wch:12},{wch:14},{wch:12},{wch:12},{wch:13},{wch:12},{wch:12},{wch:60}];   // v315: anexo psicosocial
+        XLSX.utils.book_append_sheet(wb, ws4, 'Anexo psicosocial');
         XLSX.writeFile(wb, `Autoevaluacion_SGSST_${anio}.xlsx`);
     });
 }
@@ -7387,20 +7731,22 @@ function _sgConPDF(fn){
 }
 function sgExportarPDF(){
     const v=_sgVigActual(); if(!v) return alert('No hay vigencia cargada.');
-    const anio=window._sg.sel; const c=_sgCalcular(v.items);
+    const anio=window._sg.sel; const c=_sgCalcularVig(v); const regX=_sgRegimenDe(anio), exX=_sgExigiblesDe(anio);   // v315: régimen de la vigencia
     _sgConPDF((jsPDF)=>{
         const doc=new jsPDF({orientation:'landscape', unit:'mm', format:'a4'});
         const enc=_sgEncabezadoExport(anio);
         doc.setFontSize(12); doc.text(enc[3]+' · '+enc[4], 14, 12);
         doc.setFontSize(9); doc.text(enc[0], 14, 18); doc.text(enc[1]+'   ·   '+enc[2], 14, 23);
         doc.text(`Puntaje: ${c.total.toFixed(2)} / 100 · ${c.texto} · Planear ${c.porCiclo.PLANEAR.obtenido}/25 · Hacer ${c.porCiclo.HACER.obtenido}/60 · Verificar ${c.porCiclo.VERIFICAR.obtenido}/5 · Actuar ${c.porCiclo.ACTUAR.obtenido}/10`, 14, 28);
-        doc.autoTable({ startY:32, head:[['Ciclo','Estándar','Sub-estándar','Ítem','Valor','Peso %','Cumple','No cumple','No aplica','Calif.','Justificación']],
-            body:_sgFilasOficiales(v).map(f=>f.map(x=>x==null?'':String(x))), styles:{fontSize:6.2, cellPadding:1.2, overflow:'linebreak'},
+        let yT=32; if(regX==='21'){ doc.text(`Régimen: 21 estándares (art. 9, Res. 0312/2019) · Cumplimiento de lo exigible: ${c.pctExigible||0} % (${c.obtenidoExigible} de ${c.puntosExigibles}; indicador interno, no es la calificación oficial)`, 14, 33); yT=37; }   // v315
+        doc.autoTable({ startY:yT, head:[['Ciclo','Estándar','Sub-estándar','Ítem','Valor','Peso %','Cumple','No cumple','No aplica','Calif.','Justificación']],
+            body:_sgFilasOficiales(v, regX, exX).map(f=>f.map(x=>x==null?'':String(x))), styles:{fontSize:6.2, cellPadding:1.2, overflow:'linebreak'},
             headStyles:{fillColor:[31,41,55]}, columnStyles:{0:{cellWidth:16},1:{cellWidth:28},2:{cellWidth:38},3:{cellWidth:86},4:{cellWidth:10,halign:'center'},5:{cellWidth:11,halign:'center'},6:{cellWidth:12,halign:'center'},7:{cellWidth:12,halign:'center'},8:{cellWidth:12,halign:'center'},9:{cellWidth:12,halign:'center'},10:{cellWidth:'auto'}} });
         let y=(doc.lastAutoTable?doc.lastAutoTable.finalY:32)+8;
-        if(y>170){ doc.addPage(); y=16; }
+        if(y>158){ doc.addPage(); y=16; }   // v315: cabe el anexo psicosocial
         doc.setFontSize(7.5);
         doc.text('* Cuando se cumple con el ítem la calificación es la máxima del ítem; si no, cero (0). Si No Aplica, se justifica y se califica con el máximo del ítem; sin justificación, cero (0). Art. 27, Res. 0312 de 2019.', 14, y, {maxWidth:270}); y+=10;
+        doc.text('Anexo · Riesgo psicosocial: '+_sgPsicoTextoExport(), 14, y, {maxWidth:270}); y+=12;   // v315: no toca _sgFilasOficiales
         doc.text('Este formulario es documento público: no se deben consignar hechos o manifestaciones falsas (arts. 288 y 294 de la Ley 599 de 2000).', 14, y); y+=16;
         doc.line(14, y, 110, y); doc.line(160, y, 256, y); y+=4;
         doc.text('FIRMA DEL EMPLEADOR O CONTRATANTE', 14, y); doc.text('FIRMA DEL RESPONSABLE DE LA EJECUCIÓN SG-SST', 160, y);
@@ -7414,7 +7760,7 @@ function _sgCuerpoOnboarding(){
     const n=(DB.sgsst_items||[]).length;
     return `<div class="card" style="padding:18px;border:2px solid rgba(245,158,11,0.45);">
         <h2 style="margin:0 0 8px;font-size:1.05rem;">🧭 Primera vez: pasar a la matriz oficial de 60 estándares</h2>
-        <p style="font-size:0.82rem;line-height:1.5;">La empresa tiene técnicos en <b>clase de riesgo V</b>. Por el artículo 16 de la Resolución 0312 de 2019 le aplican los <b>60 estándares mínimos completos</b> (los mismos de la tabla que se reporta al Ministerio), no los ${n||21} con los que empezó este módulo.</p>
+        <p style="font-size:0.82rem;line-height:1.5;">La matriz de 60 es la <b>tabla oficial completa</b> de la Resolución 0312 de 2019 (la misma del Excel que se reporta al Ministerio). Cuántos ítems se le exigen a la empresa (<b>7, 21 o 60</b>) depende del número de trabajadores y de la clase de riesgo de la <b>actividad económica principal</b> ante la ARL, y se fija por vigencia con «⚖️ Régimen» en 🗓️ Vigencias. Este módulo empezó con ${n||21} ítems; ahora lleva la tabla completa.</p>
         <p style="font-size:0.82rem;line-height:1.5;">Al migrar: (1) los ${n} ítems actuales pasan a su equivalente de la matriz de 60 con su estado, responsable, fecha, evidencia y documentos; (2) se crea la vigencia <b>2025</b> como activa y la <b>2026</b> vacía; (3) la lista vieja se archiva tal cual. <b>No se borra nada.</b></p>
         <button class="btn btn-primary" onclick="sgMigrarV1(false)">🚀 Crear la matriz de 60 ahora</button>
         <button class="btn btn-outline" onclick="sgRecargar()">🔄 Ya se hizo en otro equipo, volver a leer</button>
@@ -7425,27 +7771,40 @@ function _sgCuerpoOnboarding(){
 function _sgCuerpoPanel(){
     const sg=window._sg; const v=_sgVigActual(); const cfg=sg.config||{};
     if(!v) return `<div class="card" style="padding:16px;">No hay datos para la vigencia ${sg.sel||''}. Ábrela desde 🗓️ Vigencias.</div>`;
-    const c=_sgCalcular(v.items);
-    const barra=(k)=>{ const x=c.porCiclo[k]; const p=Math.round(100*x.obtenido/x.posible); return `<div style="margin:4px 0;"><div style="display:flex;justify-content:space-between;font-size:0.74rem;"><span>${k.charAt(0)+k.slice(1).toLowerCase()}</span><b>${x.obtenido} / ${x.posible}</b></div><div style="height:8px;background:var(--surface2);border-radius:4px;overflow:hidden;"><div style="width:${p}%;height:100%;background:${p<60?'#ef4444':p<=85?'#f59e0b':'#10b981'};"></div></div></div>`; };
+    const c=_sgCalcularVig(v); const reg=_sgRegimenDe(v.vigencia), ex=_sgExigiblesDe(v.vigencia); const es21=reg==='21';   // v315: régimen de la vigencia
+    const exig=d=>_sgExigible(d.k, reg, ex); const itDe=d=>(v.items||{})[_sgKey(d.k)]||{}; const r2=x=>Math.round(x*100)/100;
+    const barra=(k)=>{ const x=c.porCiclo[k]; const p=Math.round(100*x.obtenido/x.posible); const ley=es21?r2(x.obtenido-(x.obtenidoExigible||0)):0; return `<div style="margin:4px 0;"><div style="display:flex;justify-content:space-between;font-size:0.74rem;"><span>${k.charAt(0)+k.slice(1).toLowerCase()}</span><b>${x.obtenido} / ${x.posible}${es21?` <span style="font-weight:400;color:var(--muted);">(de los cuales ${ley} por ley)</span>`:''}</b></div><div style="height:8px;background:var(--surface2);border-radius:4px;overflow:hidden;"><div style="width:${p}%;height:100%;background:${p<60?'#ef4444':p<=85?'#f59e0b':'#10b981'};"></div></div></div>`; };
     const hoy=_sgHoyISO(); const mes=new Date().getMonth()+1;
     const avisos=Object.keys(cfg.vigencias||{}).sort().map(a=>{ const r=_sgEstadoRegistroSGRL(cfg.vigencias[a], a, hoy); return {a, r}; }).filter(x=>x.r.estado!=='registrada' || x.a===String(cfg.vigenciaActiva));
-    const pend=SGSST_MATRIZ_60.map(d=>({d, it:(v.items||{})[_sgKey(d.k)]||{}})).filter(x=>x.it.fechaObjetivo && x.it.calificacion!=='cumple' && !(x.it.calificacion==='no_aplica'&&_sgJust(x.it))).sort((p,q)=>p.it.fechaObjetivo.localeCompare(q.it.fechaObjetivo)).slice(0,8);
+    const pend=SGSST_MATRIZ_60.filter(exig).map(d=>({d, it:itDe(d)})).filter(x=>x.it.fechaObjetivo && x.it.calificacion!=='cumple' && !(x.it.calificacion==='no_aplica'&&_sgJust(x.it))).sort((p,q)=>p.it.fechaObjetivo.localeCompare(q.it.fechaObjetivo)).slice(0,8);
+    const nExig=es21?(c.exigibles||21):60; const deN=es21?` <span style="color:var(--muted);font-size:0.72rem;">de ${nExig}</span>`:'';
+    const cumplen=SGSST_MATRIZ_60.filter(d=>exig(d)&&itDe(d).calificacion==='cumple').length;
+    const noAplican=SGSST_MATRIZ_60.filter(d=>exig(d)&&itDe(d).calificacion==='no_aplica').length;
+    const conPuntos=SGSST_MATRIZ_60.filter(d=>exig(d)&&_sgPuntosItem(d, itDe(d))>0);
+    const sinPuntos=SGSST_MATRIZ_60.filter(d=>exig(d)&&_sgPuntosItem(d, itDe(d))===0);
+    const obtExig=es21?(c.obtenidoExigible||0):c.total; const posExig=es21?(c.puntosExigibles||0):100;
+    const porLey=es21?r2(c.total-obtExig):0;
+    const pesan=sinPuntos.slice().sort((p,q)=>q.v-p.v).slice(0,3);
+    const explica=`<details style="font-size:0.74rem;color:var(--muted);margin-top:8px;text-align:left;"><summary style="cursor:pointer;">💬 Explícame este puntaje</summary><div style="padding:6px 0 0 4px;line-height:1.5;">Tiene <b>${c.total.toFixed(2)}</b>: ${es21?`<b>${porLey}</b> vienen de los ${c.noExigibles} ítems que no se le exigen (art. 27); `:''}<b>${r2(obtExig)}</b> de ${conPuntos.length} ítems que cumple (o no aplican con justificación); le faltan <b>${r2(posExig-obtExig)}</b> puntos en ${sinPuntos.length} ítems exigibles${pesan.length?`; los que más pesan: ${pesan.map(d=>`<b>${d.k}</b> (${d.v})`).join(', ')}`:''}.</div></details>`;
     return `
-    ${_sgAyuda('El <b>semáforo oficial</b> sale de la calificación de los 60 ítems de la vigencia seleccionada (Res. 0312/2019, arts. 27 y 28): cada ítem que cumple suma su valor; "no aplica" suma solo con justificación; "no cumple" y "sin calificar" valen 0. Los ciclos pesan Planear 25, Hacer 60, Verificar 5 y Actuar 10. Las <b>alertas</b> reúnen lo que vence o falta en todo el módulo y llevan a donde se resuelve.')}
+    ${_sgAyuda('El <b>semáforo oficial</b> sale de la calificación de los ítems exigibles de su régimen en la vigencia seleccionada (Res. 0312/2019, arts. 27 y 28): cada ítem que cumple suma su valor; "no aplica" suma solo con justificación; "no cumple" y "sin calificar" valen 0. Cuántos ítems se exigen depende del número de trabajadores y de la clase de riesgo de la actividad económica principal ante la ARL: <b>7</b> (art. 3: hasta 10 trabajadores en riesgo I, II o III), <b>21</b> (art. 9: de 11 a 50 en riesgo I, II o III) o <b>60</b> (arts. 15 y 16: más de 50, o riesgo IV o V). Los ítems que no se exigen se reportan como "No aplica" y suman su valor por ley (art. 27); por eso en régimen 21 el puntaje oficial nunca baja de 62,25. Los ciclos pesan Planear 25, Hacer 60, Verificar 5 y Actuar 10. Las <b>alertas</b> reúnen lo que vence o falta en todo el módulo y llevan a donde se resuelve.')}
     ${_sgTarjetaAlertas()}
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:12px;">
         <div class="card" style="padding:16px;text-align:center;">
-            <div style="font-size:0.72rem;color:var(--muted);">AUTOEVALUACIÓN ${sg.sel} · RES. 0312/2019</div>
+            <div style="font-size:0.72rem;color:var(--muted);">AUTOEVALUACIÓN ${sg.sel} · RES. 0312/2019 · ${es21?'21 ESTÁNDARES (ART. 9)':'60 ESTÁNDARES (ART. 16)'}</div>
             <div style="font-size:2.4rem;font-weight:800;color:${c.color};line-height:1.1;">${c.total.toFixed(1)}<span style="font-size:1rem;color:var(--muted);"> /100</span></div>
             <div style="font-weight:800;font-size:0.8rem;color:${c.color};">${c.texto}</div>
             <div style="font-size:0.7rem;color:var(--muted);margin-top:6px;line-height:1.4;">${c.accion}</div>
+            ${es21?`<div style="font-size:0.74rem;margin-top:8px;line-height:1.4;">Cumplimiento de lo exigible: <b>${c.pctExigible} %</b> (${c.obtenidoExigible} de ${c.puntosExigibles}) · <span style="color:var(--muted);">indicador interno, no es la calificación de estándares mínimos</span></div>`:''}
+            ${explica}
         </div>
         <div class="card" style="padding:14px;">${barra('PLANEAR')}${barra('HACER')}${barra('VERIFICAR')}${barra('ACTUAR')}</div>
         <div class="card" style="padding:14px;font-size:0.8rem;line-height:1.7;">
-            <div>✅ Cumplen: <b>${SGSST_MATRIZ_60.filter(d=>((v.items||{})[_sgKey(d.k)]||{}).calificacion==='cumple').length}</b></div>
-            <div>❌ No cumplen: <b style="color:#ef4444;">${c.noCumplen}</b> ${c.parciales?`<span style="color:var(--muted);font-size:0.72rem;">(${c.parciales} van en parte)</span>`:''}</div>
-            <div>➖ No aplican: <b>${SGSST_MATRIZ_60.filter(d=>((v.items||{})[_sgKey(d.k)]||{}).calificacion==='no_aplica').length}</b> ${c.sinJustificar?`<span style="color:#ef4444;font-size:0.72rem;">· ${c.sinJustificar} sin justificar (valen 0)</span>`:''}</div>
-            <div>⬜ Sin calificar: <b style="color:${c.faltan?'#f59e0b':'inherit'};">${c.faltan}</b></div>
+            <div>✅ Cumplen: <b>${cumplen}</b>${deN}</div>
+            <div>❌ No cumplen: <b style="color:#ef4444;">${c.noCumplen}</b>${deN} ${c.parciales?`<span style="color:var(--muted);font-size:0.72rem;">(${c.parciales} van en parte)</span>`:''}</div>
+            <div>➖ No aplican: <b>${noAplican}</b>${deN} ${c.sinJustificar?`<span style="color:#ef4444;font-size:0.72rem;">· ${c.sinJustificar} sin justificar (valen 0)</span>`:''}</div>
+            <div>⬜ Sin calificar: <b style="color:${c.faltan?'#f59e0b':'inherit'};">${c.faltan}</b>${deN}</div>
+            ${es21&&c.voluntarios?`<div style="font-size:0.72rem;color:var(--muted);">➕ ${c.voluntarios} no exigibles con control voluntario</div>`:''}
         </div>
     </div>
     ${_sgTarjetaPanelCap()}
@@ -7458,7 +7817,7 @@ function _sgCuerpoPanel(){
         ${(mes>=11)?`<div style="padding:5px 0;font-size:0.78rem;">📌 Noviembre-diciembre: formular el <b>plan anual de trabajo ${new Date().getFullYear()+1}</b> y hacer en diciembre la autoevaluación ${new Date().getFullYear()} (Circular 0027/2026).</div>`:''}
     </div>
     <div class="card" style="padding:14px;">
-        <div style="font-weight:800;font-size:0.85rem;margin-bottom:8px;">📅 Próximos vencimientos (ítems pendientes con fecha objetivo)</div>
+        <div style="font-weight:800;font-size:0.85rem;margin-bottom:8px;">📅 Próximos vencimientos (ítems ${es21?'exigibles ':''}pendientes con fecha objetivo)</div>
         ${pend.length?pend.map(x=>`<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px dashed var(--border);font-size:0.8rem;"><span><b>${x.d.k}</b> ${_sgEsc(x.d.n)}</span><strong style="color:${x.it.fechaObjetivo<hoy?'#ef4444':'#f59e0b'};white-space:nowrap;">${_sgFechaCO(x.it.fechaObjetivo)}${x.it.fechaObjetivo<hoy?' ⚠️ vencida':''}</strong></div>`).join(''):'<p style="color:var(--muted);font-size:0.8rem;margin:0;">Sin fechas objetivo pendientes. En ✅ Estándares puedes asignarlas.</p>'}
     </div>`;
 }
@@ -7466,7 +7825,9 @@ function _sgCuerpoEstandares(){
     const sg=window._sg; const v=_sgVigActual(); const f=sg.filtros||{};
     if(!_sgTodoListo() && !sg.todoCargando && !sg.todoError) _sgCargarTodo().then(()=>renderSGSST());   // v301: evidencia automática
     if(!v) return `<div class="card" style="padding:16px;">No hay datos para la vigencia ${sg.sel||''}.</div>`;
-    const ro=v.cerrada===true; const c=_sgCalcular(v.items);
+    const ro=v.cerrada===true; const c=_sgCalcularVig(v);
+    const reg=_sgRegimenDe(v.vigencia), ex=_sgExigiblesDe(v.vigencia); const es21=reg==='21';   // v315: régimen de la vigencia
+    const fEx=es21?(f.exigibles||'si'):'todos'; const esExig=d=>_sgExigible(d.k, reg, ex);
     const lista=SGSST_MATRIZ_60.filter(d=>{
         const it=(v.items||{})[_sgKey(d.k)]||{};
         if(f.ciclo && d.c!==f.ciclo) return false;
@@ -7476,16 +7837,16 @@ function _sgCuerpoEstandares(){
         if(f.texto){ const t=f.texto.toLowerCase(); if(!(d.k+' '+d.n+' '+d.s+' '+d.e).toLowerCase().includes(t)) return false; }
         return true;
     });
-    let html='', pS='';
-    lista.forEach(d=>{
-        const it=(v.items||{})[_sgKey(d.k)]||{};
-        if(d.s!==pS){ const g=c.porGrupo[d.s]||{}; html+=`<tr style="background:var(--surface2);"><td colspan="7" style="font-weight:800;font-size:0.74rem;padding:7px 8px;">${_sgEsc(d.c)} · ${_sgEsc(d.e)} — ${_sgEsc(d.s)} <span style="float:right;color:var(--muted);">${g.obtenido} / ${g.posible}</span></td></tr>`; pS=d.s; }
+    const visibles=lista.filter(d=>fEx==='todos' || (fEx==='si'?esExig(d):!esExig(d)));
+    const plegados=(es21&&fEx==='si')?lista.filter(d=>!esExig(d)):[];
+    const fila=(d)=>{
+        const it=(v.items||{})[_sgKey(d.k)]||{}; const exig=esExig(d);
         const col=(SGSST_CAL[it.calificacion]||{}).c||'#6b7280';
-        html+=`<tr>
+        return `<tr${exig?'':' style="opacity:.55;"'}>
             <td style="font-weight:800;white-space:nowrap;">${d.k}</td>
-            <td>${_sgEsc(d.n)}${it.calificacion==='no_aplica'?`<div style="font-size:0.68rem;color:${_sgJust(it)?'var(--muted)':'#ef4444'};">${_sgJust(it)?'Justificación: '+_sgEsc(it.justificacion):'⚠️ Sin justificación: vale 0'}</div>`:''}${it.evidencia?`<div style="font-size:0.68rem;color:var(--muted);">📝 ${_sgEsc(it.evidencia)}</div>`:''}${_sgEvidenciaHTML(d.k)}</td>
+            <td>${_sgEsc(d.n)}${exig?'':`<div style="font-size:0.68rem;color:#f59e0b;">➖ No exigible · suma ${d.v} por ley (art. 27)</div>`}${it.calificacion==='no_aplica'?`<div style="font-size:0.68rem;color:${_sgJust(it)?'var(--muted)':'#ef4444'};">${_sgJust(it)?'Justificación: '+_sgEsc(it.justificacion):'⚠️ Sin justificación: vale 0'}</div>`:''}${it.evidencia?`<div style="font-size:0.68rem;color:var(--muted);">📝 ${_sgEsc(it.evidencia)}</div>`:''}${_sgEvidenciaHTML(d.k)}${_sgGuiaItemHTML(d.k)}</td>
             <td style="text-align:center;">${d.v}</td>
-            <td><select class="form-control" style="min-width:150px;font-size:0.74rem;padding:4px;border-left:4px solid ${col};" ${ro?'disabled':''} onchange="sgCalificar('${d.k}',this.value)">
+            <td><select class="form-control" style="min-width:150px;font-size:0.74rem;padding:4px;border-left:4px solid ${col};" ${ro?'disabled':''} ${exig?'':'title="Calificarlo no cambia el puntaje oficial en régimen 21; sirve para tu control interno"'} onchange="sgCalificar('${d.k}',this.value)">
                 <option value="" ${!it.calificacion?'selected':''}>— Sin calificar</option>
                 ${Object.entries(SGSST_CAL).map(([k,x])=>`<option value="${k}" ${it.calificacion===k?'selected':''}>${x.l}</option>`).join('')}
             </select>${it.calificacion==='no_cumple'?`<label style="font-size:0.68rem;display:block;margin-top:3px;white-space:nowrap;"><input type="checkbox" ${it.trabajo==='parcial'?'checked':''} ${ro?'disabled':''} onchange="sgParcial('${d.k}',this.checked)"> 🟡 va en parte</label>`:''}</td>
@@ -7496,30 +7857,43 @@ function _sgCuerpoEstandares(){
                 <button class="btn btn-sm btn-outline" onclick="modalPlanSG('${d.k}')" title="Plan de mejoramiento">📋${(it.plan||[]).length||''}</button>
                 <button class="btn btn-sm btn-outline" onclick="modalItemSG('${d.k}')" title="Editar">✏️</button>
             </td></tr>`;
-    });
-    const adic=(v.adicionales||[]);
+    };
+    const tabla=(arr)=>{ let html='', pS=''; arr.forEach(d=>{ if(d.s!==pS){ const g=c.porGrupo[d.s]||{}; html+=`<tr style="background:var(--surface2);"><td colspan="7" style="font-weight:800;font-size:0.74rem;padding:7px 8px;">${_sgEsc(d.c)} · ${_sgEsc(d.e)} — ${_sgEsc(d.s)} <span style="float:right;color:var(--muted);">${g.obtenido} / ${g.posible}</span></td></tr>`; pS=d.s; } html+=fila(d); }); return html; };
+    const cabecera='<thead><tr><th>Ítem</th><th>Estándar mínimo</th><th>Valor</th><th>Calificación</th><th>Responsable</th><th>Fecha objetivo</th><th></th></tr></thead>';
+    const html=tabla(visibles);
+    const sinFilas=plegados.length?`Ningún ítem exigible coincide con el filtro; los ${plegados.length} ítems no exigibles que sí coinciden están plegados abajo.`:'Ningún ítem coincide con el filtro.';   // v315
+    const adic=(v.adicionales||[]); const adicVivos=adic.filter(a=>!a.archivada), adicArch=adic.filter(a=>a.archivada);
+    const contador=es21
+        ? `${c.exigibles} exigibles · ${c.calificados} calificados · ${c.noExigibles} no exigibles (suman ${c.puntosNoExigibles} por ley, art. 27) · puntaje oficial ${c.total.toFixed(2)} · cumplimiento de lo exigible ${c.pctExigible} %${ro?' · 🔒 vigencia cerrada (solo lectura)':''}`
+        : `${lista.length} de 60 · ${ro?'🔒 vigencia cerrada (solo lectura)':'puntaje '+c.total.toFixed(2)}`;
     return `
-    ${_sgAyuda('Son los 60 ítems de la <b>tabla de valores y calificación</b> de la Res. 0312/2019 (art. 16), los mismos del Excel que se reporta al Ministerio. Califica cada uno: <b>Cumple totalmente</b> suma su valor; <b>No cumple</b> vale 0; <b>No aplica</b> suma el valor solo si escribes por qué no aplica. La marca "va en parte" es para tu control: no suma. Con 📎 guardas la evidencia y con 📋 las acciones del plan de mejoramiento.')}
+    ${_sgAyuda('Son los 60 ítems de la <b>tabla de valores y calificación</b> de la Res. 0312/2019, los mismos del Excel que se reporta al Ministerio. Cuántos se le exigen a la empresa (7, 21 o 60) depende del número de trabajadores y de la clase de riesgo de la actividad económica principal ante la ARL; se fija por vigencia con ⚖️ Régimen. Los que no se exigen se reportan como "No aplica" y suman su valor por ley (art. 27). Califica cada uno: <b>Cumple totalmente</b> suma su valor; <b>No cumple</b> vale 0; <b>No aplica</b> suma el valor solo si escribes por qué no aplica. La marca "va en parte" es para tu control: no suma. Con 📎 guardas la evidencia y con 📋 las acciones del plan de mejoramiento.')}
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;font-size:0.78rem;">
+        ${es21?`<select class="form-control" style="width:auto;padding:5px;" title="En régimen 21 solo se exigen 21 ítems" onchange="window._sg.filtros.exigibles=this.value;renderSGSST()"><option value="si" ${fEx==='si'?'selected':''}>⚖️ Solo los exigibles</option><option value="todos" ${fEx==='todos'?'selected':''}>Todos los ítems</option><option value="no" ${fEx==='no'?'selected':''}>Solo los no exigibles</option></select>`:''}
         <select class="form-control" style="width:auto;padding:5px;" onchange="window._sg.filtros.ciclo=this.value;renderSGSST()"><option value="">Todos los ciclos</option>${Object.keys(SGSST_CICLOS).map(k=>`<option value="${k}" ${f.ciclo===k?'selected':''}>${k}</option>`).join('')}</select>
         <select class="form-control" style="width:auto;padding:5px;" onchange="window._sg.filtros.estado=this.value;renderSGSST()"><option value="">Todos los estados</option><option value="sin" ${f.estado==='sin'?'selected':''}>⬜ Sin calificar</option><option value="cumple" ${f.estado==='cumple'?'selected':''}>✅ Cumple</option><option value="no_cumple" ${f.estado==='no_cumple'?'selected':''}>❌ No cumple</option><option value="parcial" ${f.estado==='parcial'?'selected':''}>🟡 Va en parte</option><option value="no_aplica" ${f.estado==='no_aplica'?'selected':''}>➖ No aplica</option></select>
         <input class="form-control" style="width:200px;padding:5px;" placeholder="Buscar ítem…" value="${_sgEsc(f.texto)}" oninput="window._sg.filtros.texto=this.value" onchange="renderSGSST()">
-        <span style="color:var(--muted);">${lista.length} de 60 · ${ro?'🔒 vigencia cerrada (solo lectura)':'puntaje '+c.total.toFixed(2)}</span>
+        <span style="color:var(--muted);">${contador}</span>
     </div>
     <div class="card" style="padding:0;overflow-x:auto;"><table class="tabla" style="width:100%;font-size:0.78rem;">
-        <thead><tr><th>Ítem</th><th>Estándar mínimo</th><th>Valor</th><th>Calificación</th><th>Responsable</th><th>Fecha objetivo</th><th></th></tr></thead>
-        <tbody>${html||'<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:16px;">Ningún ítem coincide con el filtro.</td></tr>'}</tbody></table></div>
+        ${cabecera}
+        <tbody>${html||'<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:16px;">'+sinFilas+'</td></tr>'}</tbody></table></div>
+    ${plegados.length?`<details style="margin-top:8px;font-size:0.78rem;"><summary style="cursor:pointer;color:var(--muted);">▸ ${plegados.length} ítems no exigibles en este régimen: se reportan como "No aplica" y suman sus puntos por ley (art. 27). Ábrelos para llevar control voluntario</summary><div class="card" style="padding:0;overflow-x:auto;margin-top:6px;"><table class="tabla" style="width:100%;font-size:0.78rem;">${cabecera}<tbody>${tabla(plegados)}</tbody></table></div></details>`:''}
+    ${_sgFilaAnexaPsicoSG()}
     <div class="card" style="padding:12px;margin-top:12px;">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;"><div style="font-weight:800;font-size:0.85rem;">➕ Ítems adicionales de la empresa <span style="font-weight:400;color:var(--muted);font-size:0.72rem;">(no cuentan en el puntaje oficial)</span></div>${ro?'':'<button class="btn btn-outline btn-sm" onclick="modalAdicionalSG()">➕ Ítem adicional</button>'}</div>
-        ${adic.length?`<table class="tabla" style="width:100%;font-size:0.76rem;margin-top:8px;"><thead><tr><th>Nombre</th><th>Estado</th><th>Responsable</th><th>Fecha</th><th></th></tr></thead><tbody>${adic.map(a=>`<tr><td>${_sgEsc(a.nombre)}${a.evidencia?`<div style="font-size:0.68rem;color:var(--muted);">📝 ${_sgEsc(a.evidencia)}</div>`:''}</td><td style="color:${(SGSST_ESTADOS[a.estado]||{}).c||'inherit'}">${(SGSST_ESTADOS[a.estado]||{l:a.estado}).l}</td><td>${_sgEsc(a.responsable)||'—'}</td><td>${_sgFechaCO(a.fechaObjetivo)}</td><td style="white-space:nowrap;"><button class="btn btn-sm" style="background:#8b5cf6;color:#fff;" onclick="modalAdjuntosSGSST('adicional','${a.id}')">📎${(a.adjuntos||[]).length||''}</button> ${ro?'':`<button class="btn btn-sm btn-outline" onclick="modalAdicionalSG('${a.id}')">✏️</button> <button class="btn btn-sm btn-danger" onclick="eliminarAdicionalSG('${a.id}')">🗑️</button>`}</td></tr>`).join('')}</tbody></table>`:'<p style="font-size:0.76rem;color:var(--muted);margin:6px 0 0;">Ninguno.</p>'}
+        ${_sgAyuda('Un ítem adicional es una exigencia propia que no está en la Res. 0312: lo que pide el negocio de internet, un cliente, la ARL o una certificación. Sirve para llevarle control, evidencia y responsable, pero <b>no suma ni resta</b> en la autoevaluación oficial. Cuando ya no aplique, se <b>archiva con un motivo</b>; nada se borra y sus documentos se conservan.')}
+        ${adicVivos.length?`<table class="tabla" style="width:100%;font-size:0.76rem;margin-top:8px;"><thead><tr><th>Nombre</th><th>Estado</th><th>Responsable</th><th>Fecha</th><th></th></tr></thead><tbody>${adicVivos.map(a=>`<tr><td>${_sgEsc(a.nombre)}${a.evidencia?`<div style="font-size:0.68rem;color:var(--muted);">📝 ${_sgEsc(a.evidencia)}</div>`:''}</td><td style="color:${(SGSST_ESTADOS[a.estado]||{}).c||'inherit'}">${(SGSST_ESTADOS[a.estado]||{l:a.estado}).l}</td><td>${_sgEsc(a.responsable)||'—'}</td><td>${_sgFechaCO(a.fechaObjetivo)}</td><td style="white-space:nowrap;"><button class="btn btn-sm" style="background:#8b5cf6;color:#fff;" onclick="modalAdjuntosSGSST('adicional','${a.id}')">📎${(a.adjuntos||[]).length||''}</button> ${ro?'':`<button class="btn btn-sm btn-outline" onclick="modalAdicionalSG('${a.id}')">✏️</button> <button class="btn btn-sm btn-outline" onclick="archivarAdicionalSG('${a.id}')" title="Archivar con motivo (no se borra)">🗄️ Archivar</button>`}</td></tr>`).join('')}</tbody></table>`:'<p style="font-size:0.76rem;color:var(--muted);margin:6px 0 0;">Ninguno.</p>'}
+        ${adicArch.length?`<details style="margin-top:8px;font-size:0.74rem;"><summary style="cursor:pointer;color:var(--muted);">🗄️ Archivados (${adicArch.length})</summary><table class="tabla" style="width:100%;font-size:0.74rem;margin-top:6px;opacity:.7;"><thead><tr><th>Nombre</th><th>Motivo</th><th>Cuándo</th><th></th></tr></thead><tbody>${adicArch.map(a=>`<tr><td>${_sgEsc(a.nombre)}</td><td>${_sgEsc(a.motivoArchivo)}</td><td style="white-space:nowrap;">${_sgFechaCO(String(a.archivadoEn||'').slice(0,10))}</td><td><button class="btn btn-sm" style="background:#8b5cf6;color:#fff;" onclick="modalAdjuntosSGSST('adicional','${a.id}')">📎${(a.adjuntos||[]).length||''}</button></td></tr>`).join('')}</tbody></table></details>`:''}
     </div>`;
 }
 function _sgCuerpoPlan(){
     const v=_sgVigActual(); if(!v) return `<div class="card" style="padding:16px;">No hay datos para la vigencia ${window._sg.sel||''}.</div>`;
-    const filas=_sgFilasPlan(v); const ro=v.cerrada===true;
+    const filas=_sgFilasPlanVig(v); const ro=v.cerrada===true; const c=_sgCalcularVig(v);   // v315: con el régimen de la vigencia
     let pendientes=0, hechas=0; filas.forEach(x=>(x.it.plan||[]).forEach(a=>{ if(a.estado==='hecha') hechas++; else pendientes++; }));
+    const plazo=c.texto==='CRÍTICO'?'Con el puntaje actual (<b>crítico</b>, menos de 60): plan de mejoramiento de inmediato e informe de avances a la ARL en máximo <b>3 meses</b>.':c.texto==='MODERADAMENTE ACEPTABLE'?'Con el puntaje actual (<b>moderadamente aceptable</b>, entre 60 y 85): plan de mejoramiento e informe de avances a la ARL en máximo <b>6 meses</b>.':'Con el puntaje actual (<b>aceptable</b>, más de 85): mantener las evidencias y llevar las mejoras al plan anual de trabajo.';
     return `
-    ${_sgAyuda('Aquí están todos los ítems que <b>no cumplen</b> (y los "no aplica" sin justificación) con sus acciones: qué se va a hacer, quién, cuándo y con qué recursos (art. 28, Res. 0312/2019). Es lo que se registra en SGRL como plan de mejoramiento y lo que se envía a la ARL.')}
+    ${_sgAyuda('Aquí están los ítems exigibles de su régimen que <b>no cumplen</b> (y los "no aplica" sin justificación), más cualquier ítem que ya tenga acciones, con sus acciones: qué se va a hacer, quién, cuándo y con qué recursos (art. 28, Res. 0312/2019). Es lo que se registra en SGRL como plan de mejoramiento y lo que se envía a la ARL. '+plazo+' En julio se reporta en SGRL el informe de avance del plan.')}
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;font-size:0.8rem;"><span>❌ Ítems por mejorar: <b>${filas.length}</b></span><span>⏳ Acciones pendientes/en curso: <b>${pendientes}</b></span><span>✅ Hechas: <b>${hechas}</b></span></div>
     <div class="card" style="padding:0;overflow-x:auto;"><table class="tabla" style="width:100%;font-size:0.78rem;">
         <thead><tr><th>Ítem</th><th>Estándar</th><th>Calificación</th><th>Acciones</th><th></th></tr></thead>
@@ -7566,10 +7940,10 @@ function renderSGSST(){
             cuerpo=`<div class="card" style="padding:14px;border:1px solid rgba(239,68,68,0.5);font-size:0.85rem;">⚠️ No se pudo mostrar esta pestaña: <code>${_sgEsc((e&&e.message)||e)}</code><br><br>Pulsa 🔄 para volver a leer; si sigue, avísale a soporte con este texto.</div>`;
         }
     }
-    const v=_sgVigActual(); const nCal=v?_sgCalcular(v.items).calificados:0;
+    const v=_sgVigActual(); const cR=v?_sgCalcularVig(v):null; const nCal=cR?cR.calificados:0; const regR=_sgRegimenDe(sg.sel); const regFijado=!!_sgInfoVig(sg.sel).regimen;   // v315: régimen de la vigencia
     cont.innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
-        <h1 style="margin:0;font-size:1.4rem;">🦺 SG-SST <span style="font-size:0.72rem;color:var(--muted);font-weight:400;">Seguridad y Salud en el Trabajo · Res. 0312 de 2019 · 60 estándares</span></h1>
+        <h1 style="margin:0;font-size:1.4rem;">🦺 SG-SST <span style="font-size:0.72rem;color:var(--muted);font-weight:400;">Seguridad y Salud en el Trabajo · Res. 0312 de 2019 · ${regR==='21'?'21 estándares (art. 9)':'60 estándares (art. 16)'}</span>${sg.config?` <span onclick="modalRegimenSG('${sg.sel}')" title="Cuántos estándares se exigen a la empresa en esta vigencia (7, 21 o 60)" style="cursor:pointer;font-size:0.68rem;font-weight:700;padding:2px 8px;border-radius:999px;border:1px solid ${regFijado?'var(--border)':'#f59e0b'};color:${regFijado?'var(--muted)':'#f59e0b'};">⚖️ ${regFijado?'Régimen '+regR:'Régimen sin confirmar: se calcula con 60'}</span>`:''}</h1>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
             ${sg.config?`<select class="form-control" style="width:auto;padding:5px 8px;font-size:0.78rem;" title="Vigencia (año de la autoevaluación)" onchange="sgSeleccionarVigencia(this.value)">${anios.map(a=>`<option value="${a}" ${sg.sel===a?'selected':''}>Vigencia ${a}${String(sg.config.vigenciaActiva)===a?' ●':''}${(sg.vig[a]&&sg.vig[a].cerrada)?' 🔒':''}</option>`).join('')}</select>
             <button class="btn btn-outline btn-sm" onclick="modalVigenciasSG()" title="Vigencias, registro en SGRL, importar">🗓️</button>
@@ -7579,7 +7953,7 @@ function renderSGSST(){
         </div>
     </div>
     <div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:6px;margin-bottom:8px;">
-        ${btnTab('panel','📊 Panel')} ${btnTab('estandares','✅ Estándares ('+nCal+'/60)')} ${btnTab('plan','📋 Plan de mejoramiento')} ${btnTab('personas','👥 Personas')} ${btnTab('capacitaciones','🎓 Capacitaciones')} ${btnTab('dotacion','👕 Dotación y EPP')} ${btnTab('eventos','🚑 Accidentes')} ${btnTab('comites','🏛️ Comités y documentos')} ${btnTab('config','⚙️ Configuración')}
+        ${btnTab('panel','📊 Panel')} ${btnTab('estandares','✅ Estándares ('+nCal+'/'+((cR&&cR.exigibles)||60)+')')} ${btnTab('plan','📋 Plan de mejoramiento')} ${btnTab('personas','👥 Personas')} ${btnTab('capacitaciones','🎓 Capacitaciones')} ${btnTab('dotacion','👕 Dotación y EPP')} ${btnTab('eventos','🚑 Accidentes')} ${btnTab('comites','🏛️ Comités y documentos')} ${btnTab('config','⚙️ Configuración')}
     </div>${cuerpo}`;
 }
 
@@ -8072,7 +8446,7 @@ function _sgCuerpoConfig(){
         <div style="font-size:0.74rem;color:var(--muted);">Guardados: ${Object.entries(cfg.smmlv||{}).map(([a,v])=>a+': $'+Number(v).toLocaleString('es-CO')).join(' · ')||'—'}</div>`,
         `<button class="btn btn-primary btn-sm" onclick="sgCfgGuardarSmmlv()">💾 Guardar</button>`)}
     ${card('⏱️ Periodicidades (meses)', `
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px;">${inp('sgc_exdef','Examen periódico por defecto (máx. 36)',per.examenDefectoMeses,'number','min="1" max="36"')}${inp('sgc_realt','Reentrenamiento de alturas',per.reentrenamientoAlturasMeses,'number','min="1"')}${inp('sgc_apt','Aptitud médica para alturas',per.aptitudAlturasMeses,'number','min="1"')}${inp('sgc_rein','Reinducción',per.reinduccionMeses,'number','min="1"')}${inp('sgc_aviso','Avisar con antelación (días)',per.avisoDias==null?30:per.avisoDias,'number','min="1"')}${inp('sgc_exret','Examen de retiro (días hábiles)',per.examenRetiroDiasHabiles||5,'number','min="1"')}${inp('sgc_fven','Enlace de firma vigente (días)',per.firmaVenceDias||7,'number','min="1"')}${inp('sgc_insp','Inspección de EPP (meses)',per.inspeccionEppMeses||6,'number','min="1"')}${inp('sgc_iemg','Inspección de botiquín, extintores y camilla (meses)',per.inspeccionEmergenciaMeses||3,'number','min="1"')}${inp('sgc_psic','Batería de riesgo psicosocial (meses)',per.psicosocialMeses||24,'number','min="1"')}${inp('sgc_hht','Horas trabajadas por persona al mes (SST-FT-30)',per.horasMesTrabajador||190.5,'number','min="1" step="0.1"')}${inp('sgc_dsem','Días laborables por semana (5 o 6)',per.diasSemanaLaborales||6,'number','min="5" max="6"')}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px;">${inp('sgc_exdef','Examen periódico por defecto (máx. 36)',per.examenDefectoMeses,'number','min="1" max="36"')}${inp('sgc_realt','Reentrenamiento de alturas',per.reentrenamientoAlturasMeses,'number','min="1"')}${inp('sgc_apt','Aptitud médica para alturas',per.aptitudAlturasMeses,'number','min="1"')}${inp('sgc_rein','Reinducción',per.reinduccionMeses,'number','min="1"')}${inp('sgc_aviso','Avisar con antelación (días)',per.avisoDias==null?30:per.avisoDias,'number','min="1"')}${inp('sgc_exret','Examen de retiro (días hábiles)',per.examenRetiroDiasHabiles||5,'number','min="1"')}${inp('sgc_fven','Enlace de firma vigente (días)',per.firmaVenceDias||7,'number','min="1"')}${inp('sgc_insp','Inspección de EPP (meses)',per.inspeccionEppMeses||6,'number','min="1"')}${inp('sgc_iemg','Inspección de botiquín, extintores y camilla (meses)',per.inspeccionEmergenciaMeses||3,'number','min="1"')}${inp('sgc_psic','Batería psicosocial cuando aún no hay nivel registrado (meses, entre 12 y 24)',per.psicosocialMeses||24,'number','min="12" max="24"')}${inp('sgc_hht','Horas trabajadas por persona al mes (SST-FT-30)',per.horasMesTrabajador||190.5,'number','min="1" step="0.1"')}${inp('sgc_dsem','Días laborables por semana (5 o 6)',per.diasSemanaLaborales||6,'number','min="5" max="6"')}</div>
         <div style="font-weight:700;font-size:0.8rem;margin:6px 0 4px;">Examen periódico por cargo</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;font-size:0.78rem;">${cargos.map(c=>`<label style="display:flex;justify-content:space-between;gap:6px;align-items:center;font-weight:400;"><span>${_sgEsc(c)}</span><input class="form-control sgc_cargo_ex" data-cargo="${_sgEsc(c)}" type="number" min="1" max="36" style="width:70px;padding:3px;" value="${(per.examenPorCargo||{})[c]||''}" placeholder="${per.examenDefectoMeses}"></label>`).join('')}</div>`,
         `<button class="btn btn-primary btn-sm" onclick="sgCfgGuardarPeriodicidades()">💾 Guardar</button>`)}
@@ -8105,7 +8479,7 @@ async function sgCfgGuardarPeriodicidades(){
     const exDef=Math.min(n('sgc_exdef',24),36); const porCargo={}; document.querySelectorAll('.sgc_cargo_ex').forEach(i=>{ const v=parseInt(i.value,10); if(v>0) porCargo[_sgCargoN(i.dataset.cargo)]=Math.min(v,36); });
     // Firestore no borra llaves con merge: se escriben todas las conocidas (las quitadas quedan en 0 → se ignoran)
     Object.keys((_sgCfg().periodicidades||{}).examenPorCargo||{}).forEach(c=>{ if(!(c in porCargo)) porCargo[c]=0; });
-    await _sgCfgGuardar({ periodicidades:{ examenDefectoMeses:exDef, examenPorCargo:porCargo, reentrenamientoAlturasMeses:n('sgc_realt',12), aptitudAlturasMeses:n('sgc_apt',12), reinduccionMeses:n('sgc_rein',12), avisoDias:n('sgc_aviso',30), examenRetiroDiasHabiles:n('sgc_exret',5), firmaVenceDias:n('sgc_fven',7), inspeccionEppMeses:n('sgc_insp',6), inspeccionEmergenciaMeses:n('sgc_iemg',3), psicosocialMeses:n('sgc_psic',24), horasMesTrabajador:parseFloat(_sgV('sgc_hht'))||190.5, diasSemanaLaborales:n('sgc_dsem',6)===5?5:6 } }, 'periodicidades');
+    await _sgCfgGuardar({ periodicidades:{ examenDefectoMeses:exDef, examenPorCargo:porCargo, reentrenamientoAlturasMeses:n('sgc_realt',12), aptitudAlturasMeses:n('sgc_apt',12), reinduccionMeses:n('sgc_rein',12), avisoDias:n('sgc_aviso',30), examenRetiroDiasHabiles:n('sgc_exret',5), firmaVenceDias:n('sgc_fven',7), inspeccionEppMeses:n('sgc_insp',6), inspeccionEmergenciaMeses:n('sgc_iemg',3), psicosocialMeses:Math.min(24, Math.max(12, n('sgc_psic',24))), horasMesTrabajador:parseFloat(_sgV('sgc_hht'))||190.5, diasSemanaLaborales:n('sgc_dsem',6)===5?5:6 } }, 'periodicidades');
 }
 async function sgCfgGuardarAlturas(){ if(!_sgPuede()) return; await _sgCfgGuardar({ cargosAlturas:[...document.querySelectorAll('.sgc_alt:checked')].map(c=>_sgCargoN(c.value)) }, 'cargos alturas'); }
 async function sgCfgGuardarPerfiles(){ if(!_sgPuede()) return; const m={}; document.querySelectorAll('.sgc_perfil').forEach(s=>{ m[_sgCargoN(s.dataset.cargo)]=s.value; }); await _sgCfgGuardar({ perfilPorCargo:m }, 'perfiles'); }
@@ -9434,7 +9808,7 @@ function _sgAusencias(anio){ const c=_sgEv(anio); return c?Object.values(c.ausen
 function _sgEvento(id, anio){ const c=_sgEv(anio); return c?((c.eventos||{})[id]||null):null; }
 async function _sgGuardarEvento(e, anio){ anio=String(anio||_sgEvAnio()); const c=_sgEv(anio)||( (window._sg.ev=window._sg.ev||{}), (window._sg.ev[anio]={anio, eventos:{}, ausencias:{}}) ); e.actualizado=Date.now(); c.eventos=c.eventos||{}; c.eventos[e.id]=e; await _sgEscribirEv(anio, { eventos:{ [e.id]:e } }); _sgAvisoTamano(_sgDocEv(anio), c); }
 async function _sgGuardarAusencia(a, anio){ anio=String(anio||_sgEvAnio()); const c=_sgEv(anio)||( (window._sg.ev=window._sg.ev||{}), (window._sg.ev[anio]={anio, eventos:{}, ausencias:{}}) ); c.ausencias=c.ausencias||{}; c.ausencias[a.id]=a; await _sgEscribirEv(anio, { ausencias:{ [a.id]:a } }); }
-async function _sgCargarComites(forzar){ const sg=window._sg; if(sg.com&&!forzar) return sg.com; const d=await _sgLeer('sgsst_comites'); sg.com=_sgMezclar({ copasst:{ tipo:'', integrantes:[], eleccion:'', vence:'', actas:[], capacitacion:{} }, convivencia:{ integrantes:[], eleccion:'', vence:'', actas:[], quejas:[], informes:[] }, brigada:{ integrantes:[], simulacros:[], inspecciones:[] }, direccion:{ revisiones:[], auditorias:[], rendiciones:[] }, psicosocial:{ ultimaBateria:'', resultado:'', proxima:'', acciones:'', adjuntos:[] } }, d||{}); return sg.com; }
+async function _sgCargarComites(forzar){ const sg=window._sg; if(sg.com&&!forzar) return sg.com; const d=await _sgLeer('sgsst_comites'); sg.com=_sgMezclar({ copasst:{ tipo:'', integrantes:[], eleccion:'', vence:'', actas:[], capacitacion:{} }, convivencia:{ integrantes:[], eleccion:'', vence:'', actas:[], quejas:[], informes:[] }, brigada:{ integrantes:[], simulacros:[], inspecciones:[] }, direccion:{ revisiones:[], auditorias:[], rendiciones:[] }, psicosocial:{ ultimaBateria:'', resultado:'', proxima:'', acciones:'', adjuntos:[], aplicaciones:{} } }, d||{}); return sg.com; }
 async function _sgCargarDocumentos(forzar){ const sg=window._sg; if(sg.doc&&!forzar) return sg.doc; const d=await _sgLeer('sgsst_documentos'); sg.doc=_sgMezclar({ documentos:[], perfiles:{}, ipevr:{ actualizado:'', filas:[] } }, d||{}); return sg.doc; }
 async function _sgCargarPT(anio, forzar){ const sg=window._sg; sg.pt=sg.pt||{}; anio=String(anio||_sgEvAnio()); if(sg.pt[anio]&&!forzar) return sg.pt[anio]; const d=await _sgLeer(_sgDocPT(anio)); sg.pt[anio]=_sgMezclar({ anio, actividades:{} }, d||{}); return sg.pt[anio]; }
 function _sgPT(anio){ return ((window._sg.pt||{})[String(anio||_sgEvAnio())])||null; }
@@ -9535,7 +9909,10 @@ function _sgAlertas(hoy){
     if(sg.com){ const c=sg.com; const ec=_sgEstadoComite(c.copasst, hoy), ev=_sgEstadoComite(c.convivencia, hoy); const sinC=_sgMesesSinActa(c.copasst.actas, anio, mes).length, sinV=_sgMesesSinActa(c.convivencia.actas, anio, mes).length;
         if(ec.estado!=='ok'||ev.estado!=='ok'||sinC||sinV) A((ec.estado==='vencido'||ev.estado==='vencido'||ec.estado==='sin'||ev.estado==='sin')?'rojo':'ambar', `Comités: COPASST ${ec.texto.toLowerCase()} · Convivencia ${ev.texto.toLowerCase()}${sinC?' · '+sinC+' mes(es) sin acta del COPASST':''}${sinV?' · '+sinV+' mes(es) sin acta de Convivencia':''}`, "window._sgTab='comites';window._sg.comVista='copasst';renderSGSST()", 'comites');
         const quejas=(c.convivencia.quejas||[]).filter(q=>q.etapa!=='cerrada'); const qv=quejas.filter(q=>_sgDiasQueja(q, hoy).vencida).length, qp=quejas.filter(q=>_sgDiasQueja(q, hoy).estado==='pronto').length; if(qv||qp) A(qv?'rojo':'ambar', `Convivencia: ${qv} queja(s) pasadas de 65 días · ${qp} por vencer`, "window._sgTab='comites';window._sg.comVista='convivencia';renderSGSST()", 'quejas');
-        const ps=_sgVenceDesde(c.psicosocial.ultimaBateria, per.psicosocialMeses||24, hoy); if(ps.estado!=='ok') A(ps.estado==='vencido'||ps.estado==='sin'?'ambar':'azul', ps.estado==='sin'?'Batería de riesgo psicosocial sin registrar':'Batería de riesgo psicosocial '+(ps.estado==='vencido'?'vencida el ':'vence el ')+_sgFechaCO(ps.vence), "window._sgTab='comites';window._sg.comVista='direccion';renderSGSST()", 'psicosocial');
+        const psE=_sgPsicoEstado(c.psicosocial, hoy, cfg); const irPs="window._sgTab='comites';window._sg.comVista='direccion';renderSGSST()"; const psAnual=!!(psE.app&&psE.app.anualObligatoria); const psAlto=psAnual||!!(psE.app&&(psE.app.nivelMax==='alto'||psE.app.nivelMax==='muy_alto'));   // v315
+        if(psE.estado!=='ok') A(psE.estado==='vencido'||psE.estado==='sin'?'ambar':'azul', psE.estado==='sin'?'Batería de riesgo psicosocial sin registrar':'Batería de riesgo psicosocial '+(psE.estado==='vencido'?'vencida el ':'vence el ')+_sgFechaCO(psE.vence)+(psAlto?' (anual porque el nivel es alto)':''), irPs, 'psicosocial');
+        if(psAnual) A('azul', 'Riesgo psicosocial alto o muy alto: evaluación anual y vigilancia epidemiológica con la ARL (Res. 2764/2022, art. 3)', irPs, 'psicosocial_anual');
+        if(psE.app && psE.faltantes.length) A('ambar', (psE.app.legacy?'Registro hecho antes de la v315 (solo fecha, resultado y acciones). ':'')+'A la batería de riesgo psicosocial le falta: '+psE.faltantes.join(', '), irPs, 'psicosocial_faltantes');
         const sim=_sgUltimoDe(c.brigada.simulacros); const simE=_sgVenceDesde(sim&&sim.fecha, 12, hoy); const ins=(c.brigada.inspecciones||[]); const mesesIns=per.inspeccionEmergenciaMeses||3; const insV=Object.keys(SGSST_INSP_EMERG).filter(k=>k!=='senalizacion').filter(k=>{ const u=_sgUltimoDe(ins.filter(i=>i.tipo===k)); return _sgVenceDesde(u&&u.fecha, mesesIns, hoy).estado!=='ok'; });
         if(simE.estado!=='ok'||insV.length) A('ambar', `Emergencias: simulacro anual ${simE.estado==='sin'?'sin registrar':simE.estado==='vencido'?'vencido':'por vencer'}${insV.length?' · inspección pendiente de '+insV.map(k=>SGSST_INSP_EMERG[k].l.toLowerCase()).join(', '):''}`, "window._sgTab='comites';window._sg.comVista='brigada';renderSGSST()", 'emergencias');
         const rev=(c.direccion.revisiones||[]).some(r=>String(r.fecha).slice(0,4)===anio), aud=(c.direccion.auditorias||[]).some(r=>String(r.fecha).slice(0,4)===anio); if(mes>=10 && (!rev||!aud)) A('azul', `Cierre del año: ${!rev?'revisión por la alta dirección':''}${!rev&&!aud?' y ':''}${!aud?'auditoría anual':''} sin registrar en ${anio}`, "window._sgTab='comites';window._sg.comVista='direccion';renderSGSST()", 'cierre'); }
@@ -9914,21 +10291,159 @@ async function sgGuardarFilaIpevrSG(id, nueva){ if(!_sgPuede()) return; const d=
 async function sgArchivarFilaIpevrSG(id){ const d=window._sg.doc; const x=(d.ipevr.filas||[]).find(r=>r.id===id); if(!x) return; if(!confirm('¿Archivar este peligro?')) return; x.archivada=true; try{ await _sgEscribir('sgsst_documentos', { ipevr:d.ipevr }); }catch(err){ alert('⚠️ '+_sgTraducirError(err)); } closeModal(); renderSGSST(); }
 function sgExcelIpevrSG(){ const d=window._sg.doc; const filas=((d.ipevr||{}).filas||[]).filter(f=>!f.archivada); _sgConExcel(()=>{ const wb=XLSX.utils.book_new(); const ws=XLSX.utils.aoa_to_sheet([['Código: FT-SST-33','','MATRIZ DE IDENTIFICACIÓN DE PELIGROS, VALORACIÓN DE RIESGOS Y DETERMINACIÓN DE CONTROLES'],[`Actualizada: ${(d.ipevr||{}).actualizado||''} · ${_sgCfg().empresa.razonSocial}`],[], SGSST_IPEVR_COLS.map(c=>c.l)].concat(filas.map(x=>SGSST_IPEVR_COLS.map(c=>x[c.k]||'')))); ws['!cols']=SGSST_IPEVR_COLS.map(c=>({wch:c.k==='peligro'||c.k==='actividad'||c.k==='efecto'||c.k==='administrativos'?36:14})); XLSX.utils.book_append_sheet(wb, ws, 'IPEVR'); XLSX.writeFile(wb, 'SST-FT-33 Matriz IPEVR.xlsx'); }); }
 function _sgCuerpoDireccion(){
-    const c=window._sg.com; const hoy=_sgHoyISO(); const anio=String(new Date().getFullYear()); const per=_sgCfg().periodicidades||{}; const ps=c.psicosocial||{}; const psE=_sgVenceDesde(ps.ultimaBateria, per.psicosocialMeses||24, hoy);
+    const c=window._sg.com;   // v315: la tarjeta psicosocial vive en _sgTarjetaPsicoSG
     return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:10px;">
         <div class="card" style="padding:12px;"><div style="font-weight:800;font-size:0.85rem;margin-bottom:6px;">🏢 Revisión por la alta dirección (ítem 6.1.3) <span style="font-weight:400;color:var(--muted);font-size:0.72rem;">al menos una vez al año</span></div>${_sgTablaReg('revision','com:direccion.revisiones', _sgVivos(c.direccion.revisiones).sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha))), [{k:'fecha', l:'Fecha', f:x=>_sgFechaCO(x.fecha)},{k:'conclusiones', l:'Conclusiones', f:x=>_sgEsc(String(x.conclusiones||'').slice(0,80))}])}</div>
         <div class="card" style="padding:12px;"><div style="font-weight:800;font-size:0.85rem;margin-bottom:6px;">🔍 Auditoría anual (ítem 6.1.2)</div>${_sgTablaReg('auditoria','com:direccion.auditorias', _sgVivos(c.direccion.auditorias).sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha))), [{k:'fecha', l:'Fecha', f:x=>_sgFechaCO(x.fecha)},{k:'auditor', l:'Auditor'},{k:'hallazgos', l:'Hallazgos', f:x=>_sgEsc(String(x.hallazgos||'').slice(0,60))}])}</div>
         <div class="card" style="padding:12px;"><div style="font-weight:800;font-size:0.85rem;margin-bottom:6px;">📢 Rendición de cuentas (ítem 2.6.1)</div>${_sgTablaReg('rendicion','com:direccion.rendiciones', _sgVivos(c.direccion.rendiciones).sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha))), [{k:'fecha', l:'Fecha', f:x=>_sgFechaCO(x.fecha)},{k:'quien', l:'Quién'}])}</div>
-        <div class="card" style="padding:12px;"><div style="font-weight:800;font-size:0.85rem;margin-bottom:6px;">🧠 Riesgo psicosocial (Ley 2460/2025, Res. 2764/2022)</div>
-            <div style="font-size:0.8rem;">${(SGSST_SEM[psE.estado]||SGSST_SEM.na).i} Última batería: <b>${ps.ultimaBateria?_sgFechaCO(ps.ultimaBateria):'sin registrar'}</b>${ps.ultimaBateria?' · próxima antes del '+_sgFechaCO(psE.vence):''}${ps.resultado?' · resultado: '+_sgEsc(ps.resultado):''}</div>
-            ${ps.acciones?`<div style="font-size:0.74rem;color:var(--muted);margin-top:4px;">${_sgEsc(ps.acciones)}</div>`:''}
-            <div style="margin-top:6px;display:flex;gap:6px;"><button class="btn btn-sm btn-outline" onclick="modalPsicosocialSG()">✏️ Registrar</button><button class="btn btn-sm" style="background:#8b5cf6;color:#fff;" onclick="modalAdjuntosSGSST('psico','x')">📎 Informe (${(ps.adjuntos||[]).length})</button></div>
-            <div style="font-size:0.7rem;color:var(--muted);margin-top:6px;">Cada ${per.psicosocialMeses||24} meses (anual si el riesgo es alto). Se registra solo el resultado global, nunca datos individuales.</div>
-        </div>
+        ${_sgTarjetaPsicoSG()}
     </div>`;
 }
-function modalPsicosocialSG(){ if(!_sgPuede()) return; const ps=window._sg.com.psicosocial||{}; openModal('🧠 Batería de riesgo psicosocial', `<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px;"><div class="form-group-dark"><label>Fecha de la última batería</label><input id="sgps_f" type="date" class="form-control" value="${_sgEsc(ps.ultimaBateria)}"></div><div class="form-group-dark"><label>Resultado global (bajo / medio / alto)</label><input id="sgps_r" class="form-control" value="${_sgEsc(ps.resultado)}"></div></div><div class="form-group-dark"><label>Acciones con la ARL / plan de intervención</label><textarea id="sgps_a" class="form-control" rows="3">${_sgEsc(ps.acciones)}</textarea></div>`, `<button class="btn btn-outline" onclick="closeModal();renderSGSST()">Cancelar</button><button class="btn btn-primary" onclick="sgGuardarPsicosocialSG()">💾 Guardar</button>`); }
-async function sgGuardarPsicosocialSG(){ if(!_sgPuede()) return; const ps=window._sg.com.psicosocial=Object.assign({}, window._sg.com.psicosocial, { ultimaBateria:_sgV('sgps_f'), resultado:_sgV('sgps_r').trim(), acciones:_sgV('sgps_a').trim() }); try{ await _sgEscribir('sgsst_comites', { psicosocial:{ ultimaBateria:ps.ultimaBateria, resultado:ps.resultado, acciones:ps.acciones } }); registrarLog('SGSST_PSICOSOCIAL', ps.ultimaBateria); }catch(err){ alert('⚠️ '+_sgTraducirError(err)); } closeModal(); renderSGSST(); }
+// v315 · Registrar una aplicación de la batería. Corregir = guardar una NUEVA a partir de la anterior y archivar la anterior.
+// El modal recoge los inputs en un objeto plano y se lo pasa a _sgPsicoRegistroDe (lista blanca): nada por persona.
+function modalPsicosocialSG(id){
+    if(!_sgPuede()) return; const com=window._sg.com; if(!com) return alert('Todavía se está leyendo la información; intente en un momento.');
+    const ps=com.psicosocial||{}; const ant=id?((ps.aplicaciones||{})[id]||null):null;
+    if(id && !ant) return alert('No se encontró esa aplicación de la batería.');
+    const base=ant||((!_sgPsicoVivas(ps).length && ps.ultimaBateria)?{ fecha:String(ps.ultimaBateria).slice(0,10), planIntervencion:ps.acciones||'' }:{});   // parte del dato viejo si lo hay
+    const ap=base.aplicador||{};
+    const inp=(i,l,v,tipo,extra)=>`<div class="form-group-dark"><label>${l}</label><input id="${i}" type="${tipo||'text'}" class="form-control" value="${_sgEsc(v==null?'':v)}" ${extra||''}></div>`;
+    const sel=(i,l,v,ops)=>`<div class="form-group-dark"><label>${l}</label><select id="${i}" class="form-control">${ops.map(([k,t])=>`<option value="${k}" ${String(v||'')===k?'selected':''}>${t}</option>`).join('')}</select></div>`;
+    const chk=(i,l,v)=>`<label style="display:flex;gap:6px;align-items:flex-start;font-size:0.78rem;margin:4px 0;font-weight:400;"><input type="checkbox" id="${i}" ${v?'checked':''}> <span>${l}</span></label>`;
+    const niveles=[['','— Sin dato']].concat(Object.entries(SGSST_PSICO_NIVELES));
+    const grupos={ A:'Forma A', B:'Forma B', extra:'extralaboral', estres:'estrés' }; const resAnt=(ant&&Array.isArray(ant.reservados))?ant.reservados.filter(g=>grupos[g]):[];   // v315: grupos que quedaron reservados en la anterior
+    const notaRes=resAnt.length?`<div style="font-size:0.72rem;color:#f59e0b;margin:0 0 6px;">En la aplicación anterior el nivel de ${resAnt.map(g=>grupos[g]+(g==='A'?' ('+(ant.evaluadosA||0)+' evaluados)':g==='B'?' ('+(ant.evaluadosB||0)+' evaluados)':'')).join(', ')} quedó reservado y no se guardó; el nivel máximo registrado fue <b>${_sgEsc(ant.nivelMax?SGSST_PSICO_NIVELES[ant.nivelMax]:'sin dato')}</b>. Si lo deja vacío se conservan ese máximo y la evaluación anual; para cambiarlo, elija el nivel de cada grupo reservado.</div>`:'';
+    openModal(ant?'🧠 Corregir la aplicación del '+_sgFechaCO(ant.fecha):'🧠 Registrar una aplicación de la batería', `
+        <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.4);border-radius:8px;padding:8px 10px;font-size:0.76rem;margin-bottom:8px;">🔒 Aquí solo se registra el <b>informe consolidado por grupos</b>. No escriba ni adjunte nombres, cuestionarios ni resultados por persona: la ley lo prohíbe (Res. 2764/2022, art. 5) y esta base es visible desde internet.</div>
+        ${ant?'<div style="font-size:0.74rem;color:var(--muted);margin-bottom:6px;">Se guarda como una aplicación nueva y la anterior queda archivada con el motivo «Corregida por una aplicación nueva». Nada se borra.</div>':''}
+        ${_sgAyuda('La <b>batería de riesgo psicosocial</b> es el instrumento oficial del Ministerio del Trabajo para medir el riesgo psicosocial en el trabajo (Res. 2764/2022; solo se usan los instrumentos oficiales, sin modificarlos). <b>Quién la aplica:</b> un psicólogo con posgrado en SST o salud ocupacional y licencia vigente (Res. 2646/2008). <b>Cada cuánto:</b> cada año si la Forma A o la Forma B dio alto o muy alto; si no, como mínimo cada 2 años. <b>Qué guarda la empresa:</b> solo el informe consolidado por grupos, la constancia del consentimiento informado y el plan de intervención. Los cuestionarios y los resultados por persona los custodia el psicólogo o la IPS, nunca la empresa.')}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px;">
+            ${inp('sgps_fecha','Fecha de aplicación *',base.fecha,'date')}
+            ${sel('sgps_mod','Modalidad',base.modalidad,[['','— Sin dato']].concat(Object.entries(SGSST_PSICO_MODALIDADES)))}
+            ${inp('sgps_apn','Psicólogo que la aplicó (nombre) *',ap.nombre)}
+            ${inp('sgps_apl','Licencia en SST del psicólogo (número)',ap.licencia)}
+            ${inp('sgps_app','Posgrado en SST o salud ocupacional',ap.posgrado)}
+            ${inp('sgps_ape','Entidad o IPS',ap.entidad)}
+            ${inp('sgps_tot','Total de trabajadores de la empresa',base.totalTrabajadores,'number','min="0"')}
+            ${sel('sgps_cus','Quién custodia los cuestionarios',base.custodia,[['','— Sin dato']].concat(Object.entries(SGSST_PSICO_CUSTODIA)))}
+            ${inp('sgps_evA','Evaluados con Forma A (jefes, profesionales, técnicos)',base.evaluadosA,'number','min="0"')}
+            ${inp('sgps_evB','Evaluados con Forma B (auxiliares y operarios)',base.evaluadosB,'number','min="0"')}
+            ${sel('sgps_nA','Nivel de riesgo · Forma A',base.nivelA,niveles)}
+            ${sel('sgps_nB','Nivel de riesgo · Forma B',base.nivelB,niveles)}
+            ${sel('sgps_nX','Nivel de riesgo extralaboral',base.nivelExtralaboral,niveles)}
+            ${sel('sgps_nE','Nivel de estrés',base.nivelEstres,niveles)}
+        </div>
+        <div style="font-size:0.7rem;color:var(--muted);margin:-2px 0 6px;">Si un grupo tiene menos de 5 evaluados, su nivel no se guarda (solo el nivel máximo), para que nadie sea identificable.</div>
+        ${notaRes}
+        ${chk('sgps_arl','La ARL acompañó la aplicación o la intervención',base.arlAcompana)}
+        ${chk('sgps_con','Hay consentimiento informado firmado por los evaluados (lo custodia el psicólogo)',base.consentimiento)}
+        ${chk('sgps_res','El psicólogo firmó el compromiso de reserva de la información',base.reservaExperto)}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px;margin-top:6px;">${inp('sgps_finf','Fecha del informe consolidado',base.fechaInforme,'date')}</div>
+        <div class="form-group-dark"><label>Dominios o dimensiones prioritarias (según el informe)</label><textarea id="sgps_dom" class="form-control" rows="2">${_sgEsc(base.dominiosPrioritarios)}</textarea></div>
+        <div class="form-group-dark"><label>Plan de intervención (acciones con la ARL)</label><textarea id="sgps_plan" class="form-control" rows="3">${_sgEsc(base.planIntervencion)}</textarea></div>
+    `, `<button class="btn btn-outline" onclick="closeModal();renderSGSST()">Cancelar</button><button class="btn btn-primary" onclick="sgGuardarPsicosocialSG('${ant?_sgEsc(ant.id):''}')">💾 Guardar</button>`);
+}
+async function sgGuardarPsicosocialSG(idAnterior){
+    if(!_sgPuede()) return; const com=window._sg.com; if(!com) return alert('Todavía se está leyendo la información; intente en un momento.');
+    const ps=com.psicosocial=com.psicosocial||{}; ps.aplicaciones=ps.aplicaciones||{};
+    const anterior=idAnterior?(ps.aplicaciones[idAnterior]||null):null;
+    const chk=i=>!!(document.getElementById(i)||{}).checked;
+    const datos={ fecha:_sgV('sgps_fecha'), modalidad:_sgV('sgps_mod'), aplicador:{ nombre:_sgV('sgps_apn'), licencia:_sgV('sgps_apl'), posgrado:_sgV('sgps_app'), entidad:_sgV('sgps_ape') }, arlAcompana:chk('sgps_arl'), totalTrabajadores:_sgV('sgps_tot'), evaluadosA:_sgV('sgps_evA'), evaluadosB:_sgV('sgps_evB'), nivelA:_sgV('sgps_nA'), nivelB:_sgV('sgps_nB'), nivelExtralaboral:_sgV('sgps_nX'), nivelEstres:_sgV('sgps_nE'), consentimiento:chk('sgps_con'), reservaExperto:chk('sgps_res'), custodia:_sgV('sgps_cus'), fechaInforme:_sgV('sgps_finf'), dominiosPrioritarios:_sgV('sgps_dom'), planIntervencion:_sgV('sgps_plan'), adjuntos:anterior?(anterior.adjuntos||[]):[], registradoPor:USER.role, registradoEn:now() };
+    const app=_sgPsicoRegistroDe(datos); if(anterior) _sgPsicoHeredarReservado(app, datos, anterior);   // lista blanca: nada por persona llega a la nube · v315: un grupo reservado que se deja vacío conserva el máximo y la anualidad
+    if(!app.fecha) return alert('Escribe la fecha en que se aplicó la batería.');
+    if(app.fecha>_sgHoyISO()) return alert('La fecha de aplicación no puede ser futura.');
+    if(!app.aplicador.nombre) return alert('Escribe el nombre del psicólogo que aplicó la batería.');
+    const cambios={ [app.id]:app };
+    if(anterior){ cambios[anterior.id]={ archivada:true, archivadoEn:now(), archivadoPor:USER.role, motivoArchivo:'Corregida por una aplicación nueva' }; }
+    // Primera aplicación con un dato viejo (v314) de otra fecha: el dato viejo queda como aplicación archivada, no se pisa
+    if(!Object.keys(ps.aplicaciones).length && ps.ultimaBateria && String(ps.ultimaBateria).slice(0,10)!==app.fecha){
+        const viejo=_sgPsicoRegistroDe({ id:'ps_v314_'+String(ps.ultimaBateria).replace(/\D/g,''), fecha:ps.ultimaBateria, planIntervencion:ps.acciones||'', dominiosPrioritarios:ps.resultado?'Resultado anotado antes de la v315: '+ps.resultado:'', registradoPor:'v314', archivada:true, archivadoEn:now(), archivadoPor:USER.role, motivoArchivo:'Registro anterior a la v315 (solo fecha, resultado y acciones); lo reemplaza una aplicación completa' });
+        cambios[viejo.id]=viejo;
+    }
+    const copia=Object.assign({}, ps, { aplicaciones:Object.assign({}, ps.aplicaciones) }); Object.keys(cambios).forEach(k=>{ copia.aplicaciones[k]=Object.assign({}, ps.aplicaciones[k]||{}, cambios[k]); });
+    const viejos=_sgPsicoCamposViejos(copia);
+    try{
+        await _sgEscribir('sgsst_comites', { psicosocial:Object.assign({ aplicaciones:cambios }, viejos) });
+        Object.keys(cambios).forEach(k=>{ ps.aplicaciones[k]=copia.aplicaciones[k]; }); Object.assign(ps, viejos);
+        registrarLog('SGSST_PSICOSOCIAL_APLICACION', app.fecha+(anterior?' (corrige la del '+anterior.fecha+')':''));
+        _sgToast('✅ Aplicación de la batería registrada');
+    }catch(err){ return alert('⚠️ No se guardó: '+_sgTraducirError(err)); }
+    closeModal(); renderSGSST();
+}
+async function sgArchivarPsicoSG(id){
+    if(!_sgPuede()) return; const com=window._sg.com; if(!com) return alert('Todavía se está leyendo la información; intente en un momento.');
+    const ps=com.psicosocial||{}; const app=(ps.aplicaciones||{})[id]; if(!app||app.archivada) return;
+    const motivo=(prompt('¿Por qué se archiva la aplicación del '+_sgFechaCO(app.fecha)+'? (mínimo 5 caracteres). No se borra: queda en el historial con este motivo.')||'').trim();
+    if(!motivo) return; if(motivo.length<5) return alert('Escribe un motivo de al menos 5 caracteres.');
+    const marca={ archivada:true, archivadoEn:now(), archivadoPor:USER.role, motivoArchivo:motivo };
+    const copia=Object.assign({}, ps, { aplicaciones:Object.assign({}, ps.aplicaciones, { [id]:Object.assign({}, app, marca) }) });
+    const viejos=_sgPsicoCamposViejos(copia);
+    try{
+        await _sgEscribir('sgsst_comites', { psicosocial:Object.assign({ aplicaciones:{ [id]:marca } }, viejos) });
+        Object.assign(app, marca); Object.assign(ps, viejos);
+        registrarLog('SGSST_PSICOSOCIAL_ARCHIVADA', _sgFechaCO(app.fecha)+': '+motivo);
+        _sgToast('🗄️ Aplicación archivada');
+    }catch(err){ alert('⚠️ No se guardó: '+_sgTraducirError(err)); }
+    renderSGSST();
+}
+// Tarjeta de la pestaña Comités → Alta dirección y psicosocial
+function _sgTarjetaPsicoSG(){
+    const com=window._sg.com; const cfg=_sgCfg(); const hoy=_sgHoyISO();
+    const titulo='<div style="font-weight:800;font-size:0.85rem;margin-bottom:6px;">🧠 Riesgo psicosocial <span style="font-weight:400;color:var(--muted);font-size:0.72rem;">Res. 2646/2008 · Res. 2764/2022 · Ley 2460/2025</span></div>';
+    const nota='<div style="font-size:0.7rem;color:var(--muted);margin-top:6px;">La aplica un psicólogo con posgrado en SST y licencia vigente (Res. 2646/2008). Aquí solo se guarda el informe consolidado por grupos; nunca resultados por persona.</div>';
+    if(!com) return `<div class="card" style="padding:12px;">${titulo}<div style="font-size:0.8rem;color:var(--muted);">🧠 Batería de riesgo psicosocial: leyendo…</div>${nota}</div>`;
+    const ps=com.psicosocial||{}; const pe=_sgPsicoEstado(ps, hoy, cfg); const a=pe.app; const ap=(a&&a.aplicador)||{};
+    const vivas=_sgPsicoVivas(ps), arch=_sgPsicoArchivadas(ps);
+    const nEv=a?((a.evaluadosA||0)+(a.evaluadosB||0)):0;
+    const cob=(a&&!a.legacy)?(nEv+' de '+(a.totalTrabajadores||'?')+(a.totalTrabajadores?' ('+Math.round(100*nEv/a.totalTrabajadores)+' %)':'')):'—';
+    const nivel=a?(a.nivelMax?SGSST_PSICO_NIVELES[a.nivelMax]:(a.resultado||'sin dato')):'';
+    const psAlto=!!(a&&(a.anualObligatoria||a.nivelMax==='alto'||a.nivelMax==='muy_alto')); const motivo=psAlto?'cada 12 meses porque el nivel es alto o muy alto':'cada '+pe.meses+' meses según la periodicidad configurada';   // v315: mismo criterio que _sgAlertas
+    const filaApp=(x)=>`<tr${x.archivada?' style="opacity:.7;"':''}><td style="white-space:nowrap;">${_sgFechaCO(x.fecha)}</td><td>${_sgEsc(SGSST_PSICO_MODALIDADES[x.modalidad]||'—')}</td><td>${_sgEsc((x.aplicador||{}).nombre)||'—'}${(x.aplicador||{}).licencia?'<div style="font-size:0.68rem;color:var(--muted);">Lic. '+_sgEsc(x.aplicador.licencia)+'</div>':''}</td><td style="white-space:nowrap;">${(x.evaluadosA||0)+(x.evaluadosB||0)} de ${x.totalTrabajadores||'?'}</td><td>${x.nivelMax?SGSST_PSICO_NIVELES[x.nivelMax]:'sin dato'}</td>${x.archivada?`<td>${_sgEsc(x.motivoArchivo)}<div style="font-size:0.68rem;color:var(--muted);">${_sgFechaCO(String(x.archivadoEn||'').slice(0,10))}</div></td>`:''}<td style="white-space:nowrap;"><button class="btn btn-sm" style="background:#8b5cf6;color:#fff;" onclick="modalAdjuntosSGSST('psico','${x.id}')" title="Informe consolidado">📎${(x.adjuntos||[]).length||''}</button>${x.archivada?'':` <button class="btn btn-sm btn-outline" onclick="modalPsicosocialSG('${x.id}')" title="Corregir (se guarda una nueva y esta queda archivada)">✏️</button> <button class="btn btn-sm btn-outline" onclick="sgArchivarPsicoSG('${x.id}')" title="Archivar con motivo (no se borra)">🗄️ Archivar</button>`}</td></tr>`;
+    return `<div class="card" style="padding:12px;">${titulo}
+        <div style="font-size:0.8rem;">${_sgPsicoEstadoTexto(pe)}${a?` · nivel máximo: <b>${_sgEsc(nivel)}</b>`:''}</div>
+        ${a?`<div style="font-size:0.76rem;margin-top:3px;">Aplicó: ${ap.nombre?_sgEsc(ap.nombre)+(ap.licencia?' (licencia '+_sgEsc(ap.licencia)+')':' (sin licencia registrada)'):'<span style="color:#ef4444;">sin psicólogo registrado</span>'} · Cobertura: ${cob} · Próxima: <b>${_sgFechaCO(pe.vence)}</b> (${motivo})</div>`:''}
+        ${(a&&!a.legacy)?`<div style="font-size:0.74rem;color:var(--muted);margin-top:3px;">${_sgEsc(_sgPsicoResumenTexto(a))}</div>`:''}
+        ${pe.faltantes.length?`<div style="font-size:0.74rem;color:#ef4444;margin-top:3px;">Le falta: ${pe.faltantes.join(', ')}</div>`:''}
+        ${(a&&a.planIntervencion)?`<div style="font-size:0.74rem;color:var(--muted);margin-top:3px;">Plan de intervención: ${_sgEsc(String(a.planIntervencion).slice(0,220))}</div>`:''}
+        <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;"><button class="btn btn-sm btn-outline" onclick="modalPsicosocialSG()">✏️ Registrar aplicación</button><button class="btn btn-sm" style="background:#8b5cf6;color:#fff;" onclick="modalAdjuntosSGSST('psico','${(a&&!a.legacy)?a.id:'x'}')">📎 Informe consolidado (${(a&&!a.legacy)?(a.adjuntos||[]).length:(ps.adjuntos||[]).length})</button><button class="btn btn-sm btn-outline" onclick="modalPlanSG('4.1.2')">📋 Plan → 4.1.2</button>${((ps.adjuntos||[]).length && a && !a.legacy)?`<button class="btn btn-sm btn-outline" onclick="modalAdjuntosSGSST('psico','x')">📎 Documentos generales (${ps.adjuntos.length})</button>`:''}</div>
+        ${vivas.length?`<div style="overflow-x:auto;margin-top:8px;"><table class="tabla" style="width:100%;font-size:0.74rem;"><thead><tr><th>Fecha</th><th>Modalidad</th><th>Psicólogo</th><th>Cobertura</th><th>Nivel máx.</th><th></th></tr></thead><tbody>${vivas.map(filaApp).join('')}</tbody></table></div>`:''}
+        ${arch.length?`<details style="margin-top:6px;font-size:0.74rem;"><summary style="cursor:pointer;color:var(--muted);">🗄️ Archivadas (${arch.length})</summary><div style="overflow-x:auto;"><table class="tabla" style="width:100%;font-size:0.72rem;margin-top:4px;"><thead><tr><th>Fecha</th><th>Modalidad</th><th>Psicólogo</th><th>Cobertura</th><th>Nivel máx.</th><th>Motivo</th><th></th></tr></thead><tbody>${arch.map(filaApp).join('')}</tbody></table></div></details>`:''}
+        ${nota}</div>`;
+}
+// Fila anexa "PS" bajo la tabla de ✅ Estándares: no es un ítem de la matriz, no va en items y no se califica.
+function _sgFilaAnexaPsicoSG(){
+    const com=window._sg.com;
+    const cab=`<tr style="background:var(--surface2);"><td colspan="7" style="font-weight:800;font-size:0.74rem;padding:7px 8px;">ANEXO · Riesgo psicosocial (Res. 2646/2008 · Res. 2764/2022 · Ley 2460/2025) <span style="font-weight:400;color:var(--muted);">— no suma en la autoevaluación oficial; su evidencia respalda 4.1.2, 3.1.1, 3.1.2 y 1.1.8</span></td></tr>`;
+    let fila='';
+    if(!com) fila=`<tr><td style="font-weight:800;white-space:nowrap;">PS</td><td colspan="6" style="color:var(--muted);">🧠 Batería de riesgo psicosocial: leyendo…</td></tr>`;
+    else {
+        const ps=com.psicosocial||{}; const pe=_sgPsicoEstado(ps, _sgHoyISO(), _sgCfg()); const a=pe.app; const ap=(a&&a.aplicador)||{};
+        const nivel=a?(a.nivelMax?SGSST_PSICO_NIVELES[a.nivelMax]:(a.resultado||'sin dato')):''; const nEv=a?((a.evaluadosA||0)+(a.evaluadosB||0)):0;
+        fila=`<tr><td style="font-weight:800;white-space:nowrap;">PS</td>
+            <td>Batería de riesgo psicosocial (informe consolidado por grupos)${a?`<div style="font-size:0.68rem;color:var(--muted);">Aplicada el ${_sgFechaCO(a.fecha)} · nivel máximo: ${_sgEsc(nivel)}${nEv?' · '+nEv+' evaluados':''}</div>`:''}${pe.faltantes.length?`<div style="font-size:0.68rem;color:#ef4444;">Le falta: ${pe.faltantes.join(', ')}</div>`:''}</td>
+            <td style="text-align:center;color:var(--muted);">—</td>
+            <td style="font-size:0.76rem;white-space:nowrap;color:${(SGSST_SEM[pe.estado]||SGSST_SEM.na).c};">${_sgPsicoEstadoTexto(pe)}</td>
+            <td style="font-size:0.74rem;">${ap.nombre?_sgEsc(ap.nombre)+(ap.licencia?'<div style="font-size:0.68rem;color:var(--muted);">Lic. '+_sgEsc(ap.licencia)+'</div>':''):'<span style="color:var(--muted)">—</span>'}</td>
+            <td style="font-size:0.74rem;white-space:nowrap;">${pe.vence?_sgFechaCO(pe.vence):'—'}</td>
+            <td style="white-space:nowrap;"><button class="btn btn-sm btn-outline" onclick="modalPsicosocialSG()" title="Registrar una aplicación de la batería">✏️</button> <button class="btn btn-sm" style="background:#8b5cf6;color:#fff;" onclick="modalAdjuntosSGSST('psico','${(a&&!a.legacy)?a.id:'x'}')" title="Informe consolidado">📎${(a&&!a.legacy)?((a.adjuntos||[]).length||''):((ps.adjuntos||[]).length||'')}</button> <button class="btn btn-sm btn-outline" onclick="modalPlanSG('4.1.2')" title="Plan de mejoramiento del ítem 4.1.2">📋</button></td></tr>`;
+    }
+    return `<div class="card" style="padding:0;overflow-x:auto;margin-top:8px;background:rgba(139,92,246,0.07);border-color:rgba(139,92,246,0.35);"><table class="tabla" style="width:100%;font-size:0.78rem;"><tbody>${cab}${fila}</tbody></table></div>`;
+}
+// Exportes: hoja "Anexo psicosocial" del Excel y párrafo del PDF (no tocan _sgFilasOficiales)
+function _sgPsicoFilasExport(){
+    const cab=[['ANEXO · RIESGO PSICOSOCIAL (Res. 2646/2008 · Res. 2764/2022 · Ley 2460/2025) — no suma en la autoevaluación; su evidencia respalda 4.1.2, 3.1.1, 3.1.2 y 1.1.8'],['Solo el informe consolidado por grupos. Un grupo con menos de 5 evaluados aparece como "reservado".'],['FECHA','PSICÓLOGO','LICENCIA','MODALIDAD','COBERTURA','NIVEL MÁXIMO','FORMA A','FORMA B','EXTRALABORAL','ESTRÉS','PRÓXIMA','PLAN DE INTERVENCIÓN']];
+    const com=window._sg.com; if(!com) return cab.concat([['La información de la batería no se ha leído todavía: abra la pestaña Comités y vuelva a exportar.']]);
+    const ps=com.psicosocial||{}; const cfg=_sgCfg(); const vivas=_sgPsicoVivas(ps);
+    if(!vivas.length){ const pe=_sgPsicoEstado(ps, _sgHoyISO(), cfg); return cab.concat([pe.app?[pe.app.fecha, '', '', '', '', pe.app.resultado||'', '', '', '', '', pe.vence, pe.app.planIntervencion||'']:['Sin aplicar']]); }
+    const L=k=>SGSST_PSICO_NIVELES[k]||''; const g=(a,clave,nivel)=>(a.reservados||[]).includes(clave)?'reservado':(L(nivel)||'sin dato');
+    return cab.concat(vivas.map(a=>[a.fecha, (a.aplicador||{}).nombre||'', (a.aplicador||{}).licencia||'', SGSST_PSICO_MODALIDADES[a.modalidad]||'', ((a.evaluadosA||0)+(a.evaluadosB||0))+' de '+(a.totalTrabajadores||'?'), L(a.nivelMax)||'sin dato', g(a,'A',a.nivelA), g(a,'B',a.nivelB), g(a,'extra',a.nivelExtralaboral), g(a,'estres',a.nivelEstres), _sgSumarMeses(a.fecha, _sgPsicoPeriodicidadMeses(a, cfg)), a.planIntervencion||'']));
+}
+function _sgPsicoTextoExport(){
+    const com=window._sg.com; if(!com) return 'información no leída todavía (abra la pestaña Comités y vuelva a exportar). No suma en la autoevaluación; su evidencia respalda 4.1.2, 3.1.1, 3.1.2 y 1.1.8.';
+    const pe=_sgPsicoEstado(com.psicosocial||{}, _sgHoyISO(), _sgCfg()); const a=pe.app; if(!a) return 'sin aplicar. No suma en la autoevaluación; su evidencia respalda 4.1.2, 3.1.1, 3.1.2 y 1.1.8.';
+    const ap=a.aplicador||{};
+    return `aplicada el ${_sgFechaCO(a.fecha)}${ap.nombre?' por '+ap.nombre+(ap.licencia?' (licencia '+ap.licencia+')':''):''} · ${a.legacy?(a.resultado||'sin nivel registrado'):_sgPsicoResumenTexto(a)} · próxima ${_sgFechaCO(pe.vence)} (cada ${pe.meses} meses)${pe.faltantes.length?' · falta: '+pe.faltantes.join(', '):''}. No suma en la autoevaluación; su evidencia respalda 4.1.2, 3.1.1, 3.1.2 y 1.1.8.`;
+}
 
 
 // ─── Panel: alertas, indicadores y plan de trabajo ──────────────────────────
@@ -9995,6 +10510,10 @@ function _sgEvidenciaItem(k){
             case '6.1.2': if(listo){ const a=_sgVivos(sg.com.direccion.auditorias).some(x=>String(x.fecha).slice(0,4)===anio); ch(a?`🔍 Auditoría ${anio} registrada`:`🔍 Sin auditoría en ${anio}`, a?'ok':'pronto', irCom('direccion')); } break;
             case '6.1.3': if(listo){ const r=_sgVivos(sg.com.direccion.revisiones).some(x=>String(x.fecha).slice(0,4)===anio); ch(r?`🏢 Revisión por la alta dirección ${anio} registrada`:`🏢 Sin revisión por la alta dirección en ${anio}`, r?'ok':'pronto', irCom('direccion')); } break;
             case '7.1.1': case '7.1.2': case '7.1.3': case '7.1.4': { const v=_sgVigActual(); const it=v?((v.items||{})[_sgKey(k)]||{}):{}; const pl=it.plan||[]; const h=pl.filter(a=>a.estado==='hecha').length; ch(`📋 ${pl.length} acción(es) en el plan de mejoramiento · ${h} hechas`, pl.length?(h===pl.length?'ok':'pronto'):'na', `modalPlanSG('${k}')`); break; }
+        }
+        if(k==='4.1.2'||k==='3.1.1'||k==='3.1.2'||k==='1.1.8'){   // v315: la batería de riesgo psicosocial respalda estos cuatro ítems
+            if(sg.com){ const pe=_sgPsicoEstado(sg.com.psicosocial||{}, hoy, cfg); const a=pe.app; ch(a?`🧠 Batería psicosocial: aplicada ${_sgFechaCO(a.fecha)} · nivel ${a.nivelMax?SGSST_PSICO_NIVELES[a.nivelMax].toLowerCase():(a.resultado||'sin dato')} · próxima ${_sgFechaCO(pe.vence)}`:'🧠 Batería psicosocial: sin aplicar', pe.estado, irCom('direccion')); }
+            else ch('🧠 Batería psicosocial: leyendo…', 'na', irCom('direccion'));
         }
     }catch(e){ console.warn('evidencia', k, e); }
     return out;
