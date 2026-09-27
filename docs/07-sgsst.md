@@ -208,10 +208,11 @@ añade el cumplimiento de lo exigible (indicador interno, no es la calificación
 de estándares mínimos) y el bloque «💬 Explícame este puntaje», que separa lo
 que entra por ley, lo que cumple, lo que falta y los tres exigibles de mayor
 valor sin cumplir; los conteos y los vencimientos cuentan solo exigibles.
-`SGSST_GUIA_60` guarda por código (los 21 por ahora) qué pide el ítem y qué
-sirve como evidencia; se pinta en `modalItemSG` («Qué pide» / «Sirve como
-evidencia», con la etiqueta «Exigible en su régimen» o «No exigible (suma por
-ley)») y en cada fila como «❔ ¿Qué pide?» plegado.
+`SGSST_GUIA_60` guarda por código qué pide el ítem y qué sirve como evidencia
+(en la v315 solo los 21 exigibles; desde la v316 los 60, ver «Parte
+didáctica»); se pinta en `modalItemSG` («Qué pide» / «Sirve como evidencia»,
+con la etiqueta «Exigible en su régimen» o «No exigible (suma por ley)») y en
+cada fila como «❔ ¿Qué pide?» plegado.
 
 **Exportes.** `_sgFilasOficiales(v, regimen, exigibles)`: sin parámetros
 extra, idéntica (60 filas × 11 columnas, mismos textos). Con `'21'`, las filas
@@ -475,3 +476,224 @@ la tabla, sin tocar `_sgFilasOficiales`.
 rol) en cada documento `sgsst_*`, en una colección que se lee sin autenticación
 desde internet. Lo nuevo de la v315 ya guarda solo el rol; ese campo se cambia
 a rol cuando entre la autenticación real (`docs/SEGURIDAD-URGENTE.md`).
+
+### Parte didáctica (v316)
+
+El módulo explica cómo usarse: guía de los 60 ítems, acciones sugeridas para
+el plan, glosario, avance por estándar, «¿Qué sigue?», ruta del año e informe
+corto. Todo es cálculo y pantalla: **no cambia la forma de ningún documento
+`sgsst_*` ni escribe campos nuevos**. Lo único que se guarda es lo que ya
+existía (una acción del plan entra por `sgAgregarAccion`, con su log
+`SGSST_PLAN`); no hay registro de auditoría nuevo. `_sgCalcular`,
+`_sgCalcularVig`, `_sgFilasPlan`, `_sgFilasOficiales` y las funciones de la
+v315 no cambian de firma ni de resultado. Como la colección se lee sin
+autenticación, las pantallas y el informe nuevos no llevan nombres de
+trabajadores: solo cantidades y estados, y «generado por» es `USER.role`.
+
+**Guía completa de los 60 ítems.** `SGSST_GUIA_60` ya tiene los 60 códigos de
+`SGSST_MATRIZ_60`, cada uno con `pide` (el criterio del art. 16 de la Res.
+0312/2019 en español llano) y `evidencia` (el modo de verificación: qué pide
+el inspector). Los textos no llevan HTML: `_sgGuiaItemHTML(codigo, modo)` los
+pasa por `_sgEsc`. Se pinta donde ya se pintaba: en `modalItemSG` («Qué pide»
+/ «Sirve como evidencia») y plegado en cada fila de ✅ Estándares.
+
+**Acciones sugeridas para el plan de mejoramiento (art. 28).**
+`SGSST_ACCIONES_SUG` tiene, por cada uno de los 60 códigos, 2 o 3 tareas
+cortas en imperativo y sin punto final, pensadas para el ISP (cinco oficinas,
+técnicos en alturas, riesgo eléctrico y de tránsito). `modalPlanSG(codigo)`
+muestra, solo si la vigencia no es de solo lectura, el bloque «💡 Acciones
+sugeridas para este ítem» entre la lista de acciones y «➕ Nueva acción», con
+un botón «➕ Usar» por sugerencia y la ayuda «Son ejemplos: edítalos antes de
+guardar»; la sugerencia cuyo texto ya está en `it.plan` (comparación sin
+mayúsculas ni tildes) sale atenuada con «ya está en el plan» y sin botón.
+`sgUsarSugerenciaSG(codigo, idx)` solo llena el formulario, no guarda: pone
+el texto en `#sgp_acc`; si `#sgp_resp` está vacío, el **cargo** del
+responsable SST de `_sgCfg()` («Responsable SST» si no hay), nunca el nombre;
+si `#sgp_fecha` está vacío, la fecha de `_sgFechaSugeridaPlan`; y enfoca
+`#sgp_acc`. Guardar sigue siendo «💾 Agregar». `_sgFechaSugeridaPlan(rangoTexto,
+hoyISO)` es pura: `_sgSumarMeses` con 3 meses si el rango es `CRÍTICO` y 6 en
+cualquier otro (plazos del art. 28 para el informe a la ARL: 3 meses en
+crítico, 6 en moderadamente aceptable; con aceptable también 6). En
+`_sgCuerpoPlan`, donde dice «Sin acciones definidas» hay un botón «💡 Ver
+sugerencias» que abre el mismo `modalPlanSG(k)`.
+
+**Glosario.** `SGSST_GLOSARIO` tiene una frase por término: PHVA y sus cuatro
+fases (PLANEAR, HACER, VERIFICAR, ACTUAR), SG-SST, SGRL, ARL, EPS, AFP,
+COPASST, Vigía, Comité de Convivencia, FURAT, FUREL, IPEVR, EPP, SMMLV, PILA,
+batería psicosocial, forma A / forma B, no aplica, no exigible, estándares
+mínimos, autoevaluación, plan de mejoramiento, vigencia, brigada, matriz de
+peligros, examen ocupacional, aptitud y alturas. `_sgTip(clave, etiqueta)`
+devuelve la etiqueta con `title` (el texto del glosario) y un ❔ cuando la
+clave existe, y solo la etiqueta escapada cuando no; todo pasa por `_sgEsc`,
+así que nunca rompe el HTML. `modalGlosarioSG()` es la ventana «📖 Glosario
+del SG-SST»: tabla término / explicación en el orden de la constante y un
+buscador que filtra las filas. Su botón «📖 Glosario» está en la cabecera de
+`renderSGSST`, para todos los roles que ven el módulo. `_sgTip` va en el
+select de ciclo y en las cabeceras de grupo de ✅ Estándares (PHVA y cada
+ciclo), en `barra()` y la tarjeta SGRL del Panel, en 🗓️ Vigencias («Registro
+en SGRL»), en comités (COPASST, Comité de Convivencia, IPEVR), en eventos
+(FURAT y FUREL), en el contador de «no exigibles» y en la fila anexa PS
+(«batería psicosocial»). El término «forma A / forma B» está solo en el
+glosario: donde se muestran Forma A y Forma B (`_sgPsicoResumenTexto`) es
+texto plano que también va a Excel y PDF.
+
+**Avance, chips por estándar, siguiente paso y simulador (✅ Estándares).**
+Tres funciones puras sobre el resultado `c` de `_sgCalcularVig`:
+
+- `_sgResumenPorEstandar(c, v, reg, ex)` → un elemento por estándar que tenga
+  al menos un ítem exigible en el régimen, en el orden de la matriz:
+  `{ e, corto, obtenido, posible, calificados, total, sinPuntos, pct, color }`.
+  `obtenido` y `posible` se calculan SOLO sobre los exigibles (`_sgPuntosItem`
+  y `def.v`); `corto` es el nombre del estándar sin el porcentaje
+  («1 RECURSOS»); `sinPuntos` son los exigibles con 0 puntos, de mayor a
+  menor valor; `color` rojo (menos de 60 %), ámbar (hasta 85 %), verde (más
+  de 85 %) y gris si no hay puntos posibles.
+- `_sgSiguienteItem(c, v, reg, ex)` → el exigible con 0 puntos de mayor valor
+  (empate: el primero en el orden de la matriz), o `null` si no hay.
+- `_sgSimuladorTexto(def, it, c, exigible)` → `''` si no es exigible; «Vale v
+  puntos · ya suma» si ya puntúa; si no, «Si cumple: +v → total nuevo
+  (rango)», con el rango de `_sgRango` y el total a dos decimales.
+
+En `_sgCuerpoEstandares`: filtro nuevo `window._sg.filtros.estandar` (el texto
+exacto de `d.e`; `''` = todos), aplicado junto a los demás; si el estándar
+filtrado no tiene ítems exigibles en la vigencia (se filtró el 7 en régimen 60
+y se pasó a una de régimen 21), el filtro se limpia solo al pintar, para que
+la tabla no quede vacía sin un chip resaltado. Entre los filtros
+y la tabla va la card «📈 Avance»: barra de progreso «n de N calificados ·
+faltan m» (`c.calificados`, `c.exigibles`, `c.faltan`); un chip por estándar
+(«corto · obtenido/posible» con su punto de color; clic →
+`sgFiltrarEstandarSG('texto')`, que fija el filtro y repinta; volver a clicar
+el mismo lo quita; el chip «Todos» limpia) y la línea «➡️ Siguiente paso
+sugerido: código nombre (vale v, sin calificar)» con «📋 Plan» (`modalPlanSG`)
+y «✏️ Calificar» (`modalItemSG`), o «Todos los ítems exigibles ya suman
+puntos 🎉». En vigencia cerrada la card se muestra igual. El select de cada
+fila exigible lleva el texto del simulador en su `title`; el de los no
+exigibles conserva el suyo.
+
+**«¿Qué sigue?» en el Panel.** `_sgSiguientesPasos(ctx)` es pura: recibe
+`{ anio, info, cfg, c, v, faltan, sinPlan, psico, alertas, avisosSgrl, mes,
+cerrada }` y devuelve hasta 5 pasos `{ n, txt, ir, nivel }` (`rojo`, `ambar` o `azul`), en
+este orden de prioridad y solo los que apliquen:
+
+| # | Cuándo | Paso | Nivel |
+|---|---|---|---|
+| 1 | la vigencia no tiene `regimen` | fijar el régimen con el certificado de la ARL a la mano (`modalRegimenSG`) | ámbar |
+| 2 | falta el nombre o la licencia del responsable SST, o el nombre de la ARL | completar ⚙️ Configuración | ámbar |
+| 3 | `faltan > 0` | calificar los N ítems que faltan (abre ✅ Estándares con el filtro «sin calificar») | azul |
+| 4 | `sinPlan > 0` | escribir el plan de mejoramiento de los M ítems que no cumplen y no tienen acciones (abre 📋 Plan) | ámbar |
+| 5 | hay alertas rojas | la primera, con su texto y su `ir` tal cual | rojo |
+| 6 | batería psicosocial vencida o sin aplicar (`_sgPsicoEstado`) | registrar o aplicar la batería (comités) | ámbar |
+| 7 | registro SGRL `pendiente` o `vencido_plataforma_abierta` (`_sgEstadoRegistroSGRL`) | registrar la autoevaluación del año en la plataforma SGRL (`modalVigenciasSG`) | rojo si vencido, ámbar si pendiente |
+| 8 | `mes >= 11` | preparar la autoevaluación de diciembre y el plan anual del año siguiente (`modalVigenciasSG`) | azul |
+
+`sinPlan` son los ítems de `_sgFilasPlanVig(v)` sin acciones; `psico` es
+`_sgPsicoEstado` si `sg.com` cargó y `null` si no; `alertas` es `_sgAlertas()`
+solo si `_sgTodoListo()`, dentro de un try/catch (`[]` si falla). Con la
+vigencia cerrada (`ctx.cerrada`, que la tarjeta toma de `v.cerrada`) los pasos
+1, 3 y 4 no se piden, porque esas pantallas abren en solo lectura: en su lugar
+sale un solo paso azul que dice que la vigencia está cerrada, qué falta y que
+se reabre en 🗓️ Vigencias (`modalVigenciasSG`). La tarjeta
+«🧭 ¿Qué sigue?» va en `_sgCuerpoPanel` justo después de `_sgTarjetaAlertas()`:
+lista numerada con color por nivel y botón «Ir →» (mismo patrón que las
+alertas), o «Todo al día por ahora 🎉». Debajo, el `<details>` «📘 Cómo se usa
+este módulo, en 5 pasos» marca ✅ o ⬜ en cada paso: régimen fijado, datos
+base completos, exigibles calificados (`faltan === 0`), plan escrito
+(`sinPlan === 0` y hay al menos una acción, o no hay ítems por mejorar) y
+autoevaluación registrada en SGRL (`registradaEn`).
+
+**Ruta del año SST.** `_sgRutaAnual(anio, hoy, ctx)` es pura; `ctx` trae
+`info` (la vigencia), `infoAnt` (la anterior), `psico`, `pt` (resultado de
+`_sgCumplimientoPT`) y `cfg`, y devuelve los 12 meses, cada uno con sus hitos
+`{ txt, estado, ir }` (`ok`, `pronto`, `vencido`, `sin` o `na`). Los hitos
+fijos salen de la norma; cuando la norma solo dice «al menos una vez al año»,
+el mes es el que el módulo propone y el hito lleva «mes sugerido» en pantalla:
+
+| Mes | Hito | Base legal |
+|---|---|---|
+| enero | Plan anual de trabajo y cronograma en marcha | Res. 0312/2019 art. 26; Decreto 1072/2015 art. 2.2.4.6.17 |
+| febrero | Verificar COPASST y Comité de Convivencia (actas, vigencia de 2 años · mes sugerido) | Decreto 1295/1994 art. 63 (COPASST, 2 años); Res. 2013/1986 art. 7 (reunión mensual); Res. 3461/2025 arts. 5 y 6 (Convivencia: cada 3 meses, período de 2 años) |
+| abril, agosto, diciembre | Dotación (30 de abril, 31 de agosto, 20 de diciembre) | Código Sustantivo del Trabajo arts. 230-234 (Ley 70/1988) |
+| julio | Informe de avance del plan de mejoramiento a la ARL | Res. 0312/2019 art. 28 |
+| septiembre | Batería de riesgo psicosocial (según periodicidad · mes sugerido) | Res. 2764/2022 art. 3 (cada año si el riesgo es alto o muy alto; si no, cada 2 años) |
+| octubre | Simulacro de emergencias (mes sugerido) | Res. 0312/2019 art. 16 ítem 5.1.1; Decreto 1072/2015 art. 2.2.4.6.25 |
+| noviembre | Auditoría interna con el COPASST (mes sugerido) | Res. 0312/2019 art. 16 ítems 6.1.2 y 6.1.4; Decreto 1072/2015 art. 2.2.4.6.29 |
+| diciembre | Autoevaluación de estándares mínimos y plan de mejoramiento | Res. 0312/2019 arts. 26 y 28 (y copia a la ARL, art. 28 parágrafo 1) |
+| diciembre | Revisión por la alta dirección (mes sugerido) | Res. 0312/2019 art. 16 ítem 6.1.3; Decreto 1072/2015 art. 2.2.4.6.31 |
+| diciembre | Plan anual del año siguiente | Res. 0312/2019 art. 26; Decreto 1072/2015 art. 2.2.4.6.17 |
+| cada mes | Reunión mensual del COPASST (hito discreto, estado `na`) | Res. 2013/1986 art. 7 |
+
+Estado de los hitos fijos: `na` si el mes ya pasó (gris), `pronto` en el mes
+actual y `ok` si es futuro; el de la batería queda `na` cuando el módulo ya
+conoce la próxima fecha (`psico.vence`) y el hito de datos la muestra en su
+mes. Los hitos que salen de los datos: el plazo y el
+cierre de plataforma SGRL de la vigencia y de la anterior (`plazoCircular`,
+`cierrePlataforma`; la anterior es la que se registra en el año: Res.
+0312/2019 art. 28 parágrafo 2 y Circular 0027/2026), con estado según
+`_sgEstadoRegistroSGRL` (registrada → `ok`, vencido → `vencido`, pendiente →
+`pronto` u `ok` según la fecha); la próxima batería (`psico.vence`, si cae en
+el año) con `psico.estado`; y, por mes, «Plan de trabajo: p programadas · e
+ejecutadas» de `pt.porMes` (`ok` si e ≥ p, `pronto` en el mes actual con
+e < p, `vencido` si el mes pasó con e < p, `na` si p = 0). Cada hito puede
+llevar `ir`: dotación → pestaña de dotación; batería → comités/dirección;
+SGRL → `modalVigenciasSG`; plan → plan de trabajo en comités; simulacro y
+auditoría → brigada o dirección. La tarjeta «🗓️ Ruta del año SST AÑO» va en
+`_sgCuerpoPanel` después de `_sgTarjetaPlanTrabajo()`: una celda por mes en
+una rejilla que se acomoda al ancho (`minmax(150px,1fr)`, cabe a 375 px), el
+mes actual con borde resaltado y cada hito con el icono de
+`SGSST_SEM[estado].i`; la leyenda dice «🟢 previsto o al día». Su ayuda
+(`_sgAyuda`) aclara que la norma fija la dotación, el informe de avance a la
+ARL en julio y la autoevaluación, el plan de mejoramiento y el plan anual en
+diciembre; que los hitos marcados «mes sugerido» son una propuesta para
+organizar el plan de trabajo (la norma solo pide hacerlos al menos una vez al
+año, o cada dos según el caso); y que lo demás sale de lo registrado en el
+módulo.
+
+Otros plazos verificados en la misma revisión de la norma no van en la ruta
+porque no tienen mes fijo: FURAT o FUREL dentro de los 2 días hábiles
+(Res. 0312/2019 art. 16 ítem 3.2.1; Decreto 1072/2015 art. 2.2.4.6.21),
+investigación dentro de los 15 días (ítem 3.2.2; Res. 1401/2007), adaptar el
+puesto en máximo 20 días hábiles (Res. 1843/2025 art. 5), exámenes periódicos
+con la periodicidad del profesiograma sin pasar de 3 años (Res. 1843/2025
+art. 15), reentrenamiento de alturas a los 18 meses (Res. 4272/2021 art. 27
+num. 4), actualización del curso de 50 horas cada 3 años (Res. 4927/2016) y
+PILA entre el día hábil 2 y el 16 según el NIT (Decreto 1990/2016). Los dos
+plazos de la ARL por rango (3 meses en crítico, 6 en moderadamente aceptable;
+Res. 0312/2019 art. 28) los pone `_sgFechaSugeridaPlan` en las acciones del
+plan y el informe corto los lista en «Plazos que aplican».
+
+**Informe corto en PDF para gerencia y ARL.** `_sgInformeDatos(v)` no toca el
+DOM (lee `window._sg`) y devuelve `{ anio, regimen, total, rango, accion,
+pctExigible, porCiclo, plazos, sgrl, pesan, alertas, plan, psico, indicadores,
+generado }`: `pesan` son los 5 exigibles con 0 puntos de mayor valor, cada uno
+con la primera acción de `SGSST_ACCIONES_SUG`; `alertas` como máximo 8 (rojas
+y ámbar); `plan` son cantidades (por mejorar, pendientes, en curso, hechas);
+`psico` es el texto de `_sgPsicoTextoExport` si `sg.com` cargó, si no «sin
+leer»; `indicadores` sale de `_sgIndicadores` o queda `null`; `generado.por`
+es `USER.role`. **Sin nombres de personas en ningún campo**: si el texto de
+una alerta trae el nombre de alguien de `_sgTodasPersonas()`, se reemplaza por
+«una persona». `sgPdfInformeSG()` (botón «📄 Informe» en la cabecera de
+`renderSGSST`, junto a «🖨️ PDF») carga todo con `_sgCargarTodo` si
+`_sgTodoListo()` no está, y arma con `_sgConPDF` y `_sgPdfCabecera` («INFORME
+SG-SST», carta vertical) un PDF de máximo dos páginas con siete tablas:
+1 resumen (puntaje oficial, rango, lo que pide la norma, régimen, cumplimiento
+de lo exigible en 21, puntos por ciclo); 2 plazos que aplican (3 o 6 meses a
+la ARL según el rango, informe de avance en julio, estado del registro SGRL,
+próxima batería); 3 lo que más sube el puntaje (código, ítem, valor, acción
+sugerida); 4 alertas; 5 plan de mejoramiento en cantidades; 6 riesgo
+psicosocial; 7 indicadores del año, si hay. Pie: «Informe interno generado por
+el sistema el dd/mm/aaaa (rol). No reemplaza el formulario oficial del art.
+27.» Archivo `Informe_SGSST_<año>.pdf`. La fuente estándar de jsPDF solo dibuja
+Latin-1 (más guiones largos, comillas tipográficas, puntos suspensivos y €):
+`S` quita lo demás (emojis, flechas) en el título, la cabecera y las celdas de
+cada tabla y en el pie.
+
+**Pruebas.** Tres nuevas en `PRUEBAS.html` (134 en total): la guía, las
+acciones sugeridas y el glosario cubren los 60 ítems; el avance, el siguiente
+paso, el simulador y «¿Qué sigue?» salen del estado real (con la vigencia
+simulada «2099», sin escribir); la ruta del año y el informe corto funcionan
+sin datos y sin nombres (el JSON del informe no contiene ningún nombre de
+`_sgTodasPersonas()`, y el fuente de `sgPdfInformeSG` y `_sgInformeDatos`
+usa `USER.role`, no `USER.nombre`; y el PDF se arma con una librería simulada
+e indicadores del año: se guarda como `Informe_SGSST_2099.pdf` con sus siete
+tablas, sin error ni aviso y sin caracteres que la fuente no dibuje). La prueba
+del celular (375 px) sigue midiendo el Panel: las tarjetas nuevas no desbordan.
