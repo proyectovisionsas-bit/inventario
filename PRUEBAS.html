@@ -2107,6 +2107,226 @@ const PRUEBAS = [
       +'\nLa cabecera del módulo tiene los botones 📄 Informe y 📖 Glosario, y el glosario abre en una ventana con buscador y explica COPASST ✓'
       +'\nEl PDF del informe, armado con una librería simulada y con indicadores del año, se guarda como Informe_SGSST_2099.pdf con sus 7 tablas, sin error ni aviso, y ni los títulos, ni las celdas ni el pie llevan caracteres que la fuente del PDF no dibuja ✓'
      : JSON.stringify(r)};}},
+{app:'ofi', titulo:'Consulta v317: busca clientes de otras oficinas por nombre, cédula y teléfono, sin tildes y sin la oficina propia',
+ porque:'Pedido de Elkin (30 sep 2026): desde una oficina hay que poder saber si un cliente de otra oficina está al día, cuánto '
+       +'debe, sus pagos y sus órdenes, sin cambiar nada. El buscador recorre los clientes de las otras oficinas (el administrador, '
+       +'los de todas) por nombre sin tildes y con las palabras en cualquier orden, por cédula o teléfono aunque traigan puntos o '
+       +'espacios, y por servicio o IP de WispHub. La oficina propia no sale (para eso está Clientes), SG-SST no busca nada, se '
+       +'muestran 20 y se dice cuántos hay, y la búsqueda solo lee: no cambia ningún cliente. Se prueba con tres oficinas '
+       +'inventadas; nada se escribe.',
+ correr:W=>{ const r=E(W,
+     'const falta=["_consDig","_consOficinasBuscables","_consIndice","_consBuscar","_normalizarNombre"].filter(n=>eval("typeof "+n)==="undefined"); if(falta.length) return {falta};'
+   +'const L=x=>Array.isArray(x)?x:((x&&x.lista)||[]), T=x=>Array.isArray(x)?x.length:Number((x&&x.total)||0);'
+   +'const zetas=[]; for(let i=1;i<=25;i++) zetas.push({id:"z"+i, nombre:"Zeta Prueba "+String(i).padStart(2,"0"), cedula:"80000000"+String(i).padStart(2,"0"), ipWisphub:"10.9.9.1"+String(i).padStart(2,"0"), estado:"activo", plan:"5 MB"});'
+   +'const oA={id:"ofiA", nombre:"OFI A", ciudad:"Paujil", password:"claveSecretaA", clientes:[{id:"a1", nombre:"José Pérez Ofia", cedula:"555000111", telefono:"3200000009", estado:"activo", plan:"5 MB"}], movimientos:[]};'
+   +'const oB={id:"ofiB", nombre:"OFI B", ciudad:"Florencia", password:"claveSecretaB", zonasWisphub:["zonaSecretaB"], clientes:[{id:"b1", nombre:"José Pérez Gómez", cedula:"1.117.000.111", telefono:"310 000 0001", estado:"activo", plan:"10 MB"}, {id:"b2", nombre:"Cliente Servicio", cedula:"222", servicioWisphub:"123@abc", ipWisphub:"10.0.0.5", estado:"activo", plan:"5 MB"}], movimientos:[]};'
+   +'const oC={id:"ofiC", nombre:"OFI C", ciudad:"Cartagena del Chairá", password:"claveSecretaC", clientes:[{id:"c1", nombre:"Pedro Gómez Luna", cedula:"1117000111", telefono:"3110000002", estado:"retirado", plan:"5 MB", retiradoWisphub:true}, {id:"c2", nombre:"Gómez Zuleta Ana", cedula:"333444555", estado:"activo", plan:"5 MB"}, {id:"c3", nombre:"Zz Cliente Ip", cedula:"444555666", ipWisphub:"10.9.9.1", estado:"activo", plan:"5 MB"}].concat(zetas), movimientos:[]};'
+   +'const g={ ofis:DB.oficinas, user:USER }; const limpiar=()=>{ try{ if(window._consultaIdx){ delete window._consultaIdx.ofiA; delete window._consultaIdx.ofiB; delete window._consultaIdx.ofiC; } }catch(e){} }; const R={};'
+   +'try{'
+   +'  limpiar(); DB.oficinas=[oA,oB,oC]; const antes=JSON.stringify(DB.oficinas);'
+   +'  USER={role:"oficina", id:"ofiA", nombre:"OFI A"}; R.buscables=(_consOficinasBuscables()||[]).map(o=>o.id).join(",");'
+   +'  const b=q=>_consBuscar(q, _consOficinasBuscables()); const ids=x=>L(x).map(y=>y.oid+"/"+y.cid).sort().join(",");'
+   +'  const jp=b("jose perez"), jpT=b("JOSÉ PÉREZ"), pj=b("perez jose"); const p0=L(jp)[0]||{};'
+   +'  R.nombre={ ids:ids(jp), tildes:ids(jpT), orden:ids(pj), por:p0.por, oficina:p0.oficina, municipio:p0.municipio, cid:p0.cid };'
+   +'  const c1=b("1117000111"), c2=b("1.117.000.111"), t1=b("3100000001");'
+   +'  R.ced={ ids:ids(c1), puntos:ids(c2), por:L(c1).map(x=>x.por).join(","), tel:ids(t1), porTel:(L(t1)[0]||{}).por };'
+   +'  const s1=b("123@abc"), i1=b("10.0.0.5"); R.serv={ ids:ids(s1), por:(L(s1)[0]||{}).por, ip:ids(i1), porIp:(L(i1)[0]||{}).por };'
+   +'  const go=L(b("gomez")); R.gomez={ n:go.length, primero:(go[0]||{}).cid };'
+   +'  R.cortas={ jo:L(b("jo")).length, dos:L(b("12")).length, vacia:L(b("   ")).length };'
+   +'  const z=b("zeta prueba"); R.max={ n:L(z).length, total:T(z) };'
+   +'  const todas=[jp,jpT,pj,c1,c2,t1,s1,i1,z].map(L).reduce((a,x)=>a.concat(x),[]).concat(go);'
+   +'  R.propia=todas.some(x=>x.oid==="ofiA"); R.secretos=/claveSecreta|zonaSecreta/.test(JSON.stringify(todas)); R.copias=!todas.some(x=>[oA,oB,oC].some(o=>o.clientes.indexOf(x)>=0));'
+   +'  USER={role:"admin"}; R.admin={ buscables:(_consOficinasBuscables()||[]).length, ids:ids(b("jose perez")) };'
+   +'  USER={role:"sgsst", id:"sgsst", nombre:"SST"}; const sg=_consOficinasBuscables(); R.sgsst={ esArreglo:Array.isArray(sg), n:(sg||[]).length, busca:L(_consBuscar("jose perez", sg||[])).length };'
+   +'  R.intactos=JSON.stringify(DB.oficinas)===antes;'
+   +'  const x1=_consIndice(oB), x2=_consIndice(oB); const eB1=(x1||[]).find(e=>e.cid==="b1")||{}, eB2=(x1||[]).find(e=>e.cid==="b2")||{};'
+   +'  R.idx={ n:(x1||[]).length, misma:x1===x2, enCache:!!(window._consultaIdx && window._consultaIdx.ofiB), n1:eB1.n, ced:eB1.ced, tel:eB1.tel, serv:eB2.serv, ip:eB2.ip };'
+   +'  oB.clientes=oB.clientes.slice(); const x3=_consIndice(oB); oB.clientes.push({id:"b3", nombre:"Nueva Clienta"}); const x4=_consIndice(oB);'
+   +'  R.idx.rehaceArreglo=x3!==x1; R.idx.rehaceLargo=x4!==x3 && (x4||[]).length===3;'
+   +'  USER={role:"oficina", id:"ofiA", nombre:"OFI A"};'
+   +'  const tp=b("+57 310 000 0001"), tq=b("(310) 000 0001"); R.telPais={ ids:ids(tp), por:(L(tp)[0]||{}).por, par:ids(tq) };'
+   +'  const ipq=b("10.9.9.1"); R.ipExacta={ total:T(ipq), n:L(ipq).length, primero:(L(ipq)[0]||{}).cid, por:(L(ipq)[0]||{}).por };'
+   +'  const cE=oC.clientes.find(x=>x.id==="c2"); const x5=_consIndice(oC); cE.nombre="Lucía Nueva Rivas"; cE.telefono="320 999 8888"; cE.servicioWisphub="777@nuevo"; const x6=_consIndice(oC);'
+   +'  R.enSitio={ misma:x5===x6, nuevo:ids(b("lucia nueva")), viejo:ids(b("zuleta")), tel:ids(b("3209998888")), serv:ids(b("777@nuevo")) };'
+   +'} finally { DB.oficinas=g.ofis; USER=g.user; limpiar(); }'
+   +'return R;');
+   if(r.falta) return {ok:false, detalle:'Faltan en OFICINAS: '+r.falta.join(', ')};
+   const bien = r.buscables==='ofiB,ofiC'
+     && r.nombre.ids==='ofiB/b1' && r.nombre.tildes==='ofiB/b1' && r.nombre.orden==='ofiB/b1' && r.nombre.por==='nombre' && r.nombre.oficina==='OFI B' && r.nombre.municipio==='Florencia' && r.nombre.cid==='b1'
+     && r.ced.ids==='ofiB/b1,ofiC/c1' && r.ced.puntos==='ofiB/b1,ofiC/c1' && r.ced.por==='cédula,cédula' && r.ced.tel==='ofiB/b1' && r.ced.porTel==='teléfono'
+     && r.serv.ids==='ofiB/b2' && r.serv.por==='servicio' && r.serv.ip==='ofiB/b2' && r.serv.porIp==='IP'
+     && r.gomez.n===3 && r.gomez.primero==='c2'
+     && r.cortas.jo===0 && r.cortas.dos===0 && r.cortas.vacia===0 && r.max.n===20 && r.max.total===25
+     && r.propia===false && r.secretos===false && r.copias===true
+     && r.admin.buscables===3 && r.admin.ids==='ofiA/a1,ofiB/b1'
+     && r.sgsst.esArreglo===true && r.sgsst.n===0 && r.sgsst.busca===0 && r.intactos===true
+     && r.idx.n===2 && r.idx.misma===true && r.idx.enCache===true && r.idx.n1==='jose perez gomez' && r.idx.ced==='1117000111' && r.idx.tel==='3100000001' && r.idx.serv==='123@abc' && r.idx.ip==='10.0.0.5'
+     && r.idx.rehaceArreglo===true && r.idx.rehaceLargo===true
+     && r.telPais.ids==='ofiB/b1' && r.telPais.por==='teléfono' && r.telPais.par==='ofiB/b1'
+     && r.ipExacta.total===26 && r.ipExacta.n===20 && r.ipExacta.primero==='c3' && r.ipExacta.por==='IP'
+     && r.enSitio.misma===true && r.enSitio.nuevo==='ofiC/c2' && r.enSitio.viejo==='' && r.enSitio.tel==='ofiC/c2' && r.enSitio.serv==='ofiC/c2';
+   return {ok:bien, detalle: bien
+     ? 'Una oficina busca en las otras dos y nunca en la suya: "jose perez", "JOSÉ PÉREZ" y "perez jose" encuentran a José Pérez Gómez de OFI B (Florencia) por nombre, y el José Pérez de la oficina propia no sale ✓'
+      +'\nPor cédula, con o sin puntos (1117000111 y 1.117.000.111), salen las dos oficinas que la tienen, también la del retirado; por teléfono sin espacios encuentra el de "310 000 0001" ✓'
+      +'\nPor servicio (123@abc) y por IP (10.0.0.5) de WispHub ✓'
+      +'\nPrimero el nombre que empieza igual: "gomez" pone a Gómez Zuleta Ana antes que a José Pérez Gómez y Pedro Gómez Luna ✓'
+      +'\nCon menos de 3 letras o números no busca; con 25 coincidencias muestra 20 y dice que son 25 ✓'
+      +'\nEl administrador busca en las tres oficinas (sale también el de OFI A); SG-SST no busca en ninguna ✓'
+      +'\nLos resultados son copias, sin la clave ni las zonas de la oficina, y los clientes no cambiaron ✓'
+      +'\nEl índice de búsqueda guarda nombre sin tildes y cédula y teléfono en dígitos; se reutiliza mientras la lista de clientes sea la misma y se rehace si cambia la lista o su largo ✓'
+      +'\nUn teléfono copiado de WhatsApp, con +57 o con paréntesis, también encuentra al cliente por teléfono ✓'
+      +'\nLa IP exacta sale primero aunque esté dentro de otras 25 (10.9.9.1 dentro de 10.9.9.101 a 10.9.9.125): de 26 se muestran 20 y la buscada es la primera ✓'
+      +'\nSi se corrige en su sitio el nombre, el teléfono o el servicio de un cliente, la caché se reutiliza pero lo encuentra por el dato nuevo y ya no por el viejo ✓'
+     : JSON.stringify(r)};}},
+{app:'ofi', titulo:'Consulta v317: la ficha dice al día o cuánto debe, con la mora bien contada y los últimos pagos',
+ porque:'La cartera de cada cliente está en el historial de facturas de WispHub (DB.facturasHistorial), con llave "oficina::servicio". '
+       +'Se une con el cliente por su llave de WispHub y, si no la tiene, por la cédula dentro de la misma oficina. Los días de '
+       +'mora guardados valen 0 por una falla vieja al leer la fecha, así que la consulta los cuenta otra vez desde el vencimiento '
+       +'más viejo sin pagar, y entiende las fechas de WispHub (DD/MM/AAAA) y las de la app (AAAA-MM-DD). Los pagos salen de la '
+       +'caja de esa oficina por cédula, del más reciente al más viejo, como copias; las órdenes, solo las abiertas. Una oficina no '
+       +'abre aquí a sus propios clientes (para eso está Clientes). Datos inventados; nada se escribe.',
+ correr:W=>{ const r=E(W,
+     'const falta=["_consFechaISO","_consServiciosDe","_consEstadoCuenta","_consPagosDe","_consOrdenesDe","_consFicha","_indicePagosPorCedula"].filter(n=>eval("typeof "+n)==="undefined"); if(falta.length) return {falta};'
+   +'const L=x=>Array.isArray(x)?x:((x&&x.lista)||[]); const R={};'
+   +'const cB={id:"b1", nombre:"José Pérez Gómez", cedula:"1.117.000.111", telefono:"310 000 0001", llaveWisphub:"cuentaB:555", estado:"activo", plan:"10 MB", tarifaMensual:50000};'
+   +'const movs=[]; ["2026-09-03","2026-09-07","2026-09-01","2026-09-05","2026-09-02","2026-09-06","2026-09-04"].forEach((f,i)=>movs.push({id:"mv"+i, tipo:"ingreso", fecha:f, valor:10000*(i+1), forma:"efectivo", cedulaWisphub:"1117000111", facturaWisphub:"F"+f.slice(8), concepto:"Pago "+f, origen:"cierre_wisphub"}));'
+   +'movs.push({id:"mvAnulado", tipo:"ingreso", fecha:"2026-09-08", valor:1, forma:"efectivo", cedulaWisphub:"1117000111", anulado:true}); movs.push({id:"mvEgreso", tipo:"egreso", fecha:"2026-09-09", valor:2, cedulaWisphub:"1117000111"});'
+   +'const oA={id:"ofiA", nombre:"OFI A", ciudad:"Paujil", clientes:[{id:"a1", nombre:"Ana Propia", cedula:"555000111"}], movimientos:[]};'
+   +'const oB={id:"ofiB", nombre:"OFI B", ciudad:"Florencia", cuentaWisphub:"cuentaB", password:"claveSecretaB", zonasWisphub:["zonaSecretaB"], contratoConfig:{nota:"configSecretaB"}, responsable:"responsableSecretoB", clientes:[cB, {id:"b9", nombre:"Sin Cartera", cedula:"999"}], movimientos:movs};'
+   +'const sB={servicioId:"555", cedula:"1117000111", oficinaId:"ofiB", facturas:[{numero:"1002", fechaEmision:"01/09/2026", fechaVenc:"15/09/2026", estado:"Pendiente de pago", total:"60000"}, {numero:"1000", fechaEmision:"01/07/2026", fechaVenc:"10/07/2026", fechaPago:"2026-07-05", estado:"Pagada", total:50000}, {numero:"1001", fechaEmision:"01/08/2026", fechaVenc:"2026-08-10", estado:"Pendiente de pago", total:50000}], pendientes:2, montoPend:110000, diasMora:0, actualizadoEn:"2026-09-20T10:00:00"};'
+   +'const sC={servicioId:"777", cedula:"1117000111", oficinaId:"ofiC", facturas:[{numero:"9", fechaVenc:"01/01/2026", estado:"Pendiente de pago", total:1}], actualizadoEn:"2026-09-21"};'
+   +'const ords=[{id:"o1", tipo:"traslado", estado:"pendiente", cedula:"1.117.000.111", creada:1000}, {id:"o2", tipo:"soporte", estado:"aceptada", clienteId:"b1", oficinaId:"ofiB", creada:2000}, {id:"o3", tipo:"instalacion", estado:"finalizada", clienteId:"b1", creada:3000}, {id:"o4", tipo:"recogida", estado:"cancelada", clienteId:"b1", creada:4000}, {id:"o5", tipo:"clave", estado:"pendiente", clienteId:"b1", oficinaId:"ofiC", creada:5000}];'
+   +'const tH=("facturasHistorial" in DB), tO=("ordenesTrabajo" in DB), tCC=("_cargaCompletaPorOficina" in window), tMI=("_cargaMovsIncompleta" in window);'
+   +'const g={ ofis:DB.oficinas, hist:DB.facturasHistorial, ords:DB.ordenesTrabajo, user:USER, cc:window._cargaCompletaPorOficina, mi:window._cargaMovsIncompleta };'
+   +'const limpiar=()=>{ ["ofiA","ofiB","ofiC"].forEach(k=>{ try{ delete _idxPagCedCache[k]; }catch(e){} try{ if(window._consultaIdx) delete window._consultaIdx[k]; }catch(e){} }); };'
+   +'try{'
+   +'  limpiar(); DB.oficinas=[oA,oB]; DB.facturasHistorial={"ofiB::555":sB, "ofiC::777":sC}; DB.ordenesTrabajo=ords; window._cargaCompletaPorOficina={ofiB:true}; window._cargaMovsIncompleta=false;'
+   +'  USER={role:"oficina", id:"ofiA", nombre:"OFI A"}; const antes=JSON.stringify([DB.oficinas, DB.facturasHistorial, DB.ordenesTrabajo]);'
+   +'  R.fechas=[_consFechaISO("2026-08-10"), _consFechaISO("2026-08-10T14:30:00"), _consFechaISO("15/09/2026"), _consFechaISO("15/09/2026 08:30"), _consFechaISO("no es fecha"), _consFechaISO(""), _consFechaISO(null)];'
+   +'  const sv=_consServiciosDe(oB, cB)||[]; R.llave={ n:sv.length, mismo:sv[0]===sB };'
+   +'  const sinLlave=Object.assign({}, cB); delete sinLlave.llaveWisphub; const sv2=_consServiciosDe(oB, sinLlave)||[]; R.cedula={ n:sv2.length, mismo:sv2[0]===sB };'
+   +'  const otraLlave=Object.assign({}, cB, {id:"b7", llaveWisphub:"cuentaB:556"}); const sv3=_consServiciosDe(oB, otraLlave)||[]; R.llaveSinCartera={ n:sv3.length, sinCartera:(_consEstadoCuenta(sv3, "2026-09-30")||{}).sinCartera };'
+   +'  const ec=_consEstadoCuenta(sv, "2026-09-30")||{}; R.cuenta={ nPend:ec.nPend, monto:ec.montoPend, mora:ec.moraDias, alDia:ec.alDia, sinCartera:ec.sinCartera, venc:(ec.pendientes||[]).map(p=>p.venc).join(","), nums:(ec.pendientes||[]).map(p=>String(p.numero)).join(","), totales:(ec.pendientes||[]).map(p=>p.total).join(","), act:ec.actualizadoEn };'
+   +'  R.sinCartera=(_consEstadoCuenta(_consServiciosDe(oB, oB.clientes[1])||[], "2026-09-30")||{}).sinCartera;'
+   +'  const pagado=_consEstadoCuenta([{facturas:[{numero:"1", fechaVenc:"10/07/2026", estado:"Pagada", total:5}], actualizadoEn:"2026-09-01"}], "2026-09-30")||{}; R.pagado={ alDia:pagado.alDia, nPend:pagado.nPend, monto:pagado.montoPend, mora:pagado.moraDias };'
+   +'  const porVencer=_consEstadoCuenta([{facturas:[{numero:"2", fechaVenc:"15/10/2026", estado:"Pendiente de pago", total:7}]}], "2026-09-30")||{}; R.porVencer={ alDia:porVencer.alDia, nPend:porVencer.nPend, mora:porVencer.moraDias };'
+   +'  const pg=_consPagosDe(oB, cB); const lp=L(pg);'
+   +'  R.pagos={ n:lp.length, fechas:lp.map(p=>String(p.fecha).slice(0,10)).join(","), factura:(lp[0]||{}).factura, incompleto:!!(pg&&pg.incompleto), copia:lp.length>0 && movs.indexOf(lp[0])<0 };'
+   +'  if(lp[0]) lp[0].valor=999; R.pagos.intacto=movs[1].valor===20000;'
+   +'  R.pagos.tres=L(_consPagosDe(oB, cB, 3)).length; R.pagos.sinCed=L(_consPagosDe(oB, {id:"x", nombre:"Sin cédula"})).length;'
+   +'  window._cargaCompletaPorOficina={ofiB:false}; R.pagos.incompletoOfi=!!(_consPagosDe(oB, cB)||{}).incompleto;'
+   +'  window._cargaCompletaPorOficina={ofiB:true}; window._cargaMovsIncompleta=true; R.pagos.incompletoMovs=!!(_consPagosDe(oB, cB)||{}).incompleto; window._cargaMovsIncompleta=false;'
+   +'  const od=_consOrdenesDe(oB, cB)||[]; R.ordenes={ n:od.length, primera:/soporte/i.test(JSON.stringify(od[0]||{})), segunda:/traslado/i.test(JSON.stringify(od[1]||{})), copia:od.length>0 && ords.indexOf(od[0])<0 };'
+   +'  const fOk=_consFicha("ofiB", "b1", "2026-09-30")||{}; const jf=JSON.stringify(fOk);'
+   +'  R.ficha={ ok:fOk.ok, oficina:(fOk.oficina||{}).nombre, municipio:(fOk.oficina||{}).municipio, cliente:(fOk.cliente||{}).nombre, nPend:(fOk.cuenta||{}).nPend, mora:(fOk.cuenta||{}).moraDias, pagos:L(fOk.pagos).length, ordenes:(fOk.ordenes||[]).length, secretos:/claveSecreta|zonaSecreta|configSecreta|responsableSecreto/.test(jf) };'
+   +'  const fPropia=_consFicha("ofiA", "a1", "2026-09-30")||{}; R.propia={ ok:fPropia.ok, error:String(fPropia.error||"") };'
+   +'  const fNo=_consFicha("ofiB", "noExiste", "2026-09-30")||{}, fVacia=_consFicha("", "b1", "2026-09-30")||{}; R.noExiste={ ok:fNo.ok, error:String(fNo.error||"").length>0, vaciaOk:fVacia.ok };'
+   +'  USER={role:"admin"}; R.adminPropia=(_consFicha("ofiA", "a1", "2026-09-30")||{}).ok;'
+   +'  R.intactos=JSON.stringify([DB.oficinas, DB.facturasHistorial, DB.ordenesTrabajo])===antes;'
+   +'} finally { DB.oficinas=g.ofis; if(tH) DB.facturasHistorial=g.hist; else delete DB.facturasHistorial; if(tO) DB.ordenesTrabajo=g.ords; else delete DB.ordenesTrabajo; USER=g.user;'
+   +'  if(tCC) window._cargaCompletaPorOficina=g.cc; else delete window._cargaCompletaPorOficina; if(tMI) window._cargaMovsIncompleta=g.mi; else delete window._cargaMovsIncompleta; limpiar(); }'
+   +'return R;');
+   if(r.falta) return {ok:false, detalle:'Faltan en OFICINAS: '+r.falta.join(', ')};
+   const bien = JSON.stringify(r.fechas)==='["2026-08-10","2026-08-10","2026-09-15","2026-09-15","","",""]'
+     && r.llave.n===1 && r.llave.mismo===true && r.cedula.n===1 && r.cedula.mismo===true && r.llaveSinCartera.n===0 && r.llaveSinCartera.sinCartera===true
+     && r.cuenta.nPend===2 && r.cuenta.monto===110000 && r.cuenta.mora===51 && r.cuenta.alDia===false && !r.cuenta.sinCartera
+     && r.cuenta.venc==='2026-08-10,2026-09-15' && r.cuenta.nums==='1001,1002' && r.cuenta.totales==='50000,60000' && r.cuenta.act==='2026-09-20T10:00:00'
+     && r.sinCartera===true && r.pagado.alDia===true && r.pagado.nPend===0 && r.pagado.monto===0 && r.pagado.mora===0
+     && r.porVencer.alDia===false && r.porVencer.nPend===1 && r.porVencer.mora===0
+     && r.pagos.n===5 && r.pagos.fechas==='2026-09-07,2026-09-06,2026-09-05,2026-09-04,2026-09-03' && r.pagos.factura==='F07' && r.pagos.incompleto===false && r.pagos.copia===true && r.pagos.intacto===true
+     && r.pagos.tres===3 && r.pagos.sinCed===0 && r.pagos.incompletoOfi===true && r.pagos.incompletoMovs===true
+     && r.ordenes.n===2 && r.ordenes.primera===true && r.ordenes.segunda===true && r.ordenes.copia===true
+     && r.ficha.ok===true && r.ficha.oficina==='OFI B' && r.ficha.municipio==='Florencia' && r.ficha.cliente==='José Pérez Gómez' && r.ficha.nPend===2 && r.ficha.mora===51 && r.ficha.pagos===5 && r.ficha.ordenes===2 && r.ficha.secretos===false
+     && r.propia.ok===false && /tu oficina/i.test(r.propia.error) && r.noExiste.ok===false && r.noExiste.error===true && r.noExiste.vaciaOk!==true
+     && r.adminPropia===true && r.intactos===true;
+   return {ok:bien, detalle: bien
+     ? 'Fechas: 2026-08-10, 2026-08-10T14:30, 15/09/2026 y 15/09/2026 08:30 salen en AAAA-MM-DD (15/09 es 15 de septiembre, no un mes 15); un texto que no es fecha da vacío ✓'
+      +'\nLa cartera se une por la llave de WispHub (cuentaB:555 → ofiB::555) y, sin llave, por la cédula dentro de la misma oficina; el servicio de otra oficina con la misma cédula no entra ✓'
+      +'\nUn cliente con llave de WispHub cuyo servicio no está en la cartera dice "sin cartera": no toma el servicio de otro cliente con la misma cédula ✓'
+      +'\nCon dos facturas pendientes (vencen el 10/08 y el 15/09) y una pagada, al 30/09/2026: debe 2 facturas por $110.000 y la mora es de 51 días, contada desde el vencimiento más viejo (no los 0 guardados); las pendientes van por vencimiento ✓'
+      +'\nSin cartera dice "sin cartera"; todo pagado dice al día; una pendiente que aún no vence no suma mora ✓'
+      +'\nÚltimos pagos: los 5 más recientes primero (del 07/09 al 03/09), sin el anulado ni el egreso; son copias (cambiar una no cambia la caja); sin cédula no trae nada; avisa si la caja de esa oficina está a medio cargar ✓'
+      +'\nÓrdenes abiertas: 2, la más nueva primero, sin las finalizadas, las canceladas ni las de otra oficina ✓'
+      +'\nLa ficha reúne oficina, municipio, cliente, 2 facturas pendientes, mora de 51 días, 5 pagos y 2 órdenes, sin la clave, las zonas, las condiciones de contrato ni el responsable de la oficina ✓'
+      +'\nUna oficina no abre aquí a sus propios clientes ("es tu oficina"); el administrador sí; una oficina vacía o un cliente que no existe dan aviso; nada de la base cambió ✓'
+     : JSON.stringify(r)};}},
+{app:'ofi', titulo:'Consulta v317: buscar y abrir la ficha no cambia nada de ninguna oficina',
+ porque:'El primer guardado de cada sesión reescribe los clientes de TODAS las oficinas si su firma cambió, y el documento principal '
+       +'se arma con todas las llaves de DB. Si la consulta tocara un solo cliente, movimiento, factura u orden de otra oficina, ese '
+       +'cambio viajaría solo a la nube en el siguiente guardado de quien consultó. Por eso la consulta solo lee y arma copias. Aquí '
+       +'se usa la base real: se toma una huella de clientes, movimientos, cartera y órdenes de todas las oficinas, se busca y se abre '
+       +'una ficha como si fuera una oficina, y la huella tiene que quedar idéntica, sin guardar, recargar, sincronizar ni consultar '
+       +'WispHub. Lo único que se anota es el registro de auditoría de la consulta, que sube en el acto, sin nombre ni cédula del cliente, porque esa '
+       +'colección se lee desde internet. La ficha no trae botones para editar, crear órdenes, contratos ni comisiones. Nada se escribe.',
+ correr:async W=>{
+   for(let k=0;k<90;k++){ if(E(W,'return window._clientesCargadosOk===true && window._cargaMovsIncompleta===false && (DB.oficinas||[]).filter(o=>(o.clientes||[]).length>0).length>=2;')) break; await new Promise(r=>setTimeout(r,1000)); }
+   const PROHIB=['save','_saveReal','_fusionarConNube','load','_cargarClientesChunks','_cargarMovimientosChunks','_cargarFacturasChunks',
+     '_actualizarEstadosClientesWisphub','_aplicarPagosWisphub','_aplicarPagosWisphubEnMemoria','registrarPagosFaltantes','_aplicarFacturasWisphub',
+     '_actualizarPagosClientes','_generarRecogidasAuto','_tomarSync','_soltarSync','conciliarOficina','aplicarConciliacion','_conciliarClientesAutomatico',
+     'sincronizarRapidaPagos','sincronizarConWisphub','modalVerCliente','modalEditarCliente','ordenDesdeCliente','ingAbrirDesdeCliente',
+     'modalContratosCliente','solicitarEditarCliente','eliminarCliente','accionComision','_fichaFacturaWisp','_fetchWispJson'];
+   const espiar=PROHIB.map(n=>'if(typeof '+n+'==="function"){ try{ G.f["'+n+'"]='+n+'; '+n+'=function(){ LL["'+n+'"]=(LL["'+n+'"]||0)+1; }; }catch(e){ delete G.f["'+n+'"]; } }').join(' ');
+   const devolver=PROHIB.map(n=>'if(G.f["'+n+'"]){ try{ '+n+'=G.f["'+n+'"]; }catch(e){} }').join(' ');
+   const r=await E(W,
+     'const falta=["_consBuscar","_consOficinasBuscables","_consFicha","modalConsultaCliente","renderConsultaClientes","consBuscarInput","consVerificarWisphub","_normalizarNombre"].filter(n=>eval("typeof "+n)==="undefined"); if(falta.length) return {falta};'
+   +'const L=x=>Array.isArray(x)?x:((x&&x.lista)||[]); const R={}; const G={f:{}}; const LL={}; let ENV=0; const gEnv=(typeof _enviarLogsAuditoria==="function")?_enviarLogsAuditoria:null;'
+   +'const ofisCon=(DB.oficinas||[]).filter(o=>o && o.id && (o.clientes||[]).length>0); if(ofisCon.length<2) return {sinDatos:ofisCon.length};'
+   +'const propia=ofisCon[0];'
+   +'const huella=()=>JSON.stringify([(DB.oficinas||[]).map(o=>[o.id, Object.keys(o).sort(), o.clientes||null, o.movimientos||null]), DB.facturasHistorial||null, DB.ordenesTrabajo||null]);'
+   +'const claves=()=>{ let n=0; (DB.oficinas||[]).forEach(o=>{ n+=Object.keys(o).length; (o.clientes||[]).forEach(c=>{ n+=Object.keys(c||{}).length; }); (o.movimientos||[]).forEach(m=>{ n+=Object.keys(m||{}).length; }); }); Object.values(DB.facturasHistorial||{}).forEach(s=>{ n+=Object.keys(s||{}).length; }); (DB.ordenesTrabajo||[]).forEach(t=>{ n+=Object.keys(t||{}).length; }); return n; };'
+   +'const refs=()=>[DB.oficinas, DB.facturasHistorial, DB.ordenesTrabajo].concat((DB.oficinas||[]).map(o=>o), (DB.oficinas||[]).map(o=>o.clientes), (DB.oficinas||[]).map(o=>o.movimientos));'
+   +'const cont=document.getElementById("appContent");'
+   +'const g={ user:USER, log:registrarLog, modal:openModal, alert:window.alert, q:window._consQ, tQ:("_consQ" in window), html:cont?cont.innerHTML:"" };'
+   +'const logs=[], modales=[]; let alertas=0; const PROH=["modalEditarCliente","ordenDesdeCliente","accionComision","modalContratosCliente","ingAbrirDesdeCliente","eliminarCliente","solicitarEditarCliente","modalVerCliente"];'
+   +'return (async function(){ try{'
+   +'  const h0=huella(), k0=claves(), r0=refs(), llaves0=Object.keys(DB).sort().join(","), sig0=JSON.stringify(_sigClientes);'
+   +'  '+espiar
+   +'  if(gEnv){ _enviarLogsAuditoria=function(){ ENV++; return null; }; }'
+   +'  registrarLog=function(a,d){ logs.push({a:String(a), d:(typeof d==="string"?d:JSON.stringify(d===undefined?"":d))}); }; openModal=function(t,b,f){ modales.push({t:String(t), b:String(b), f:String(f===undefined?"":f)}); }; window.alert=function(){ alertas++; };'
+   +'  USER={role:"oficina", id:propia.id, nombre:propia.nombre};'
+   +'  const ofis=_consOficinasBuscables()||[]; R.ofis={ n:ofis.length, sinPropia:!ofis.some(o=>o.id===propia.id), todas:ofis.length===(DB.oficinas||[]).length-1 };'
+   +'  R.corta=L(_consBuscar("a", ofis)).length;'
+   +'  let q="", lista=[]; for(const p of ["mar","ana","car","lui","jos","per","ram","gom","rod","san","her","lop"]){ lista=L(_consBuscar(p, ofis)); if(lista.length){ q=p; break; } }'
+   +'  const todosCli=new Set(); (DB.oficinas||[]).forEach(o=>(o.clientes||[]).forEach(c=>todosCli.add(c)));'
+   +'  R.busca={ n:lista.length, max20:lista.length<=20, sinPropia:lista.every(x=>x.oid!==propia.id), copias:!lista.some(x=>todosCli.has(x)) };'
+   +'  const x=lista[0]; let cli=null;'
+   +'  if(x){ const oX=(DB.oficinas||[]).find(o=>o.id===x.oid); cli=oX?((oX.clientes||[]).find(c=>String(c.id)===String(x.cid))||null):null; const pr=modalConsultaCliente(x.oid, x.cid); if(pr && typeof pr.then==="function") await pr; }'
+   +'  R.cliente=!!cli; R.logs={ n:logs.length, accion:(logs[0]||{}).a||"" };'
+   +'  if(cli && logs[0]){ const t=logs[0].d; const nom=_normalizarNombre(cli.nombre||""); const ced=String(cli.cedula||"").replace(/\\D/g,"");'
+   +'    R.logs.sinNombre=!(nom.length>=5 && _normalizarNombre(t).indexOf(nom)>=0); R.logs.sinCedula=!(ced.length>=5 && t.replace(/\\D/g,"").indexOf(ced)>=0); R.logs.quien=t.indexOf(String(propia.nombre||""))>=0; }'
+   +'  const m=modales[0]||{t:"",b:"",f:""}; const hm=m.t+m.b+m.f;'
+   +'  R.modal={ n:modales.length, alertas, prohibidos:PROH.filter(p=>hm.indexOf(p)>=0), guarda:/\\bsave\\(/.test(hm), botonesPie:(m.f.match(/<button/g)||[]).length, cerrar:/Cerrar/.test(m.f) && /closeModal\\(/.test(m.f), soloConsulta:/Solo consulta/.test(m.b), estado:/Al día|Debe \\d|Sin cartera registrada/.test(m.b) };'
+   +'  const nL=logs.length, nM=modales.length, nA=alertas; const cP=(propia.clientes||[])[0]; const prP=modalConsultaCliente(propia.id, cP.id); if(prP && typeof prP.then==="function") await prP;'
+   +'  R.propia={ alerta:alertas-nA, logs:logs.length-nL, modales:modales.length-nM };'
+   +'  window._consQ=q; let hR="", errR=""; try{ const pr2=renderConsultaClientes(); if(pr2 && typeof pr2.then==="function") await pr2; hR=cont?cont.innerHTML:""; }catch(e){ errR=String((e&&e.message)||e).slice(0,200); }'
+   +'  R.render={ error:errR, input:/consBuscarInput/.test(hR), resultados:/consResultados/.test(hR), abre:!q || /modalConsultaCliente\\(/.test(hR), titulo:/Clientes de otras oficinas/.test(hR), prohibidos:PROH.filter(p=>hR.indexOf(p)>=0).length };'
+   +'  R.llamadas=Object.assign({}, LL); R.envios=ENV;'
+   +'  const r1=refs(); R.igual={ huella:huella()===h0, claves:claves()===k0, refs:r1.length===r0.length && r1.every((v,i)=>v===r0[i]), llavesDB:Object.keys(DB).sort().join(",")===llaves0, sig:JSON.stringify(_sigClientes)===sig0 };'
+   +'  R.menu={ boton:!!document.querySelector(".nav-btn[data-tab=consulta_clientes]"), navigate:/consulta_clientes\\s*:\\s*renderConsultaClientes/.test(String(navigate)), silenciosa:typeof _recargarVistaSilenciosa==="function" && /consulta_clientes\\s*:\\s*renderConsultaClientes/.test(String(_recargarVistaSilenciosa)) };'
+   +'} finally { '+devolver
+   +'  if(gEnv){ try{ _enviarLogsAuditoria=gEnv; }catch(e){} }'
+   +'  USER=g.user; registrarLog=g.log; openModal=g.modal; window.alert=g.alert; if(g.tQ) window._consQ=g.q; else delete window._consQ; if(cont) cont.innerHTML=g.html; }'
+   +'return R; })();');
+   if(r && r.falta) return {ok:false, detalle:'Faltan en OFICINAS: '+r.falta.join(', ')};
+   if(r && r.sinDatos!==undefined) return {ok:false, detalle:'No cargaron los clientes de al menos dos oficinas (hay '+r.sinDatos+'); no se pudo probar con la base real'};
+   const bien = r.ofis.n>=1 && r.ofis.sinPropia===true && r.ofis.todas===true && r.corta===0
+     && r.busca.n>0 && r.busca.max20===true && r.busca.sinPropia===true && r.busca.copias===true && r.cliente===true
+     && r.logs.n===1 && r.logs.accion==='CONSULTA_OTRA_OFICINA' && r.logs.sinNombre===true && r.logs.sinCedula===true && r.logs.quien===true
+     && r.modal.n===1 && r.modal.alertas===0 && r.modal.prohibidos.length===0 && r.modal.guarda===false && r.modal.botonesPie===1 && r.modal.cerrar===true && r.modal.soloConsulta===true && r.modal.estado===true
+     && r.propia.alerta===1 && r.propia.logs===0 && r.propia.modales===0
+     && r.render.error==='' && r.render.input===true && r.render.resultados===true && r.render.abre===true && r.render.titulo===true && r.render.prohibidos===0
+     && Object.keys(r.llamadas||{}).length===0 && r.envios===1
+     && r.igual.huella===true && r.igual.claves===true && r.igual.refs===true && r.igual.llavesDB===true && r.igual.sig===true
+     && r.menu.boton===true && r.menu.navigate===true && r.menu.silenciosa===true;
+   return {ok:bien, detalle: bien
+     ? 'Con la base real, una oficina busca en las otras '+r.ofis.n+' y nunca en la suya; con una sola letra no busca ✓'
+      +'\nUna búsqueda de 3 letras dio '+r.busca.n+' resultados (máximo 20), todos copias y ninguno de la oficina propia ✓'
+      +'\nAbrir la ficha del primero anota un solo registro CONSULTA_OTRA_OFICINA con el nombre de la oficina que consulta y sin el nombre ni la cédula del cliente, y lo envía a la nube en el acto (una sola vez), sin esperar al siguiente guardado ✓'
+      +'\nLa ficha dice "Solo consulta", muestra el estado de cuenta y su pie solo tiene "Cerrar": sin botones para editar, crear órdenes, contratos, comisiones, el ingeniero ni borrar ✓'
+      +'\nPedir un cliente de la oficina propia solo avisa: ni ficha, ni registro, ni envío ✓'
+      +'\nDespués de buscar y abrir: clientes, movimientos, cartera y órdenes de todas las oficinas idénticos (mismo contenido, mismas llaves y mismos arreglos), las mismas llaves en DB y las firmas de clientes sin cambio; no se llamó a guardar, recargar, sincronizar, conciliar ni consultar WispHub ✓'
+      +'\nLa pantalla "Otras oficinas" se pinta sin error, con el buscador y los resultados, y está en el menú y en los dos mapas de pantallas ✓'
+     : JSON.stringify(r)};}},
 {app:'ofi', titulo:'Un comprobante recién adjuntado no desaparece al recargar los movimientos',
  porque:'Elkin (11 sep 2026): los comprobantes se ven un momento y desaparecen. Los movimientos de cada oficina viven '
        +'en bloques aparte y se cargaban REEMPLAZANDO la lista local entera: si otra sesión guardaba mientras se subía '
@@ -4239,7 +4459,7 @@ const PRUEBAS = [
        +'const app=document.getElementById("app"), ls=document.getElementById("login-screen"); const oculta=app.classList.contains("hidden"); const lsPrev=ls?ls.style.display:""; const uPrev=USER;'
        +'if(!USER||!USER.role) USER={role:"admin"}; app.classList.remove("hidden"); if(ls) ls.style.display="none"; await new Promise(x=>setTimeout(x,300));'
        +'const res={};'
-       +'for(const v of ["dash","registro","energia","sgsst","rrhh","ventas","proveedores","prestamos","reportes","incentivos"]){ try{ navigate(v); }catch(e){ res[v]="error: "+e.message; continue; } await new Promise(x=>setTimeout(x,450)); res[v]=document.documentElement.scrollWidth-document.documentElement.clientWidth; }'
+       +'for(const v of ["dash","registro","energia","sgsst","rrhh","ventas","proveedores","prestamos","reportes","incentivos","consulta_clientes"]){ try{ navigate(v); }catch(e){ res[v]="error: "+e.message; continue; } await new Promise(x=>setTimeout(x,450)); res[v]=document.documentElement.scrollWidth-document.documentElement.clientWidth; }'
        +'const ancho=document.documentElement.clientWidth;'
        +'if(oculta) app.classList.add("hidden"); if(ls) ls.style.display=lsPrev; USER=uPrev;'
        +'let tec=null; try{ const t=await (await fetch("TECNICOS_PTOVISION.html",{cache:"no-store"})).text(); tec=/@media \\(max-width:900px\\)\\{ #app > header\\{ flex-wrap:wrap/.test(t); }catch(e){ tec="no se pudo leer"; }'

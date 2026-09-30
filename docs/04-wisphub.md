@@ -297,3 +297,211 @@ escribe, la otra lo lee), con datos inventados:
   `REV_debeContinuar(48,35,true,0)` da `false` y la prueba espera `true` (con
   Gemini saturado la noche se acaba en vez de esperar y volver). Revisar si la
   copia del repositorio es la que está publicada en Apps Script.
+
+## Consulta de clientes de otras oficinas (OFICINAS v317, 30 Sep 2026)
+
+Elkin: "que las oficinas puedan consultar información de clientes de las otras
+oficinas […] escribe el nombre del cliente y si el cliente existe en alguna de
+las otras oficinas se lo muestra, con toda la información, al día, debe,
+cuánto, todo (sin que esto altere o modifique valores de su propia oficina)".
+
+**Decisiones de Elkin (30 sep 2026).**
+
+- Cada oficina busca en las otras; el administrador, en las cinco. La propia
+  no sale: esa se consulta en Clientes, y si se pide su ficha la app lo dice
+  («Esa es tu oficina: búscalo en Clientes»). SG-SST no ve la pestaña
+  (`setupNav` ya la oculta).
+- Cada ficha abierta deja un registro `CONSULTA_OTRA_OFICINA` **sin datos del
+  cliente**: «YESCENIA consultó un cliente de THOMAS», o «Administrador
+  consultó un cliente de …». Buscar no deja registro. Ni nombre ni cédula,
+  porque `logs_auditoria` se lee sin autenticación desde internet.
+
+**Dónde está.** Pestaña «🔎 Otras oficinas» en el grupo 🛒 Comercial
+(`data-tab="consulta_clientes"`, `renderConsultaClientes`), registrada en los
+dos mapas `renders`: el de `navigate` y el de `_recargarVistaSilenciosa`. Un
+snapshot la vuelve a pintar sin perder lo escrito (`window._consQ`).
+
+- **Buscador** (`consBuscarInput`, espera 250 ms): nombre sin tildes y con las
+  palabras en cualquier orden (`_normalizarNombre`), cédula o teléfono con o
+  sin puntos, espacios o guiones (solo dígitos; basta una parte), servicio o
+  IP. Un teléfono copiado de WhatsApp, con `+57` o con paréntesis, también
+  sirve (para el teléfono se quita el 57 si quedan 12 cifras). El servicio o
+  la IP exactos van primero: una IP corta (terminada en `.1`) está dentro de
+  muchas otras. Mínimo 3 caracteres; muestra 20 y dice cuántos hay en total.
+  Una cédula que está en dos oficinas sale dos veces, cada una con su
+  oficina (hoy hay 20 casos). Incluye los retirados; la ficha lo dice
+  («Retirado en WispHub»).
+- **Ficha** (`modalConsultaCliente`): ventana nueva de solo lectura. **No se
+  reutiliza `modalVerCliente`**, porque sus botones escriben (comisión, crear
+  orden, editar, «Antes de llamar al ingeniero»). Arriba y grande: «✅ Al
+  día», «🔴 Debe N factura(s) · $X · mora de D días» o «⚪ Sin cartera
+  registrada», con «Cartera actualizada el …» y la tabla de pendientes
+  (número, emisión, vencimiento, valor). Después, los datos del cliente, el
+  alta en WispHub, los últimos 5 pagos y las órdenes abiertas. El pie solo
+  tiene «Cerrar».
+
+**De dónde sale cada dato.** No se lee nada nuevo de la nube: una sesión de
+oficina ya tiene en memoria los clientes, los movimientos y la cartera de las
+cinco oficinas (`_cargarClientesChunks` y `_cargarMovimientosChunks` no
+filtran por rol).
+
+| Dato | Fuente | Cómo se une |
+|---|---|---|
+| Cliente | `o.clientes`, la lista comercial (4.233 clientes) | id de oficina + id de cliente |
+| Al día, debe, cuánto, mora | `DB.facturasHistorial`, la cartera (3.416 servicios, global, llave `<oficinaId>::<id_servicio>`) | `o.id + '::' +` la parte final de `c.llaveWisphub`; sin llave, los servicios de esa oficina con la misma cédula en dígitos (puede haber varios); con llave y sin ese servicio en la cartera, «Sin cartera registrada»: no se toma otro servicio de la misma cédula |
+| Últimos pagos | la caja de esa oficina | `_indicePagosPorCedula(o)`: cédula en dígitos → ingresos de WispHub no anulados (`cedulaWisphub`) |
+| Alta en WispHub | instalación y primer pago | `_altaWisphubDe` |
+| Órdenes abiertas | `DB.ordenesTrabajo` | cédula o `clienteId`, como `modalVerCliente`; sin `finalizada` ni `cancelada`, máximo 6 |
+
+- Unir por `c.servicioWisphub` no sirve: casi nunca coincide. Por
+  `llaveWisphub` coincide con todo el historial de cada oficina (medido).
+- `c.estadoPago` no se usa: lo escribe `_actualizarPagosClientes`, que no
+  acierta (ver «Fallas viejas encontradas de paso»).
+- La mora se calcula en la consulta (`_consEstadoCuenta`): días desde el
+  vencimiento más antiguo de las pendientes ya vencidas. El `diasMora`
+  guardado no se usa: vale 0.
+- La cartera **envejece**: solo la ponen al día los botones manuales y el
+  Excel, no la sincronización rápida (ver «La sincronización automática»).
+  Medido: `actualizadoEn` con mediana de 8 días y máximo de 104. Por eso la
+  ficha dice la fecha y trae el botón de verificar.
+- Los pagos registrados a mano no traen cédula y no salen; los de WispHub la
+  traen en el 94–100 %.
+- Si los clientes (`_clientesCargadosOk`) o los movimientos de esa oficina
+  (`_cargaCompletaPorOficina`, `_cargaMovsIncompleta`) no terminaron de
+  cargar, la pantalla lo dice y no fuerza una recarga.
+
+**Por qué es pura.** El primer `save()` de cada sesión reescribe los clientes
+de TODAS las oficinas comparando una firma (`_sigClientes`, en `_saveReal`), y
+`oficinas_sistema/main` se arma con todas las claves de `DB`. Si la consulta
+tocara una sola propiedad de un cliente ajeno, la oficina que consulta la
+subiría a la nube en su siguiente guardado, sin aviso. Por eso:
+
+- no asigna ni agrega nada a clientes, movimientos, servicios de la cartera,
+  órdenes u oficinas, y nunca ordena un arreglo de `DB` en su sitio
+  (`.slice()` antes);
+- no crea claves en `DB`: la caché de búsqueda vive en
+  `window._consultaIdx[<oficina>]` y vale mientras `o.clientes` sea el mismo
+  arreglo con la misma cantidad (como `_revParesCache` de la v313); al
+  reutilizarla rehace la entrada de cada cliente cuyo nombre, cédula,
+  teléfono, servicio o IP cambió en su sitio (editar un cliente o la
+  sincronización no cambian el arreglo);
+- entrega copias para pintar, y todo dato de la base pasa por `esc2`;
+- busca la oficina por id en cada pintado, porque el snapshot de `main`
+  reemplaza los objetos oficina, y nunca pasa un id vacío a `getOficina`
+  (caería en la oficina propia);
+- no muestra ni copia `password`, `zonasWisphub`, `contratoConfig` ni
+  `responsable` de la oficina;
+- no llama:
+  - guardado y recargas: `save`, `_saveReal`, `_fusionarConNube`, `load`,
+    `_cargarClientesChunks`, `_cargarMovimientosChunks`,
+    `_cargarFacturasChunks`;
+  - WispHub: ningún `sincronizar*` ni `_conciliar*`, `conciliarOficina`,
+    `aplicarConciliacion`, `_actualizarEstadosClientesWisphub`,
+    `_aplicarPagosWisphub*`, `registrarPagosFaltantes`,
+    `_aplicarFacturasWisphub`, `_wisphubTraer*`, ni el candado
+    `_tomarSync`/`_soltarSync`;
+  - cartera y recogidas: `_actualizarPagosClientes`, `_generarRecogidasAuto`;
+  - pantallas que escriben: `modalVerCliente`, `modalEditarCliente`,
+    `ordenDesdeCliente`, `ingAbrirDesdeCliente`, `modalContratosCliente`,
+    `solicitarEditarCliente`, `eliminarCliente`, `accionComision`.
+
+La única escritura es el registro de auditoría (`registrarLog`), y se envía en
+el acto con `_enviarLogsAuditoria` (`arrayUnion` con `merge:true` sobre
+`logs_auditoria`, igual que al activar el mantenimiento): no espera al
+siguiente guardado, así que cerrar la pestaña justo después no lo pierde. Se
+lleva también los registros de la sesión que aún no estaban en la nube. La
+forma de los datos no cambia, así que TÉCNICOS no se entera.
+
+**«🔄 Verificar en WispHub ahora».** Sale solo si hay facturas pendientes y la
+oficina tiene cuenta (`o.cuentaWisphub`). `consVerificarWisphub` pide, una por
+una y hasta 12, la ficha de cada pendiente con `_fichaFacturaWisp(cuenta,
+numero)`: un solo GET a `/api/facturas/<n>/` por el Worker, el mismo que usa
+el rastreador de la v314. Con `_mapearEstadoFacturaWisphub` dice «✅ ya está
+pagada (fecha de pago)», «❌ está anulada en WispHub», «⏳ sigue pendiente»,
+«❔ no existe en WispHub» o «⚠️ no se pudo consultar». **No escribe nada**: la
+caja y la cartera se ponen al día con la sincronización de esa oficina, y la
+ventana lo dice.
+
+- Confirma si una pendiente ya se pagó; no descubre facturas emitidas después
+  de la última sincronización de la cartera.
+- No toma el candado de sincronización: no frena la automática ni le borra el
+  «⛔ Cancelar» a otra. Si hay una cancelándose (`window._syncCancelarWisp`),
+  no llama y pide intentar en un momento.
+- Un segundo clic en la misma ficha mientras corre no hace nada
+  (`window._consVerificando`). En la ficha de otro cliente avisa «Hay otra
+  verificación de WispHub en curso» en vez de quedarse callado
+  (`window._consVerificandoDe` dice de qué ficha es), y la verificación de la
+  ficha anterior deja de consultar cuando se abre otra. La marca se renueva
+  antes de cada consulta: solo si UNA consulta pasa de 120 s otro clic toma el
+  relevo, y la vuelta vieja (`window._consVerificandoRun` ya no es la suya)
+  deja de consultar y de pintar, y no suelta la marca de la nueva.
+- `/api/facturas/?cliente=…` y `/api/clientes/?cedula=…` no se usan: nunca se
+  comprobaron (la API solo tiene probados los filtros de fecha exacta).
+
+**Funciones nuevas** (bloque «v317 · CONSULTA DE CLIENTES DE OTRAS OFICINAS»):
+
+| Función | Qué hace |
+|---|---|
+| `_consDig(s)` | solo los dígitos |
+| `_consOficinasBuscables()` | admin: todas; oficina: las demás; otro rol: ninguna |
+| `_consIndice(o)` | índice de búsqueda de una oficina, en caché en `window._consultaIdx`; al reutilizarla rehace lo editado en su sitio (`_consEntradaIdx`, `_consCrudoIdx`, `_consMismoCrudo`) |
+| `_consPartes(q)` | lo buscado, ya partido: dígitos (`dig`; `digTel` sin el 57 del país para el teléfono) o palabras sin tildes |
+| `_consBuscar(q, ofis, max)` | `{lista, total}` con copias y el motivo (`por`: nombre, cédula, teléfono, servicio o IP); primero la cédula, el teléfono, el servicio o la IP exactos y los nombres que empiezan igual |
+| `_consFechaISO(s)` | AAAA-MM-DD desde AAAA-MM-DD o DD/MM/AAAA, con o sin hora; `''` si no se puede |
+| `_consServiciosDe(o, c)` | servicios de la cartera del cliente (por llave; por cédula solo si el cliente no tiene llave) |
+| `_consEstadoCuenta(servicios, hoyISO)` | sin cartera, al día, pendientes, monto, mora y fecha de la cartera |
+| `_consPagosDe(o, c, n)` | `{lista, incompleto}`: últimos `n` pagos (5), del más reciente al más viejo, como copias |
+| `_consOrdenesDe(o, c)` | órdenes abiertas del cliente, como copias |
+| `_consFicha(oid, cid, hoyISO)` | todo junto en un objeto de solo datos, o `ok:false` con el error en español |
+| `renderConsultaClientes`, `consBuscarInput`, `_consResultadosHTML` | la pestaña y la lista de resultados |
+| `modalConsultaCliente`, `_consFichaHTML` | la ficha |
+| `consVerificarWisphub` | el botón de WispHub |
+
+**Pruebas.** Tres nuevas en `PRUEBAS.html` (137 en total), sin escribir nada:
+
+1. Búsqueda, con oficinas y clientes inventados: sin tildes, cédula con y sin
+   puntos (la repetida sale en las dos oficinas), teléfono, servicio, IP,
+   mínimo 3, tope de 20 con el total, la oficina propia nunca sale, el admin
+   ve todas, SG-SST ninguna, la caché se reutiliza o se rehace, un teléfono
+   con +57 o paréntesis, la IP exacta primero entre 26 que la contienen, y
+   un cliente editado en su sitio se encuentra por el dato nuevo.
+2. Ficha, con una cartera inventada: al día, debe, suma de pendientes, mora de
+   51 días contada desde el vencimiento más antiguo (AAAA-MM-DD y DD/MM/AAAA),
+   respaldo por cédula (solo sin llave: con llave y sin cartera propia dice
+   sin cartera), sin cartera, los 5 pagos más recientes como copias y
+   el aviso de la oficina propia.
+3. Con los datos reales: buscar y abrir una ficha deja idénticos los clientes,
+   movimientos y cartera de todas las oficinas, las claves de `DB` y
+   `_sigClientes`; `save` y `_saveReal` no se llaman; `registrarLog` y
+   `_enviarLogsAuditoria` se llaman una vez, sin nombre ni cédula; la ficha no
+   trae botones que escriban y su pie solo tiene «Cerrar».
+
+La prueba del celular (375 px) también recorre `consulta_clientes`.
+
+### Fallas viejas encontradas de paso
+
+Ninguna se corrigió en la v317; quedan para decidir con Elkin.
+
+- **`diasMora` vale 0 en los 3.416 servicios.** `_aplicarFacturasWisphub`
+  guarda `fecha_vencimiento` tal como llega de la API (AAAA-MM-DD) y
+  `_parseFechaWisphub` solo lee DD/MM/AAAA: no encuentra el vencimiento y la
+  mora queda en 0. La consulta no lo usa: `_consFechaISO` lee los dos formatos
+  y `_consEstadoCuenta` cuenta la mora el día de la consulta.
+- **`modalDetalleFactura` siempre dice «Servicio no encontrado».** La lista de
+  Facturas le pasa `s.servicioId||s.cedula` y busca
+  `DB.facturasHistorial[servKey]`, pero todas las llaves son
+  `<oficinaId>::<id_servicio>`.
+- **`_actualizarPagosClientes` no acierta.** Busca primero
+  `hist[cli.servicioWisphub]`, que nunca coincide, y después la cédula como
+  texto exacto; deja a ESNEIDER sin `estadoPago`. Además escribe
+  `cli.estadoPago` en todos los clientes de la oficina: por eso la consulta no
+  la llama ni se fía de `c.estadoPago`.
+- **Bloques huérfanos en la nube, que la app no lee:**
+  `clientes_mojfloeutby1_3` y `_4` (701 clientes viejos),
+  `facturas_chunk_mojfkt04b73d_2` y `_3`, y 25 `facturas_hist_*` de mayo. Si se
+  limpian: archivar, volver a leer para confirmar y solo entonces quitar
+  (regla 5 de `CLAUDE.md`).
+- **Cifras viejas en `docs/02-contrato-de-servicio.md`:** dice 2.711 clientes
+  en la lista comercial; medido para la v317, son 4.233. Igual con
+  `oficinas_sistema/main`: `CLAUDE.md` y `docs/01` lo dan al 76 %, y al
+  preparar la v317 se midió en 53 %.

@@ -645,6 +645,7 @@
             <div class="nav-group-items">
                 <div class="nav-group-label">Clientes y ventas</div>
                 <button class="nav-btn" data-tab="clientes">👥 Clientes</button>
+                <button class="nav-btn" data-tab="consulta_clientes">🔎 Otras oficinas</button>
                 <button class="nav-btn" data-tab="ventas">📋 Ventas</button>
                 <button class="nav-btn" data-tab="especiales">⭐ Clientes Especiales</button>
                 <button class="nav-btn" data-tab="facturas">📄 Facturas</button>
@@ -1004,7 +1005,7 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION = 316; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 317; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -1025,7 +1026,7 @@ const APP_VERSION = 316; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '26 Sep 2026 (v316: SG-SST didáctico: ¿Qué sigue?, acciones sugeridas, glosario, progreso por estándar, informe corto, ruta del año y guía de los 60 ítems. v315: régimen 21/60 e ítem psicosocial. Historial en git y en docs/)';
+const APP_VERSION_FECHA = '30 Sep 2026 (v317: consulta de clientes de otras oficinas, solo lectura: al día, debe, cuánto, pagos y órdenes. v316: SG-SST didáctico. Historial en git y en docs/)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -3666,7 +3667,7 @@ function _recargarVistaSilenciosa(){
         energia: renderEnergia,
         antenas: renderAntenas,
         proveedores: renderProveedores,
-        sgsst: renderSGSST
+        sgsst: renderSGSST, consulta_clientes: renderConsultaClientes
     };
     // Mostrar indicador discreto
     const syncEl = document.getElementById('syncStatus');
@@ -11163,7 +11164,7 @@ function navigate(tab){
     if(document.getElementById('aiPanel')?.classList.contains('open')){
         setTimeout(()=>{actualizarContextoIA();actualizarSugerenciasIA();},100);
     }
-    const renders = { contratos:renderContratos, dash:renderDash, registro:renderRegistro, clientes:renderClientes, reportes:renderReportes, vendedores:renderVendedores, incentivos:renderIncentivos, ventas:renderVentas2, pagos_admin:renderPagosAdmin, prestamos:renderPrestamos, rrhh:renderRRHH, administracion:renderAdmin, especiales:renderClientesEspeciales, facturas:renderFacturas, recogidas:renderRecogidas, ordenes:renderOrdenes, ingeniero:renderIngeniero, documentos:renderDocumentos, energia:renderEnergia, antenas:renderAntenas, proveedores:renderProveedores, sgsst:renderSGSST };
+    const renders = { contratos:renderContratos, dash:renderDash, registro:renderRegistro, clientes:renderClientes, reportes:renderReportes, vendedores:renderVendedores, incentivos:renderIncentivos, ventas:renderVentas2, pagos_admin:renderPagosAdmin, prestamos:renderPrestamos, rrhh:renderRRHH, administracion:renderAdmin, especiales:renderClientesEspeciales, facturas:renderFacturas, recogidas:renderRecogidas, ordenes:renderOrdenes, ingeniero:renderIngeniero, documentos:renderDocumentos, energia:renderEnergia, antenas:renderAntenas, proveedores:renderProveedores, sgsst:renderSGSST, consulta_clientes:renderConsultaClientes };
     if(renders[tab]) renders[tab]();
     try{ if(typeof _verificarBloqueoComprobantes==='function') _verificarBloqueoComprobantes(); }catch(e){}
 }
@@ -34331,6 +34332,432 @@ function _textoVerificacion(v, o){
 
 /* Los clientes que se muestran y se cuentan: los retirados quedan fuera. */
 function clientesVivos(o){ return (o.clientes||[]).filter(c=>!c.retiradoWisphub); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   v317 · CONSULTA DE CLIENTES DE OTRAS OFICINAS (solo lectura)
+   ────────────────────────────────────────────────────────────────────────────
+   Pedido de Elkin (30 sep 2026): que una oficina pueda ver si un cliente de
+   otra oficina está al día, cuánto debe, sus últimos pagos y sus órdenes
+   abiertas. Las oficinas buscan en las demás; el administrador, en todas.
+
+   TODO AQUÍ ES DE SOLO LECTURA. El primer guardado de cada sesión reescribe
+   los clientes de TODAS las oficinas comparando una firma, y el documento
+   principal se arma con todas las claves de DB: cualquier propiedad que se
+   agregara aquí a un cliente, pago, servicio de la cartera, orden u oficina
+   viajaría sola a la nube. Por eso:
+     · se lee y se pinta con COPIAS; nunca se ordena un arreglo de DB sin
+       .slice() antes, ni se crea una clave nueva en DB;
+     · la caché de búsqueda vive en window._consultaIdx, fuera de DB;
+     · la oficina se busca por id en cada pintado (el snapshot la reemplaza);
+     · la única escritura es el registro de auditoría al abrir una ficha, sin
+       el nombre ni la cédula del cliente (la colección se lee sin clave).
+   ═══════════════════════════════════════════════════════════════════════════ */
+function _consDig(s){ return String(s||'').replace(/\D/g,''); }
+// Las oficinas donde se puede buscar: el admin en todas; una oficina en las demás; nadie más.
+function _consOficinasBuscables(){
+    if(!USER) return [];
+    const ofis=Array.isArray(DB.oficinas)?DB.oficinas.filter(o=>o):[];
+    if(USER.role==='admin') return ofis;
+    if(USER.role==='oficina') return ofis.filter(o=>String(o.id)!==String(USER.id));
+    return [];
+}
+// Índice de búsqueda de UNA oficina. Sirve mientras o.clientes sea el mismo arreglo y con la misma
+// cantidad (como la caché de pares de la v313). Incluye los retirados: la ficha lo dice.
+// Editar un cliente (nombre, cédula, teléfono, servicio o IP) no cambia el arreglo: por eso, al
+// reutilizar la caché, se rehace la entrada de cada cliente que cambió o que ya no es el mismo
+// objeto. La caché vive fuera de DB y nada de esto toca a los clientes.
+function _consEntradaIdx(c){
+    return {
+        cid: (c && c.id!=null) ? String(c.id) : '',
+        n: _normalizarNombre(c && c.nombre),
+        ced: _consDig(c && c.cedula),
+        tel: _consDig(c && c.telefono),
+        serv: String((c && c.servicioWisphub)||'').toLowerCase(),
+        ip: String((c && (c.ipWisphub||c.ip))||'').trim()
+    };
+}
+// Los valores del cliente de los que sale su entrada del índice, para saber si cambiaron.
+function _consCrudoIdx(c){ return c ? [c.id, c.nombre, c.cedula, c.telefono, c.servicioWisphub, c.ipWisphub, c.ip] : []; }
+function _consMismoCrudo(a, b){
+    if(!Array.isArray(a) || !Array.isArray(b) || a.length!==b.length) return false;
+    for(let j=0;j<a.length;j++){ if(a[j]!==b[j]) return false; }
+    return true;
+}
+function _consIndice(o){
+    if(!o) return [];
+    const arr=Array.isArray(o.clientes)?o.clientes:[];
+    if(!window._consultaIdx || typeof window._consultaIdx!=='object') window._consultaIdx={};
+    const k=String(o.id);
+    const hit=window._consultaIdx[k];
+    if(hit && hit.arr===arr && hit.len===arr.length && Array.isArray(hit.idx) && Array.isArray(hit.objs) && Array.isArray(hit.crudo)){
+        for(let i=0;i<arr.length;i++){
+            const c=arr[i], cr=_consCrudoIdx(c);
+            if(hit.objs[i]!==c || !_consMismoCrudo(hit.crudo[i], cr)){ hit.idx[i]=_consEntradaIdx(c); hit.objs[i]=c; hit.crudo[i]=cr; }
+        }
+        return hit.idx;
+    }
+    const idx=arr.map(c=>_consEntradaIdx(c)), objs=arr.slice(), crudo=arr.map(c=>_consCrudoIdx(c));
+    window._consultaIdx[k]={arr, len:arr.length, idx, objs, crudo};
+    return idx;
+}
+// Lo que se busca, ya partido: solo dígitos (cédula o teléfono) o palabras sin tildes.
+// Un teléfono copiado de WhatsApp trae +57 o paréntesis: cuenta como dígitos, y para comparar
+// con el teléfono (digTel) se quita el 57 del país si quedan 12 cifras. La cédula usa dig.
+function _consPartes(q){
+    q=String(q==null?'':q).trim();
+    const esDig=/^\+?[\d\s.\-()]+$/.test(q);
+    const dig=_consDig(q), digTel=(dig.length===12 && dig.indexOf('57')===0) ? dig.slice(2) : dig, qn=_normalizarNombre(q);
+    return { q, esDig, dig, digTel, qn, ql:q.toLowerCase(), palabras:qn.split(' ').filter(Boolean),
+             util: esDig ? dig.length : qn.replace(/\s+/g,'').length };
+}
+// Busca en las oficinas dadas. Devuelve {lista (máximo max, 20 por defecto), total}. Con menos
+// de 3 caracteres útiles devuelve un arreglo vacío (que también trae lista y total).
+function _consBuscar(q, ofis, max){
+    max=(Number(max)>0)?Math.floor(Number(max)):20;
+    const P=_consPartes(q);
+    if(P.util<3 || (P.esDig && P.dig.length<3)){ const v=[]; v.lista=[]; v.total=0; return v; }
+    const hallados=[];
+    for(const o of (Array.isArray(ofis)?ofis:[])){
+        if(!o) continue;
+        const idx=_consIndice(o), cls=Array.isArray(o.clientes)?o.clientes:[];
+        for(let i=0;i<idx.length;i++){
+            const e=idx[i]; let por='', rango=2;
+            if(P.esDig){
+                if(e.ced && e.ced.indexOf(P.dig)>=0){ por='cédula'; if(e.ced===P.dig) rango=0; }
+                else if(e.tel && e.tel.indexOf(P.digTel)>=0){ por='teléfono'; if(e.tel===P.digTel) rango=0; }
+            } else if(P.palabras.length && P.palabras.every(p=>e.n.indexOf(p)>=0)){
+                por='nombre'; if(e.n.indexOf(P.qn)===0) rango=1;
+            }
+            if(!por){
+                // El servicio o la IP exactos van primero: una IP corta (…1) está dentro de muchas (…10, …100…).
+                if(e.serv && e.serv.indexOf(P.ql)>=0){ por='servicio'; if(e.serv===P.ql) rango=0; }
+                else if(e.ip && e.ip.toLowerCase().indexOf(P.ql)>=0){ por='IP'; if(e.ip.toLowerCase()===P.ql) rango=0; }
+            }
+            if(!por || !e.cid) continue;
+            const c=(cls[i] && String(cls[i].id)===e.cid) ? cls[i] : cls.find(x=>x && String(x.id)===e.cid);
+            if(!c) continue;
+            hallados.push({ r:rango, k:e.n, oid:o.id, cid:e.cid, nombre:c.nombre||'', cedula:c.cedula||'',
+                            oficina:o.nombre||'', municipio:o.ciudad||'', estado:c.estado||'', plan:c.plan||'', por });
+        }
+    }
+    hallados.sort((a,b)=> (a.r-b.r) || (a.k<b.k?-1:a.k>b.k?1:0) || String(a.oficina).localeCompare(String(b.oficina)));
+    return { lista: hallados.slice(0,max).map(x=>({ oid:x.oid, cid:x.cid, nombre:x.nombre, cedula:x.cedula, oficina:x.oficina,
+                                                    municipio:x.municipio, estado:x.estado, plan:x.plan, por:x.por })),
+             total: hallados.length };
+}
+// 'AAAA-MM-DD' desde AAAA-MM-DD, AAAA-MM-DDTHH…, DD/MM/AAAA o DD/MM/AAAA HH:MM; '' si no se puede.
+function _consFechaISO(s){
+    if(typeof s==='number' && s>1e11){ const d=new Date(s); if(isNaN(d)) return ''; return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+    const t=String(s==null?'':s).trim(); if(!t) return '';
+    let y, mo, d, m=t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:$|[T\s])/);
+    if(m){ y=+m[1]; mo=+m[2]; d=+m[3]; }
+    else { m=t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:$|[\s,T])/); if(!m) return ''; d=+m[1]; mo=+m[2]; y=+m[3]; }
+    if(y<1900 || y>2200 || mo<1 || mo>12 || d<1 || d>31) return '';
+    if(new Date(Date.UTC(y,mo-1,d)).getUTCDate()!==d) return '';
+    return y+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+}
+// Los servicios de la cartera (DB.facturasHistorial) de un cliente, tal cual (quien pinta copia).
+// Por la llave de WispHub; si el cliente no tiene llave, los de esa oficina con la misma cédula (pueden
+// ser varios). Con llave y sin ese servicio en la cartera no se busca por cédula: saldría otro servicio
+// de la misma persona como si fuera el de este cliente.
+function _consServiciosDe(o, c){
+    if(!o || !c) return [];
+    const hist=DB.facturasHistorial;
+    if(!hist || typeof hist!=='object') return [];
+    const llave=String(c.llaveWisphub||'');
+    if(llave){
+        const s=hist[o.id+'::'+llave.split(':').pop()];
+        return s ? [s] : [];
+    }
+    const ced=_consDig(c.cedula);
+    if(!ced) return [];
+    const todos=Array.isArray(hist)?hist:Object.keys(hist).map(k=>hist[k]);
+    return todos.filter(s=>s && String(s.oficinaId)===String(o.id) && _consDig(s.cedula)===ced);
+}
+// Al día, cuánto debe y la mora, calculados hoy (el diasMora guardado no sirve: queda en 0).
+function _consEstadoCuenta(servicios, hoyISO){
+    const lista=Array.isArray(servicios)?servicios.filter(s=>s):[];
+    const hoy=_consFechaISO(hoyISO)||_hoyLocalISO();
+    const pendientes=[]; let actualizadoEn='';
+    lista.forEach(s=>{
+        const a=s.actualizadoEn;
+        if(a!=null && a!=='' && String(a)>String(actualizadoEn)) actualizadoEn=a;
+        (Array.isArray(s.facturas)?s.facturas:[]).forEach(f=>{
+            if(!f || !/pendiente/i.test(String(f.estado||''))) return;
+            pendientes.push({ numero:(f.numero!=null?f.numero:''), emision:_consFechaISO(f.fechaEmision), venc:_consFechaISO(f.fechaVenc),
+                              total:Number(f.total)||0, concepto:String(f.concepto||'') });
+        });
+    });
+    pendientes.sort((a,b)=>{
+        if(a.venc!==b.venc){ if(!a.venc) return 1; if(!b.venc) return -1; return a.venc<b.venc?-1:1; }
+        return String(a.numero).localeCompare(String(b.numero), undefined, {numeric:true});
+    });
+    const montoPend=pendientes.reduce((t,p)=>t+p.total,0);
+    const utc=iso=>Date.UTC(+iso.slice(0,4), +iso.slice(5,7)-1, +iso.slice(8,10));
+    const vencidas=pendientes.filter(p=>p.venc && p.venc<hoy);
+    const moraDias=vencidas.length ? Math.max(0, Math.round((utc(hoy)-utc(vencidas[0].venc))/86400000)) : 0;
+    return { sinCartera: lista.length===0, alDia: lista.length>0 && pendientes.length===0,
+             nPend: pendientes.length, montoPend, moraDias, pendientes, actualizadoEn };
+}
+// Los últimos n pagos (5 por defecto) de la caja de la oficina con la cédula del cliente, del más
+// reciente al más viejo, como copias. incompleto: la caja de esa oficina no terminó de cargar.
+function _consPagosDe(o, c, n){
+    n=(Number(n)>0)?Math.floor(Number(n)):5;
+    const incompleto=!!(o && window._cargaCompletaPorOficina && window._cargaCompletaPorOficina[o.id]===false) || window._cargaMovsIncompleta===true;
+    const ced=_consDig(c && c.cedula);
+    if(!o || !ced){ const v=[]; v.lista=[]; v.incompleto=incompleto; return v; }
+    const lista=(_indicePagosPorCedula(o).get(ced)||[]).slice(-n).reverse().map(m=>({
+        fecha: String(m.fecha||''), valor: parseFloat(m.valor)||0, forma: String(m.forma||''),
+        factura: m.facturaWisphub||'', concepto: String(m.concepto||m.descripcion||'')
+    }));
+    return { lista, incompleto };
+}
+// Órdenes abiertas del cliente (ni finalizadas ni canceladas): máximo 6, de la más nueva a la más vieja.
+function _consOrdenesDe(o, c){
+    if(!o || !c) return [];
+    const dc=_consDig(c.cedula||c.documento), cid=(c.id!=null)?String(c.id):'';
+    return (DB.ordenesTrabajo||[]).filter(ot=>{
+        if(!ot || ot.estado==='finalizada' || ot.estado==='cancelada') return false;
+        if(ot.oficinaId && String(ot.oficinaId)!==String(o.id)) return false;
+        return (dc && _consDig(ot.cedula)===dc) || (cid && ot.clienteId && String(ot.clienteId)===cid);
+    }).sort((a,b)=>(Number(b.creada)||0)-(Number(a.creada)||0)).slice(0,6).map(ot=>({
+        tipo: (ORDEN_TIPOS[ot.tipo]||{}).label || String(ot.tipo||''),
+        estado: (ORDEN_ESTADOS[ot.estado]||{}).label || String(ot.estado||''),
+        creada: (ot.creada!=null ? ot.creada : '')
+    }));
+}
+// Todo lo de la ficha, en un objeto de solo datos (copias). Nunca toca la oficina ni el cliente.
+function _consFicha(oid, cid, hoyISO){
+    const r={ ok:false, error:'', oficina:null, cliente:null, alta:null, cuenta:null, pagos:{lista:[], incompleto:false}, ordenes:[] };
+    const hoy=_consFechaISO(hoyISO)||_hoyLocalISO();
+    if(!USER || (USER.role!=='admin' && USER.role!=='oficina')){ r.error='Esta consulta es solo para las oficinas y el administrador.'; return r; }
+    if(oid==null || String(oid)===''){ r.error='No se sabe de qué oficina es el cliente. Vuelve a buscarlo.'; return r; }
+    const o=(DB.oficinas||[]).find(x=>x && String(x.id)===String(oid));
+    if(!o){ r.error='Esa oficina no se encontró. Recarga la página e intenta de nuevo.'; return r; }
+    if(USER.role==='oficina' && String(o.id)===String(USER.id)){ r.error='Esa es tu oficina: búscalo en Clientes'; return r; }
+    const c=(cid!=null && String(cid)!=='') ? (o.clientes||[]).find(x=>x && x.id!=null && String(x.id)===String(cid)) : null;
+    if(!c){ r.error='Ese cliente ya no aparece en la oficina '+(o.nombre||'')+'. Vuelve a buscarlo.'; return r; }
+    let alta=null;
+    if(typeof _altaWisphubDe==='function'){
+        try{
+            const a=_altaWisphubDe(o, c, _indicePagosPorCedula(o), hoy);
+            if(a) alta={ inst:a.inst||'', dias:(a.dias!=null?a.dias:null), esNuevo:!!a.esNuevo, costoInst:Number(a.costoInst)||0,
+                         pagos:Number(a.pagos)||0, total:Number(a.total)||0,
+                         primerPago: a.primerPago ? { fecha:String(a.primerPago.fecha||''), valor:Number(a.primerPago.valor)||0,
+                                                      concepto:String(a.primerPago.concepto||''), forma:String(a.primerPago.forma||'') } : null,
+                         lista:(a.lista||[]).map(m=>({ fecha:String(m.fecha||''), valor:parseFloat(m.valor)||0, forma:String(m.forma||''), factura:m.facturaWisphub||'' })) };
+        }catch(e){ alta=null; }
+    }
+    r.ok=true;
+    r.oficina={ id:o.id, nombre:o.nombre||'', municipio:o.ciudad||'', cuenta:o.cuentaWisphub||'' };
+    r.cliente={ id:String(c.id), nombre:c.nombre||'', cedula:c.cedula||'', telefono:c.telefono||'', direccion:c.direccion||'',
+                barrio:c.barrio||'', plan:c.plan||'', tarifaMensual:parseFloat(c.tarifaMensual)||0, estado:c.estado||'',
+                zona:c.zona||'', ip:String(c.ipWisphub||c.ip||'').trim(),
+                fechaInstalacion: (typeof _fechaInstISO==='function') ? _fechaInstISO(c.fechaInstalacion) : _consFechaISO(c.fechaInstalacion),
+                servicioWisphub:String(c.servicioWisphub||''), retirado:!!c.retiradoWisphub,
+                estadoFacturas:(c.estadoFacturas!=null ? String(c.estadoFacturas) : '') };
+    r.alta=alta;
+    r.cuenta=_consEstadoCuenta(_consServiciosDe(o, c), hoy);
+    const pg=_consPagosDe(o, c);
+    r.pagos={ lista:pg.lista, incompleto:!!pg.incompleto };
+    r.ordenes=_consOrdenesDe(o, c);
+    return r;
+}
+// Un texto para ir dentro de '…' en un onclick: se escapa para JS y después para HTML.
+function _consJs(s){ return esc2(String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'")); }
+
+function renderConsultaClientes(){
+    const content=document.getElementById('appContent'); if(!content) return;
+    const rol=USER && USER.role;
+    if(rol!=='admin' && rol!=='oficina'){
+        content.innerHTML='<div class="card"><p style="color:var(--muted);">Esta consulta es solo para las oficinas y el administrador.</p></div>';
+        return;
+    }
+    const titulo = rol==='admin' ? '🔎 Buscar un cliente en las cinco oficinas' : '🔎 Clientes de otras oficinas';
+    const cargando = window._clientesCargadosOk!==true
+        ? '<div style="display:flex;align-items:center;gap:8px;margin:10px 0 0;padding:10px 12px;border-radius:9px;background:rgba(245,158,11,0.10);border:1px solid rgba(245,158,11,0.35);color:#b45309;font-size:0.84rem;">⏳ Los clientes todavía se están cargando; intenta en un momento.</div>'
+        : '';
+    content.innerHTML=`
+    <div class="card">
+        <div class="card-header">
+            <h2>${titulo}</h2>
+        </div>
+        <p style="color:var(--muted);font-size:0.85rem;margin:0 0 10px;">Busca por nombre, cédula, teléfono, servicio o IP. Solo consulta: aquí no se cambia nada.</p>
+        <div class="search-bar" style="display:flex;flex-wrap:wrap;gap:8px;">
+            <input id="consBuscarInput" class="form-control" type="text" autocomplete="off" placeholder="Nombre, cédula o teléfono…" oninput="consBuscarInput(this.value)" value="${esc2(window._consQ||'')}" style="flex:1;min-width:0;">
+        </div>
+        ${cargando}
+        <div id="consResultados">${_consResultadosHTML()}</div>
+    </div>`;
+}
+function consBuscarInput(v){
+    window._consQ=String(v==null?'':v);
+    clearTimeout(window._consT);
+    window._consT=setTimeout(()=>{
+        const caja=document.getElementById('consResultados');
+        if(caja) caja.innerHTML=_consResultadosHTML();
+    }, 250);
+}
+function _consResultadosHTML(){
+    const nota=t=>`<p style="color:var(--muted);font-size:0.85rem;margin:10px 0 0;">${t}</p>`;
+    const q=String(window._consQ||'');
+    const P=_consPartes(q);
+    if(P.util<3 || (P.esDig && P.dig.length<3)) return nota('Escribe al menos 3 letras o números.');
+    const r=_consBuscar(q, _consOficinasBuscables(), 20);
+    if(!r.lista.length) return nota(USER && USER.role==='admin' ? 'No se encontró en ninguna oficina.' : 'No se encontró en las otras oficinas.');
+    const filas=r.lista.map(x=>`<button type="button" class="btn btn-outline" style="display:block;width:100%;box-sizing:border-box;text-align:left;margin-top:8px;padding:10px 12px;white-space:normal;" onclick="modalConsultaCliente('${_consJs(x.oid)}','${_consJs(x.cid)}')">
+                <span style="font-weight:700;">${esc2(x.nombre||'Sin nombre')}</span>
+                <span style="display:block;font-size:0.76rem;color:var(--muted);font-weight:400;margin-top:2px;">🏢 ${esc2(x.oficina||'')}${x.municipio?' · 📍 '+esc2(x.municipio):''} · 🪪 ${esc2(x.cedula||'sin cédula')}</span>
+                <span style="display:block;font-size:0.76rem;color:var(--muted);font-weight:400;margin-top:2px;">${esc2(x.estado||'Sin estado')} · 📦 ${esc2(x.plan||'-')} · encontrado por: ${esc2(x.por)}</span>
+            </button>`).join('');
+    return filas + (r.total>r.lista.length ? nota(`Se muestran ${r.lista.length} de ${r.total}: escribe más para acotar.`) : '');
+}
+function modalConsultaCliente(oid, cid){
+    const f=_consFicha(oid, cid, _hoyLocalISO());
+    if(!f.ok){ alert(f.error); return; }
+    window._consFichaAbierta=String(oid)+'|'+String(cid);
+    try{
+        const quien=(USER && USER.role==='admin') ? 'Administrador' : String((USER && USER.nombre)||'Una oficina');
+        registrarLog('CONSULTA_OTRA_OFICINA', quien+' consultó un cliente de '+(f.oficina.nombre||'otra oficina'));
+        try{ _enviarLogsAuditoria(); }catch(_){}   // sube ya (solo logs_auditoria): si la pestaña se cierra antes del próximo guardado, no se pierde
+    }catch(e){ console.warn('No se pudo anotar la consulta en el registro:', e); }
+    openModal('🔎 '+(f.cliente.nombre||'Cliente')+' · '+(f.oficina.nombre||''), _consFichaHTML(f),
+        '<button class="btn btn-outline" onclick="closeModal()">Cerrar</button>');
+}
+function _consFichaHTML(f){
+    if(!f || !f.ok) return `<p style="color:#ef4444;">${esc2((f && f.error)||'No se pudo leer la ficha de este cliente.')}</p>`;
+    const of=f.oficina, cl=f.cliente, cu=f.cuenta, pg=f.pagos||{lista:[], incompleto:false};
+    const fecha=v=>{ const d=_consFechaISO(v); return d ? _fechaTextoCO(d) : (v ? esc2(v) : '—'); };
+    const tabla=(cabs, filas)=>`<div class="card" style="padding:0;overflow-x:auto;margin:8px 0 0;"><table class="tabla" style="width:100%;font-size:0.78rem;"><thead><tr>${cabs.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${filas.join('')}</tbody></table></div>`;
+    const titulo=t=>`<div style="font-weight:800;font-size:0.86rem;margin:16px 0 6px;">${t}</div>`;
+    const nota=(t,color)=>`<div style="font-size:0.76rem;color:${color||'var(--muted)'};margin-top:4px;">${t}</div>`;
+    const oNom=esc2(of.nombre||'');
+
+    // Cabecera: de qué oficina es
+    let h=`<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:10px;">
+        <span style="background:rgba(59,130,246,0.12);color:#3b82f6;border:1px solid rgba(59,130,246,0.3);padding:3px 10px;border-radius:12px;font-size:0.78rem;font-weight:700;">🏢 ${oNom}${of.municipio?' · 📍 '+esc2(of.municipio):''}</span>
+        <span style="font-size:0.78rem;color:var(--muted);">Solo consulta: los datos son de la oficina ${oNom}.</span>
+    </div>`;
+
+    // Estado de cuenta, arriba y grande
+    let cab, color, fondo;
+    if(cu.sinCartera){ cab='⚪ Sin cartera registrada'; color='#6b7280'; fondo='rgba(107,114,128,0.08)'; }
+    else if(cu.alDia){ cab='✅ Al día'; color='#10b981'; fondo='rgba(16,185,129,0.08)'; }
+    else { cab=`🔴 Debe ${cu.nPend} factura${cu.nPend===1?'':'s'} · ${fmtShort(cu.montoPend)}${cu.moraDias>0?` · mora de ${cu.moraDias} día${cu.moraDias===1?'':'s'}`:''}`; color='#ef4444'; fondo='rgba(239,68,68,0.07)'; }
+    h+=`<div style="padding:12px 14px;border-radius:10px;background:${fondo};border:1px solid ${color}55;">
+        <div style="font-size:1.1rem;font-weight:800;color:${color};">${cab}</div>
+        ${cu.actualizadoEn ? nota('Cartera actualizada el '+fecha(cu.actualizadoEn)+'. Un pago posterior se ve cuando la oficina actualice sus facturas.') : ''}
+        ${cu.sinCartera ? nota('Esta oficina no tiene facturas de WispHub cargadas para este cliente.') : ''}
+        ${cl.estadoFacturas ? nota('Estado de facturas en WispHub: '+esc2(cl.estadoFacturas)) : ''}
+    </div>`;
+    if(cu.pendientes.length){
+        h+=tabla(['Factura','Emisión','Vence','Valor'], cu.pendientes.map(p=>`<tr><td>#${esc2(p.numero)}</td><td>${p.emision?_fechaTextoCO(p.emision):'—'}</td><td>${p.venc?_fechaTextoCO(p.venc):'—'}</td><td style="text-align:right;white-space:nowrap;">${fmtShort(p.total)}</td></tr>`));
+    }
+    if(cu.nPend>0 && of.cuenta){
+        h+=`<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">
+            <button type="button" class="btn btn-outline btn-sm" onclick="consVerificarWisphub('${_consJs(of.id)}','${_consJs(cl.id)}')">🔄 Verificar en WispHub ahora</button>
+        </div>
+        <div id="consWispRes" style="margin-top:6px;font-size:0.8rem;"></div>`;
+    }
+
+    // Datos del cliente
+    const dato=(et,v)=>`<div style="min-width:0;"><div style="font-size:0.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;">${et}</div><div style="font-size:0.84rem;font-weight:600;overflow-wrap:anywhere;">${v}</div></div>`;
+    const t=v=>(v!=null && String(v).trim()!=='') ? esc2(v) : '—';
+    h+=titulo('👤 Datos del cliente'+(cl.retirado?' <span style="background:rgba(239,68,68,0.12);color:#ef4444;border:1px solid rgba(239,68,68,0.3);padding:1px 8px;border-radius:10px;font-size:0.72rem;">Retirado en WispHub</span>':''));
+    h+=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px 12px;">
+        ${dato('Nombre',t(cl.nombre))}${dato('Cédula',t(cl.cedula))}${dato('Teléfono',t(cl.telefono))}
+        ${dato('Dirección',t(cl.direccion))}${dato('Barrio',t(cl.barrio))}${dato('Plan',t(cl.plan))}
+        ${dato('Tarifa',cl.tarifaMensual?fmtShort(cl.tarifaMensual):'—')}${dato('Estado',t(cl.estado))}${dato('Zona',t(cl.zona))}
+        ${dato('IP',t(cl.ip))}${dato('Instalación',cl.fechaInstalacion?_fechaTextoCO(cl.fechaInstalacion):'—')}${dato('Servicio WispHub',t(cl.servicioWisphub))}
+    </div>`;
+
+    // Alta en WispHub
+    const a=f.alta;
+    if(a && a.inst){
+        const pp=a.primerPago;
+        h+=`<div style="margin-top:12px;padding:10px 12px;border:1px solid var(--border);border-radius:9px;font-size:0.8rem;line-height:1.6;"><b>🛰️ Alta en WispHub</b><br>Instalado el ${_fechaTextoCO(a.inst)}${(a.dias!=null && a.dias>=0)?' · hace '+a.dias+' día(s)':''}${a.costoInst?' · costo de instalación '+fmtShort(a.costoInst):''}<br>${pp?`Primer pago: <b>${fmtShort(pp.valor)}</b> el ${_fechaTextoCO(pp.fecha)}${pp.forma?' · '+esc2(pp.forma):''}${a.pagos>1?` · ${a.pagos} pagos desde la instalación, ${fmtShort(a.total)} en total`:''}`:'Sin pagos en la caja desde la instalación.'}</div>`;
+    }
+
+    // Últimos pagos
+    h+=titulo('💵 Últimos pagos en la caja de '+oNom);
+    if(pg.incompleto) h+=nota('⏳ Los pagos de esta oficina todavía se están cargando: puede faltar alguno.', '#b45309');
+    if(!String(cl.cedula||'').replace(/\D/g,'')) h+=nota('El cliente no tiene cédula registrada: no se pueden buscar sus pagos.');
+    else if(!pg.lista.length) h+=nota('No hay pagos de WispHub en la caja de esta oficina con esta cédula.');
+    else h+=tabla(['Fecha','Valor','Forma','Factura'], pg.lista.map(p=>`<tr><td style="white-space:nowrap;">${fecha(p.fecha)}</td><td style="text-align:right;white-space:nowrap;">${fmtShort(p.valor)}</td><td>${t(p.forma)}</td><td>${p.factura?'#'+esc2(p.factura):'—'}</td></tr>`));
+
+    // Órdenes abiertas
+    h+=titulo('🔧 Órdenes abiertas');
+    if(!f.ordenes.length) h+=nota('Sin órdenes abiertas.');
+    else h+=f.ordenes.map(ot=>{
+        const es=Object.keys(ORDEN_ESTADOS).map(k=>ORDEN_ESTADOS[k]).find(e=>e.label===ot.estado)||{color:'#6b7280'};
+        const cuando=(typeof ot.creada==='number' && ot.creada>0) ? new Date(ot.creada).toLocaleDateString('es-CO') : (ot.creada ? fecha(ot.creada) : '');
+        return `<div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin-bottom:6px;">
+            <div style="font-size:0.82rem;min-width:0;">${esc2(ot.tipo||'Orden')}${cuando?`<div style="font-size:0.7rem;color:var(--muted);">${cuando}</div>`:''}</div>
+            <span style="background:${es.color}22;color:${es.color};padding:2px 9px;border-radius:10px;font-size:0.7rem;font-weight:700;white-space:nowrap;">${esc2(ot.estado||'')}</span>
+        </div>`;
+    }).join('');
+
+    h+=`<p style="font-size:0.74rem;color:var(--muted);margin-top:14px;">Para cambiar algo de este cliente, comunícate con la oficina ${oNom}.</p>`;
+    return h;
+}
+// Pregunta a WispHub, factura por factura, si las pendientes ya se pagaron. Solo lee: no cambia
+// la caja ni la cartera. Máximo 12 facturas; un segundo clic mientras corre no hace nada.
+async function consVerificarWisphub(oid, cid){
+    const v=window._consVerificando;
+    if(v===true || (typeof v==='number' && Date.now()-v<120000)){
+        // En la misma ficha ya se ve el avance; si es otra, se avisa en vez de no hacer nada.
+        const c=document.getElementById('consWispRes');
+        if(c && window._consVerificandoDe!==window._consFichaAbierta) c.innerHTML='<div style="color:var(--muted);">⏳ Hay otra verificación de WispHub en curso; intenta en unos segundos.</div>';
+        return;
+    }
+    const caja0=document.getElementById('consWispRes');
+    const aviso=t=>{ if(caja0) caja0.innerHTML=`<div style="color:var(--muted);">${t}</div>`; };
+    if(window._syncCancelarWisp===true){ aviso('⚠️ Hay una sincronización cancelándose; intenta en un momento.'); return; }
+    const f=_consFicha(oid, cid, _hoyLocalISO());
+    if(!f.ok){ aviso(esc2(f.error)); return; }
+    const cuenta=f.oficina.cuenta;
+    if(!cuenta){ aviso('Esa oficina no tiene cuenta de WispHub configurada.'); return; }
+    const pend=f.cuenta.pendientes.filter(p=>String(p.numero==null?'':p.numero).trim()).slice(0,12);
+    if(!pend.length){ aviso('No hay facturas pendientes con número para verificar.'); return; }
+    const token=window._consFichaAbierta;
+    const lineas=[];
+    const pintar=fin=>{
+        const caja=document.getElementById('consWispRes');
+        if(!caja || window._consFichaAbierta!==token || window._consVerificandoRun!==marca) return;
+        caja.innerHTML=lineas.map(l=>`<div style="margin-top:3px;">${l}</div>`).join('')
+            + (fin ? '<div style="margin-top:6px;color:var(--muted);font-size:0.74rem;">Esto no cambia nada: la caja y la cartera se actualizan con la sincronización de la oficina.</div>'
+                   : `<div style="margin-top:4px;color:var(--muted);">Consultando ${lineas.length+1} de ${pend.length}…</div>`);
+    };
+    const marca={}; window._consVerificandoRun=marca; window._consVerificando=Date.now(); window._consVerificandoDe=token;
+    try{
+        pintar(false);
+        for(const p of pend){
+            if(window._consFichaAbierta!==token || window._consVerificandoRun!==marca) break;   // se abrió otra ficha u otra vuelta tomó el relevo: no se sigue consultando
+            window._consVerificando=Date.now();   // los 120 s cuentan por consulta, no por toda la vuelta
+            const n=String(p.numero).trim();
+            if(window._syncCancelarWisp===true){ lineas.push('⚠️ Se detuvo: hay una sincronización cancelándose; intenta en un momento.'); break; }
+            let r;
+            try{ r=await _fichaFacturaWisp(cuenta, n); }catch(e){ r={n, fallo:true}; }
+            if(r && r.f){
+                const est=_mapearEstadoFacturaWisphub(r.f.estado);
+                if(est==='Pagada'){
+                    const fp=_consFechaISO(String(r.f.fecha_pago||'').replace(' ','T'));
+                    lineas.push(`✅ #${esc2(n)} ya está pagada${fp?' ('+_fechaTextoCO(fp)+')':(r.f.fecha_pago?' ('+esc2(r.f.fecha_pago)+')':'')}`);
+                } else if(est==='Cancelada') lineas.push(`❌ #${esc2(n)} está anulada en WispHub`);
+                else lineas.push(`⏳ #${esc2(n)} sigue pendiente`);
+            } else if(r && r.noExiste) lineas.push(`❔ #${esc2(n)} no existe en WispHub`);
+            else lineas.push(`⚠️ #${esc2(n)} no se pudo consultar`);
+            pintar(false);
+        }
+    } finally {
+        if(window._consVerificandoRun===marca) window._consVerificando=false;   // una vuelta relevada no suelta la marca de la nueva
+    }
+    pintar(true);
+}
+window.renderConsultaClientes=renderConsultaClientes;
+window.consBuscarInput=consBuscarInput;
+window.modalConsultaCliente=modalConsultaCliente;
+window.consVerificarWisphub=consVerificarWisphub;
 
 /* ═══════════════════════════════════════════════════════════════════════════
    v284 — EL ALTA DEL CLIENTE SEGÚN WISPHUB: CUÁNDO SE INSTALÓ Y QUÉ PAGÓ AL INICIO
