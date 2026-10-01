@@ -14,6 +14,8 @@
 <script src="ia.js?v=5"></script>
 <!-- Antes de llamar al ingeniero: listas y motor compartidos con TECNICOS. Editar checklists.js, no copiarlo aquí. -->
 <script src="checklists.js?v=1"></script>
+<!-- Buzón de sugerencias compartido: editar buzon.js, no copiarlo aquí -->
+<script src="buzon.js?v=1"></script>
     <!-- ░░ PWA: instalable en celulares (sin archivos extra) ░░ -->
     <meta name="theme-color" content="#16a34a">
     <meta name="mobile-web-app-capable" content="yes">
@@ -619,6 +621,7 @@
             <button class="btn btn-outline btn-sm admin-only" onclick="modalRespaldoDrive()" title="Respaldo a Google Drive">☁️ Respaldo</button>
             <button class="btn btn-outline btn-sm admin-only" onclick="modalConfigurarDriveComps()" title="Guardar comprobantes en tu Google Drive">📁 Comprobantes</button>
             <button class="btn btn-outline btn-sm oficina-only" onclick="modalCambiarPass()">🔑 Cambiar clave</button>
+            <button class="btn btn-outline btn-sm" id="pvBuzonBtn" onclick="if(typeof PV_BUZON==='undefined'){alert('No se pudo cargar el buzón. Revisa la señal y recarga la página.');return;}PV_BUZON.montar(_buzonOpOfi());PV_BUZON.abrir()" title="Buzón de sugerencias">💡 Ideas<span id="pvBuzonPunto" style="display:none;width:9px;height:9px;margin-left:5px;border-radius:50%;background:#ef4444;vertical-align:top;" title="Hay novedades en tus ideas"></span></button>
             <button class="btn btn-danger btn-sm" onclick="doLogout()">🚪 Salir</button>
         </div>
     </header>
@@ -1005,7 +1008,7 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION = 317; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 318; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -1026,7 +1029,7 @@ const APP_VERSION = 317; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '30 Sep 2026 (v317: consulta de clientes de otras oficinas, solo lectura: al día, debe, cuánto, pagos y órdenes. v316: SG-SST didáctico. Historial en git y en docs/)';
+const APP_VERSION_FECHA = '30 Sep 2026 (v318: buzón de sugerencias en las cuatro apps, con muro de ideas y respuestas. v317: consulta de clientes de otras oficinas. Historial en git y en docs/)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -11028,6 +11031,8 @@ function enterApp(){
     setTimeout(()=>{ registrarVersion(); iniciarEscuchaVersion(); iniciarEscuchaMantenimiento(); }, 700);
     setTimeout(()=>{ try{ iniciarEscuchaFallasMasivas(); }catch(e){ console.warn('fallas masivas:', e); } }, 900);   // v311: franja de fallas masivas (solo con sesión iniciada)
     setTimeout(()=>{ try{ if(typeof PV_CHECK!=='undefined' && !MODO_PRUEBA && USER && USER.role!=='sgsst') Promise.resolve(PV_CHECK.reenviarPendientes(_ingGuardar)).catch(()=>{}); }catch(e){ console.warn('casos sin subir:', e); } }, 8000);   // v311: casos que quedaron sin subir
+    try{ if(typeof PV_BUZON!=='undefined' && PV_BUZON.estado().montado) PV_BUZON.montar(_buzonOpOfi()); }catch(e){}   // v318: otra sesión en la misma pestaña: el buzón cambia de identidad ya
+    setTimeout(()=>{ _buzonArrancarOfi(); }, 4000);   // v318: buzón de sugerencias (botón 💡 Ideas y su punto rojo)
     setTimeout(showAIFab, 800);
     setTimeout(()=>{ try{ verificarRespaldoDrive(); }catch(e){ console.warn('verificarRespaldoDrive:',e); } }, 1800);
     const _nombreSaludo = USER.role==='admin' ? 'Administrador' : (USER.nombre||'');
@@ -11400,6 +11405,7 @@ function applyStoredTheme(){
 function doLogout(){
     try{ _olvidarSesionOfi(); }catch(e){}
     USER=null; selOficinaLogin=null;
+    try{ _buzonSalirOfi(); }catch(e){}   // v318: cierra el buzón y lo deja sin identidad hasta la próxima sesión
     try{ window._ing={ q:'', oid:'', mesSel:'actual', mes:{}, cargando:false, error:'' }; window._ingCliente=null; window._ingOrdenExtra=null; window._ingUltimoPre=null; try{ if(typeof window._unsubIngMasivas==='function') window._unsubIngMasivas(); }catch(e2){} window._unsubIngMasivas=null; window._ingMasivas={}; try{ clearInterval(window._ingTic); }catch(e2){} window._ingTic=null; _ingPintarFranja(); }catch(e){}   // v311: lo de «Antes de llamar» no pasa a la sesión siguiente; sin sesión no queda la escucha de fallas masivas gastando lecturas (se vuelve a crear al entrar)
     document.getElementById('app').classList.add('hidden');
     document.getElementById('login-screen').style.display='flex';
@@ -17335,6 +17341,8 @@ function renderAdmin(){
     ${tarjetaRevisionSoportes()}
 
     ${_tarjetaMantenimientoHTML()}
+
+    ${_tarjetaBuzonHTML()}
 
     <div class="card" style="margin-bottom:14px;border:2px solid ${(DB.config&&DB.config.bloqueoComprobantes)?'#10b981':'var(--border)'};">
         <div class="card-header"><h2>🚫 Exigir comprobante de transferencias</h2></div>
@@ -34758,6 +34766,172 @@ window.renderConsultaClientes=renderConsultaClientes;
 window.consBuscarInput=consBuscarInput;
 window.modalConsultaCliente=modalConsultaCliente;
 window.consVerificarWisphub=consVerificarWisphub;
+
+/* ═════════════════════════════════════════════════════════════════
+   v318 · BUZÓN DE SUGERENCIAS (pegamento de OFICINAS para buzon.js)
+   ─────────────────────────────────────────────────────────────────
+   Pedido de Elkin (30 sep 2026): un buzón de sugerencias en OFICINAS,
+   INVENTARIO, TÉCNICOS y RED, con un muro de ideas aprobadas y respuestas.
+   La pantalla, el motor y la cola sin señal viven en buzon.js (compartido:
+   se edita allá, nunca se copia aquí). Aquí va solo lo de OFICINAS: el
+   adaptador op, las escrituras con sus guardas, las lecturas, la tarjeta del
+   administrador (el tablero solo existe aquí) y el arranque.
+
+   Cada sugerencia es oficinas_sistema/buzon_<id> con tipo:'sugerencia'.
+   Nada va en main. Nada se borra: el tablero archiva con motivo.
+   Se escribe SIEMPRE con db.collection('oficinas_sistema').doc(id).set(…, {merge:true}).
+   Guardar y actualizar RECHAZAN en modo prueba (el proxy de prueba «responde
+   bien» sin escribir y la cola de buzon.js se vaciaría sin subir nada), con la
+   pantalla de mantenimiento, con una versión vieja y sin conexión.
+   Privacidad: la colección se lee sin autenticación desde internet. De quien
+   envía solo viajan rol, oficina y el primer nombre (buzon.js lo recorta), y
+   nada si elige «Enviar sin mi nombre». El registro de auditoría anota el id
+   y el cambio de estado, nunca el texto de la idea.
+   ═════════════════════════════════════════════════════════════════ */
+const _BUZON_ID_OFI=/^buzon_[a-z0-9]{8,30}$/;
+function _buzonIdOkOfi(id){
+    try{ if(typeof PV_BUZON!=='undefined' && typeof PV_BUZON.idValido==='function') return PV_BUZON.idValido(id)===true; }catch(e){}
+    return typeof id==='string' && _BUZON_ID_OFI.test(id);
+}
+// Sugerencia nueva. Los rechazos llevan el motivo que buzon.js entiende: lo de modo prueba, mantenimiento y versión vieja no se encola.
+function _buzonGuardarOfi(id, datos){
+    if(!_buzonIdOkOfi(id)) return Promise.reject(new Error('id inválido'));
+    if(MODO_PRUEBA) return Promise.reject(new Error('modo prueba'));   // el proxy de prueba «responde bien» sin escribir: la cola real se vaciaría sin haber subido nada
+    if(window._mantBloqueando===true) return Promise.reject(new Error('mantenimiento'));
+    if(typeof _pestanaDesactualizada==='function' && _pestanaDesactualizada()) return Promise.reject(new Error('versión vieja'));
+    if(typeof db==='undefined' || !db) return Promise.reject(new Error('sin conexión'));
+    if(!datos || typeof datos!=='object' || Array.isArray(datos) || datos.tipo!=='sugerencia') return Promise.reject(new Error('sugerencia inválida'));
+    let limpio;
+    try{ limpio=JSON.parse(JSON.stringify(datos)); }catch(e){ return Promise.reject(new Error('sugerencia inválida')); }   // sin undefined: Firebase rechazaría la escritura entera
+    return db.collection('oficinas_sistema').doc(id).set(limpio, {merge:true});
+}
+// Cambios sobre una sugerencia: votos (cualquiera) y estado, respuesta o archivo (el administrador, desde el tablero).
+function _buzonActualizarOfi(id, cambios){
+    if(!_buzonIdOkOfi(id)) return Promise.reject(new Error('id inválido'));
+    if(MODO_PRUEBA) return Promise.reject(new Error('modo prueba'));
+    if(window._mantBloqueando===true) return Promise.reject(new Error('mantenimiento'));
+    if(typeof _pestanaDesactualizada==='function' && _pestanaDesactualizada()) return Promise.reject(new Error('versión vieja'));
+    if(typeof db==='undefined' || !db) return Promise.reject(new Error('sin conexión'));
+    if(!cambios || typeof cambios!=='object' || Array.isArray(cambios) || !Object.keys(cambios).length || ('tipo' in cambios) || ('id' in cambios)) return Promise.reject(new Error('cambio inválido'));
+    let limpio;
+    try{ limpio=JSON.parse(JSON.stringify(cambios)); }catch(e){ return Promise.reject(new Error('cambio inválido')); }
+    return db.collection('oficinas_sistema').doc(id).set(limpio, {merge:true}).then(r=>{ _buzonAnotarOfi(id, limpio); return r; });
+}
+// Auditoría de lo que hace el administrador en el tablero: el id y el cambio de estado, nunca el texto de la idea ni quién la mandó.
+function _buzonAnotarOfi(id, c){
+    try{
+        if(!c || (c.estado===undefined && c.archivada!==true)) return;   // un voto no se anota
+        const h=(c.historial && typeof c.historial==='object') ? (Object.values(c.historial)[0]||{}) : {};
+        if(c.estado!==undefined) registrarLog('BUZON_ESTADO', id+': '+String(h.de||'')+' → '+String(c.estado||''));
+        if(c.archivada===true) registrarLog('BUZON_ARCHIVADA', id);
+        try{ _enviarLogsAuditoria(); }catch(_){}   // sube ya (solo logs_auditoria), sin esperar al próximo guardado
+        if(window._buzonResumen) window._buzonResumen.ms=0;   // la tarjeta del panel vuelve a contar en el próximo pintado
+    }catch(e){ console.warn('Buzón: no se pudo anotar en el registro:', e); }
+}
+function _buzonLeerUnoOfi(id){
+    if(!_buzonIdOkOfi(id)) return Promise.reject(new Error('id inválido'));
+    if(typeof db==='undefined' || !db) return Promise.reject(new Error('sin conexión'));
+    return db.collection('oficinas_sistema').doc(id).get().then(s=>s.exists ? Object.assign({}, s.data()||{}, { id:s.id }) : null);
+}
+// Todas las sugerencias: UNA sola igualdad (sin índice compuesto); se filtra y se ordena en buzon.js.
+function _buzonLeerTodasOfi(){
+    if(typeof db==='undefined' || !db) return Promise.reject(new Error('sin conexión'));
+    return db.collection('oficinas_sistema').where('tipo','==','sugerencia').get()
+        .then(snap=>snap.docs.filter(d=>_buzonIdOkOfi(d.id)).map(d=>Object.assign({}, d.data()||{}, { id:d.id })));
+}
+// El adaptador que recibe buzon.js. Lee USER en cada llamada. Nunca entrega claves ni datos de clientes.
+function _buzonOpOfi(){
+    const u=()=>(typeof USER!=='undefined' && USER) ? USER : null;
+    const rol=()=>{ const r=(u()||{}).role; return (r==='admin' || r==='oficina' || r==='sgsst') ? r : ''; };
+    return {
+        app:'oficinas',
+        version:'v'+APP_VERSION,
+        modoPrueba:!!MODO_PRUEBA,
+        rol:()=>rol(),
+        // Oficina: su nombre es el de la oficina. SG-SST: el de la persona (buzon.js deja solo el primero). Admin: sin nombre propio.
+        nombre:()=>{ const r=rol(); return r==='admin' ? 'Administrador' : (r ? String((u()||{}).nombre||'') : ''); },
+        oficina:()=>{ const r=rol(); return r==='oficina' ? String((u()||{}).nombre||'') : (r==='sgsst' ? 'SG-SST' : ''); },
+        pantalla:()=>{ try{ return String(document.querySelector('.nav-btn.active')?.dataset?.tab||''); }catch(e){ return ''; } },
+        esAdmin:()=>rol()==='admin',
+        guardar:(id, datos)=>_buzonGuardarOfi(id, datos),
+        actualizar:(id, cambios)=>_buzonActualizarOfi(id, cambios),
+        leerUno:id=>_buzonLeerUnoOfi(id),
+        leerTodas:()=>_buzonLeerTodasOfi(),
+        aviso:msg=>{ if(typeof _ingAviso==='function') _ingAviso(msg); else if(typeof showToastMini==='function') showToastMini(msg); },
+        oscuro:()=>{ try{ return !document.body.classList.contains('light-mode'); }catch(e){ return true; } }
+    };
+}
+// Arranque (enterApp, a los 4 s): pone la capa y revisa si hay novedades en las ideas enviadas desde este equipo.
+function _buzonArrancarOfi(){
+    try{
+        if(typeof PV_BUZON==='undefined' || typeof USER==='undefined' || !USER) return;
+        PV_BUZON.montar(_buzonOpOfi());
+        Promise.resolve(PV_BUZON.revisarNovedades()).catch(()=>{});
+    }catch(e){ console.warn('Buzón de sugerencias:', e); }
+}
+// Salir (doLogout): cierra la capa y la deja sin identidad. Cuando entre otra persona, montar nota el cambio
+// y vacía el formulario, el muro y el tablero de la sesión anterior.
+function _buzonSalirOfi(){
+    try{
+        window._buzonResumen=null;
+        if(typeof PV_BUZON==='undefined') return;
+        PV_BUZON.cerrar();
+        if(PV_BUZON.estado().montado) PV_BUZON.montar(Object.assign(_buzonOpOfi(), { rol:'', nombre:'', oficina:'', esAdmin:false }));
+    }catch(e){ console.warn('Buzón de sugerencias (salir):', e); }
+}
+// Tarjeta del panel de administración: cuántas ideas nuevas esperan revisión. Cuenta como mucho cada 5 minutos y
+// repinta solo el número (#buzonNuevas), sin volver a pintar el panel.
+function _buzonNuevasTextoOfi(){
+    const r=window._buzonResumen;
+    if(!r || (r.nuevas==null && r.cargando)) return '⏳ Contando las ideas…';
+    if(r.nuevas==null) return 'No se pudo contar ahora: abre el tablero para verlas.';
+    const n=Number(r.nuevas)||0, t=Number(r.total)||0;
+    return (n===0 ? 'Ninguna nueva sin revisar' : (n===1 ? '1 nueva sin revisar' : n+' nuevas sin revisar')) + ' · ' + t + ' sin archivar';
+}
+function _buzonPintarNuevasOfi(){
+    try{ const el=document.getElementById('buzonNuevas'); if(el) el.textContent=_buzonNuevasTextoOfi(); }catch(e){}
+}
+function _buzonContarOfi(forzar){
+    if(!(typeof USER!=='undefined' && USER && USER.role==='admin')) return Promise.resolve(null);
+    if(window._buzonContando) return window._buzonContando;
+    const r=window._buzonResumen;
+    if(!forzar && r && Date.now()-(Number(r.ms)||0) < 5*60*1000) return Promise.resolve(r);
+    window._buzonResumen=Object.assign({ nuevas:null, total:null, ms:0, error:false }, r||{}, { cargando:true });
+    window._buzonContando=Promise.resolve().then(()=>_buzonLeerTodasOfi()).then(docs=>{
+        const vivas=(Array.isArray(docs) ? docs : []).filter(d=>d && d.archivada!==true);
+        window._buzonResumen={ nuevas:vivas.filter(d=>String(d.estado||'recibida')==='recibida').length, total:vivas.length, ms:Date.now(), cargando:false, error:false };
+    }, e=>{
+        console.warn('Buzón de sugerencias: no se pudo contar:', e);
+        const a=window._buzonResumen||{};
+        window._buzonResumen={ nuevas:(a.nuevas==null ? null : a.nuevas), total:(a.total==null ? null : a.total), ms:Date.now()-4*60*1000, cargando:false, error:true };   // se reintenta en un minuto
+    }).then(()=>{ window._buzonContando=null; _buzonPintarNuevasOfi(); return window._buzonResumen; });
+    return window._buzonContando;
+}
+function _tarjetaBuzonHTML(){
+    try{
+        try{ _buzonContarOfi(); }catch(e){}
+        const cargo=(typeof PV_BUZON!=='undefined');
+        return `<div class="card" id="buzon_card" style="margin-bottom:14px;border:2px solid var(--border);">
+        <div class="card-header"><h2>💡 Buzón de ideas</h2></div>
+        <p style="font-size:0.84rem;color:var(--muted);margin-bottom:10px;line-height:1.5;">Lo que mandan las oficinas, la bodega, los técnicos y quienes usan RED con el botón «💡 Ideas». En el tablero cambias el estado, le respondes a quien la envió, anotas en qué versión salió, archivas (nada se borra) y con «📋 Pedírselo a Claude» copias el pedido listo para el chat.</p>
+        <p style="font-size:0.95rem;font-weight:700;margin-bottom:12px;"><span id="buzonNuevas">${_buzonNuevasTextoOfi()}</span></p>
+        ${cargo ? '' : '<p style="font-size:0.8rem;color:#ef4444;margin-bottom:10px;">El buzón no cargó en esta pestaña: recarga la página con Ctrl+F5.</p>'}
+        <button class="btn btn-primary" onclick="_buzonAbrirTableroOfi()">🗂️ Abrir tablero</button>
+    </div>`;
+    }catch(e){ console.warn('Tarjeta del buzón:', e); return ''; }
+}
+function _buzonAbrirTableroOfi(){
+    if(typeof PV_BUZON==='undefined'){ alert('El buzón no cargó en esta pestaña. Recarga la página (Ctrl+F5) e inténtalo otra vez.'); return; }
+    try{
+        if(window._buzonResumen) window._buzonResumen.ms=0;   // al volver al panel se cuenta de nuevo
+        PV_BUZON.montar(_buzonOpOfi());
+        PV_BUZON.abrirTablero();
+    }catch(e){ console.warn('Buzón: no se pudo abrir el tablero:', e); alert('No se pudo abrir el tablero del buzón. Recarga la página e inténtalo otra vez.'); }
+}
+window._buzonOpOfi=_buzonOpOfi; window._buzonGuardarOfi=_buzonGuardarOfi; window._buzonActualizarOfi=_buzonActualizarOfi;
+window._buzonLeerUnoOfi=_buzonLeerUnoOfi; window._buzonLeerTodasOfi=_buzonLeerTodasOfi;
+window._buzonArrancarOfi=_buzonArrancarOfi; window._buzonSalirOfi=_buzonSalirOfi; window._buzonContarOfi=_buzonContarOfi;
+window._tarjetaBuzonHTML=_tarjetaBuzonHTML; window._buzonAbrirTableroOfi=_buzonAbrirTableroOfi;
 
 /* ═══════════════════════════════════════════════════════════════════════════
    v284 — EL ALTA DEL CLIENTE SEGÚN WISPHUB: CUÁNDO SE INSTALÓ Y QUÉ PAGÓ AL INICIO

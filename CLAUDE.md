@@ -25,15 +25,16 @@ sin proceso de compilación: se editan directamente y se publican tal cual.
 | Archivo | Para quién | Versión | Tamaño |
 |---|---|---|---|
 | `index.html` | Portal de entrada, solo enlaces | — | 170 líneas |
-| `OFICINAS_PTOVISION.html` | Oficina: caja, cartera, facturas, clientes, RRHH, SG-SST | `APP_VERSION = 317` | 39.057 líneas · 3,0 MB |
-| `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 112` | 11.822 líneas · 824 KB |
-| `RED_PTOVISION.html` | Red y nodos | `APP_VERSION_RED = 41` | 9.404 líneas · 573 KB |
-| `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 98` | 3.672 líneas · 249 KB |
-| `PRUEBAS.html` | Banco de pruebas (137 pruebas) | — | 6.181 líneas |
+| `OFICINAS_PTOVISION.html` | Oficina: caja, cartera, facturas, clientes, RRHH, SG-SST | `APP_VERSION = 318` | 39.231 líneas · 3,0 MB |
+| `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 113` | 11.915 líneas · 830 KB |
+| `RED_PTOVISION.html` | Red y nodos | `APP_VERSION_RED = 42` | 9.507 líneas · 589 KB |
+| `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 99` | 3.766 líneas · 256 KB |
+| `PRUEBAS.html` | Banco de pruebas (142 pruebas) | — | 6.712 líneas |
 | `FIRMA_SST.html` | Firma desde el celular (SG-SST): página pública, sin login, lee un solo documento por token | — | 187 líneas |
 | `contrato.js` | Contrato de servicio: **compartido** OFICINAS ↔ TECNICOS | `?v=6` | 956 líneas |
 | `ia.js` | Llamadas a Groq: compartido por OFICINAS, INVENTARIO y TECNICOS | `?v=5` | 388 líneas |
 | `checklists.js` | «Antes de llamar al ingeniero»: listas, motor y pantalla, **compartido** OFICINAS ↔ TECNICOS | `?v=1` | 1.413 líneas · 232 KB |
+| `buzon.js` | Buzón de sugerencias: envío, «Mis ideas», muro con votos y tablero del admin, **compartido** por las cuatro apps | `?v=1` | 1.372 líneas · 90 KB |
 | `wisphub-explorador.html` | Herramienta aparte para explorar la API de WispHub | — | 391 líneas |
 
 Las cifras de esta tabla se actualizan con `/revisar`. Si no cuadran con lo que
@@ -87,6 +88,7 @@ cargan enteras: se leen cuando se toca ese tema.
 - @docs/08-modo-mantenimiento.md — modo mantenimiento: documento `mantenimiento`, qué ve cada rol, cómo termina al publicar
 - @docs/09-antes-de-llamar-al-ingeniero.md — listas de validación antes de escalar (`checklists.js`), documentos `esc_*` y `fallas_masivas`, cómo corregir un paso
 - @docs/10-prestamos.md — préstamos: una cuenta por persona, `resumenPrestamo`/`estadoDe`, caja con reverso, tope y atraso, conciliación
+- @docs/11-buzon.md — buzón de sugerencias (`buzon.js`): documentos `buzon_<id>`, contrato `op` de cada app, privacidad, tablero del admin
 
 ## Pendientes conocidos
 
