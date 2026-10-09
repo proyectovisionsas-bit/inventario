@@ -2640,7 +2640,7 @@ const PRUEBAS = [
       funciones:['_buzonOpInv'], escriben:[], boton:'id="pvBuzonBtn"'},
      {k:'TÉCNICOS', archivo:'TECNICOS_PTOVISION.html', app:'tecnicos', ver:/const APP_VERSION_TEC\s*=\s*(\d+)\s*;/, min:99, prueba:/\bMODO_PRUEBA_TEC\b/, vieja:'_pantallaViejaTec', op:'_buzonOpTec', arranque:['enterApp','buzon'],
       funciones:['_buzonGuardarTec','_buzonActualizarTec','_buzonLeerUnoTec','_buzonLeerTodasTec','_buzonOpTec'], escriben:['_buzonGuardarTec','_buzonActualizarTec'], boton:'id="pvBuzonBtn"'},
-     {k:'RED', archivo:'RED_PTOVISION.html', app:'red', ver:/const APP_VERSION_RED\s*=\s*(\d+)\s*;/, min:42, prueba:/\bMODO_PRUEBA\b/, vieja:'', op:'_buzonOpRed', arranque:['_montarAppRed','buzon'],
+     {k:'RED', archivo:'RED_PTOVISION.html', app:'red', ver:/const APP_VERSION_RED\s*=\s*(\d+)\s*;/, min:42, prueba:/\bMODO_PRUEBA\b/, vieja:'_pantallaViejaRed', op:'_buzonOpRed', arranque:['_montarAppRed','buzon'],
       funciones:['_buzonGuardarRed','_buzonActualizarRed','_buzonLeerUnoRed','_buzonLeerTodasRed','_buzonOpRed'], escriben:['_buzonGuardarRed','_buzonActualizarRed'], boton:'data-et="Ideas"'}
    ];
    const textos=await Promise.all(A.map(a=>leer(a.archivo)));
@@ -2738,7 +2738,7 @@ const PRUEBAS = [
    return {ok:bien, detalle: bien
      ? 'OFICINAS v'+res.OFICINAS.version+', INVENTARIO v'+res.INVENTARIO.version+', TÉCNICOS v'+res['TÉCNICOS'].version+' y RED v'+res.RED.version+' cargan buzon.js?v='+N+' una sola vez, con su comentario y sin copiarlo; el archivo existe, trae PV_BUZON, es el que OFICINAS tiene cargado y no toca la base por su cuenta ✓'
       +'\nCada app tiene su adaptador (_buzonOpOfi, _buzonOpInv, _buzonOpTec, _buzonOpRed) y sus funciones del buzón una sola vez; el de TÉCNICOS no usa el documento del técnico y el de RED no usa USER.doc ✓'
-      +'\nGuardar y actualizar rechazan en modo prueba, con mantenimiento y con versión vieja (RED no tiene pantalla de versión vieja); INVENTARIO lo hace en su puente del módulo, con _setDoc y el import ampliado ✓'
+      +'\nGuardar y actualizar rechazan en modo prueba, con mantenimiento y con versión vieja (RED, desde la Etapa 1, con _pantallaViejaRed y después de MODO_PRUEBA); INVENTARIO lo hace en su puente del módulo, con _setDoc y el import ampliado ✓'
       +'\nTodas las escrituras van con merge:true y limpias de undefined, sin .update (reemplazaría historial y votos), sin db.doc, sin tocar main, sin clienteCedula ni firmaRef; las ideas se leen con una sola igualdad (tipo == sugerencia), sin orderBy ✓'
       +'\nLas cuatro tienen su botón 💡 con el punto rojo, que monta el buzón con la sesión de ahora antes de abrir, y arrancan el buzón al entrar; TÉCNICOS lo cierra al salir e INVENTARIO lo deja sin identidad; RED no pone la sede en la pantalla ✓'
      : 'Fallan:\n· '+fallas.join('\n· ').replace(/</g,'&lt;')};}},
@@ -4773,7 +4773,7 @@ const PRUEBAS = [
        +'DB.logsAuditoria=(DB.logsAuditoria||[]).filter(l=>l.accion!=="MANTENIMIENTO_ON"); if(window._escriturasBloqueadas) window._escriturasBloqueadas.length=bl0; caja.remove(); window._mantenimiento=mPrev; USER=uPrev; _aplicarMantenimiento();'
        +'const limpio=!document.getElementById("mantOverlay") && !document.getElementById("mantBanner");'
        +'const leer=async f=>{ try{ return await (await fetch(f,{cache:"no-store"})).text(); }catch(e){ return ""; } }; const inv=await leer("INVENTARIO_PTOVISION.html"), tec=await leer("TECNICOS_PTOVISION.html"), red=await leer("RED_PTOVISION.html");'
-       +'const otras={ inv: (+((inv.match(/const APP_VERSION_INV = (\\d+);/)||[])[1]||0))>=111 && inv.indexOf("const MANT_APP=\'inventario\';")>=0 && inv.indexOf("onSnapshot(doc(fsDB,\'oficinas_sistema/mantenimiento\')")>=0 && inv.indexOf("onSnapshot(doc(fsDB,\'oficinas_sistema/app_version\')")>=0 && inv.indexOf("return !!(typeof USER!==\'undefined\' && USER && USER.role===\'admin\')")>=0 && inv.indexOf("window.USER")<0 === false,'
+       +'const otras={ inv: (+((inv.match(/const APP_VERSION_INV = (\\d+);/)||[])[1]||0))>=111 && inv.indexOf("const MANT_APP=\'inventario\';")>=0 && inv.indexOf("onSnapshot(doc(fsDB,\'oficinas_sistema/mantenimiento\')")>=0 && inv.indexOf("onSnapshot(doc(fsDB,\'oficinas_sistema/app_version\')")>=0 && inv.indexOf("return !!(typeof USER!==\'undefined\' && USER && USER.role===\'admin\')")>=0 && (function(){ const a=inv.indexOf("function _mantEsAdmin("), b=inv.indexOf("function _mantVigente(", a); return a>=0 && b>a && inv.slice(a,b).split("\\n").map(l=>l.split("//")[0]).join("\\n").indexOf("window.USER")<0; })(),'
        +'  tec: (+((tec.match(/const APP_VERSION_TEC = (\\d+);/)||[])[1]||0))>=97 && tec.indexOf("const MANT_APP=\'tecnicos\';")>=0 && tec.indexOf("iniciarEscuchaVersionTec(); iniciarEscuchaMantenimiento();")>=0 && tec.indexOf("return false; }catch(e){ return false; } }")>=0 && tec.indexOf(".doc(\'app_version\').onSnapshot(")>=0,'
        +'  red: (+((red.match(/const APP_VERSION_RED = (\\d+);/)||[])[1]||0))>=41 && red.indexOf("const MANT_APP=\'red\';")>=0 && red.indexOf("iniciarEscuchaMantenimiento(); }catch(e){ console.warn(\'mantenimiento red:\'")>=0 && red.indexOf(".doc(\'app_version\').onSnapshot(")>=0 };'
        +'const escucha=_saveReal.toString().length>0 && typeof iniciarEscuchaMantenimiento==="function" && typeof window._unsubMant==="function";'
@@ -4892,7 +4892,8 @@ const PRUEBAS = [
 {app:'inv', titulo:'En el celular (375 px) ninguna pestaña de Inventario se sale de la pantalla',
  porque:'15/9/2026. Medido a 375 px se salían el panel (210 px), Entregas (1.396), Cuartos (667), Recuperados (437) y Clientes (476): '
        +'cuadrículas en línea de dos columnas o con minmax fijo, tablas fuera de .table-wrap, el dibujo del rack de 340 px y textos '
-       +'largos sin espacios. Esta prueba achica el marco de la app a 375 px y recorre esas pestañas.',
+       +'largos sin espacios. Esta prueba achica el marco de la app a 375 px y recorre esas pestañas, y desde la Etapa 1 también ⚙️ Configuración '
+       +'y 🩺 Auditoría, donde va la tarjeta 🛡️ Vigilancia.',
  correr:async W=>{
    const fr=W.frameElement; const antes={w:fr.style.width, h:fr.style.height}; fr.style.width='375px'; fr.style.height='812px';
    let r=null;
@@ -4901,7 +4902,7 @@ const PRUEBAS = [
        +'const app=document.getElementById("app"), ls=document.getElementById("login-screen"); const oculta=app.classList.contains("hidden"); const lsPrev=ls?ls.style.display:""; const uPrev=USER;'
        +'if(!USER||!USER.role) USER={role:"admin"}; app.classList.remove("hidden"); if(ls) ls.style.display="none"; await new Promise(x=>setTimeout(x,300));'
        +'const res={};'
-       +'for(const t of ["dash","entregas","cuartos","recuperados","clientes","bodegas","consumos"]){ try{ navigate(t); }catch(e){ res[t]="error: "+e.message; continue; } await new Promise(x=>setTimeout(x,500)); res[t]=document.documentElement.scrollWidth-document.documentElement.clientWidth; }'
+       +'for(const t of ["dash","entregas","cuartos","recuperados","clientes","bodegas","consumos","admin","auditoria"]){ try{ navigate(t); }catch(e){ res[t]="error: "+e.message; continue; } await new Promise(x=>setTimeout(x,500)); res[t]=document.documentElement.scrollWidth-document.documentElement.clientWidth; }'
        +'const ancho=document.documentElement.clientWidth;'
        +'if(oculta) app.classList.add("hidden"); if(ls) ls.style.display=lsPrev; USER=uPrev;'
        +'return {ancho, res};'
@@ -4971,6 +4972,350 @@ const PRUEBAS = [
       +'\nEl botón 💡 Ideas está en la cabecera, sin clase de rol, con su punto rojo ✓'
       +'\nCon la bodega '+R.bodega+' el adaptador dice app inventario, rol bodega, el nombre de la bodega, '+R.op.version+' y modo prueba; con el administrador dice "Administrador" y no abre el tablero (vive en OFICINAS); la cédula no sale ✓'
      : 'Fallan: '+mal.join(', ')+'\n'+JSON.stringify(R).replace(/</g,'&lt;')};}},
+{app:'inv', titulo:'Etapa 1 · Cada entrada del registro dice quién, desde qué pantalla y con qué versión',
+ porque:'Revisión del 9 oct 2026 (R9): en la nube quedaban 6 entradas del registro de actividad y TODAS decían «Sistema». logMsg leía window.USER, '
+       +'pero USER es un let del script y nunca está en window. Así no se podía saber quién volvió a meter en una cuadrilla los seriales ya '
+       +'instalados. Ahora cada entrada lleva un id único, el nombre de la bodega (o Admin, o Sistema), la app, la versión, la pestaña (sesión) y '
+       +'el navegador (equipo), con la fecha también en número. Nunca la cédula. El guardado está sustituido: nada se escribe y todo se devuelve.',
+ correr:async W=>{
+   const bloq=()=>(W._escriturasBloqueadas||[]).length, n0=bloq(), CED='1117000999';
+   const r=E(W,
+     'const gU=USER, gL=DB.logs, gS=window._fbSave, ss0=sessionStorage.getItem("inv_sesion_id"), ls0=localStorage.getItem("pv_equipo_id"); let guardados=0;'
+   +'const sinVacios=o=>!!o && Object.keys(o).every(k=>o[k]!==undefined);'
+   +'try{'
+   +'  window._fbSave=function(){ guardados++; }; DB.logs=[];'
+   +'  const b=(DB.bodegas||[]).find(x=>x && x.id && x.nombre) || {id:"bod_prueba_e1", nombre:"BODEGA PRUEBA"};'
+   +'  USER={role:"bodega", id:b.id, nombre:b.nombre, cedula:"'+CED+'"}; logMsg("Etapa 1 · prueba A"); logMsg("Etapa 1 · prueba B"); const eA=DB.logs[1], eB=DB.logs[0];'
+   +'  USER={role:"admin", cedula:"'+CED+'"}; logMsg("Etapa 1 · prueba admin"); const eAd=DB.logs[0];'
+   +'  USER=null; logMsg("Etapa 1 · prueba sin sesión"); const eSi=DB.logs[0];'
+   +'  const todas=DB.logs.slice(), ses=sessionStorage.getItem("inv_sesion_id"), eq=localStorage.getItem("pv_equipo_id");'
+   +'  DB.logs=[]; USER={role:"bodega", id:b.id, nombre:b.nombre}; for(let i=0;i<205;i++) logMsg("Etapa 1 · tope "+i);'
+   +'  const tope={n:DB.logs.length, primero:DB.logs[0].msg, ultimo:DB.logs[DB.logs.length-1].msg};'
+   +'  const p=_entradaLogInv("hola", {role:"bodega", nombre:"BOD X"}, 1790000000000, {version:113, sesion:"se_aaaaaaaaaa", equipo:"eq_bbbbbbbbbb"});'
+   +'  const p2=_entradaLogInv("hola", {role:"bodega"}, 1790000000000, null);'
+   +'  return {bodega:b.nombre, eA, eB, eAd, eSi, todas, ses, eq, tope, guardados, p, p2, iso:new Date(1790000000000).toISOString(), ver:window._appVersionInv,'
+   +'    sinVacios:todas.every(sinVacios) && sinVacios(p) && sinVacios(p2), fechaReg:_fechaDeRegistroInv(eA)===eA.fechaMs};'
+   +'} finally { USER=gU; DB.logs=gL; window._fbSave=gS;'
+   +'  if(ss0===null) sessionStorage.removeItem("inv_sesion_id"); else sessionStorage.setItem("inv_sesion_id", ss0);'
+   +'  if(ls0===null) localStorage.removeItem("pv_equipo_id"); else localStorage.setItem("pv_equipo_id", ls0); }');
+   // Lectura del texto: nadie más agrega al registro (la importación de Excel hacía unshift sin usuario y recortaba a 60)
+   const leer=async f=>{ try{ const x=await fetch(f,{cache:'no-store'}); return x.ok ? await x.text() : ''; }catch(e){ return ''; } };
+   const inv=(await leer('INVENTARIO_PTOVISION.html')).replace(/\r/g,'');
+   const sinCom=t=>t.split('\n').map(l=>l.replace(/\/\/.*$/,'')).join('\n');
+   const iL=inv.indexOf('\nfunction logMsg('), jL=iL<0 ? -1 : inv.indexOf('\n}', iL+1), cL=iL<0 ? '' : sinCom(inv.slice(iL, jL));
+   const usos=[...inv.matchAll(/logs\.unshift\(/g)].map(m=>m.index);
+   const soloLogMsg=iL>=0 && usos.length===1 && usos[0]>iL && usos[0]<jL;
+   const porNombre=iL>=0 && cL.indexOf('window.USER')<0 && /typeof USER/.test(cL);
+   const T=r.todas||[], p=r.p||{}, p2=r.p2||{}, reId=/^lg_[a-z0-9]+_[a-z0-9]{6}$/, CAMPOS='app,equipo,fecha,fechaMs,hora,id,msg,rol,sesion,t,usuario,version';
+   const C=[
+     ['la bodega queda con su nombre', r.eA.usuario===r.bodega && r.eA.rol==='bodega' && r.eB.usuario===r.bodega],
+     ['el administrador queda como «Admin»', r.eAd.usuario==='Admin' && r.eAd.rol==='admin'],
+     ['sin sesión queda como «Sistema»', r.eSi.usuario==='Sistema' && r.eSi.rol===''],
+     ['cada entrada trae todos sus campos', T.length===4 && T.every(e=>Object.keys(e).sort().join()===CAMPOS)],
+     ['un id único por entrada', T.every(e=>reId.test(e.id)) && new Set(T.map(e=>e.id)).size===T.length],
+     ['app INV y la versión de la pantalla', typeof r.ver==='number' && T.every(e=>e.app==='INV' && e.version===r.ver)],
+     ['la misma pestaña y el mismo navegador en todas', /^se_/.test(r.ses||'') && !!r.eq && T.every(e=>e.sesion===r.ses && e.equipo===r.eq)],
+     ['la fecha también en número (la entiende el archivador)', T.every(e=>typeof e.fechaMs==='number' && Date.parse(e.t)===e.fechaMs && !!e.fecha && !!e.hora) && r.fechaReg===true],
+     ['el mensaje se conserva', r.eA.msg==='Etapa 1 · prueba A' && r.eB.msg==='Etapa 1 · prueba B'],
+     ['sin campos vacíos (undefined) ni cédula', r.sinVacios===true && JSON.stringify(T).indexOf(CED)<0],
+     ['tope de 200: quedan las más nuevas', r.tope.n===200 && r.tope.primero==='Etapa 1 · tope 204' && r.tope.ultimo==='Etapa 1 · tope 5'],
+     ['cada entrada pide guardar (el guardado estaba sustituido)', r.guardados===209],
+     ['_entradaLogInv arma la entrada completa', p.usuario==='BOD X' && p.rol==='bodega' && p.app==='INV' && p.version===113 && p.sesion==='se_aaaaaaaaaa' && p.equipo==='eq_bbbbbbbbbb'
+        && p.fechaMs===1790000000000 && p.t===r.iso && reId.test(p.id||'') && p.msg==='hola' && p2.usuario==='Bodega' && p2.version===null && p2.sesion==='' && p2.equipo===''],
+     ['nadie más agrega al registro: solo logMsg hace unshift (texto)', soloLogMsg],
+     ['logMsg usa USER por su nombre, no window.USER (texto)', porNombre],
+     ['ninguna escritura llegó al envoltorio', bloq()-n0===0]
+   ];
+   const mal=C.filter(c=>c[1]!==true).map(c=>c[0]);
+   return {ok:!mal.length, detalle: !mal.length
+     ? 'Una bodega queda con su nombre ('+r.bodega+'), el administrador como «Admin» y sin sesión como «Sistema» ✓'
+      +'\nCada entrada trae id único, app INV, v'+r.ver+', la pestaña y el navegador (iguales en todas) y la fecha también en número; sin campos vacíos ni cédula ✓'
+      +'\nCon 205 entradas quedan las 200 más nuevas ✓ · Solo logMsg agrega al registro (la importación de Excel también pasa por él) ✓'
+      +'\nNada se escribió (el guardado estaba sustituido) y todo quedó como estaba ✓'
+     : 'Fallan: '+mal.join(', ')+'\n'+JSON.stringify(r).slice(0,1500).replace(/</g,'&lt;')};}},
+{app:'inv', titulo:'Etapa 1 · Dos pantallas que registran a la vez no pierden entradas',
+ porque:'Revisión del 9 oct 2026 (R10): el registro (logs) iba entero a inventario/historial y ganaba la última pantalla en guardar: las entradas '
+       +'de la otra se perdían. Ahora se une por id con lo de la nube, al guardar (dentro de la transacción) y al recibir el historial. Sin lápidas: '
+       +'si logs fuera como las demás listas del historial, cada entrada que el tope de 200 corta dejaría una lápida en inventario/datos (y empujaría '
+       +'fuera las de borrados reales) y gastaría el freno de reenvíos de las listas de stock. Por lo mismo el archivador ya no se lleva el registro. '
+       +'Datos inventados; todo se devuelve al terminar y nada se escribe.',
+ correr:async W=>{
+   const bloq=()=>(W._escriturasBloqueadas||[]).length, n0=bloq();
+   const r=E(W,
+     'const T0=1790000000000, cp=o=>JSON.parse(JSON.stringify(o));'
+   +'const ent=(id,k,msg)=>({id, msg:msg||("m"+k), usuario:"U", fecha:"9/10/2026", hora:"10:00", t:new Date(T0+k*1000).toISOString(), fechaMs:T0+k*1000});'
+   +'const viejo=(k,msg)=>({msg, usuario:"Sistema", fecha:"8/10/2026", hora:"09:00", t:new Date(T0-86400000+k*1000).toISOString()});'
+   +'const base=[ent("lg_c",3), ent("lg_b",2), ent("lg_a",1), viejo(2,"viejo dos"), viejo(1,"viejo uno")];'
+   +'const local=[ent("lg_a1",10,"de esta pantalla")].concat(cp(base)), nube=[ent("lg_b1",11,"de la otra pantalla")].concat(cp(base));'
+   +'const sL=JSON.stringify(local), sN=JSON.stringify(nube);'
+   +'const u=_fusionarLogsInv(local, nube);'
+   +'const z=_fusionarLogsInv([Object.assign(ent("lg_z",5),{msg:"aquí"})], [Object.assign(ent("lg_z",5),{msg:"nube"})]);'
+   +'const muchos=[], nuevas=[]; for(let i=0;i<200;i++) muchos.push(ent("lg_l"+i, i)); for(let i=0;i<5;i++) nuevas.push(ent("lg_n"+i, 1000+i));'
+   +'const t200=_fusionarLogsInv(muchos, nuevas), vacio=_fusionarLogsInv(null, undefined);'
+   // Con la fusión de las demás listas del historial: logs no deja lápidas, no gasta el freno de reenvíos y no entra por ahí
+   +'const gI=window._idsRemotosInv, gB=window._baseStockInv, gP=window._reenvioInvProgramado, gR=window._reenviosInv, gT=DB._tumbas, gL=DB.logs, H={};'
+   +'["entregas","ventas","transfers","cuartos","deleteRequests","editRequests"].forEach(k=>{ H[k]=DB[k]; });'
+   +'let fotoLogs=null, tumbas=null, reenvios=null, quedan=null;'
+   +'try{'
+   +'  window._idsRemotosInv={d:{},h:{}}; window._baseStockInv={}; window._reenvioInvProgramado=true; window._reenviosInv=[]; DB._tumbas=[]; DB.logs=muchos.slice();'
+   +'  window._fotoIdsRemotosInv(null, {logs:cp(base)}); fotoLogs=!!(window._idsRemotosInv.h && window._idsRemotosInv.h.logs);'
+   +'  window._fusionarConNubeInv(null, {logs:cp(nube)});'
+   +'  tumbas=(DB._tumbas||[]).filter(t=>t && t.col==="logs").length; reenvios=(window._reenviosInv||[]).length; quedan=DB.logs.length;'
+   +'} finally { window._idsRemotosInv=gI; window._baseStockInv=gB; window._reenvioInvProgramado=gP; window._reenviosInv=gR; DB._tumbas=gT; DB.logs=gL; Object.keys(H).forEach(k=>{ DB[k]=H[k]; }); }'
+   +'return {ids:u.map(x=>x.id||x.msg), orden:u.map(x=>typeof x.fechaMs==="number" ? x.fechaMs : Date.parse(x.t)), noMuta:JSON.stringify(local)===sL && JSON.stringify(nube)===sN && u!==local && u!==nube,'
+   +'  z:z.map(x=>x.msg).join(), t200:{n:t200.length, primero:t200[0].id, ultimo:t200[199].id, nuevas:t200.filter(x=>/^lg_n/.test(x.id)).length},'
+   +'  vacio:Array.isArray(vacio) && vacio.length===0, fotoLogs, tumbas, reenvios, quedan,'
+   +'  reglas:_REGLAS_ARCHIVO_INV.some(x=>x.campo==="logs"), plan:_calcularAligerado().some(x=>x.campo==="logs")};');
+   const leer=async f=>{ try{ const x=await fetch(f,{cache:'no-store'}); return x.ok ? await x.text() : ''; }catch(e){ return ''; } };
+   const inv=(await leer('INVENTARIO_PTOVISION.html')).replace(/\r/g,'');
+   const sinCom=t=>t.split('\n').map(l=>l.replace(/\/\/.*$/,'')).join('\n');
+   const cols=(inv.match(/const COLS_HIST_INV\s*=\s*\[([^\]]*)\]/)||[])[1];
+   const iS=inv.indexOf('async function _fbSaveCore('), fsc=iS<0 ? '' : sinCom(inv.slice(iS, inv.indexOf('\n}', iS)));
+   // Cada rama de _fbSaveCore por separado: PRUEBAS abre INVENTARIO con ?prueba=1 y nunca corre la transacción,
+   // así que contar en toda la función dejaba pasar que faltara la unión en el único camino que escribe de verdad.
+   const sinBloq=t=>t.replace(/\/\*[\s\S]*?\*\//g,'');
+   const iT=fsc.indexOf('_runTransaction(fsDB, async (tx)=>{'), iA=iT<0 ? -1 : fsc.indexOf('_armarCopiaInv(', iT), iR=iT<0 ? -1 : fsc.indexOf('return copia;', iT);
+   const ramaTx=(iT>=0 && iA>iT && iR>iA) ? sinBloq(fsc.slice(iT, iA)) : '';   // dentro de la transacción, antes de armar lo que se escribe
+   const iP=fsc.indexOf('if(MODO_PRUEBA){'), iC=iP<0 ? -1 : fsc.indexOf('prepareDbCopy(', iP);
+   const ramaPrueba=(iP>=0 && iC>iP) ? sinBloq(fsc.slice(iP, iC)) : '';
+   const enTx=/_fusionarLogsInv\(\s*DB\.logs\s*,\s*fh\s*&&\s*fh\.logs\s*\)/.test(ramaTx);
+   const enPrueba=ramaPrueba.indexOf('_runTransaction(')<0 && /_fusionarLogsInv\(\s*DB\.logs\s*,\s*_fh\s*&&\s*_fh\.logs\s*\)/.test(ramaPrueba);
+   const alRecibir=/window\._fusionarLogsInv\(\s*window\.DB\.logs\s*,\s*h\.logs\s*\)/.test(inv);
+   const C=[
+     ['quedan las entradas de las dos pantallas, una vez cada una (y las viejas sin id)', r.ids.join()==='lg_b1,lg_a1,lg_c,lg_b,lg_a,viejo dos,viejo uno'],
+     ['de la más nueva a la más vieja', r.orden.every((v,i,a)=>i===0 || a[i-1]>=v)],
+     ['el mismo id en los dos lados queda una vez (el de la nube)', r.z==='nube'],
+     ['tope de 200 con las más nuevas', r.t200.n===200 && r.t200.nuevas===5 && r.t200.primero==='lg_n4' && r.t200.ultimo==='lg_l5'],
+     ['no cambia lo que recibe y devuelve una lista nueva', r.noMuta===true],
+     ['sin listas devuelve una vacía', r.vacio===true],
+     ['sin lápidas de «logs», sin reenvíos gastados y sin entrar por la fusión de las demás listas', r.fotoLogs===false && r.tumbas===0 && r.reenvios===0 && r.quedan===200],
+     ['el archivador ya no se lleva el registro', r.reglas===false && r.plan===false],
+     ['logs no está en COLS_HIST_INV, las listas con lápidas (texto)', typeof cols==='string' && !/['"]logs['"]/.test(cols)],
+     ['se une al guardar dentro de la transacción, con lo recién leído y antes de armar la copia que se escribe (texto)', enTx===true],
+     ['se une al guardar en el modo prueba (texto)', enPrueba===true],
+     ['se une al recibir el historial (texto)', alRecibir===true],
+     ['ninguna escritura llegó al envoltorio', bloq()-n0===0]
+   ];
+   const mal=C.filter(c=>c[1]!==true).map(c=>c[0]);
+   return {ok:!mal.length, detalle: !mal.length
+     ? 'La entrada de esta pantalla y la de la otra quedan las dos, una sola vez; las viejas sin id también, sin repetirse; de la más nueva a la más vieja ✓'
+      +'\n200 locales + 5 nuevas de la nube dan 200, con las 5 nuevas adentro; el mismo id en los dos lados queda una vez ✓'
+      +'\nNo deja lápidas de «logs» ni gasta el freno de reenvíos, y el archivador ya no se lleva el registro ✓'
+      +'\nSe une al guardar (en la transacción, antes de armar la copia, y en el modo prueba) y al recibir el historial ✓ · Nada se escribió y todo quedó como estaba ✓'
+     : 'Fallan: '+mal.join(', ')+'\n'+JSON.stringify(r).slice(0,1500).replace(/</g,'&lt;')};}},
+{app:'inv', titulo:'Etapa 1 · El sello de escritura dice quién escribió y no provoca escrituras de más',
+ porque:'Revisión del 9 oct 2026: si la nube trae menos de lo esperado (un serial que vuelve a una cuadrilla), hay que saber qué pantalla y qué '
+       +'versión lo escribió. Cada escritura a inventario/datos lleva _ultimaEscritura {app, versión, quién, sesión, equipo, hora, campos, y la hora '
+       +'del servidor} y la lista _escrituras con las 30 últimas, sin la hora del servidor (Firestore no la admite dentro de un arreglo). El sello '
+       +'nunca vive en la memoria (DB): si viviera ahí, cada guardado lo vería «cambiado» y reescribiría un sello viejo encima del de otra pantalla. '
+       +'TÉCNICOS sella igual sus 7 escrituras a inventario/datos (se LEE su archivo). Nada se escribe.',
+ correr:async W=>{
+   const bloq=()=>(W._escriturasBloqueadas||[]).length, n0=bloq(), CED='1117000999';
+   const r=E(W,
+     'const T=1790000000000;'
+   +'const b=_selloEscrituraInv(["bodegas","cuadrillas","_ultimaEscritura","_escrituras","_actualizado"], {role:"bodega", nombre:"BODEGA PRUEBA", cedula:"'+CED+'"}, T, {version:113, sesion:"se_aaaaaaaaaa", equipo:"eq_bbbbbbbbbb"});'
+   +'const a=_selloEscrituraInv(["logs"], {role:"admin", cedula:"'+CED+'"}, T, {version:113, sesion:"s", equipo:"e"});'
+   +'const s=_selloEscrituraInv(["x"], null, T, null);'
+   +'const muchos=[]; for(let i=0;i<15;i++) muchos.push("c"+i); const m=_selloEscrituraInv(muchos, null, T, {});'
+   +'const viejas=[]; for(let i=0;i<30;i++) viejas.push({app:"TEC", ms:T-(i+1)*1000, campos:["x"], en:{seconds:1}});'
+   +'const sV=JSON.stringify(viejas), l=_agregarEscrituraInv(viejas, Object.assign({}, b, {en:{marca:"servidor"}})), l0=_agregarEscrituraInv(null, b);'
+   +'const marcas=[_msDeMarcaPV({toMillis:()=>123}), _msDeMarcaPV(456), _msDeMarcaPV({seconds:10, nanoseconds:5}), _msDeMarcaPV(null), _msDeMarcaPV("x"), _msDeMarcaPV(NaN), _msDeMarcaPV({})];'
+   +'const enDB=("_ultimaEscritura" in DB) || ("_escrituras" in DB);'
+   +'const gU=DB._ultimaEscritura, gE=DB._escrituras, tU="_ultimaEscritura" in DB, tE="_escrituras" in DB; let copiaLimpia=null, cambian=null, cambianSolo=null;'
+   +'try{'
+   +'  DB._ultimaEscritura={app:"INV", version:100, quien:"VIEJO", ms:1}; DB._escrituras=[{app:"INV", ms:1}];'
+   +'  const c=_armarCopiaInv(); copiaLimpia=!("_ultimaEscritura" in c.dbCopy) && !("_escrituras" in c.dbCopy);'
+   +'  const nube=Object.assign({}, c.dbCopy, {_ultimaEscritura:{app:"TEC", version:99, quien:"OTRO", ms:2, en:{seconds:2}}, _escrituras:[{app:"TEC", ms:2}]});'
+   +'  cambian=Object.keys(_camposCambiadosInv(c.dbCopy, nube));'
+   +'  cambianSolo=Object.keys(_camposCambiadosInv({bodegas:[1], _ultimaEscritura:{a:1}, _escrituras:[1]}, {bodegas:[1], _ultimaEscritura:{a:2}, _escrituras:[2]}));'
+   +'} finally { if(tU) DB._ultimaEscritura=gU; else delete DB._ultimaEscritura; if(tE) DB._escrituras=gE; else delete DB._escrituras; }'
+   +'const vacios=o=>Object.keys(o).filter(k=>o[k]===undefined);'
+   +'return {b, a, s, m, l:l.map(x=>({app:x.app, ms:x.ms, en:("en" in x)})), n:l.length, l0:l0.length, noMuta:JSON.stringify(viejas)===sV, marcas, enDB, copiaLimpia, cambian, cambianSolo,'
+   +'  vacios:[].concat(vacios(b), vacios(a), vacios(s), vacios(m)), bytes:JSON.stringify(b).length, agregarSinServidor:_agregarEscrituraInv.toString().indexOf("serverTimestamp")<0};');
+   const leer=async f=>{ try{ const x=await fetch(f,{cache:'no-store'}); return x.ok ? await x.text() : ''; }catch(e){ return ''; } };
+   const [inv, tec]=(await Promise.all([leer('INVENTARIO_PTOVISION.html'), leer('TECNICOS_PTOVISION.html')])).map(t=>t.replace(/\r/g,''));
+   if(!inv || !tec) return {ok:false, detalle:'No se pudo leer '+(!inv?'INVENTARIO_PTOVISION.html ':'')+(!tec?'TECNICOS_PTOVISION.html':'')};
+   const sinCom=t=>t.split('\n').map(l=>l.replace(/\/\/.*$/,'')).join('\n');
+   const tramo=(t, ini, fin)=>{ const i=t.indexOf(ini); if(i<0) return ''; const j=t.indexOf(fin, i+ini.length); return sinCom(t.slice(i, j<0 ? i+8000 : j)); };
+   // INVENTARIO: el import trae serverTimestamp y CADA tx.set/tx.update de sus 3 transacciones va por _conSelloInv
+   const imp=((inv.match(/import\s*\{([^}]*)\}\s*from\s*['"][^'"]*firebase-firestore[^'"]*['"]/)||[])[1]||'').split(',').map(x=>x.trim());
+   const sellado=t=>({escrituras:(t.match(/tx\.(?:set|update)\(/g)||[]).length, conSello:(t.match(/tx\.(?:set|update)\(\s*\w+\s*,\s*(?:\{\s*\.\.\.)?_conSelloInv\(/g)||[]).length});
+   const tx={ guardado:sellado(tramo(inv, 'async function _fbSaveCore(', '\n}')),
+              una:sellado(tramo(inv, 'window._fbTransaccionInv = async function', '\n    };')),
+              varias:sellado(tramo(inv, 'window._fbTransaccionInvMulti = async function', '\n    };')) };
+   const txBien=Object.values(tx).every(x=>x.escrituras>0 && x.escrituras===x.conSello);
+   const cs=tramo(inv, 'function _conSelloInv(', '\n}');
+   const conSello=/serverTimestamp\(\)/.test(cs) && /_ultimaEscritura/.test(cs) && /_escrituras/.test(cs) && /_agregarEscrituraInv\(/.test(cs);
+   const ss=tramo(inv, 'function _sacarSelloInv(', '\n}');
+   const sacado=/delete o\._ultimaEscritura/.test(ss) && /delete o\._escrituras/.test(ss) && (inv.match(/_sacarSelloInv\(/g)||[]).length>=3;
+   // TÉCNICOS (texto): los 7 tx.update(refI van con _conSelloTec; el sello dice el nombre, nunca el documento; la lista va sin la hora del servidor
+   const tecSin=sinCom(tec), nRefI=(tecSin.match(/tx\.update\(refI\b/g)||[]).length, nSell=(tecSin.match(/tx\.update\(refI,\s*_conSelloTec\(/g)||[]).length;
+   const fT=n=>{ const i=tec.search(new RegExp('\\n(async\\s+)?function\\s+'+n+'\\s*\\(')); if(i<0) return ''; const resto=tec.slice(i+1), j=resto.search(/\n(async\s+)?function\s/); return j<0 ? resto.slice(0,8000) : resto.slice(0,j); };
+   const sT=sinCom(fT('_selloEscrituraTec')), cT=sinCom(fT('_conSelloTec'));
+   const tecSello=/app:'TEC'/.test(sT) && /TEC\.nombre/.test(sT) && !/documento|cedula/i.test(sT) && /serverTimestamp\(\)/.test(cT) && /_agregarEscrituraTec\(/.test(cT);
+   let tp=null;
+   try{
+     const agregar=new Function(fT('_agregarEscrituraTec')+'\nreturn _agregarEscrituraTec;')(), campos=new Function(fT('_camposSelloTec')+'\nreturn _camposSelloTec;')();
+     const viejas=[]; for(let i=0;i<30;i++) viejas.push({app:'INV', ms:i, en:{seconds:1}});
+     const l=agregar(viejas, {app:'TEC', ms:99, en:'servidor'}), c15=campos(Array.from({length:15},(_,i)=>'c'+i));
+     tp={n:l.length, primero:l[0].app+l[0].ms, sinEn:l.every(x=>!('en' in x)), noMuta:viejas.every(x=>'en' in x), c:campos(['a','_ultimaEscritura','_escrituras','_actualizado','b']).join(), c15:c15.length+'|'+c15[11]};
+   }catch(e){ tp={error:String((e&&e.message)||e)}; }
+   const b=r.b||{};
+   const C=[
+     ['el sello de una bodega', b.app==='INV' && b.version===113 && b.quien==='BODEGA PRUEBA' && b.rol==='bodega' && b.sesion==='se_aaaaaaaaaa' && b.equipo==='eq_bbbbbbbbbb' && b.ms===1790000000000
+        && (b.campos||[]).join()==='bodegas,cuadrillas' && Object.keys(b).sort().join()==='app,campos,equipo,ms,quien,rol,sesion,version'],
+     ['el administrador es «Admin» y sin sesión es «Sistema»', r.a.quien==='Admin' && r.a.rol==='admin' && r.s.quien==='Sistema' && r.s.rol==='' && r.s.version===null && r.s.sesion==='' && r.s.equipo===''],
+     ['como mucho 12 campos (los 11 primeros y «+N»)', r.m.campos.length===12 && r.m.campos[10]==='c10' && r.m.campos[11]==='+4'],
+     ['sin campos vacíos (undefined), sin cédula y chico', r.vacios.length===0 && JSON.stringify([r.b, r.a]).indexOf(CED)<0 && r.bytes<2048],
+     ['_escrituras: tope 30, la más nueva primero, sin la hora del servidor', r.n===30 && r.l[0].app==='INV' && r.l[0].ms===1790000000000 && r.l[1].ms===1790000000000-1000 && r.l.every(x=>!x.en) && r.l0===1 && r.noMuta===true && r.agregarSinServidor===true],
+     ['_msDeMarcaPV lee la hora del servidor (Timestamp, número o segundos)', JSON.stringify(r.marcas)==='[123,456,10000,null,null,null,null]'],
+     ['el sello no está en la memoria (DB)', r.enDB===false],
+     ['la copia que se guarda no lleva sello', r.copiaLimpia===true],
+     ['un sello distinto en la nube no provoca escritura ni se toma por borrado', Array.isArray(r.cambian) && r.cambian.length===0 && r.cambianSolo.length===0],
+     ['INVENTARIO: el import trae serverTimestamp (texto)', imp.indexOf('serverTimestamp')>=0],
+     ['INVENTARIO: cada escritura de sus 3 transacciones lleva el sello (texto)', txBien],
+     ['INVENTARIO: _conSelloInv pone la hora del servidor solo en _ultimaEscritura (texto)', conSello],
+     ['INVENTARIO: el sello se saca al cargar y en el oyente (texto)', sacado],
+     ['TÉCNICOS: sus '+nRefI+' tx.update(refI van con _conSelloTec (texto)', nRefI>=7 && nRefI===nSell],
+     ['TÉCNICOS: el sello dice el nombre del técnico, nunca su documento (texto)', tecSello],
+     ['TÉCNICOS: su lista de escrituras (tope 30, sin la hora del servidor) y sus campos', !!tp && tp.n===30 && tp.primero==='TEC99' && tp.sinEn===true && tp.noMuta===true && tp.c==='a,b' && tp.c15==='12|+4'],
+     ['ninguna escritura llegó al envoltorio', bloq()-n0===0]
+   ];
+   const mal=C.filter(c=>c[1]!==true).map(c=>c[0]);
+   return {ok:!mal.length, detalle: !mal.length
+     ? 'El sello dice app, versión, quién (la bodega, «Admin» o «Sistema»), pestaña, navegador, hora y campos; sin campos vacíos ni cédula ✓'
+      +'\n_escrituras guarda las 30 últimas, la más nueva primero y sin la hora del servidor (que solo va en _ultimaEscritura) ✓'
+      +'\nEl sello no vive en la memoria: la copia que se guarda no lo trae y un sello distinto en la nube no provoca ninguna escritura ✓'
+      +'\nINVENTARIO sella cada escritura de sus 3 transacciones (guardado '+tx.guardado.conSello+', una '+tx.una.conSello+', varias '+tx.varias.conSello+') y TÉCNICOS sus '+nSell+' escrituras a inventario/datos, con el nombre del técnico ✓'
+     : 'Fallan: '+mal.join(', ')+'\n'+JSON.stringify({r, tx, nRefI, nSell, tp}).slice(0,1500).replace(/</g,'&lt;')};}},
+{app:'inv', titulo:'Etapa 1 · El medidor y el respaldo solo leen',
+ porque:'Firestore rechaza un documento de más de 1 MiB, y inventario/datos va cerca del 70–80 %. El medidor nuevo dice en un solo número cuánto '
+       +'pesa (amarillo desde 900 KB, rojo desde 980 KB). El respaldo baja inventario/datos e inventario/historial FRESCOS de la nube a un archivo; '
+       +'Elkin descarga uno antes de publicar y antes de corregir datos. Aquí NO se dispara la descarga (bajaría un archivo con claves en el '
+       +'navegador de quien prueba): se prueba el armador con documentos inventados, la tarjeta y que si la nube falla no se descarga nada.',
+ correr:async W=>{
+   const bloq=()=>(W._escriturasBloqueadas||[]).length, n0=bloq();
+   const r=E(W,
+     'const casos=[0, 921599, 921600, 1003519, 1003520, 1048576, 1048577, 1500000, -5, NaN];'
+   +'const niv=casos.map(b=>{ const x=_nivelPesoInv(b); return {b:String(b), nivel:x.nivel, texto:x.texto, kb:x.kb, pct:x.pct}; });'
+   +'const real=_pesoDocsInv().datos, nReal=_nivelPesoInv(real);'
+   +'const T=new Date(2026,9,9,14,5,30).getTime();'
+   +'const datos={bodegas:[{id:"b1", nombre:"BOD"}], _ultimaEscritura:{app:"TEC", quien:"Juan"}}, hist={logs:[{id:"lg_1", msg:"hola"}]};'
+   +'const sD=JSON.stringify(datos), sH=JSON.stringify(hist);'
+   +'const x=_armarRespaldoInv(datos, hist, T, 113); let j=null; try{ j=JSON.parse(x.texto); }catch(e){}'
+   +'const x2=_armarRespaldoInv(null, undefined, T, "x"); let j2=null; try{ j2=JSON.parse(x2.texto); }catch(e){}'
+   +'const uP=USER; let tarjeta="", tarjetaBod=null; try{ USER={role:"admin"}; tarjeta=_tarjetaVigilanciaInv(); USER={role:"bodega", id:"x", nombre:"B"}; tarjetaBod=_tarjetaVigilanciaInv(); } finally { USER=uP; }'
+   +'return {niv, real, nReal, nombre:x.nombre, j, j2, T, iso:new Date(T).toISOString(), sD, noMuta:JSON.stringify(datos)===sD && JSON.stringify(hist)===sH,'
+   +'  sinDB:!/\\bDB\\b/.test(_armarRespaldoInv.toString()), tarjeta, tarjetaBod, fuente:descargarRespaldoInv.toString()};');
+   // El botón, sin descargar: un bodeguero no puede; si la nube falla o no trae el documento, se avisa y no se descarga nada
+   let d=null;
+   try{ d=await W.eval('(async function(){'
+     +'const uP=USER, fP=window._fbLeerDocInv, aP=window.alert, cP=URL.createObjectURL; const avisos=[]; let leidas=[], urls=0;'
+     +'try{'
+     +'  window.alert=m=>{ avisos.push(String(m)); }; URL.createObjectURL=function(){ urls++; throw new Error("prueba: aquí no se descarga nada"); };'
+     +'  USER={role:"bodega", id:"x", nombre:"BOD"}; window._fbLeerDocInv=ruta=>{ leidas.push(ruta); return Promise.resolve({}); };'
+     +'  await descargarRespaldoInv(null); const bodega={avisos:avisos.splice(0), leidas:leidas.length};'
+     +'  USER={role:"admin"}; leidas=[]; window._fbLeerDocInv=ruta=>{ leidas.push(ruta); return Promise.reject(new Error("sin red de prueba")); };'
+     +'  await descargarRespaldoInv(null); const falla={avisos:avisos.splice(0), leidas:leidas.slice().sort()};'
+     +'  leidas=[]; window._fbLeerDocInv=ruta=>{ leidas.push(ruta); return Promise.resolve(null); };'
+     +'  await descargarRespaldoInv(null); const vacia={avisos:avisos.splice(0), leidas:leidas.length};'
+     +'  return {bodega, falla, vacia, urls, enCurso:!!window._respaldoEnCursoInv};'
+     +'} finally { USER=uP; window._fbLeerDocInv=fP; window.alert=aP; URL.createObjectURL=cP; }'
+     +'})()'); }catch(e){ d={error:String((e&&e.message)||e)}; }
+   const N=k=>r.niv.find(x=>x.b===String(k))||{};
+   const fu=String(r.fuente||'').replace(/\/\/[^\n]*/g,'');
+   const C=[
+     ['menos de 900 KB: normal', N(0).nivel==='ok' && N(921599).nivel==='ok' && N(-5).nivel==='ok' && N(NaN).nivel==='ok' && N(-5).kb===0],
+     ['desde 900 KB: amarillo', N(921600).nivel==='amarillo' && N(1003519).nivel==='amarillo'],
+     ['desde 980 KB: rojo', N(1003520).nivel==='rojo' && N(1048576).nivel==='rojo' && N(1500000).nivel==='rojo'],
+     ['pasado 1 MiB dice que nadie puede guardar', /nadie puede guardar/.test(N(1048577).texto) && /nadie puede guardar/.test(N(1500000).texto) && !/nadie puede guardar/.test(N(1048576).texto)],
+     ['un solo número: «inventario/datos: X KB de 1.024 KB (Y %)»', N(921600).texto.indexOf('inventario/datos: 900 KB de 1.024 KB (88 %)')===0 && r.niv.every(x=>/^inventario\/datos: [\d.]+ KB de 1\.024 KB \(\d+ %\)/.test(x.texto))],
+     ['el respaldo se llama con la fecha y la hora', r.nombre==='respaldo_inventario_2026-10-09_14-05.json'],
+     ['el respaldo trae los dos documentos, la versión y cuándo se generó', !!r.j && r.j.app==='INV' && r.j.version===113 && r.j.generado===r.iso && r.j.generadoMs===r.T
+        && JSON.stringify(r.j.datos)===r.sD && !!r.j.historial && r.j.historial.logs[0].id==='lg_1' && !!r.j2 && r.j2.version===null && r.j2.datos===null && r.j2.historial===null],
+     ['armar el respaldo no toca DB ni lo que recibe', r.noMuta===true && r.sinDB===true],
+     ['la tarjeta del administrador: medidor, chequeo, última escritura y respaldo con su aviso', /Vigilancia/.test(r.tarjeta) && r.tarjeta.indexOf('inventario/datos: ')>=0 && /Ver detalle/.test(r.tarjeta)
+        && /Última escritura en la nube/.test(r.tarjeta) && /Descargar respaldo/.test(r.tarjeta) && /datos privados \(claves y clientes\)/.test(r.tarjeta)],
+     ['una bodega no ve la tarjeta', r.tarjetaBod===''],
+     ['el botón lee FRESCO los dos documentos y no escribe (texto)', /_fbLeerDocInv\('inventario\/datos'\)/.test(fu) && /_fbLeerDocInv\('inventario\/historial'\)/.test(fu) && /_armarRespaldoInv\(/.test(fu)
+        && !/_?setDoc\(|runTransaction|_fbSave|\bsave\(/.test(fu)],
+     ['una bodega no puede descargarlo', !!d && !d.error && d.bodega.leidas===0 && /Solo el administrador/.test(d.bodega.avisos.join())],
+     ['si la nube falla, lo dice y no descarga nada', !!d && !d.error && d.falla.leidas.join()==='inventario/datos,inventario/historial' && /No se pudo descargar el respaldo/.test(d.falla.avisos.join()) && /No se descargó nada/.test(d.falla.avisos.join())],
+     ['si la nube no trae el documento, tampoco descarga', !!d && !d.error && d.vacia.leidas===2 && /No se pudo descargar el respaldo/.test(d.vacia.avisos.join())],
+     ['ningún archivo se armó para descargar', !!d && d.urls===0 && d.enCurso===false],
+     ['ninguna escritura llegó al envoltorio', bloq()-n0===0]
+   ];
+   const mal=C.filter(c=>c[1]!==true).map(c=>c[0]);
+   return {ok:!mal.length, detalle: !mal.length
+     ? 'Medidor: normal hasta 899 KB, amarillo desde 900 KB, rojo desde 980 KB y, pasado 1 MiB, «nadie puede guardar»; siempre «inventario/datos: X KB de 1.024 KB (Y %)» ✓'
+      +'\nHoy: '+r.nReal.texto+' ✓'
+      +'\nEl respaldo se llama '+r.nombre+' (fecha y hora), trae inventario/datos e inventario/historial, la versión y cuándo se generó, y no toca DB ✓'
+      +'\nLa tarjeta 🛡️ Vigilancia solo la ve el administrador, con el aviso de datos privados; el botón lee fresco de la nube y no escribe ✓'
+      +'\nUna bodega no puede descargar; si la nube falla o no trae el documento lo dice y no se descarga nada (aquí no se descargó ningún archivo) ✓'
+     : 'Fallan: '+mal.join(', ')+'\n'+JSON.stringify({niv:r.niv, nombre:r.nombre, j:r.j, d}).slice(0,1500).replace(/</g,'&lt;')};}},
+{app:'inv', titulo:'Etapa 1 · El chequeo cuenta bien y no corrige nada',
+ porque:'Revisión del 9 oct 2026: 38 seriales en dos sitios, 4 equipos instalados que siguen en una cuadrilla y filas cuya cantidad no coincide con '
+       +'sus seriales. El chequeo de la tarjeta 🛡️ Vigilancia los cuenta (y avisa si suben entre una sincronización y la siguiente, con el sello '
+       +'de quién escribió) sin corregir nada: los arreglos se hacen en la 🩺 Auditoría, caso por caso. Primero con datos inventados y respuesta '
+       +'conocida, comparando con auditarInventario(); después con los datos reales, solo para informar.',
+ correr:W=>{
+   const r=E(W,
+     'const T0=Date.now()-20*86400000, D=86400000;'
+   +'const datos={'
+   +' bodegas:[{id:"PRUEBA_B1", nombre:"BODEGA PRUEBA E1", materiales:['
+   +'   {id:"m1", nombre:"ONU A", cantidad:2, snes:["hwtc ed66 0aa4","SNB-1"]}, {id:"m2", nombre:"CABLE", cantidad:-3, snes:[]},'
+   +'   {id:"m3", nombre:"ONU C", cantidad:3, snes:["SNC-1","SNC-2"]}, {id:"m4", nombre:"RELLENO", cantidad:1, snes:["N/A"]},'
+   +'   {id:"m5", nombre:"ONU INST B", cantidad:1, snes:["SNI-BOD"]}, {id:"m6", nombre:"ONU VUELTA", cantidad:1, snes:["SNV-1"]}]}],'
+   +' cuadrillas:[{id:"PRUEBA_C1", nombre:"CUADRILLA PRUEBA E1", bodegaId:"PRUEBA_B1", tecnicos:[], materiales:['
+   +'   {id:"k1", nombre:"ONU A", cantidad:1, snes:["48575443-ED66-0AA4"]}, {id:"k2", nombre:"ONU I", cantidad:1, snes:["SNI-1"]},'
+   +'   {id:"k3", nombre:"ONU E", cantidad:1, snes:["SNE-1"]}, {id:"k4", nombre:"DROP", cantidad:-1, snes:[]},'
+   +'   {id:"k5", nombre:"ONU D", cantidad:2, snes:["SND-1"]}, {id:"k6", nombre:"RELL", cantidad:1, snes:["N/A"]},'
+   +'   {id:"k7", nombre:"ONU M", cantidad:2, snes:["SNM-1","snm 1"]}]}],'
+   +' consumosPendientes:['
+   +'   {id:"K1", estado:"confirmado", confirmadoMs:T0, items:[{nombre:"ONU I", cant:1, snes:["sni-1"]}]},'
+   +'   {id:"K2", estado:"confirmado", confirmadoMs:T0, items:[{nombre:"ONU E", cant:1, snes:["SNE-1"]}]},'
+   +'   {id:"K3", estado:"confirmado", confirmadoMs:T0, items:[{nombre:"ONU INST B", cant:1, sn:"SNI-BOD"}]},'
+   +'   {id:"K4", estado:"confirmado", confirmadoMs:T0, items:[{nombre:"ONU VUELTA", cant:1, snes:["SNV-1"]}]},'
+   +'   {id:"K5", estado:"pendiente", fechaMs:T0, items:[{nombre:"ONU C", cant:1, snes:["SNC-1"]}]},'
+   +'   {id:"K6", estado:"confirmado", confirmadoMs:T0, items:[{nombre:"X", cant:1, snes:["N/A"]}]}],'
+   +' entregas:[{id:"E0", fechaMs:T0-D, mats:[{nom:"ONU I", cant:1, snes:["SNI-1"]}]}, {id:"E1", fechaMs:T0+D, mats:[{nom:"ONU E", cant:1, snes:["SNE-1"]}]}],'
+   +' recuperados:[{id:"R1", estado:"integrado", integradoMs:T0+D, nom:"ONU VUELTA", cant:1, snes:["SNV-1"]}]'
+   +'};'
+   +'const antes=JSON.stringify(datos), c=_chequeoInventarioInv(datos), intacta=JSON.stringify(datos)===antes;'
+   +'const cuenta=(H,re)=>H.filter(h=>re.test(h.titulo)).length;'
+   +'const aud=H=>({dos:cuenta(H,/DOS lugares/), neg:cuenta(H,/Stock NEGATIVO/), cant:cuenta(H,/^Cantidad y seriales no coinciden/), inst:cuenta(H,/instalado que sigue/i)});'
+   +'const g={}; ["bodegas","cuadrillas","consumosPendientes","entregas","recuperados"].forEach(k=>{ g[k]=DB[k]; });'
+   +'let A=null; try{ Object.keys(g).forEach(k=>{ DB[k]=JSON.parse(JSON.stringify(datos[k])); }); A=aud(auditarInventario()); } finally { Object.keys(g).forEach(k=>{ DB[k]=g[k]; }); }'
+   +'const res={tot:c.totales, total:c.total, dos:c.dosSitios.map(x=>x.clave+"@"+x.sitios.map(s=>s.tipo+":"+s.id).sort().join("+")), mismo:c.mismoSitio.map(x=>x.clave+"x"+x.veces),'
+   +'  inst:c.instalados.map(x=>x.clave+"@"+x.sitios.map(s=>s.tipo).join("+")).sort(), neg:c.negativos.map(x=>x.tipo+":"+x.articulo+":"+x.cantidad).sort(),'
+   +'  cant:c.cantDistinta.map(x=>x.tipo+":"+x.articulo+":"+x.cantidad+"/"+x.seriales).sort(), instCuad:c.instalados.filter(x=>x.sitios.some(s=>s.tipo==="cuadrilla")).length};'
+   // Con los datos reales: solo lectura, y nada cambia
+   +'const f0=JSON.stringify([DB.bodegas, DB.cuadrillas, DB.consumosPendientes, DB.entregas, DB.recuperados]);'
+   +'const t0=performance.now(), real=_chequeoInventarioInv(_datosChequeoInv()), ms=Math.round(performance.now()-t0), AR=aud(auditarInventario());'
+   +'const sinCambios=JSON.stringify([DB.bodegas, DB.cuadrillas, DB.consumosPendientes, DB.entregas, DB.recuperados])===f0;'
+   +'return {res, intacta, A, real:{tot:real.totales, total:real.total, mismo:real.mismoSitio.length, instCuad:real.instalados.filter(x=>x.sitios.some(s=>s.tipo==="cuadrilla")).length, ms}, AR, sinCambios};');
+   const s=r.res, R=r.real, A=r.A, AR=r.AR;
+   const C=[
+     ['un serial escrito de dos formas en dos sitios cuenta UNA vez', s.tot.dosSitios===1 && s.dos[0]==='48575443ED660AA4@bodega:PRUEBA_B1+cuadrilla:PRUEBA_C1'],
+     ['el mismo serial dos veces en un mismo sitio va aparte', s.mismo.join()==='SNM1x2'],
+     ['instalado que sigue (cuadrilla y bodega), salvo entrega o vuelta posterior', s.tot.instalados===2 && s.inst.join()==='SNI1@cuadrilla,SNIBOD@bodega'],
+     ['cantidades negativas en bodega y en cuadrilla', s.tot.negativos===2 && s.neg.join()==='bodega:CABLE:-3,cuadrilla:DROP:-1'],
+     ['cantidad distinta a los seriales, también en bodega', s.tot.cantDistinta===2 && s.cant.join()==='bodega:ONU C:3/2,cuadrilla:ONU D:2/1'],
+     ['los rellenos (N/A) no cuentan y el total suma las cuatro', s.total===7],
+     ['la entrada queda idéntica', r.intacta===true],
+     ['coincide con la Auditoría sobre los mismos datos', !!A && A.dos===s.tot.dosSitios && A.neg===s.tot.negativos && A.cant===s.tot.cantDistinta && A.inst===s.instCuad],
+     ['con los datos reales no se cambió nada', r.sinCambios===true]
+   ];
+   const mal=C.filter(c=>c[1]!==true).map(c=>c[0]);
+   // Con los datos reales (informativo): las mismas cifras que la Auditoría, salvo «cantidad distinta», donde la Auditoría cuenta también los rellenos
+   const coinciden = R.tot.dosSitios===AR.dos && R.tot.negativos===AR.neg && R.instCuad===AR.inst;
+   const realTxt='Con los datos reales ('+R.ms+' ms): '+R.tot.dosSitios+' seriales en dos sitios (Auditoría: '+AR.dos+') + '+R.mismo+' repetidos en un mismo sitio = '+(R.tot.dosSitios+R.mismo)
+     +' (la cifra de «Estado real: seriales repetidos»); '+R.tot.instalados+' equipos instalados que siguen, '+R.instCuad+' en cuadrillas (Auditoría, que solo mira cuadrillas: '+AR.inst+'); '
+     +R.tot.negativos+' cantidades negativas (Auditoría: '+AR.neg+'); '+R.tot.cantDistinta+' filas con cantidad distinta (Auditoría: '+AR.cant+', que cuenta también los rellenos N/A y S/N).';
+   return {ok:!mal.length && coinciden, ojo:!mal.length && !coinciden, detalle: !mal.length
+     ? 'Con datos inventados cuenta 1 serial en dos sitios (escrito de dos formas), 2 instalados que siguen (una entrega o una vuelta posterior los quita), 2 negativos y 2 filas con cantidad distinta (una en bodega); los N/A no cuentan; la entrada queda idéntica y las cifras son las de la Auditoría ✓'
+      +'\n'+realTxt+(coinciden ? ' ✓' : '\n⚠️ Con los datos reales el chequeo y la Auditoría no dan lo mismo: revisar.')
+     : 'Fallan: '+mal.join(', ')+'\n'+JSON.stringify({res:s, A, real:R, AR}).slice(0,1500).replace(/</g,'&lt;')};}},
 {app:'ofi', titulo:'Un comprobante bloqueado por duplicado se puede subir escribiendo por qué no es el mismo, y queda marcado para el administrador',
  porque:'Pedido de Elkin del 15/9/2026: cuando la app dice que un comprobante está repetido, poder subirlo igual con un comentario '
        +'que explique por qué no es el mismo. Antes solo había un aviso y no se podía seguir. El motivo es obligatorio, queda en el '
@@ -5398,6 +5743,7 @@ const PRUEBAS = [
        +'const fv=document.getElementById("fo_valid"), x1=window._ingOrdenExtra, val=id=>{ const el=document.getElementById(id); return el?String(el.value):""; }; '
        +'R.formOrden=c4 && c5 && !document.getElementById("pvCheckCapa") && !!fv && !!x1 && fv.value===x1.valId && /^e[a-z0-9]{6,}$/.test(x1.valId) && x1.servicio===servId && document.getElementById("modal").classList.contains("show") && val("fo_tipo")==="soporte" && val("fo_ofi")===String(o1.id) && val("fo_cliente")==="ZULMA RIOSFALSO PEREZ" && val("fo_cedula")==="1117500123" && val("fo_desc").length>10 && val("fo_desc").length<=160 && !/[<>]/.test(val("fo_desc")); '
        +'R.borradorCerrado=lsLeer(K1)===null; '
+       +'for(let k=0;k<25 && esPvck();k++) await esperar(100); '   // history.back() es asíncrono: con la tanda completa a veces tarda más de 600 ms
        +'R.historialDevuelto=!esPvck(); '
        +'let pregs=0, pregTxt=""; window.confirm=t=>{ pregs++; pregTxt=String(t); return false; }; '
        +'const bCan=document.querySelector("#mFooter .btn-outline"), bX=document.querySelector("#modal .close-btn"); if(bCan) bCan.click(); if(bX) bX.click(); document.getElementById("modal").click(); '
@@ -6583,6 +6929,206 @@ const PRUEBAS = [
       +'\nLa pantalla dice la herramienta del mapa, nunca la sede abierta: una idea enviada sin nombre no lleva ni la sede ni la oficina ✓'
       +'\nEn modo prueba guardar y actualizar rechazan con "modo prueba" y no se intentó ninguna escritura ✓'
      : 'Fallan: '+mal.join(', ')+'\n'+JSON.stringify(R).replace(/</g,'&lt;')};}},
+{app:'red', titulo:'Etapa 1 · La recarga automática espera lo que debe y nunca recarga una prueba',
+ porque:'Pedido de Elkin (docs/12, punto 7): al publicar, las pantallas abiertas mostraban «¡Hay una versión nueva!» y esperaban a que alguien tocara '
+       +'el botón. Ahora recarga.js, el mismo en las cuatro apps, cuenta 30 s y recarga sola, pero solo con internet, sin nada guardándose, sin un '
+       +'formulario a medias, con la página publicada ya nueva y como mucho 3 veces en 10 minutos. Lo más grave sería que recargara una prueba: el '
+       +'marco volvería sin ?prueba=1 y escribiría en la base de verdad. Aquí recarga.js se evalúa APARTE, con un navegador falso que nunca navega; '
+       +'los marcos abiertos solo se miran, y TÉCNICOS se LEE, no se abre. Nada se escribe.',
+ correr:async W=>{
+   const leer=async f=>{ try{ const x=await fetch(f,{cache:'no-store'}); return x.ok ? await x.text() : ''; }catch(e){ return ''; } };
+   const pausa=ms=>new Promise(res=>setTimeout(res,ms));
+   const fallas=[]; const exige=(c, txt)=>{ if(!c) fallas.push(txt); return !!c; };
+   const sinCom=t=>t.split('\n').map(l=>l.replace(/\/\/.*$/,'')).join('\n');
+   // 1. Las cuatro apps cargan el mismo recarga.js?v=N, con su comentario, sin copiarlo, y su botón conserva los parámetros
+   const A=[{k:'INVENTARIO', archivo:'INVENTARIO_PTOVISION.html', cte:'APP_VERSION_INV'}, {k:'OFICINAS', archivo:'OFICINAS_PTOVISION.html', cte:'APP_VERSION'},
+            {k:'TÉCNICOS', archivo:'TECNICOS_PTOVISION.html', cte:'APP_VERSION_TEC'}, {k:'RED', archivo:'RED_PTOVISION.html', cte:'APP_VERSION_RED'}];
+   const textos=(await Promise.all(A.map(a=>leer(a.archivo)))).map(t=>t.replace(/\r/g,''));
+   const noLeidos=A.filter((a,i)=>!textos[i]).map(a=>a.archivo);
+   if(noLeidos.length) return {ok:false, detalle:'No se pudo leer '+noLeidos.join(', ')+'.'};
+   const RE_TAG=new RegExp('<scr'+'ipt[^>]*\\ssrc="recarga\\.js\\?v=(\\d+)"[^>]*>','g'), COMENT='<!'+'-- Recarga automática al publicar, compartida: editar recarga.js, no copiarlo aquí -'+'->';
+   const vs=[];
+   A.forEach((a,i)=>{ const t=textos[i], tags=[...t.matchAll(RE_TAG)]; vs.push(tags.length===1 ? tags[0][1] : '');
+     exige(tags.length===1, a.k+': trae '+tags.length+' etiquetas <script src="recarga.js?v=N"> (debe ser 1)');
+     const iC=t.indexOf(COMENT); exige(iC>=0 && !!tags[0] && /^\s*$/.test(t.slice(iC+COMENT.length, tags[0].index)), a.k+': falta el comentario «Recarga automática al publicar, compartida: editar recarga.js, no copiarlo aquí» justo antes de la etiqueta');
+     exige(!/global\.PV_RECARGA\s*=|var\s+PV_RECARGA\s*=|PV_RECARGA\s*=\s*\{/.test(t), a.k+': trae una copia del código de recarga.js (debe cargarlo, no copiarlo)');
+     const bots=[...t.matchAll(/onclick="([^"]*PV_RECARGA\.recargarAhora\(\)[^"]*)"/g)].map(m=>m[1]);
+     exige(bots.length>=1, a.k+': ningún botón «Actualizar ahora» llama PV_RECARGA.recargarAhora()');
+     bots.forEach(oc=>{
+       exige(/^if\(window\.PV_RECARGA\)\s*PV_RECARGA\.recargarAhora\(\);\s*else\s*\{/.test(oc) && /searchParams\.set\('nv'/.test(oc) && /location\.replace\(/.test(oc), a.k+': el botón no tiene el respaldo que recarga conservando los parámetros («'+oc.slice(0,80)+'…»)');
+       exige(!/(^|[^.\w])new\s+URL\s*\(/.test(oc), a.k+': el respaldo del botón usa «new URL(…)» dentro de un onclick, donde URL es document.URL (un texto): lanza «URL is not a constructor» y, si recarga.js no cargó, el botón no hace nada. Debe ser «new window.URL(…)», como en RED'); });
+     exige(!/location\.href\s*=\s*location\.origin\s*\+\s*location\.pathname\s*\+\s*'\?nv='/.test(t), a.k+': todavía recarga con location.origin+location.pathname+\'?nv=\' (pierde ?prueba=1)');
+   });
+   const N=vs[0]; exige(!!N && vs.every(v=>v===N), 'Las cuatro apps no cargan el mismo recarga.js?v=N: '+A.map((a,i)=>a.k+' '+(vs[i]||'ninguno')).join(' · '));
+   const src=N ? (await leer('recarga.js?v='+N)).replace(/\r/g,'') : '';
+   if(!src || src.indexOf('PV_RECARGA')<0) return {ok:false, detalle:'recarga.js?v='+(N||'?')+' no existe o no trae PV_RECARGA.\n· '+fallas.join('\n· ').replace(/</g,'&lt;')};
+   const srcSin=sinCom(src);
+   exige(!/\bdb\s*\.\s*collection\s*\(|\bfsDB\b|\bfirebase\s*\.|\bDB\s*\./.test(srcSin), 'recarga.js usa la base de datos directamente: todo debe llegarle por el adaptador op');
+   exige(!/\.innerHTML\s*=/.test(srcSin) && /textContent/.test(srcSin) && !/localStorage/.test(srcSin), 'recarga.js debe escribir su texto con textContent y guardar solo en sessionStorage');
+   // 2. Una copia APARTE de recarga.js (su «globalThis» es un objeto falso): no toca este navegador ni los marcos
+   const cargar=g=>{ new Function('globalThis','self','module', src)(g, g, undefined); return g.PV_RECARGA; };
+   let P=null; try{ P=cargar({}); }catch(e){ return {ok:false, detalle:'recarga.js no se pudo evaluar aparte: '+String((e&&e.message)||e)}; }
+   const TX=P.TEXTOS||{};
+   exige(JSON.stringify(P.TIEMPOS)==='{"cuentaMs":30000,"azarMaxMs":20000,"reintentoPaginaMs":60000,"sondeoMs":2000,"quietudMs":3000,"topeRecargas":3,"ventanaMs":600000,"antesMaxMs":5000}' && Object.isFrozen(P.TIEMPOS),
+     'TIEMPOS no son los acordados (30 s de cuenta, 0 a 20 s al azar, reintento cada minuto, 3 s de calma, 3 recargas en 10 min) o se pueden cambiar');
+   const ahora=Date.now(), base={modoPrueba:false, ignorarVersion:false, recientes:0, formulario:'', online:true, ocupado:'', versionPagina:115, objetivo:115};
+   const d=x=>P.decidir(Object.assign({}, base, x));
+   const casos=[
+     [{}, 'recargar', 'todo listo'], [{modoPrueba:true}, 'prueba', 'modo prueba'], [{ignorarVersion:true}, 'prueba', '?ignorarVersion'],
+     [{recientes:3}, 'tope', '3 recargas'], [{recientes:2}, 'recargar', '2 recargas'],
+     [{recientes:[ahora-1000, ahora-2000, ahora-3000], ahoraMs:ahora}, 'tope', '3 marcas en 10 min'],
+     [{recientes:[ahora-700000, ahora-2000, ahora-3000], ahoraMs:ahora}, 'recargar', 'una marca de hace más de 10 min'],
+     [{formulario:'llenando una instalación'}, 'formulario', 'formulario a medias'], [{online:false}, 'sin_red', 'sin internet'],
+     [{ocupado:'guardando'}, 'ocupado', 'guardando'], [{versionPagina:null}, 'pagina_pendiente', 'página sin bajar'], [{versionPagina:-1}, 'sin_red', 'descarga fallida'],
+     [{versionPagina:114}, 'pagina_vieja', 'página publicada vieja'], [{versionPagina:0}, 'pagina_vieja', 'página sin la constante'], [{versionPagina:116}, 'recargar', 'página más nueva'],
+     [{modoPrueba:true, recientes:3, formulario:'x', online:false, ocupado:'x', versionPagina:null}, 'prueba', 'la prueba manda sobre todo'],
+     [{recientes:3, formulario:'x', online:false}, 'tope', 'el tope antes que el formulario'], [{formulario:'x', online:false, ocupado:'x'}, 'formulario', 'el formulario antes que la red'],
+     [{online:false, ocupado:'x'}, 'sin_red', 'la red antes que el guardado'], [{ocupado:'x', versionPagina:114}, 'ocupado', 'el guardado antes que la página']
+   ];
+   const malD=casos.filter(c=>d(c[0]).fase!==c[1]).map(c=>c[2]+' → '+d(c[0]).fase+' (debía ser '+c[1]+')');
+   exige(!malD.length, 'decidir elige mal: '+malD.join('; '));
+   exige(d({modoPrueba:true}).motivo===TX.prueba && TX.prueba==='Modo prueba: esta pantalla no se actualiza sola.' && /ignorarVersion/.test(d({ignorarVersion:true}).motivo)
+     && /\(guardando\)/.test(d({ocupado:'guardando'}).motivo) && d({recientes:3}).motivo===TX.tope && /Actualizar ahora/.test(TX.tope) && d({online:false}).motivo===TX.sin_red, 'los textos de decidir no son los acordados');
+   const u1=new URL(P.urlRecarga('http://127.0.0.1:8791/INVENTARIO_PTOVISION.html?prueba=1&ignorarVersion&caja=3#sede', 123)), u2=new URL(P.urlRecarga('https://x.github.io/inventario/RED_PTOVISION.html?nv=1&prueba=1&nv=2', 456));
+   exige(u1.searchParams.get('prueba')==='1' && u1.searchParams.has('ignorarVersion') && u1.searchParams.get('caja')==='3' && u1.searchParams.get('nv')==='123' && u1.hash==='#sede' && u1.pathname==='/INVENTARIO_PTOVISION.html',
+     'urlRecarga no conserva prueba=1, ignorarVersion, los demás parámetros o el #: '+u1.href);
+   exige(u2.searchParams.getAll('nv').join()==='456' && u2.searchParams.get('prueba')==='1', 'urlRecarga no reemplaza el nv viejo: '+u2.href);
+   const ve=P.versionEnTexto, pag='<scr'+'ipt>\nconst APP_VERSION_INV = 114;\nconst APP_VERSION = 319;\nconst APP_VERSION_FECHA = "9 oct";\nconst APP_VERSION_TEC  =  100 ;\nconst APP_VERSION_RED = 43; // v43\n</scr'+'ipt>';
+   exige(ve(pag,'APP_VERSION_INV')===114 && ve(pag,'APP_VERSION')===319 && ve(pag,'APP_VERSION_TEC')===100 && ve(pag,'APP_VERSION_RED')===43, 'versionEnTexto no lee bien las cuatro constantes');
+   exige(ve('<html><body><h1>404</h1>File not found</body></html>','APP_VERSION_INV')===0 && ve('','APP_VERSION')===0 && ve(null,'APP_VERSION')===0, 'versionEnTexto no da 0 con una página de error');
+   A.forEach((a,i)=>{ const v=+((textos[i].match(new RegExp('const '+a.cte+'\\s*=\\s*(\\d+)\\s*;'))||[])[1]||0); exige(v>0 && ve(textos[i], a.cte)===v, a.k+': versionEnTexto no lee su '+a.cte+' ('+ve(textos[i], a.cte)+' en vez de '+v+')'); });
+   const lista=[ahora-1000, ahora-600000, ahora-599999, 'x', ahora-5000], sL=JSON.stringify(lista), pd=P.podar(lista, ahora);
+   exige(JSON.stringify(pd)===JSON.stringify([ahora-599999, ahora-5000, ahora-1000]) && JSON.stringify(lista)===sL, 'podar no deja solo las marcas de los últimos 10 minutos: '+JSON.stringify(pd));
+   // 3. La máquina de estados, en la copia aparte, con tiempos de banco (solo valen en una copia local) y un navegador falso
+   const ambiente=(href, op)=>{
+     const S={T:[], ss:{}, rep:[], pedidos:[], ev:{}, fases:[], pagina:{texto:'', falla:false}, el:{textContent:''}, nav:{onLine:true}, oc:'', fo:''}; let n=0;
+     const g={ setTimeout:(fn,ms)=>{ const i=++n; S.T.push({i, fn, ms}); return i; }, clearTimeout:i=>{ const k=S.T.findIndex(t=>t.i===i); if(k>=0) S.T.splice(k,1); },
+       navigator:S.nav, addEventListener:(nom,f)=>{ (S.ev[nom]=S.ev[nom]||[]).push(f); },
+       sessionStorage:{ getItem:k=>Object.prototype.hasOwnProperty.call(S.ss,k) ? S.ss[k] : null, setItem:(k,v)=>{ S.ss[k]=String(v); } },
+       location:{ href, pathname:new URL(href).pathname, replace:u=>{ S.rep.push(u); } },
+       document:{ querySelectorAll:q=>q==='.pvRecargaTexto' ? [S.el] : [] },
+       fetch:(u,o)=>{ S.pedidos.push({u, o}); return S.pagina.falla ? Promise.reject(new TypeError('Failed to fetch')) : Promise.resolve(new Response(S.pagina.texto, {status:200})); },
+       __PV_RECARGA_PRUEBA:{cuentaMs:0, azarMaxMs:0, reintentoPaginaMs:0, sondeoMs:0, quietudMs:0, antesMaxMs:0} };
+     S.P=cargar(g);
+     S.P.iniciar(Object.assign({app:'PRB', constante:'APP_VERSION_INV', versionLocal:113, modoPrueba:false, ignorarVersion:false, entornoLocal:true,
+       ocupado:()=>S.oc, formulario:()=>S.fo, alCambiar:e=>{ S.fases.push(e.fase); }}, op||{}));
+     return S;
+   };
+   const avanzar=async (S, n)=>{ for(let k=0;k<n;k++){ await pausa(20); const t=S.T.shift(); if(!t) break; t.fn(); } await pausa(20); };
+   const sA=ambiente('http://127.0.0.1:8791/INVENTARIO_PTOVISION.html?prueba=1#y', {modoPrueba:true});
+   const a0=sA.P.estado().fase; sA.P.anunciada(114); await avanzar(sA, 5);
+   const a1={fase0:a0, fase:sA.P.estado().fase, objetivo:sA.P.estado().objetivo, timers:sA.T.length, pedidos:sA.pedidos.length, rep:sA.rep.length, texto:sA.el.textContent};
+   exige(a1.fase0==='prueba' && a1.fase==='prueba' && a1.objetivo===114 && a1.timers===0 && a1.pedidos===0 && a1.rep===0 && a1.texto===TX.prueba, 'En modo prueba no debe hacer nada aunque se anuncie una versión nueva: '+JSON.stringify(a1));
+   sA.P.recargarAhora(); await avanzar(sA, 3);
+   const ua=sA.rep.length===1 ? new URL(sA.rep[0]) : null;
+   exige(!!ua && ua.searchParams.get('prueba')==='1' && ua.hash==='#y' && !!ua.searchParams.get('nv') && !sA.ss.pv_recargas_PRB, 'El botón «Actualizar ahora» en modo prueba debe recargar conservando ?prueba=1, sin contar como recarga automática: '+(sA.rep.join(' | ')||'no recargó'));
+   const sI=ambiente('http://127.0.0.1:8791/OFICINAS_PTOVISION.html?ignorarVersion', {ignorarVersion:true}); sI.P.anunciada(400); await avanzar(sI, 5);
+   exige(sI.P.estado().fase==='prueba' && sI.rep.length===0 && /ignorarVersion/.test(sI.el.textContent), 'Con ?ignorarVersion no debe recargarse sola');
+   const sB=ambiente('http://127.0.0.1:8791/INVENTARIO_PTOVISION.html?caja=3&sede=2#x', {antesDeRecargar:()=>{ sB.antes=(sB.antes||0)+1; return Promise.resolve(); }});
+   sB.fo='llenando la instalación'; sB.P.anunciada(114); await avanzar(sB, 3);
+   const b1={fase:sB.P.estado().fase, pedidos:sB.pedidos.length, texto:sB.el.textContent};
+   sB.fo=''; sB.oc='guardando en la nube'; await avanzar(sB, 6);
+   const b2={fase:sB.P.estado().fase, pedidos:sB.pedidos.length, rep:sB.rep.length, texto:sB.el.textContent};
+   sB.oc=''; sB.pagina.texto='<html><scr'+'ipt>const APP_VERSION_INV = 113;</scr'+'ipt></html>'; await avanzar(sB, 3);
+   const b3={fase:sB.P.estado().fase, pedidos:sB.pedidos.length, rep:sB.rep.length, url:(sB.pedidos[0]||{}).u, cache:((sB.pedidos[0]||{}).o||{}).cache};
+   sB.pagina.texto='<html><scr'+'ipt>const APP_VERSION_INV = 114;</scr'+'ipt></html>'; await avanzar(sB, 4);
+   const b4={fase:sB.P.estado().fase, rep:sB.rep.slice(), marcas:JSON.parse(sB.ss.pv_recargas_PRB||'[]').length, antes:sB.antes||0, fases:sB.fases.join('>')};
+   const ub=b4.rep.length===1 ? new URL(b4.rep[0]) : null;
+   exige(b1.fase==='formulario' && b1.pedidos===0 && b1.texto===TX.formulario, 'Con un formulario a medias debe esperar sin contar: '+JSON.stringify(b1));
+   exige(b2.fase==='ocupado' && b2.pedidos===0 && b2.rep===0 && /guardando en la nube/.test(b2.texto), 'Con un guardado en curso debe esperar: '+JSON.stringify(b2));
+   exige(b3.fase==='pagina_vieja' && b3.pedidos>=1 && b3.rep===0 && /^\/INVENTARIO_PTOVISION\.html\?nc=\d+$/.test(b3.url||'') && b3.cache==='no-store', 'Con la página publicada todavía vieja debe esperar (y bajarla sin caché): '+JSON.stringify(b3));
+   // El navegador falso nunca navega: la vigía (30 s en la vida real; aquí los temporizadores corren en orden)
+   // termina pasando a «tope» con el aviso de tocar el botón, y el botón vuelve a servir.
+   exige(!!ub && ub.searchParams.get('caja')==='3' && ub.searchParams.get('sede')==='2' && ub.hash==='#x' && !!ub.searchParams.get('nv') && b4.marcas===1 && b4.antes===1 && (b4.fase==='recargando' || b4.fase==='tope'),
+     'Con todo listo debe recargar UNA vez, conservando los parámetros, anotando la marca y esperando antes lo pendiente: '+JSON.stringify(b4));
+   exige(/^formulario>cuenta>azar>ocupado>.*pagina_pendiente>pagina_vieja>.*recargando(>tope)?$/.test(b4.fases), 'Las fases no van en el orden acordado: '+b4.fases);
+   await avanzar(sB, 3);
+   const b5={fase:sB.P.estado().fase, texto:sB.el.textContent}; sB.P.recargarAhora(); await avanzar(sB, 2);
+   exige(b5.fase==='tope' && b5.texto===TX.atascada && sB.rep.length===2, 'Si la página no llega a navegar, debe avisar que se toque el botón y el botón debe volver a recargar: '+JSON.stringify({b5, rep:sB.rep.length}));
+   const t0=Date.now(), sC=ambiente('http://127.0.0.1:8791/RED_PTOVISION.html?caja=1');
+   sC.ss.pv_recargas_PRB=JSON.stringify([t0-1000, t0-2000, t0-3000]); sC.P.anunciada(114); await avanzar(sC, 3);
+   exige(sC.P.estado().fase==='tope' && sC.P.estado().recientes===3 && sC.rep.length===0 && sC.T.length===0 && sC.el.textContent===TX.tope, 'Con 3 recargas automáticas en 10 minutos debe quedar solo el botón: '+JSON.stringify(sC.P.estado()));
+   const sC2=ambiente('http://127.0.0.1:8791/RED_PTOVISION.html'); sC2.ss.pv_recargas_PRB=JSON.stringify([t0-700000, t0-650000, t0-1000]); sC2.P.anunciada(114);
+   exige(sC2.P.estado().recientes===1 && sC2.P.estado().fase==='cuenta', 'Pasados los 10 minutos las marcas viejas no deben contar: '+JSON.stringify(sC2.P.estado()));
+   const sD=ambiente('http://127.0.0.1:8791/TECNICOS_PTOVISION.html?x=1'); sD.nav.onLine=false; sD.P.anunciada(114); await avanzar(sD, 5);
+   const d1={fase:sD.P.estado().fase, pedidos:sD.pedidos.length, rep:sD.rep.length};
+   sD.nav.onLine=true; sD.pagina.falla=true; await avanzar(sD, 3);
+   const d2={fase:sD.P.estado().fase, pedidos:sD.pedidos.length, rep:sD.rep.length};
+   sD.pagina.falla=false; sD.pagina.texto='const APP_VERSION_INV = 114;'; (sD.ev.online||[]).forEach(f=>f()); await avanzar(sD, 3);
+   exige(d1.fase==='sin_red' && d1.pedidos===0 && d1.rep===0 && sD.el.textContent!=='', 'Sin internet debe esperar sin intentar bajar nada: '+JSON.stringify(d1));
+   exige(d2.fase==='sin_red' && d2.pedidos>=1 && d2.rep===0, 'Si la página no baja (datos móviles sin salida a internet) debe esperar: '+JSON.stringify(d2));
+   exige(sD.rep.length===1 && (sD.ev.online||[]).length>=1, 'Al volver el internet debe recargar: '+JSON.stringify({rep:sD.rep, fase:sD.P.estado().fase}));
+   const sE=ambiente('https://proyectovisionsas-bit.github.io/inventario/INVENTARIO_PTOVISION.html', {entornoLocal:false}); sE.P.anunciada(114);
+   const e1=sE.P.estado(); sE.P.anunciada(114); sE.P.anunciada(113); const e2=sE.P.estado(), e3=sE.P.anunciada(115);
+   exige(e1.fase==='cuenta' && e1.segundos===30 && sE.el.textContent==='Se actualizará sola en 30 s', 'Fuera de una copia local los tiempos del banco no deben valer (cuenta de 30 s): '+JSON.stringify(e1));
+   exige(e2.fase==='cuenta' && e2.objetivo===114 && e3.objetivo===115 && e3.fase==='cuenta' && sE.T.length===1, 'anunciada debe ser idempotente (una sola cuenta) y una versión mayor solo cambia el objetivo: '+JSON.stringify({e2, e3, timers:sE.T.length}));
+   // 4. Los marcos abiertos de esta tanda (todos con ?prueba=1): recarga.js cargado, quieto en «prueba», y la dirección intacta
+   const esperados={'INVENTARIO_PTOVISION.html':'INVENTARIO','OFICINAS_PTOVISION.html':'OFICINAS','RED_PTOVISION.html':'RED'}, vivos={};
+   [...document.querySelectorAll('#marcos iframe')].forEach(f=>{ const k=esperados[(f.getAttribute('src')||'').split('?')[0]]; if(!k) return; const v={}; vivos[k]=v;
+     try{ const w=f.contentWindow; v.search=w.location.search; v.hay=!!w.PV_RECARGA;
+       if(v.hay){ const e=w.PV_RECARGA.estado(); v.fase=e.fase; v.textos=[...w.document.querySelectorAll('.pvRecargaTexto')].map(x=>x.textContent); const s=w.document.querySelector('script[src^="recarga.js"]'); v.src=s ? s.getAttribute('src') : ''; } }
+     catch(e){ v.error=String((e&&e.message)||e); } });
+   Object.values(esperados).forEach(k=>{ const v=vivos[k];
+     if(!exige(!!v, k+': no hay un marco abierto para mirarlo')) return;
+     exige(!v.error && v.hay, k+': el marco no tiene PV_RECARGA (no cargó recarga.js)'+(v.error ? ' ('+v.error+')' : ''));
+     exige(/(^\?|&)prueba=1(&|$)/.test(v.search||''), k+': el marco ya no está en ?prueba=1 ('+(v.search||'sin parámetros')+'): se recargó y podría estar escribiendo en la base de verdad');
+     if(v.hay){ exige(v.fase==='prueba', k+': en modo prueba la recarga debe quedar en la fase «prueba» y está en «'+v.fase+'»');
+       exige(v.src==='recarga.js?v='+N, k+': tiene cargado «'+v.src+'» y no recarga.js?v='+N);
+       exige((v.textos||[]).some(x=>x===TX.prueba), k+': su aviso de versión no tiene el texto de la recarga (.pvRecargaTexto)'); } });
+   // 5. INVENTARIO (texto): arranca con su modo prueba, anuncia desde su oyente y espera sus escrituras
+   const tI=sinCom(textos[0]);
+   exige(/PV_RECARGA\.iniciar\(\{[^}]*modoPrueba:\s*MODO_PRUEBA\b[^}]*ignorarVersion:\s*_ignorarVersionInv\(\)[^}]*entornoLocal:\s*_esEntornoLocalInv\(\)[^}]*ocupado:\s*_ocupadoRecargaInv/.test(tI)
+     && /PV_RECARGA\.anunciada\(rem\)/.test(tI) && /const _setDoc = [^\n]*_enVueloInv\(/.test(tI) && /const _runTransaction = [^\n]*\n?[^\n]*_enVueloInv\(/.test(tI), 'INVENTARIO: no arranca recarga.js con MODO_PRUEBA, no avisa desde su oyente o no cuenta sus escrituras en vuelo');
+   // 6. OFICINAS (texto): el disparo sale del oyente y del aviso, nunca de _pestanaDesactualizada ni del mantenimiento
+   const tO=textos[1], fO=n=>{ const i=tO.search(new RegExp('\\n(async\\s+)?function\\s+'+n+'\\s*\\(')); if(i<0) return ''; const j=tO.indexOf('\n}', i+1); return sinCom(tO.slice(i+1, j<0 ? i+8000 : j)); };
+   const iO=fO('_iniciarRecargaOfi'), ocO=fO('_ocupadoRecargaOfi');
+   exige(/PV_RECARGA\.iniciar\(/.test(iO) && /modoPrueba:\s*MODO_PRUEBA\b/.test(iO) && /entornoLocal:\s*_esEntornoLocal\(\)/.test(iO) && /ocupado:\s*_ocupadoRecargaOfi/.test(iO) && /antesDeRecargar:\s*_antesDeRecargarOfi/.test(iO), 'OFICINAS: _iniciarRecargaOfi no arranca recarga.js con MODO_PRUEBA, _esEntornoLocal(), su ocupado y el envío de la auditoría');
+   exige(/_anunciarVersionOfi\(\s*versionRemota\s*\)/.test(fO('iniciarEscuchaVersion')) && /_anunciarVersionOfi\(\s*pub\s*\)/.test(fO('_verificarVersionVieja')), 'OFICINAS: la recarga no se dispara desde el oyente de app_version y el aviso de versión vieja');
+   exige(['_pestanaDesactualizada','_mantVigente','_aplicarMantenimiento'].every(n=>{ const c=fO(n); return c.length>0 && !/PV_RECARGA|_anunciarVersionOfi|recargarAhora/.test(c); }), 'OFICINAS: la recarga cuelga de _pestanaDesactualizada o del mantenimiento (las pruebas inflan esos valores)');
+   exige(['_saveInProgress','_saveEnCola','_tmrReintentoGuardado','_ultimoGuardadoOk','_subidasDriveEnCurso','_syncOcupado','_cargaMovsEnCurso','_huecosEnCurso','_huellaAbonoEnCurso'].every(x=>ocO.indexOf(x)>=0)
+     && (fO('subirArchivoDrive').match(/_subidasDriveEnCurso/g)||[]).length>=2, 'OFICINAS: _ocupadoRecargaOfi no espera todo lo acordado (guardado, cola, reintento, cambios sin subir, Drive, WispHub, cargas)');
+   try{ const wO=[...document.querySelectorAll('#marcos iframe')].map(f=>f.contentWindow).find(w=>{ try{ return /OFICINAS_PTOVISION/.test(w.location.pathname); }catch(e){ return false; } });
+     if(wO) exige(wO.eval('typeof _ocupadoRecargaOfi()')==='string' && (wO._subidasDriveEnCurso||0)===0, 'OFICINAS: en su marco, _ocupadoRecargaOfi no responde o quedó una subida a Drive contada'); }catch(e){ exige(false, 'OFICINAS: '+String((e&&e.message)||e)); }
+   // 7. TÉCNICOS (texto, no se abre): su modo prueba, la franja, la cola y las guardas de devolución, gasto y bandeja
+   const tT=textos[2], fT=n=>{ const i=tT.search(new RegExp('\\n(async\\s+)?function\\s+'+n+'\\s*\\(')); if(i<0) return ''; const resto=tT.slice(i+1), j=resto.search(/\n(async\s+)?function\s/); return sinCom(j<0 ? resto.slice(0,8000) : resto.slice(0,j)); };
+   const iT=fT('_iniciarRecargaTec');
+   exige(/PV_RECARGA\.iniciar\(\{/.test(iT) && /modoPrueba:\s*MODO_PRUEBA_TEC\b/.test(iT) && /entornoLocal:\s*_esEntornoLocalTec\(\)/.test(iT) && /ocupado:\s*_ocupadoTec/.test(iT) && /formulario:\s*_formularioAbiertoTec/.test(iT)
+     && (sinCom(tT).match(/_iniciarRecargaTec\(\)/g)||[]).length>=1, 'TÉCNICOS: no arranca recarga.js con MODO_PRUEBA_TEC, _esEntornoLocalTec(), su ocupado y su formulario');
+   exige(/PV_RECARGA\.anunciada\(remota\)/.test(fT('iniciarEscuchaVersionTec')), 'TÉCNICOS: iniciarEscuchaVersionTec no avisa a recarga.js (PV_RECARGA.anunciada)');
+   exige(tT.split('id="versionFranjaTec"').length===2 && /versionFranjaTec/.test(fT('_ajustarAvisoVersionTec')), 'TÉCNICOS: falta la franja #versionFranjaTec (con una ventana abierta, franja en vez de bloqueo)');
+   const fm=fT('_formularioAbiertoTec');
+   exige(['.modal-bg','modalAyuda','pvCheckCapa','pvBuzonCapa','escCapa','gpsCapaTec'].every(x=>fm.indexOf(x)>=0) && tT.indexOf("d.id='gpsCapaTec'")>=0, 'TÉCNICOS: _formularioAbiertoTec no mira todas las ventanas (modales, lista de chequeo, buzón, escáner y ubicación)');
+   const ocT=fT('_ocupadoTec'); exige(/_guardandoTec/.test(ocT) && /_enviandoFinTec/.test(ocT) && /_escriturasEnVueloTec/.test(ocT), 'TÉCNICOS: _ocupadoTec no espera el guardado, el envío de la cola y las escrituras en vuelo');
+   ['_confirmarDevolverMaterial','_confirmarGastoPosterior','agregarEquipoCliente'].forEach(n=>{ const c=fT(n), iG=c.search(/if\(_pantallaViejaTec\(\)\)\{\s*alert\([^)]*MSG_VERSION_FORM_TEC\);\s*return;\s*\}/), iW=c.search(/\.remove\(\)|runTransaction/);
+     exige(iG>=0 && iW>iG, 'TÉCNICOS: '+n+' no revisa la versión ANTES de cerrar su ventana y de escribir'); });
+   exige(tT.indexOf("const MSG_VERSION_FORM_TEC='Hay una versión nueva de la app. Toca «Actualizar ahora» y vuelve a registrar esto; lo que escribiste aquí no se guardó.';")>=0, 'TÉCNICOS: el aviso de devolución, gasto y bandeja no es el acordado');
+   const fn=fT('_finalizarConPlanTec'); exige(/_esVersionViejaTec\(e\)/.test(fn) && fn.indexOf('Quedó guardada en el celular. La app se va a actualizar y la enviará sola.')>=0, 'TÉCNICOS: al finalizar con la versión vieja no dice que quedó en el celular y que se enviará sola');
+   // 8. RED: su documento de versión, que no anuncia en modo prueba ni desde una copia local, y _pantallaViejaRed
+   const tR=textos[3], fR=n=>{ const i=tR.search(new RegExp('\\n(async\\s+)?function\\s+'+n+'\\s*\\(')); if(i<0) return ''; const j=tR.indexOf('\n}', i+1); return sinCom(tR.slice(i+1, j<0 ? i+8000 : j)); };
+   const rv=fR('registrarVersionRed'), iG=rv.search(/MODO_PRUEBA\s*\|\|\s*_esEntornoLocalRed\(\)/), iS=rv.indexOf('.set(');
+   exige(/doc\('app_version_red'\)/.test(rv) && iG>=0 && iS>iG, 'RED: registrarVersionRed no sale en modo prueba o en una copia local ANTES de escribir app_version_red');
+   exige(/doc\('app_version_red'\)\.onSnapshot\(/.test(fR('iniciarEscuchaVersionRed')) && /PV_RECARGA\.anunciada\(rem\)/.test(fR('iniciarEscuchaVersionRed')) && /_bloqueoVersionRed\s*=\s*true/.test(fR('iniciarEscuchaVersionRed')), 'RED: iniciarEscuchaVersionRed no bloquea ni avisa a recarga.js');
+   const iRR=fR('_iniciarRecargaRed'); exige(/modoPrueba:\s*MODO_PRUEBA\b/.test(iRR) && /entornoLocal:\s*_esEntornoLocalRed\(\)/.test(iRR) && /ocupado:\s*_ocupadoRed/.test(iRR) && /antesDeRecargar:\s*_antesDeRecargarRed/.test(iRR), 'RED: _iniciarRecargaRed no arranca recarga.js con MODO_PRUEBA, _esEntornoLocalRed(), su ocupado y el candado');
+   exige(/^function guardarRed\([^)]*\)\s*\{\s*if\(_pantallaViejaRed\(\)\)\s*throw/.test(fR('guardarRed').replace(/^async /,'')), 'RED: guardarRed no mira la versión al entrar');
+   const bR=()=>(W._escriturasBloqueadas||[]).length, nR0=bR(); let red=null;
+   try{ red=await W.eval('(async function(){ if(typeof _pantallaViejaRed!=="function" || typeof registrarVersionRed!=="function" || typeof _esEntornoLocalRed!=="function") return {faltan:true};'
+     +' const L=[{protocol:"http:", hostname:"localhost"},{protocol:"http:", hostname:"127.0.0.1"},{protocol:"http:", hostname:"192.168.1.20"},{protocol:"file:", hostname:""},{protocol:"https:", hostname:"proyectovisionsas-bit.github.io"}].map(l=>_esEntornoLocalRed(l)).join();'
+     +' const vieja=_pantallaViejaRed(); await registrarVersionRed();'
+     +' return {L, vieja, msg:MSG_VERSION_VIEJA_RED, ocupado:_ocupadoRed()}; })()'); }catch(e){ red={error:String((e&&e.message)||e)}; }
+   exige(!!red && !red.error && !red.faltan, 'RED: falta _pantallaViejaRed, registrarVersionRed o _esEntornoLocalRed'+(red && red.error ? ' ('+red.error+')' : ''));
+   if(red && !red.error && !red.faltan){
+     exige(red.L==='true,true,true,true,false', 'RED: _esEntornoLocalRed no reconoce una copia local (localhost, 127.x, red de la casa, file://) frente a GitHub Pages: '+red.L);
+     exige(typeof red.vieja==='boolean' && red.msg==='Hay una versión nueva de RED: actualiza la página antes de guardar.' && typeof red.ocupado==='string', 'RED: _pantallaViejaRed, su aviso o _ocupadoRed no responden como se acordó');
+     exige(bR()-nR0===0, 'RED: registrarVersionRed intentó escribir en modo prueba ('+(bR()-nR0)+' escritura(s) bloqueadas)'); }
+   const bien=!fallas.length;
+   return {ok:bien, detalle: bien
+     ? 'Las cuatro apps cargan recarga.js?v='+N+' una sola vez, con su comentario y sin copiarlo; su botón «Actualizar ahora» recarga conservando ?prueba=1 y los demás parámetros, aunque recarga.js no haya cargado ✓'
+      +'\ndecidir elige bien en los '+casos.length+' casos (la prueba manda sobre todo, luego el tope, el formulario, la red, el guardado y la página publicada); urlRecarga conserva prueba=1, ignorarVersion y el #; versionEnTexto lee las cuatro constantes y da 0 con una página de error; podar deja solo los últimos 10 minutos ✓'
+      +'\nCon un navegador falso: en modo prueba y con ?ignorarVersion nunca recarga (el botón sí, conservando ?prueba=1); con un formulario o un guardado espera; con la página publicada vieja o sin internet espera; con todo listo recarga una vez, anota la marca y conserva los parámetros; a la tercera en 10 minutos queda solo el botón ✓'
+      +'\nLos marcos de INVENTARIO, OFICINAS y RED siguen en ?prueba=1, con recarga.js quieto en «prueba» ✓'
+      +'\nTÉCNICOS (leído): arranca con MODO_PRUEBA_TEC, muestra la franja con una ventana abierta, avisa que lo finalizado quedó en el celular, y devolución, gasto y bandeja no cierran ni escriben con la versión vieja ✓'
+      +'\nRED: tiene su documento de versión, no lo anuncia en modo prueba ni desde una copia local (aquí no intentó escribir) y no empieza a guardar con la versión vieja ✓'
+     : 'Fallan:\n· '+fallas.join('\n· ').replace(/</g,'&lt;')};}},
 {app:'red', titulo:'Nada se escribió durante las pruebas',
  porque:'Las pruebas corren sobre los datos de verdad. Si alguna escribiera, dañaría justo lo que '
        +'está revisando.',

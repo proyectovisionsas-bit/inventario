@@ -16,6 +16,8 @@
 <script src="checklists.js?v=1"></script>
 <!-- Buzón de sugerencias compartido: editar buzon.js, no copiarlo aquí -->
 <script src="buzon.js?v=1"></script>
+<!-- Recarga automática al publicar, compartida: editar recarga.js, no copiarlo aquí -->
+<script src="recarga.js?v=1"></script>
     <!-- ░░ PWA: instalable en celulares (sin archivos extra) ░░ -->
     <meta name="theme-color" content="#16a34a">
     <meta name="mobile-web-app-capable" content="yes">
@@ -479,8 +481,10 @@
         <div style="font-size:3rem;margin-bottom:12px;animation:vbPulse 1.5s ease infinite;">🚀</div>
         <div style="font-weight:800;font-size:1.3rem;color:#fff;margin-bottom:8px;">¡Hay una versión nueva!</div>
         <div style="font-size:0.92rem;color:rgba(255,255,255,0.9);margin-bottom:8px;">Estás usando una versión anterior del sistema.</div>
-        <div style="font-size:0.85rem;color:rgba(255,255,255,0.75);margin-bottom:22px;">Por seguridad, debes recargar antes de seguir trabajando. Así evitamos errores con los datos.</div>
-        <button onclick="location.href=location.origin+location.pathname+'?nv='+Date.now()" style="background:#fff;color:#7c3aed;border:none;padding:12px 28px;border-radius:10px;font-weight:800;cursor:pointer;font-size:1rem;box-shadow:0 2px 8px rgba(0,0,0,0.2);">🔄 Recargar ahora</button>
+        <div style="font-size:0.85rem;color:rgba(255,255,255,0.75);margin-bottom:12px;">Por seguridad, debes recargar antes de seguir trabajando. Así evitamos errores con los datos.</div>
+        <!-- Etapa 1 (punto 7): aquí recarga.js escribe la cuenta y lo que espera (guardado, internet, página publicada). El botón conserva ?prueba=1, ?ignorarVersion y los demás parámetros. -->
+        <div class="pvRecargaTexto" style="font-size:0.88rem;font-weight:700;color:#fff;min-height:1.2em;margin-bottom:16px;"></div>
+        <button onclick="if(window.PV_RECARGA) PV_RECARGA.recargarAhora(); else { var u=new window.URL(location.href); u.searchParams.set('nv',Date.now()); location.replace(u.toString()); }" style="background:#fff;color:#7c3aed;border:none;padding:12px 28px;border-radius:10px;font-weight:800;cursor:pointer;font-size:1rem;box-shadow:0 2px 8px rgba(0,0,0,0.2);">🔄 Actualizar ahora</button>
         <div style="font-size:0.72rem;color:rgba(255,255,255,0.65);margin-top:12px;">Si este aviso vuelve a salir después de recargar, presiona <b>Ctrl + Shift + R</b></div>
     </div>
 </div>
@@ -1008,7 +1012,7 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION = 318; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 319; // ⬆️ Subir en cada nueva versión publicada
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -1029,7 +1033,7 @@ const APP_VERSION = 318; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '30 Sep 2026 (v318: buzón de sugerencias en las cuatro apps, con muro de ideas y respuestas. v317: consulta de clientes de otras oficinas. Historial en git y en docs/)';
+const APP_VERSION_FECHA = '9 Oct 2026 (v319: se recarga sola al publicar. v318: buzón de sugerencias en las cuatro apps. Historial en git y en docs/)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -3341,6 +3345,73 @@ let _ultimoGuardadoPor = null;
 let _unsubscribeVersion = null;
 let _bannerVersionMostrado = false;
 
+// ─── Etapa 1 (punto 7, oct 2026) · RECARGA AUTOMÁTICA AL PUBLICAR ───
+// Pedido de Elkin: al salir el aviso de versión nueva, la pantalla se actualiza sola. La lógica
+// vive en recarga.js (compartido con INVENTARIO, TÉCNICOS y RED): cuenta de 30 s, retraso al azar,
+// espera a internet y a que termine lo que se está guardando, comprueba que la página publicada ya
+// traiga la versión nueva, conserva los parámetros (?prueba=1, ?ignorarVersion…) y como mucho
+// 3 recargas en 10 minutos. Nunca recarga en modo prueba ni con ?ignorarVersion. Aquí solo va el
+// adaptador. El disparo sale SOLO del oyente de app_version (iniciarEscuchaVersion) y de
+// _verificarVersionVieja; nunca de _pestanaDesactualizada, _mantVigente ni _aplicarMantenimiento:
+// PRUEBAS las llama con la versión inflada a propósito, y una cuenta arrancada ahí recargaría el
+// marco de pruebas. Si recarga.js no cargó (sin señal al abrir), todo sigue como antes: el botón
+// «Actualizar ahora» recarga a mano conservando los parámetros.
+function _ignorarVersionOfi(){ try{ return new URLSearchParams(location.search).has('ignorarVersion'); }catch(e){ return false; } }
+// '' si nada impide recargar; si no, el motivo (recarga.js lo muestra tras «Esperando a que termine de guardar…»).
+// Lo que se perdería al recargar: un guardado en curso, en fila o por reintentar, cambios que la nube no
+// recibió (también el guardado en pausa por mantenimiento: _saveReal deja _ultimoGuardadoOk en false; si
+// nunca se resuelven, queda el botón), una subida a Drive (de ahí sale el enlace del comprobante), la
+// huella de un abono, una carga de movimientos y las vueltas de WispHub (sincronización y rastreador).
+function _ocupadoRecargaOfi(){
+    if(_saveInProgress) return 'guardando en la nube';
+    if(_saveEnCola!==null) return 'hay otro guardado en la fila';
+    if(window._tmrReintentoGuardado) return 'el guardado se va a reintentar en unos segundos';
+    if(window._ultimoGuardadoOk===false){
+        // En pausa por mantenimiento sí sale solo, al terminar. Fuera de eso ya no hay guardado en camino (el que
+        // corre, la fila y el reintento se miraron arriba) y se sigue esperando, pero recarga.js antepone «Esperando a
+        // que termine de guardar…»: el motivo dice que no va a terminar solo y qué hacer, como el aviso del guardado.
+        // recarga.js corta el motivo en 160 letras: estos dos caben enteros.
+        if(window._mantGuardadoPendiente || window._mantBloqueando) return 'hay cambios que la nube todavía no recibió';
+        if(window._guardadoParcial) return 'no va a terminar solo: una oficina no cargó completa y sus movimientos no subieron. Toca «Actualizar ahora» y revisa lo último registrado; si falta, repítelo';
+        return 'no va a terminar solo: el último guardado no llegó a la nube y ya no se reintenta. Toca «Actualizar ahora» y revisa lo último registrado; si falta, repítelo';
+    }
+    if((window._subidasDriveEnCurso||0)>0) return 'subiendo un archivo a Drive';
+    if(window._huellaAbonoEnCurso) return 'revisando la huella de un comprobante de abono';
+    if(window._cargaMovsEnCurso) return 'cargando los movimientos de las oficinas';
+    if(_syncOcupado()) return 'sincronizando con WispHub';
+    if(window._huecosEnCurso) return 'buscando pagos de facturas viejas en WispHub';
+    return '';
+}
+// Formulario a medias: la ventana que pide el motivo de un comprobante repetido. Queda POR ENCIMA del aviso
+// de versión (su z-index es mayor), así que alguien puede estar escribiendo ahí. Al cerrarla, la cuenta empieza de nuevo.
+// También la pregunta o el resumen de una sincronización de WispHub que espera a que vuelvas a la pestaña (v193,
+// _confirmSync / _avisoSync): el candado ya se soltó, así que _ocupadoRecargaOfi no la ve, y recargar ahí botaría
+// la vista previa sin aplicar o el resumen sin leer, sin aviso.
+function _formularioRecargaOfi(){
+    if(document.getElementById('dupMotivoOverlay')) return 'decidiendo si se sube un comprobante repetido';
+    if((window._preguntasSyncEnEspera||0)>0) return 'una sincronización de WispHub espera tu respuesta';
+    return '';
+}
+// Antes de recargar: los registros de auditoría de esta sesión que aún no están en la nube. recarga.js espera
+// como mucho 5 s y recarga aunque falle (_enviarLogsAuditoria nunca rechaza). En modo prueba no se escribe nada.
+function _antesDeRecargarOfi(){
+    try{ if(MODO_PRUEBA) return null; const p=_enviarLogsAuditoria(); return (p && typeof p.then==='function') ? p : null; }catch(e){ return null; }
+}
+// Una vez por carga de página (también la llama _anunciarVersionOfi, por si init no llegó a hacerlo).
+function _iniciarRecargaOfi(){
+    try{
+        if(!window.PV_RECARGA || window._recargaOfiIniciada) return;
+        window._recargaOfiIniciada=true;
+        window.PV_RECARGA.iniciar({ app:'OFI', constante:'APP_VERSION', versionLocal:APP_VERSION,
+            modoPrueba:MODO_PRUEBA, ignorarVersion:_ignorarVersionOfi(), entornoLocal:_esEntornoLocal(),
+            ocupado:_ocupadoRecargaOfi, formulario:_formularioRecargaOfi, antesDeRecargar:_antesDeRecargarOfi });
+    }catch(e){ console.warn('Recarga automática (no crítico):', e); }
+}
+// Idempotente: los dos avisos (#versionBanner y #ovVersionVieja) dan UNA sola cuenta; una versión mayor solo cambia el objetivo.
+function _anunciarVersionOfi(v){
+    try{ if(!window.PV_RECARGA) return; _iniciarRecargaOfi(); window.PV_RECARGA.anunciada(v); }catch(e){}
+}
+
 async function registrarVersion(){
     if(!db) return;
     try{
@@ -3373,9 +3444,10 @@ function iniciarEscuchaVersion(){
             if(versionRemota > APP_VERSION && !_bannerVersionMostrado){
                 _bannerVersionMostrado = true;
                 const banner = document.getElementById('versionBanner');
-                if(banner) banner.style.display = 'block';
+                if(banner) banner.style.display = 'flex';   // Etapa 1: su estilo es de flex (centra la tarjeta); con 'block' quedaba arriba a la izquierda
                 console.log(`🚀 Versión nueva detectada: ${versionRemota} (tú tienes ${APP_VERSION})`);
             }
+            if(versionRemota > APP_VERSION) _anunciarVersionOfi(versionRemota);   // Etapa 1 (punto 7): cuenta y recarga sola (recarga.js); fuera del if de arriba para que una versión aún mayor cambie el objetivo
         }, err=>console.warn('Error escucha versión:', err));
 }
 
@@ -17212,9 +17284,11 @@ function _verificarVersionVieja(){
                 <div style="font-size:2.2rem;">🔄</div>
                 <h3 style="margin:10px 0 6px;">Hay una versión nueva del sistema</h3>
                 <p style="font-size:0.85rem;color:#94a3b8;margin-bottom:6px;">Este computador está usando la <b>v${APP_VERSION}</b> y ya está publicada la <b>v${pub}</b>.</p>
-                <p style="font-size:0.8rem;color:#94a3b8;margin-bottom:16px;">Para evitar errores (registros duplicados o datos desactualizados), todos deben trabajar con la misma versión. Solo haz clic en el botón:</p>
-                <button class="btn btn-primary" style="width:100%;font-size:1rem;padding:12px;" onclick="location.href=location.origin+location.pathname+'?v='+Date.now()">🔄 Actualizar ahora</button>
+                <p style="font-size:0.8rem;color:#94a3b8;margin-bottom:10px;">Para evitar errores (registros duplicados o datos desactualizados), todos deben trabajar con la misma versión. Solo haz clic en el botón:</p>
+                <div class="pvRecargaTexto" style="font-size:0.85rem;font-weight:700;min-height:1.2em;margin-bottom:12px;"></div>
+                <button class="btn btn-primary" style="width:100%;font-size:1rem;padding:12px;" onclick="if(window.PV_RECARGA) PV_RECARGA.recargarAhora(); else { var u=new window.URL(location.href); u.searchParams.set('nv',Date.now()); location.replace(u.toString()); }">🔄 Actualizar ahora</button>
             </div>`;
+            _anunciarVersionOfi(pub);   // Etapa 1 (punto 7): la misma cuenta que #versionBanner (idempotente) y vuelve a escribir el texto que este innerHTML acaba de borrar
         } else if(ov){ ov.remove(); }
     }catch(e){}
 }
@@ -25360,6 +25434,12 @@ async function subirArchivoCloudinary(file, movId){
 // cuarta entró. Es un tropiezo pasajero del lado de Google (DriveApp), no de la app ni del archivo. Estos mensajes se reintentan.
 function _esErrorPasajeroDrive(msg){ return /error de servicio|service error|invoked too many|too many requests|tiempo de espera|timed? ?out|temporal|internal error|error interno|rate limit|l[ií]mite de|backend error|try again/i.test(String(msg||'')); }
 async function subirArchivoDrive(file, oid, movId, _intento){
+    // Etapa 1 (punto 7): subidas en curso, para que la recarga automática no corte una a la mitad (el archivo llegaría
+    // a Drive y el pago se quedaría sin su enlace). Sube y baja en try/finally. Al reintentar se llama a sí misma: la
+    // llamada interna sube el contador ANTES de que esta lo baje (`return subirArchivoDrive(...)` la arranca en el
+    // acto), así que nunca queda en 0 mientras la subida sigue. El cuerpo de abajo no se reindentó a propósito.
+    window._subidasDriveEnCurso=(window._subidasDriveEnCurso||0)+1;
+    try{
     const url=compsDriveUrl(), clave=compsDriveClave();
     if(!url) throw new Error('Falta la URL del Drive de comprobantes (configúrala en el panel de administrador).');
     if(!clave) throw new Error('Falta la clave del Drive de comprobantes. Pídele al administrador que la configure.');
@@ -25391,6 +25471,7 @@ async function subirArchivoDrive(file, oid, movId, _intento){
         throw new Error('Drive respondió sin el archivo, así que NO quedó guardado. Vuelve a intentarlo en un momento.');
     }
     return { url:data.url, secure_url:data.url, verUrl:data.verUrl||data.url, fileId:data.fileId||null, formato:'drive' };
+    }finally{ window._subidasDriveEnCurso=Math.max(0,(window._subidasDriveEnCurso||0)-1); }   // Etapa 1 (punto 7)
 }
 
 // ===== Configuración: guardar comprobantes en TU Google Drive =====
@@ -35288,13 +35369,22 @@ function _esperarPestanaVisible(){
         });
     }catch(e){ return Promise.resolve(); }
 }
+// Etapa 1 (recarga automática): mientras la pregunta o el resumen esperan a que vuelvas, la pestaña oculta NO está
+// congelada y el candado de la sincronización ya se soltó. Se cuentan en window._preguntasSyncEnEspera para que
+// _formularioRecargaOfi frene la recarga sola: si no, una versión publicada en ese rato recargaba la pestaña y la
+// vista previa se perdía sin aplicar y sin aviso. Al responder, la cuenta de 30 s empieza de nuevo.
+function _contarPreguntaSync(d){ window._preguntasSyncEnEspera=Math.max(0,(window._preguntasSyncEnEspera||0)+d); }
 async function _avisoSync(msg){
     if(typeof document!=='undefined' && document.hidden){ try{ _syncPanelSt('✅ Terminado — el resumen te espera. Vuelve a esta pestaña.'); }catch(e){} }
-    await _esperarPestanaVisible(); alert(msg);
+    _contarPreguntaSync(1);
+    try{ await _esperarPestanaVisible(); alert(msg); }
+    finally{ _contarPreguntaSync(-1); }
 }
 async function _confirmSync(msg){
     if(typeof document!=='undefined' && document.hidden){ try{ _syncPanelSt('✅ Terminado — te espero para confirmar. Vuelve a esta pestaña.'); }catch(e){} }
-    await _esperarPestanaVisible(); return confirm(msg);
+    _contarPreguntaSync(1);
+    try{ await _esperarPestanaVisible(); return confirm(msg); }
+    finally{ _contarPreguntaSync(-1); }
 }
 window._esperarPestanaVisible=_esperarPestanaVisible;
 
@@ -39178,6 +39268,7 @@ const firebaseConfig = {
             if(_bw) db.batch=function(){ const b=_bw();
                 b.commit=function(){ _bloquear('batch'); return Promise.resolve(); }; return b; };
         }
+        _iniciarRecargaOfi();   // Etapa 1 (punto 7): recarga automática al publicar (recarga.js); en modo prueba queda quieta
         showSync("saving","Conectando...");
         await load();
         showSync("ok","Conectado ✓");
