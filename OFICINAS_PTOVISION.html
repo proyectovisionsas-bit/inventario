@@ -18,6 +18,8 @@
 <script src="buzon.js?v=1"></script>
 <!-- Recarga automática al publicar, compartida: editar recarga.js, no copiarlo aquí -->
 <script src="recarga.js?v=1"></script>
+<!-- Pantallas abiertas (latido), compartido: editar pantallas.js, no copiarlo aquí -->
+<script src="pantallas.js?v=1"></script>
     <!-- ░░ PWA: instalable en celulares (sin archivos extra) ░░ -->
     <meta name="theme-color" content="#16a34a">
     <meta name="mobile-web-app-capable" content="yes">
@@ -593,6 +595,8 @@
             <p style="text-align:center;margin-top:16px;font-size:0.75rem;color:var(--muted);">
                 <a href="index.html" style="color:var(--muted);">← Volver al inicio</a>
             </p>
+            <!-- Etapa 6 (docs/12): la versión de esta pantalla también se ve antes de entrar (la llena _pintarVersionOfi) -->
+            <p id="appVersionLogin" style="text-align:center;margin-top:6px;font-size:0.72rem;color:var(--muted);" title="Versión del sistema"></p>
         </div>
     </div>
 </div>
@@ -620,6 +624,7 @@
         </div>
         <div class="header-right">
             <span id="clock" style="font-size:0.78rem;color:var(--muted);"></span>
+            <span id="appVersionCab" style="font-size:0.72rem;font-weight:700;color:var(--muted);white-space:nowrap;" title="Versión del sistema que tiene abierta esta pantalla"></span><!-- Etapa 6: lugar estable para la versión (#appVersionLabel vive abajo, en #syncStatus) -->
             <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn">🌙 Nocturno</button>
             <button class="btn btn-outline btn-sm admin-only" onclick="openAdminPanel()">⚙️ Admin</button>
             <button class="btn btn-outline btn-sm admin-only" onclick="modalRespaldoDrive()" title="Respaldo a Google Drive">☁️ Respaldo</button>
@@ -1012,7 +1017,13 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION = 319; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 320; // ⬆️ Subir en cada nueva versión publicada
+
+// Etapa 6 (docs/12): hora en que se cargó ESTA página. Vive en memoria, nunca en sessionStorage: una recarga
+// la reinicia. La usan la guarda de 24 h (_revisarCaducadaOfi) y el latido de pantallas.js (cargadaMs).
+const _CARGA_MS_OFI = Date.now();
+// Etapa 6: lo que se dice cuando esta pantalla ya no escribe porque hay una versión publicada mayor.
+const MSG_VERSION_VIEJA_OFI = 'Hay una versión nueva: esta pantalla ya no guarda. Actualízala.';
 
 // ════════════════════════════════════════════════════════════════════════════
 // 🤖 MODELOS DE VISIÓN DE GROQ (v198) — un solo lugar para toda la app.
@@ -1033,7 +1044,7 @@ const APP_VERSION = 319; // ⬆️ Subir en cada nueva versión publicada
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '9 Oct 2026 (v319: se recarga sola al publicar. v318: buzón de sugerencias en las cuatro apps. Historial en git y en docs/)';
+const APP_VERSION_FECHA = '10 Oct 2026 (v320: pantallas abiertas y freno de versión vieja. v319: se recarga sola al publicar. Historial en git y en docs/)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -1245,11 +1256,14 @@ function _quitarFirmasFallidas(op, sinFirma){
    La firma nunca se toma de la memoria. Escalonado para que no lo hagan todas las sesiones a la vez. */
 async function _sembrarFirmasMovs(){
     if(MODO_PRUEBA || !db || window._sembrandoFirmasMovs) return 0;
+    // Etapa 6: una pantalla con versión vieja (o estacionada por la guarda de 24 h) no siembra: lo hará una que esté al día.
+    if(_pestanaDesactualizada() || _capaCaducadaPuestaOfi()) return 0;
     window._sembrandoFirmasMovs=true; let sembradas=0; const saltar=new Set();
     try{
         await new Promise(r=>setTimeout(r, 5000+Math.floor(Math.random()*25000)));
         const refIdx=db.collection('oficinas_sistema').doc('movs_index');
         for(let vuelta=0; vuelta<200; vuelta++){
+            if(_pestanaDesactualizada() || _capaCaducadaPuestaOfi()) break;   // Etapa 6: salió una versión nueva (o se estacionó) mientras esperaba
             const sn=await refIdx.get(); const d=sn.exists?(sn.data()||{}):{}; const por=d.porOficina||{}, fir=d.firmas||{};
             let falta=null;
             for(const oid of Object.keys(por)){ const n=Math.min(parseInt(por[oid]||0,10)||0, 200);
@@ -1333,14 +1347,17 @@ async function _registrarFalloGuardado(e, extra){
 }
 // Reintento automático tras un fallo pasajero: 20 s, 45 s y 90 s. Devuelve los segundos
 // programados, o 0 si ya se agotaron. El contador vuelve a cero con cada guardado exitoso.
-function _programarReintentoGuardado(motivo){
+// Revisión de la Etapa 6: `permiso` es el del guardado que falló (_saveReal lo pasa). El reintento lo lleva, así el freno de
+// versión vieja no bota lo que el primer intento traía (lo pedido antes del aviso, o la salida del mantenimiento). Vence
+// con los 3 reintentos: lo que empieza después del aviso no lo tiene y se frena.
+function _programarReintentoGuardado(motivo, permiso){
     const n=window._reintentosAutoGuardado||0, ESPERAS=[20,45,90];
     if(n>=ESPERAS.length) return 0;
     window._reintentosAutoGuardado=n+1;
     const seg=ESPERAS[n];
     if(window._tmrReintentoGuardado) clearTimeout(window._tmrReintentoGuardado);
     window._tmrReintentoGuardado=setTimeout(()=>{ window._tmrReintentoGuardado=null; if(_saveInProgress) return;
-        console.log(`🔁 Reintento automático de guardado ${n+1}/${ESPERAS.length} (${motivo})`); try{ save(); }catch(_){} }, seg*1000);
+        console.log(`🔁 Reintento automático de guardado ${n+1}/${ESPERAS.length} (${motivo})`); try{ save({permiso:permiso||null}); }catch(_){} }, seg*1000);
     try{ showSync('err', `Reintenta en ${seg} s`); }catch(_){}
     return seg;
 }
@@ -1561,7 +1578,11 @@ function _aplicarMantenimiento(){
     let ov=document.getElementById('mantOverlay'), bn=document.getElementById('mantBanner');
     if(window._mantTimer){ clearTimeout(window._mantTimer); window._mantTimer=null; }
     const soltarTeclado=()=>{ if(window._mantBloqueando){ window._mantBloqueando=false; document.removeEventListener('keydown',_mantKeyBlock,true);
-        if(window._mantGuardadoPendiente){ window._mantGuardadoPendiente=false; const espera=(typeof MODO_PRUEBA!=='undefined'&&MODO_PRUEBA)?300:1500+Math.floor(Math.random()*8000); setTimeout(()=>{ try{ if(typeof save==='function') save({silencioso:true}); }catch(e){} }, espera); } } };   // lo que quedó en pausa sale ahora, cada sesión en un momento distinto para no escribir todas a la vez
+        if(window._mantGuardadoPendiente){ window._mantGuardadoPendiente=false; const espera=(typeof MODO_PRUEBA!=='undefined'&&MODO_PRUEBA)?300:1500+Math.floor(Math.random()*8000); setTimeout(()=>{ const marca={ms:Date.now()}, fin=()=>{ if(window._mantSalidaGuardado===marca) window._mantSalidaGuardado=null; }; try{ if(typeof save==='function'){ window._mantSalidaGuardado=marca; Promise.resolve(save({silencioso:true})).then(fin, fin); } }catch(e){ fin(); } }, espera); } } };   // lo que quedó en pausa sale ahora, cada sesión en un momento distinto para no escribir todas a la vez
+    // Etapa 6: ese guardado lleva la marca de un solo uso _mantSalidaGuardado: el freno de versión vieja de _saveReal lo deja pasar UNA vez
+    // (al publicar con «termina al publicar», la pantalla vieja ve terminar el mantenimiento justo cuando ya hay versión nueva; frenarlo
+    // perdería lo que la oficina escribió antes del aviso). _saveReal la consume al entrar; si save() no llega a _saveReal, se borra al terminar.
+    // Si ese guardado falla o queda parcial, sus reintentos automáticos llevan el mismo permiso (revisión Etapa 6: _permisoReintento en _saveReal).
     if(!vigente){ if(ov) ov.remove(); if(bn) bn.remove(); soltarTeclado(); return false; }
     if(!document.body) return false;
     const ahora=Date.now(), empieza=d.empiezaMs||d.desdeMs||0;
@@ -1694,28 +1715,43 @@ function _avisarCamposVacios(lista){
 function _esEntornoLocal(loc){ loc=loc||location; const h=String(loc.hostname||''); return loc.protocol==='file:' || !h || /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[::1\])/.test(h); }
 // v303: cuando la nube no acepta un cambio de este equipo, se dice en pantalla (antes solo en la consola). Como mucho una vez cada 10 minutos.
 function _avisarSinSincronizar(que){ const ahora=Date.now(); if(ahora-(window._avisoSinSincMs||0)<600000) return false; window._avisoSinSincMs=ahora; try{ showSync('err','Sin sincronizar'); }catch(e){} try{ mostrarSaveOverlay('error','Cambios sin sincronizar', que+'. Lo que ves sigue en pantalla, pero la nube no lo tiene: recarga (F5) y revisa que siga.'); }catch(e){} return true; }
+// Revisión de la Etapa 6 · PERMISO PARA PASAR EL FRENO DE VERSIÓN VIEJA. Un trabajo que guarda al final (📎, cargue por
+// lotes, comprobantes de un abono, Efecty, recogidas) lo toma al EMPEZAR y se lo pasa a save({permiso}). Si empezó con la
+// versión al día, su guardado pasa aunque al terminar ya haya salido la nueva: la recarga automática lo esperó (subida a
+// Drive, ventana del repetido, fila, reintento) y frenarlo al final botaba su resultado sin aviso. Lo que empieza con el
+// aviso puesto recibe null y se frena como siempre. Sin efectos: solo lee _pestanaDesactualizada.
+function _permisoGuardadoOfi(){ try{ return _pestanaDesactualizada() ? null : { alDia:true, ms:Date.now() }; }catch(e){ return null; } }
+window._permisoGuardadoOfi=_permisoGuardadoOfi;
 function save(opts){
     const silencioso = !!(opts && opts.silencioso);
+    const permiso = (opts && opts.permiso) || null;   // revisión Etapa 6: ver _permisoGuardadoOfi
     if(_saveInProgress){
+        // Revisión Etapa 6: un pedido que entra a la fila con la versión al día lleva su permiso. Si la versión nueva sale
+        // mientras espera, lo pedido antes del aviso igual llega a la nube (antes la fila salía tarde y el freno la botaba).
+        const pPedido = permiso || _permisoGuardadoOfi();
         if(!_saveEnCola){
             window._colaSilenciosa = silencioso;
+            window._colaPermiso = pPedido;
             _saveEnCola = (async()=>{
                 // esperar a que termine el guardado actual
                 while(_saveInProgress){ await new Promise(r=>setTimeout(r,150)); }
                 _saveEnCola = null;
                 const sil = window._colaSilenciosa;
                 window._colaSilenciosa = false;
+                const per = window._colaPermiso || null;
+                window._colaPermiso = null;
                 console.log('⏩ Guardado encolado: ejecutando ahora que terminó el anterior');
-                return _saveReal({silencioso:sil});
+                return _saveReal({silencioso:sil, permiso:per});
             })();
         } else {
             // Basta con que UNO de los fusionados sea a mano para que se vea.
             if(!silencioso) window._colaSilenciosa = false;
+            if(pPedido && !window._colaPermiso) window._colaPermiso = pPedido;   // y basta UNO pedido antes del aviso: el guardado lleva toda la memoria
             console.log('⏩ Guardado ya encolado: este pedido se fusiona con el pendiente');
         }
         return _saveEnCola;
     }
-    return _saveReal({silencioso});
+    return _saveReal({silencioso, permiso});
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -2489,6 +2525,35 @@ async function _aligerarOrdenes(){
 async function _saveReal(_opts){
     // v309: con la pantalla de mantenimiento puesta, esta sesión no escribe; lo pendiente sale solo cuando termine
     if(window._mantBloqueando){ window._mantGuardadoPendiente=true; window._ultimoGuardadoOk=false; window._parcialReintentable=false; try{ showSync('err','Mantenimiento: el guardado espera'); }catch(_){} console.warn('🛠️ Mantenimiento: el guardado queda en pausa hasta que termine.'); return; }   // las banderas en falso: nadie debe creer que este guardado llegó
+    // Etapa 6 (docs/12) · FRENO DE VERSIÓN VIEJA. Con una versión publicada mayor, esta pantalla ya no escribe main ni los
+    // bloques (TÉCNICOS escribe las órdenes en main: una copia vieja las pisaría). Va después del freno de mantenimiento y
+    // antes de subir appVersionPublicada y de _saveInProgress. Solo marcas en memoria: sin leer la nube, sin alert, y sin
+    // efectos dentro de _pestanaDesactualizada (las pruebas la llaman con la versión inflada). _ultimoGuardadoOk queda como
+    // estaba: en false dejaría la recarga automática esperando para siempre (si ya estaba en false por un fallo anterior,
+    // la Etapa 1 decide: espera el botón). Excepción de un solo uso: el guardado que el mantenimiento dejó en pausa y sale al
+    // terminar (marca _mantSalidaGuardado, la pone soltarTeclado en _aplicarMantenimiento) pasa una vez, como antes.
+    // Revisión de la Etapa 6: también pasa lo que ya venía en camino cuando salió la versión nueva, con el permiso que
+    // traen la fila, el reintento automático y los trabajos que guardan al final (_permisoGuardadoOfi, tomado al EMPEZAR
+    // con la versión al día). Y si este guardado falla o queda parcial, su reintento hereda el permiso (_permisoReintento):
+    // antes la marca se gastaba en el primer intento y el reintento prometido («reintenta sola en 20 s») se frenaba.
+    // La marca global sigue siendo de un solo uso (se borra aquí); el reintento lleva el permiso aparte, en su temporizador.
+    const _marcaMant=window._mantSalidaGuardado||null; window._mantSalidaGuardado=null;
+    const _permisoV=(_opts && _opts.permiso && (_opts.permiso.mant || _opts.permiso.alDia)) ? _opts.permiso : null;
+    const _salidaMant=!!(_marcaMant || _permisoV);   // pasa el freno: la salida del mantenimiento o algo que ya venía en camino
+    if(!_salidaMant && _pestanaDesactualizada()){
+        window._guardadosFrenadosVersion=(window._guardadosFrenadosVersion||0)+1;
+        try{ showSync('err', MSG_VERSION_VIEJA_OFI); }catch(_){}
+        console.warn('⛔ '+MSG_VERSION_VIEJA_OFI+' (guardado frenado n.º '+window._guardadosFrenadosVersion+')');
+        _anotarFrenoVersionOfi('guardado');
+        return;
+    }
+    // Revisión Etapa 6: el permiso que hereda el reintento de ESTE guardado (y el de la emergencia por peso): el de la salida
+    // del mantenimiento, el que trajo, o «al día» si la versión aún no era vieja (lo pedido antes del aviso no se bota si el
+    // primer intento falla y la versión nueva sale mientras espera el reintento).
+    const _permisoReintento=_marcaMant ? { mant:true, ms:_marcaMant.ms||Date.now() } : (_permisoV || _permisoGuardadoOfi());
+    // Etapa 6: main nunca baja la versión publicada que esta pantalla ya conoce por el oyente de app_version (el guardado de la
+    // excepción del mantenimiento sale de una pantalla vieja: con su DB.config de antes devolvería main a su propia versión).
+    try{ const _vNube=parseInt(window._mantVersionOficinasNube||0,10)||0; if(DB.config && _vNube>(parseInt(DB.config.appVersionPublicada||0,10)||0)) DB.config.appVersionPublicada=_vNube; }catch(e){}
     // Un guardado de fondo no pone la cortina; el indicador chiquito de arriba
     // sí sigue, para que quien quiera mirar sepa que la app está trabajando.
     const _silencioso = !!(_opts && _opts.silencioso);
@@ -3239,7 +3304,7 @@ async function _saveReal(_opts){
         console.log(`   📄 Historial facturas: ${Object.keys(DB.facturasHistorial||{}).length} servicios`);
 
         if(window._parcialReintentable){   // v305: movimientos sin escribir por no poder verificar la nube: se reintenta solo (antes el contador se ponía en cero y nadie reintentaba)
-            const _segP=_programarReintentoGuardado('movimientos sin verificar');
+            const _segP=_programarReintentoGuardado('movimientos sin verificar', _permisoReintento);   // revisión Etapa 6: el reintento hereda el permiso
             mostrarSaveOverlay('error', 'Movimientos sin guardar todavía', _segP ? `No se pudo confirmar la nube a tiempo. La app reintenta sola en ${_segP} s: deja la página abierta.` : 'Tras varios intentos no se pudo confirmar la nube. Recarga la página (F5) y revisa lo último que registraste.');
         } else {
         window._reintentosAutoGuardado=0; if(window._tmrReintentoGuardado){ clearTimeout(window._tmrReintentoGuardado); window._tmrReintentoGuardado=null; }   // v304
@@ -3310,7 +3375,7 @@ async function _saveReal(_opts){
                 const n = await _aligerarSolicitudes(60);
                 if(n>0){
                     console.warn(`🚑 Se archivaron ${n} solicitudes. Reintentando el guardado...`);
-                    return await _saveReal();
+                    return await _saveReal({permiso:_permisoReintento});   // revisión Etapa 6: con el mismo permiso de este guardado
                 }
                 alert('⚠️ El documento principal superó el límite de 1 MB de Firebase y ya no hay solicitudes viejas que archivar.\n\n📊 Secciones más pesadas:\n'+_pesos.map(([k,v])=>`• ${k}: ${(v/1024).toFixed(0)} KB`).join('\n')+'\n\nPásale esta lista a tu desarrollador para mover la sección más pesada a su propio documento.');
                 mostrarSaveOverlay('error','Documento lleno','Supera el límite de 1 MB');
@@ -3325,7 +3390,7 @@ async function _saveReal(_opts){
             const _m=String(e&&e.message||e);
             const _t=_traducirErrorGuardado(_m);
             const _nRe=window._reintentosAutoGuardado||0;
-            const _seg=_t.reintentar ? _programarReintentoGuardado(_t.titulo) : 0;
+            const _seg=_t.reintentar ? _programarReintentoGuardado(_t.titulo, _permisoReintento) : 0;   // revisión Etapa 6: el reintento hereda el permiso
             _registrarFalloGuardado(e, { reintento:_nRe, oficina:String((USER&&USER.role==='oficina'&&USER.nombre)||''), kb:(window._ultimoPesoGuardadoKB||0), titulo:_t.titulo });
             if(_nRe===0 || !_seg){   // primer fallo o fallo definitivo: aviso completo. Los reintentos intermedios solo cambian la cortina.
                 alert(`${_t.titulo}\n\n${_t.explica}\n\n⛔ LOS ÚLTIMOS CAMBIOS NO QUEDARON GUARDADOS. Siguen en tu pantalla: no cierres la página${_seg?` (la app reintenta sola en ${_seg} s)`:' hasta volver a intentar'}.\n\n✅ QUÉ HACER: ${_t.quehacer}\n\n— — —\nDetalle técnico (ya quedó registrado para soporte): ${_m.substring(0,200)}`);
@@ -3412,6 +3477,102 @@ function _anunciarVersionOfi(v){
     try{ if(!window.PV_RECARGA) return; _iniciarRecargaOfi(); window.PV_RECARGA.anunciada(v); }catch(e){}
 }
 
+// ─── Etapa 6 (docs/12) · PANTALLA ABIERTA MÁS DE UN DÍA ───
+// Una pestaña que lleva más de 24 h sin recargar trabaja con el código y la memoria de cuando se abrió. Cuando
+// además está QUIETA (nadie escribiendo, ninguna ventana abierta, nada guardándose, en la fila ni por reintentar,
+// ningún guardado que no llegó, ni la lista de «Antes de llamar al ingeniero» ni el buzón abiertos, sin aviso de
+// versión en marcha) sale la capa propia #capaCaducadaOfi, que pide actualizar. No frena _saveReal: si alguien guarda
+// estando caducada (porque estaba escribiendo), ESE guardado pasa (es la versión vigente y la fusión lee la nube) y
+// la capa sale cuando la pantalla queda quieta. Con la capa puesta la pantalla queda «estacionada»: la sincronización
+// rápida, el rastreador, el barrido de la revisión de soportes y la siembra de firmas no arrancan vueltas nuevas
+// (_capaCaducadaPuestaOfi); otra pantalla, o esta misma al recargar, las retoma.
+// NO va en _pestanaDesactualizada: apagaría la sincronización y el rastreador con la pantalla en uso, y las pruebas
+// la llaman con la versión inflada. Apagada en modo prueba y con ?ignorarVersion. Se revisa cada 60 s, al volver a la
+// vista y al enfocar la ventana (_vigilarCaducadaOfi, que arranca enterApp).
+// Para las pruebas: _caducadaOfi y _decidirCaducadaOfi son puras; _esperaCaducadaOfi dice por qué se espera;
+// _revisarCaducadaOfi({cargaMs, ahoraMs}) acepta una hora de carga simulada (en modo prueba siempre da 'apagada').
+const _CADUCA_MS_OFI = 24*3600000;
+// ¿Pasaron más de 24 h entre la carga y ahora? Pura. Exactamente 24 h todavía no.
+function _caducadaOfi(cargaMs, ahoraMs){
+    const c=Number(cargaMs), a=Number(ahoraMs);
+    if(!isFinite(c) || !isFinite(a) || c<=0) return false;
+    return (a-c) > _CADUCA_MS_OFI;
+}
+// '' si la pantalla está quieta; si no, por qué se espera (en español).
+function _esperaCaducadaOfi(){
+    try{
+        const ver=el=>{ if(!el || !el.isConnected) return false; const cs=getComputedStyle(el); return cs.display!=='none' && cs.visibility!=='hidden'; };
+        if(window._mantBloqueando) return 'el sistema está en mantenimiento';
+        let fase=''; try{ fase=window.PV_RECARGA ? String(window.PV_RECARGA.estado().fase||'') : ''; }catch(e){}
+        if(_bannerVersionMostrado || document.getElementById('ovVersionVieja') || (fase && fase!=='inactivo' && fase!=='prueba')) return 'hay una versión nueva: se actualiza con su propio aviso';
+        if(_estaEscribiendo()) return 'hay algo escribiéndose o una ventana abierta';
+        const oc=_ocupadoRecargaOfi(); if(oc) return oc;
+        const fo=_formularioRecargaOfi(); if(fo) return fo;
+        if(ver(document.getElementById('pvCheckCapa'))) return 'está abierta la lista «Antes de llamar al ingeniero»';
+        if(ver(document.getElementById('pvBuzonCapa'))) return 'está abierto el buzón de sugerencias';
+        if(ver(document.getElementById('recordatorio-popup'))) return 'hay un recordatorio a la vista';
+        return '';
+    }catch(e){ return 'no se pudo revisar la pantalla'; }
+}
+// Pura. c = {modoPrueba, ignorarVersion, sesion, cargaMs, ahoraMs, espera, yaPuesta} →
+// 'apagada' | 'sin_sesion' | 'al_dia' | 'espera' | 'capa'. Una capa ya puesta se queda (no parpadea).
+function _decidirCaducadaOfi(c){
+    c=c||{};
+    if(c.modoPrueba || c.ignorarVersion) return 'apagada';
+    if(!c.sesion) return 'sin_sesion';
+    if(!_caducadaOfi(c.cargaMs, c.ahoraMs)) return 'al_dia';
+    if(c.yaPuesta) return 'capa';
+    if(c.espera) return 'espera';
+    return 'capa';
+}
+function _capaCaducadaPuestaOfi(){ try{ return !!document.getElementById('capaCaducadaOfi'); }catch(e){ return false; } }
+// La capa: z-index 99996, por debajo del mantenimiento (99998), de #ovVersionVieja (99999) y de #versionBanner. Sin la
+// clase pvRecargaTexto (recarga.js no escribe aquí). El botón es el mismo «Actualizar ahora» de los avisos de versión:
+// recarga conservando ?prueba=1, ?ignorarVersion y los demás parámetros, también si recarga.js no cargó.
+function _mostrarCapaCaducadaOfi(){
+    if(_capaCaducadaPuestaOfi() || !document.body) return false;
+    const c=document.createElement('div');
+    c.id='capaCaducadaOfi'; c.setAttribute('role','dialog'); c.setAttribute('aria-modal','true');
+    c.style.cssText='position:fixed;inset:0;z-index:99996;background:rgba(2,6,23,0.94);display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;';
+    c.innerHTML=`<div style="max-width:430px;width:100%;box-sizing:border-box;background:var(--surface,#0f172a);border:1px solid rgba(59,130,246,0.45);border-radius:14px;padding:24px 20px;text-align:center;color:var(--text,#e2e8f0);overflow-wrap:anywhere;">
+        <div style="font-size:2.2rem;">🕰️</div>
+        <p style="font-size:0.92rem;line-height:1.55;margin:10px 0 16px;"><b>Esta pantalla lleva más de un día abierta.</b> Actualízala para seguir trabajando con los datos al día. (Si pasaron más de 12 horas desde que entraste, te pedirá la clave otra vez.)</p>
+        <button class="btn btn-primary" style="width:100%;font-size:1rem;padding:12px;" onclick="if(window.PV_RECARGA) PV_RECARGA.recargarAhora(); else { var u=new window.URL(location.href); u.searchParams.set('nv',Date.now()); location.replace(u.toString()); }">🔄 Actualizar ahora</button>
+    </div>`;
+    try{ if(document.activeElement && document.activeElement.blur) document.activeElement.blur(); }catch(e){}
+    document.body.appendChild(c);
+    console.log('🕰️ Esta pantalla lleva más de un día abierta: se pide actualizar.');
+    return true;
+}
+function _quitarCapaCaducadaOfi(){ try{ const c=document.getElementById('capaCaducadaOfi'); if(c){ c.remove(); return true; } }catch(e){} return false; }
+// Mira la hora y la pantalla, y pone o quita la capa. opc (solo para pruebas): {cargaMs, ahoraMs}. Devuelve la decisión.
+function _revisarCaducadaOfi(opc){
+    try{
+        opc=opc||{};
+        const carga=(typeof opc.cargaMs==='number' && isFinite(opc.cargaMs)) ? opc.cargaMs : _CARGA_MS_OFI;
+        const ahora=(typeof opc.ahoraMs==='number' && isFinite(opc.ahoraMs)) ? opc.ahoraMs : Date.now();
+        const ctx={ modoPrueba:!!MODO_PRUEBA, ignorarVersion:_ignorarVersionOfi(), sesion:!!(typeof USER!=='undefined' && USER),
+                    cargaMs:carga, ahoraMs:ahora, yaPuesta:_capaCaducadaPuestaOfi(), espera:'' };
+        if(!ctx.modoPrueba && !ctx.ignorarVersion && ctx.sesion && !ctx.yaPuesta && _caducadaOfi(carga, ahora)) ctx.espera=_esperaCaducadaOfi();
+        const d=_decidirCaducadaOfi(ctx);
+        if(d==='capa') _mostrarCapaCaducadaOfi();
+        else if(d!=='espera') _quitarCapaCaducadaOfi();
+        window._caducadaOfiEstado={ decision:d, espera:ctx.espera, ms:ahora };
+        return d;
+    }catch(e){ return 'error'; }
+}
+// Una vez por carga de página (enterApp): cada 60 s, al volver a la vista y al enfocar. En modo prueba ni se programa.
+function _vigilarCaducadaOfi(){
+    if(MODO_PRUEBA || window._caducadaOfiVigilando) return;
+    window._caducadaOfiVigilando=true;
+    const revisar=()=>{ try{ _revisarCaducadaOfi(); }catch(e){} };   // también oculta: una pestaña olvidada atrás es justo la que hay que estacionar
+    window._tmrCaducadaOfi=setInterval(revisar, 60000);
+    try{ document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState!=='hidden') revisar(); }); window.addEventListener('focus', revisar); }catch(e){}
+}
+window._caducadaOfi=_caducadaOfi; window._decidirCaducadaOfi=_decidirCaducadaOfi; window._esperaCaducadaOfi=_esperaCaducadaOfi;
+window._revisarCaducadaOfi=_revisarCaducadaOfi; window._mostrarCapaCaducadaOfi=_mostrarCapaCaducadaOfi; window._quitarCapaCaducadaOfi=_quitarCapaCaducadaOfi;
+window._capaCaducadaPuestaOfi=_capaCaducadaPuestaOfi; window._CARGA_MS_OFI=_CARGA_MS_OFI;
+
 async function registrarVersion(){
     if(!db) return;
     try{
@@ -3434,6 +3595,7 @@ async function registrarVersion(){
 
 function iniciarEscuchaVersion(){
     if(!db) return;
+    if(window._tmrEscuchaVersion){ clearTimeout(window._tmrEscuchaVersion); window._tmrEscuchaVersion=null; }   // Etapa 6: un reintento pendiente no abre un segundo oyente
     if(_unsubscribeVersion) _unsubscribeVersion();
     _unsubscribeVersion = db.collection('oficinas_sistema').doc('app_version')
         .onSnapshot(snap=>{
@@ -3448,7 +3610,14 @@ function iniciarEscuchaVersion(){
                 console.log(`🚀 Versión nueva detectada: ${versionRemota} (tú tienes ${APP_VERSION})`);
             }
             if(versionRemota > APP_VERSION) _anunciarVersionOfi(versionRemota);   // Etapa 1 (punto 7): cuenta y recarga sola (recarga.js); fuera del if de arriba para que una versión aún mayor cambie el objetivo
-        }, err=>console.warn('Error escucha versión:', err));
+        }, err=>{
+            // Etapa 6: si el oyente cae (sin señal largo rato, cuota, reglas), Firestore no lo revive: sin esto la pantalla
+            // nunca se enteraría de una versión nueva. Se vuelve a suscribir a los 60 s, un solo reintento vivo a la vez.
+            console.warn('Error escucha versión (se reintenta en 60 s):', err);
+            try{ if(_unsubscribeVersion) _unsubscribeVersion(); }catch(_){}
+            _unsubscribeVersion=null;
+            if(!window._tmrEscuchaVersion) window._tmrEscuchaVersion=setTimeout(()=>{ window._tmrEscuchaVersion=null; try{ iniciarEscuchaVersion(); }catch(_){} }, 60000);
+        });
 }
 
 function iniciarEscuchaRealtime(){
@@ -3744,12 +3913,14 @@ function _recargarVistaSilenciosa(){
         proveedores: renderProveedores,
         sgsst: renderSGSST, consulta_clientes: renderConsultaClientes
     };
-    // Mostrar indicador discreto
-    const syncEl = document.getElementById('syncStatus');
-    if(syncEl){
-        syncEl.textContent = '🔄 Actualizando...';
-        syncEl.style.color = '#3b82f6';
-        setTimeout(()=>{ if(syncEl) syncEl.textContent = 'Conectado ✓'; syncEl.style.color = '#10b981'; }, 1500);
+    // Mostrar indicador discreto. Etapa 6: cambia SOLO el texto (#syncText). Antes reemplazaba todo #syncStatus y borraba
+    // #syncDot y #appVersionLabel al primer snapshot: desde ahí showSync salía sin hacer nada (ya no se veían «Guardando…»,
+    // «Reintenta en N s» ni «Mantenimiento: el guardado espera») y la versión desaparecía. Un aviso a la vista (error o
+    // guardado en curso) no se tapa.
+    const syncDot = document.getElementById('syncDot'), syncTx = document.getElementById('syncText');
+    if(syncDot && syncTx && !/\bsync-(err|saving)\b/.test(syncDot.className)){
+        syncTx.textContent = '🔄 Actualizando...';
+        setTimeout(()=>{ if(syncTx.textContent === '🔄 Actualizando...') syncTx.textContent = 'Conectado ✓'; }, 1500);
     }
     // 🛟 Se toma nota de lo escrito ANTES de repintar y se devuelve después.
     const _escrito = _tomarLoEscrito();
@@ -11105,6 +11276,11 @@ function enterApp(){
     setTimeout(()=>{ try{ if(typeof PV_CHECK!=='undefined' && !MODO_PRUEBA && USER && USER.role!=='sgsst') Promise.resolve(PV_CHECK.reenviarPendientes(_ingGuardar)).catch(()=>{}); }catch(e){ console.warn('casos sin subir:', e); } }, 8000);   // v311: casos que quedaron sin subir
     try{ if(typeof PV_BUZON!=='undefined' && PV_BUZON.estado().montado) PV_BUZON.montar(_buzonOpOfi()); }catch(e){}   // v318: otra sesión en la misma pestaña: el buzón cambia de identidad ya
     setTimeout(()=>{ _buzonArrancarOfi(); }, 4000);   // v318: buzón de sugerencias (botón 💡 Ideas y su punto rojo)
+    // Etapa 6 (docs/12): latido de esta pantalla en oficinas_sistema/sesiones_vivas (pantallas.js; solo con la sesión
+    // iniciada, nunca en init; en modo prueba no escribe ni lo intenta), la guarda de 24 h y la versión a la vista.
+    try{ if(typeof PV_PANTALLAS!=='undefined') PV_PANTALLAS.iniciar(_pantallasOpOfi()); }catch(e){ console.warn('Pantallas abiertas (no crítico):', e); }
+    try{ _vigilarCaducadaOfi(); }catch(e){}
+    _pintarVersionOfi();
     setTimeout(showAIFab, 800);
     setTimeout(()=>{ try{ verificarRespaldoDrive(); }catch(e){ console.warn('verificarRespaldoDrive:',e); } }, 1800);
     const _nombreSaludo = USER.role==='admin' ? 'Administrador' : (USER.nombre||'');
@@ -11478,6 +11654,7 @@ function doLogout(){
     try{ _olvidarSesionOfi(); }catch(e){}
     USER=null; selOficinaLogin=null;
     try{ _buzonSalirOfi(); }catch(e){}   // v318: cierra el buzón y lo deja sin identidad hasta la próxima sesión
+    try{ if(typeof PV_PANTALLAS!=='undefined') PV_PANTALLAS.detener(); }catch(e){}   // Etapa 6: sin sesión no hay latido; la próxima entrada lo vuelve a arrancar
     try{ window._ing={ q:'', oid:'', mesSel:'actual', mes:{}, cargando:false, error:'' }; window._ingCliente=null; window._ingOrdenExtra=null; window._ingUltimoPre=null; try{ if(typeof window._unsubIngMasivas==='function') window._unsubIngMasivas(); }catch(e2){} window._unsubIngMasivas=null; window._ingMasivas={}; try{ clearInterval(window._ingTic); }catch(e2){} window._ingTic=null; _ingPintarFranja(); }catch(e){}   // v311: lo de «Antes de llamar» no pasa a la sesión siguiente; sin sesión no queda la escucha de fallas masivas gastando lecturas (se vuelve a crear al entrar)
     document.getElementById('app').classList.add('hidden');
     document.getElementById('login-screen').style.display='flex';
@@ -11682,6 +11859,8 @@ async function _revLeerDoc(){
    Devuelve cuántos agregó. */
 async function _revEncolarNuevos(desdeManual){
     if(!db || !_revActiva()) return 0;
+    // Etapa 6: con una versión publicada mayor no se reescribe la cola (se lee y se reescribe entera): la encola la versión nueva.
+    if(_pestanaDesactualizada()){ console.warn('👁️ Revisión de soportes: '+MSG_VERSION_VIEJA_OFI); return 0; }
     // Igual que el botón de reflejar pagos: si los movimientos no terminaron de
     // llegar, esto vería una base a medias. Aquí no haría daño (solo encolaría
     // de menos), pero tampoco sirve de nada, así que se espera.
@@ -11753,7 +11932,7 @@ window._revEncolarNuevos = _revEncolarNuevos;
    ninguna prisa: basta con que la cola esté puesta antes de la 1 a. m. */
 function _revProgramarBarrido(){
     if(window._revTimer) return;
-    const correr = ()=>{ _revEncolarNuevos().catch(e=>console.warn('encolar revisión:', e)); };
+    const correr = ()=>{ if(_capaCaducadaPuestaOfi()) return; _revEncolarNuevos().catch(e=>console.warn('encolar revisión:', e)); };   // Etapa 6: estacionada por la guarda de 24 h, no barre
     setTimeout(correr, 25000);                       // un rato después de abrir
     window._revTimer = setInterval(correr, 20*60*1000);   // y cada 20 minutos
 }
@@ -11903,6 +12082,7 @@ function esc2(s){
 
 async function _revResolver(id){
     if(!(USER && USER.role==='admin')) return;
+    if(_pestanaDesactualizada()){ alert('⚠️ '+MSG_VERSION_VIEJA_OFI); return; }   // Etapa 6: revision_soportes se reescribe entero; una copia vieja no lo toca
     const d = await _revResultados(true);
     const r = (d.resultados||[]).find(x=>x.id===id);
     if(!r) return;
@@ -11918,6 +12098,7 @@ async function _revResolver(id){
 window._revResolver = _revResolver;
 
 async function _revBarrerAhora(){
+    if(_pestanaDesactualizada()){ alert('⚠️ '+MSG_VERSION_VIEJA_OFI); return; }   // Etapa 6: si no, diría «no hay soportes nuevos» sin haber mirado
     const n = await _revEncolarNuevos();
     _revCache = null;
     alert(n>0 ? ('✅ Se enviaron '+n+' soporte(s) nuevos a revisión.\n\nLos va a leer esta noche.')
@@ -17415,6 +17596,8 @@ function renderAdmin(){
     ${tarjetaRevisionSoportes()}
 
     ${_tarjetaMantenimientoHTML()}
+
+    ${_tarjetaPantallasHTML()}
 
     ${_tarjetaBuzonHTML()}
 
@@ -25733,6 +25916,7 @@ window._escalaParaPDF=_escalaParaPDF;
 
 async function procesarArchivos(files, oid, mid){
     if(!files||!files.length) return;
+    const _permisoG=_permisoGuardadoOfi();   // revisión Etapa 6: empezó con la versión al día → su guardado pasa el freno aunque la nueva salga mientras sube o se decide un repetido
     const m=getMovimiento(oid,mid);
     if(!m){ alert('Error: movimiento no encontrado'); return; }
     // v303: si esta oficina no terminó de cargar sus movimientos, el guardado NO los reescribe (protección) y el comprobante se perdería
@@ -25854,7 +26038,12 @@ async function procesarArchivos(files, oid, mid){
     if(_subidosOk){ const _q=_quitarComprobantesSinArchivo(_movDestino(oid, mid, m)); if(_q) registrarLog('COMPROBANTE_SIN_ARCHIVO_REEMPLAZADO',{oid, mid, quitados:_q}); }   // v308
     { const _mf=_movDestino(oid, mid, m); if(_mf && _mf.requiereSoporte && (_mf.comprobantes||[]).some(c=>!_esComprobanteSinArchivo(c))) _mf.estadoSoporte='completo'; }   // v309: antes solo el cargue por lotes lo marcaba; con el clip quedaba "pendiente" con comprobante
     if(fallidos.length) alert('⚠️ No se pudo subir a Drive:\n\n• '+fallidos.join('\n• ')+'\n\nEsos comprobantes NO quedaron guardados. Revisa la conexión (o la clave de Drive en Configuración) y vuelve a adjuntarlos.');   // v303
-    await save().then(()=>renderRegistro());
+    const _frenados0=window._guardadosFrenadosVersion||0;
+    await save({permiso:_permisoG}).then(()=>renderRegistro());
+    if((window._guardadosFrenadosVersion||0)>_frenados0){   // revisión Etapa 6: empezó con el aviso de versión nueva ya puesto y el freno no dejó guardar
+        alert('⚠️ ESTE COMPROBANTE NO QUEDÓ GUARDADO\n\nSalió una versión nueva del sistema y esta pantalla ya no guarda.\n\n✅ QUÉ HACER: toca «Actualizar ahora» y vuelve a adjuntarlo a este pago.');
+        return;   // no se vuelve a abrir la ventana del pago: mostraría el comprobante como si estuviera guardado
+    }
     setTimeout(()=>modalComprobantes(oid, mid), 500);
 }
 
@@ -27234,6 +27423,7 @@ function _renderResumenEfecty(){
 
 async function guardarReporteEfecty(oid){
     if(!_efectyPagos.length){ return alert('Carga primero un archivo'); }
+    const _permisoG=_permisoGuardadoOfi();   // revisión Etapa 6: empezó con la versión al día → su guardado pasa el freno aunque la nueva salga mientras sube
     const r = _efectyResumen;
     const concepto = document.getElementById('efecty_concepto').value;
     const fechaInput = document.getElementById('efecty_fecha').value;
@@ -27352,10 +27542,12 @@ async function guardarReporteEfecty(oid){
         cantidadPagos:_efectyPagos.length, fechaReporte:r.fechaReporte
     });
 
-    await save();
+    const _frenados0=window._guardadosFrenadosVersion||0;
+    await save({permiso:_permisoG});
     window._regFechaPreserve = fechaInput;
     _efectyPagos = []; _efectyResumen = null; _efectyArchivo = null;
     closeModal();
+    if((window._guardadosFrenadosVersion||0)>_frenados0){ alert('⚠️ EL REPORTE EFECTY NO QUEDÓ GUARDADO\n\nSalió una versión nueva del sistema y esta pantalla ya no guarda.\n\n✅ QUÉ HACER: toca «Actualizar ahora» y vuelve a cargar el archivo.'); renderRegistro(); return; }   // revisión Etapa 6: no decir «registrado»
     alert(`✅ Reporte Efecty registrado.\n\n💰 Total: ${fmtShort(r.totalCalculado)}\n📋 ${nuevoMov.cantidadPagos} pagos en el detalle.`);
     renderRegistro();
 }
@@ -28273,6 +28465,9 @@ async function guardarComprobantesRegistrados(oid){
         alert('⚠️ Esta oficina no terminó de cargar sus movimientos en esta sesión (suele ser un bache de internet), así que los comprobantes NO se guardarían.\n\nNo se subió nada. Recarga la página (F5), espera a que cargue completo y vuelve a registrarlos.');
         return;
     }
+    // Etapa 6: con una versión publicada mayor, _saveReal ya no guarda: subirlos a Drive los dejaría fuera del sistema.
+    if(_pestanaDesactualizada()){ alert('⚠️ '+MSG_VERSION_VIEJA_OFI+'\n\nNo se subió nada. Actualiza la página y vuelve a registrar los comprobantes.'); return; }
+    const _permisoG=_permisoGuardadoOfi();   // revisión Etapa 6: empezó al día → si la versión nueva sale mientras sube, su guardado igual pasa el freno
 
     // Los comprobantes se guardan en TU Google Drive. Si aún no está configurado, avisar claro.
     if(!compsDriveActivo()){
@@ -28705,14 +28900,17 @@ async function guardarComprobantesRegistrados(oid){
     }
 
     if(btnG) btnG.textContent='💾 Guardando en base de datos...';
-    await save();
+    const _frenados0=window._guardadosFrenadosVersion||0;
+    await save({permiso:_permisoG});   // revisión Etapa 6: con el permiso tomado al empezar; el aviso de abajo queda de respaldo
+    const _frenadoVersion=(window._guardadosFrenadosVersion||0)>_frenados0;   // Etapa 6: salió una versión nueva mientras subía y el freno no dejó guardar (_ultimoGuardadoOk queda como estaba)
 
     window._regFechaPreserve=fechaInputVal;
     _comprobantesPendientes=[];
     closeModal();
 
-    const _okNube=window._ultimoGuardadoOk===true;   // v305: antes decía "Procesado" aunque la nube hubiera rechazado el guardado
+    const _okNube=window._ultimoGuardadoOk===true && !_frenadoVersion;   // v305: antes decía "Procesado" aunque la nube hubiera rechazado el guardado
     let msg=_okNube ? `✅ Procesado:\n`
+        : _frenadoVersion ? `⚠️ HAY UNA VERSIÓN NUEVA Y ESTA PANTALLA YA NO GUARDA: LA NUBE NO RECIBIÓ ESTOS COMPROBANTES\n\nLas imágenes quedaron en Drive, pero no en el sistema. Actualiza la página y vuelve a registrarlos.\n`
         : `⚠️ LOS COMPROBANTES QUEDARON EN DRIVE Y EN PANTALLA, PERO LA NUBE TODAVÍA NO LOS RECIBIÓ\n\nLa app reintenta el guardado sola: deja la página abierta y NO los vuelvas a subir (saldrían como "ya usados"). Si en cinco minutos no aparece "Guardado ✓" arriba, avísale a soporte.\n`;
     if(enlazados>0) msg+=`\n🔗 ${enlazados} comprobante(s) enlazado(s) a su pago de WispHub`;
     if(subidos>0) msg+=`\n☁️ ${subidos} imagen(es) guardada(s) en tu Google Drive`;
@@ -29066,6 +29264,7 @@ function _aplicarClienteAlContrato(oid, cid){
 // Si Drive no está configurado o falla, el contrato NO se pierde: queda
 // guardado en la base y se puede reintentar la subida desde el módulo.
 async function _subirContratoADrive(idDoc, data, oid){
+    if(_pestanaDesactualizada()) throw new Error(MSG_VERSION_VIEJA_OFI);   // Etapa 6: el contrato lo comparte TÉCNICOS; antes de subir a Drive, para no dejar un archivo sin enlace
     if(typeof PV_CONTRATO==='undefined' || !PV_CONTRATO.subirADrive) throw new Error('No se pudo cargar el contrato (contrato.js).');
     if(!compsDriveActivo()) throw new Error('Google Drive no está configurado. Ve al panel de administrador y configúralo.');
     const o=getOficina(oid);
@@ -29087,6 +29286,7 @@ window._subirContratoADrive=_subirContratoADrive;
 
 async function _guardarContratoCliente(oid, cid, data){
     if(!db) throw new Error('Sin conexión con la base de datos.');
+    if(_pestanaDesactualizada()) throw new Error(MSG_VERSION_VIEJA_OFI);   // Etapa 6: contrato_<id> lo lee y lo firma TÉCNICOS
     const c=_clienteDeOficina(oid,cid);
     const id='contrato_'+Date.now().toString(36)+Math.random().toString(36).substring(2,7);
     // v247: antes el estado quedaba SIEMPRE en sin_firma, aunque el cliente
@@ -29203,6 +29403,7 @@ async function _confirmarFirmaContrato(cid, idx){
     if(kb>200){ alert('La firma quedó demasiado pesada ('+kb+' KB). Bórrala e inténtalo de nuevo con trazos más simples.'); return; }
 
     if(!db){ alert('Sin conexión con la base de datos. Intenta de nuevo en un momento.'); return; }
+    if(_pestanaDesactualizada()){ alert('⚠️ '+MSG_VERSION_VIEJA_OFI+'\n\nLa firma NO quedó registrada: actualiza y vuelve a firmar.'); return; }   // Etapa 6
 
     try{
         const datos=Object.assign({}, k.datos||{}, {firma});
@@ -29432,6 +29633,7 @@ async function _confirmarAnular(){
     if(!c) return closeModal();
     const nota=(document.getElementById('an_nota').value||'').trim();
     const motivo=document.getElementById('an_motivo').value+(nota?' — '+nota:'');
+    if(_pestanaDesactualizada()) return alert('⚠️ '+MSG_VERSION_VIEJA_OFI+'\n\nEl contrato NO se anuló.');   // Etapa 6: la ventana queda abierta
     closeModal();
     try{
         if(typeof showToastMini==='function') showToastMini('Anulando…');
@@ -29450,6 +29652,7 @@ async function _reactivarContrato(id){
     const c=(window._contratosCache||[]).find(x=>x.id===id);
     if(!c) return;
     if(!_puedeTocarContrato(c)) return alert('Ese contrato es de otra oficina.');
+    if(_pestanaDesactualizada()) return alert('⚠️ '+MSG_VERSION_VIEJA_OFI);   // Etapa 6
     if(!confirm('¿Volver a dejar válido el contrato de '+(c.clienteNombre||'')+'?')) return;
     try{
         await db.collection('oficinas_sistema').doc(id).update({
@@ -29465,6 +29668,7 @@ async function _eliminarContrato(id){
     const c=(window._contratosCache||[]).find(x=>x.id===id);
     if(!c) return alert('No se encontró ese contrato.');
     if(!_puedeTocarContrato(c)) return alert('Ese contrato es de otra oficina.');
+    if(_pestanaDesactualizada()) return alert('⚠️ '+MSG_VERSION_VIEJA_OFI);   // Etapa 6: contrato_<id> lo comparte TÉCNICOS
     const firmado=c.estado==='firmado';
     if(firmado && USER.role!=='admin')
         return alert('🔒 Ese contrato está FIRMADO.\n\n'
@@ -29655,6 +29859,7 @@ async function _guardarFirmaOficina(id){
     const firma=PV_CONTRATO.firma.obtener(120);
     const kb=Math.round((firma.length*0.75)/1024);
     if(kb>200){ alert('La firma quedó demasiado pesada ('+kb+' KB). Bórrala e inténtalo con trazos más simples.'); return; }
+    if(_pestanaDesactualizada()){ alert('⚠️ '+MSG_VERSION_VIEJA_OFI+'\n\nLa firma NO quedó registrada: actualiza y vuelve a firmar.'); return; }   // Etapa 6
     try{
         await db.collection('oficinas_sistema').doc(id).update({ firma, estado:'firmado', firmadoEn:Date.now() });
         closeModal();
@@ -29686,6 +29891,7 @@ window._reintentarDrive=_reintentarDrive;
 
 // Sube de una vez todos los firmados que aún no tienen copia.
 async function _subirTodosPendientes(){
+    if(_pestanaDesactualizada()){ alert('⚠️ '+MSG_VERSION_VIEJA_OFI+'\n\nNo se subió ningún contrato: actualiza la página y vuelve a intentarlo.'); return; }   // Etapa 6: si no, cada uno fallaría y el aviso diría «revisa la conexión»
     const pend=(window._contratosCache||[]).filter(c=>c.estado==='firmado' && !c.pdfUrl && c.datos);
     if(!pend.length){ alert('No hay contratos pendientes de subir.'); return; }
     if(!confirm('Se subirán '+pend.length+' contrato(s) a Google Drive.\n\n¿Continuar?')) return;
@@ -30251,6 +30457,7 @@ function modalAgregarCompAbono(abonoId, cliId){
 }
 
 async function subirCompsAbonoExistente(abonoId, cliId){
+    const _permisoG=_permisoGuardadoOfi();   // revisión Etapa 6: empezó con la versión al día → su guardado pasa el freno aunque la nueva salga mientras sube
     if(window._huellaAbonoEnCurso){ if(window._esperandoHuellaAbono) return; window._esperandoHuellaAbono=true; try{ await window._huellaAbonoEnCurso; }finally{ window._esperandoHuellaAbono=false; } }   // v305: espera la huella; un segundo clic mientras espera no hace nada
     if(_abonoComprobantesPendientes.length===0){
         return alert('⚠️ Selecciona al menos un archivo para subir');
@@ -30288,9 +30495,14 @@ async function subirCompsAbonoExistente(abonoId, cliId){
     registrarLog('COMPROBANTES_ABONO_AGREGADOS',{cliId, abonoId, cantidad:exitos});
     _abonoComprobantesPendientes=[];
 
-    await save();
+    const _frenados0=window._guardadosFrenadosVersion||0;
+    await save({permiso:_permisoG});
     closeModal();
     modalDetalleClienteEspecial(cliId);
+    if((window._guardadosFrenadosVersion||0)>_frenados0){   // revisión Etapa 6: el freno de versión vieja no dejó guardar: no decir «correctamente»
+        alert('⚠️ LOS COMPROBANTES NO QUEDARON GUARDADOS\n\nSalió una versión nueva del sistema y esta pantalla ya no guarda.\n\n✅ QUÉ HACER: toca «Actualizar ahora» y vuelve a agregarlos a este abono.');
+        return;
+    }
     alert(`✅ ${exitos} comprobante(s) agregado(s) correctamente${errores>0?'\n⚠️ '+errores+' fallaron':''}`);
 }
 
@@ -31151,6 +31363,7 @@ function _renderAbonoComprobantesPreview(){
 }
 
 async function guardarAbonoEspecial(cliId){
+    const _permisoG=_permisoGuardadoOfi();   // revisión Etapa 6: empezó con la versión al día → su guardado pasa el freno aunque la nueva salga mientras sube
     if(window._huellaAbonoEnCurso){ if(window._esperandoHuellaAbono) return; window._esperandoHuellaAbono=true; try{ await window._huellaAbonoEnCurso; }finally{ window._esperandoHuellaAbono=false; } }   // v305: espera la huella; un segundo clic mientras espera no hace nada
     const valor=parseFloat(document.getElementById('ab_valor').value||0);
     const forma=document.getElementById('ab_forma').value;
@@ -31221,10 +31434,12 @@ async function guardarAbonoEspecial(cliId){
     // Viven SOLO en su propia sección (DB.abonosEspeciales), totalmente aparte.
 
     registrarLog('ABONO_ESPECIAL_REGISTRADO',{cliId, abonoId:abono.id, valor, forma, aplicaciones:aplicaciones.length});
-    save().then(()=>{
+    const _frenados0=window._guardadosFrenadosVersion||0;
+    save({permiso:_permisoG}).then(()=>{
         closeModal();
         modalDetalleClienteEspecial(cliId);
-        alert('✅ Abono registrado en la sección de clientes especiales.');
+        if((window._guardadosFrenadosVersion||0)>_frenados0) alert('⚠️ EL ABONO NO QUEDÓ GUARDADO\n\nSalió una versión nueva del sistema y esta pantalla ya no guarda.\n\n✅ QUÉ HACER: toca «Actualizar ahora» y vuelve a registrar el abono.');   // revisión Etapa 6: no decir «registrado»
+        else alert('✅ Abono registrado en la sección de clientes especiales.');
     });
 }
 
@@ -32061,6 +32276,7 @@ function _ingAviso(msg){
 function _ingGuardar(docId, id, json){
     if(window._mantBloqueando===true) return Promise.reject(new Error('mantenimiento'));
     if(MODO_PRUEBA) return Promise.reject(new Error('modo prueba'));   // en modo prueba las escrituras "resuelven" sin escribir: la cola real se vaciaría sin haber subido nada
+    if(_pestanaDesactualizada()) return Promise.reject(new Error(MSG_VERSION_VIEJA_OFI));   // Etapa 6 (después del modo prueba, como el buzón): el caso queda en la cola local de checklists.js y la versión nueva lo reenvía
     if(typeof db==='undefined' || !db) return Promise.reject(new Error('sin conexión con la nube'));
     docId=String(docId||''); id=String(id||'');
     if(!/^esc_\d{4}_\d{2}_[A-Za-z0-9_\-]+$/.test(docId) || !/^[A-Za-z0-9_\-]{3,40}$/.test(id) || typeof json!=='string' || !json) return Promise.reject(new Error('registro inválido'));
@@ -32074,6 +32290,7 @@ function _ingGuardar(docId, id, json){
 function _ingGuardarMasiva(m){
     if(!m || !m.id) return Promise.reject(new Error('falla masiva sin id'));
     if(window._mantBloqueando===true) return Promise.reject(new Error('mantenimiento'));
+    if(_pestanaDesactualizada()) return Promise.reject(new Error(MSG_VERSION_VIEJA_OFI));   // Etapa 6: fallas_masivas lo comparte TÉCNICOS (el aviso de WhatsApp igual sale)
     if(typeof db==='undefined' || !db) return Promise.reject(new Error('sin conexión con la nube'));
     let limpio; try{ limpio=JSON.parse(JSON.stringify(m)); }catch(e){ return Promise.reject(e); }   // sin undefined ni funciones
     return db.collection('oficinas_sistema').doc('fallas_masivas').set({ activas:{ [String(m.id)]: limpio }, actualizadoMs: Date.now() }, { merge:true })
@@ -32095,6 +32312,7 @@ function _ingCerrarMasiva(id){
         return Promise.reject(new Error('sin permiso'));
     }
     if(window._mantBloqueando===true) return Promise.reject(new Error('mantenimiento'));
+    if(_pestanaDesactualizada()) return Promise.reject(new Error(MSG_VERSION_VIEJA_OFI));   // Etapa 6
     if(typeof db==='undefined' || !db) return Promise.reject(new Error('sin conexión con la nube'));
     return db.collection('oficinas_sistema').doc('fallas_masivas').set({ activas:{ [id]:{ cerradaMs: Date.now(), cerradaPor: _ingQuien(_ingOficinaActiva()).nombre } }, actualizadoMs: Date.now() }, { merge:true });
 }
@@ -32729,6 +32947,7 @@ function _renderRecogidaCompPreview(){
 }
 
 async function _guardarGestionRecogida(recId){
+    const _permisoG=_permisoGuardadoOfi();   // revisión Etapa 6: empezó con la versión al día → su guardado pasa el freno aunque la nueva salga mientras sube
     const r=DB.recogidas.find(x=>x.id===recId);
     if(!r) return;
     const estadoAnterior=r.estado;
@@ -32759,7 +32978,7 @@ async function _guardarGestionRecogida(recId){
 
     registrarLog('RECOGIDA_GESTIONADA',{recId, cliente:r.cliente, estadoAnterior, estadoNuevo:r.estado});
     _recogidaComprobantesPendientes=[];
-    save().then(()=>{
+    save({permiso:_permisoG}).then(()=>{
         closeModal();
         renderRecogidas();
     });
@@ -35014,6 +35233,124 @@ window._buzonLeerUnoOfi=_buzonLeerUnoOfi; window._buzonLeerTodasOfi=_buzonLeerTo
 window._buzonArrancarOfi=_buzonArrancarOfi; window._buzonSalirOfi=_buzonSalirOfi; window._buzonContarOfi=_buzonContarOfi;
 window._tarjetaBuzonHTML=_tarjetaBuzonHTML; window._buzonAbrirTableroOfi=_buzonAbrirTableroOfi;
 
+/* ═════════════════════════════════════════════════════════════════
+   Etapa 6 (docs/12) · PANTALLAS ABIERTAS: el latido de esta pantalla y el panel del administrador.
+   El módulo es pantallas.js (compartido con INVENTARIO, TÉCNICOS y RED): aquí va solo el adaptador.
+   Cada pantalla con sesión deja un latido en oficinas_sistema/sesiones_vivas (cada 5 min a la vista, cada
+   15 oculta) y el administrador ve en ⚙️ Administración cuáles siguen abiertas, con qué versión, cuáles llevan
+   más de un día y cuáles ya no laten. Las pantallas anteriores a este código no laten (el panel lo dice).
+   - Escribe SIEMPRE set(…, {merge:true}) sobre sesiones_vivas, con serverTimestamp()/delete() de la app.
+     Rechaza en modo prueba ANTES del set (ni lo intenta: el envoltorio lo contaría en _escriturasBloqueadas).
+   - NO pasa por el freno de versión vieja (justo esas pantallas hay que ver) ni cuenta como guardado en curso
+     para la recarga automática.
+   - Privacidad: la colección se lee sin autenticación desde internet. El nombre es el de la oficina, 'Admin'
+     o 'SG-SST'; nunca el de una persona, una cédula ni un teléfono. Nada va en main.
+   - El panel lee solo bajo pedido (botón «🔄 Ver pantallas»): una lectura del documento y las cuatro de
+     versión. Un repintado del panel usa la última lectura (PV_PANTALLAS.ultimoPanel), no vuelve a leer.
+   ═════════════════════════════════════════════════════════════════ */
+function _pantallasNombreOfi(){
+    const r=(typeof USER!=='undefined' && USER) ? String(USER.role||'') : '';
+    if(r==='admin') return 'Admin';
+    if(r==='sgsst') return 'SG-SST';
+    if(r==='oficina'){ const o=(DB.oficinas||[]).find(x=>x && String(x.id)===String(USER.id)); return String((o && o.nombre) || USER.nombre || ''); }
+    return '';
+}
+// Las cuatro versiones publicadas, para marcar las pantallas viejas. Si no se puede leer ninguna, rechaza.
+function _pantallasVersionesOfi(){
+    if(typeof db==='undefined' || !db) return Promise.reject(new Error('sin conexión con la nube'));
+    const leerV=(col, d)=>db.collection(col).doc(d).get().then(s=>s.exists ? (parseInt((s.data()||{}).version,10)||0) : 0, ()=>null);
+    return Promise.all([leerV('oficinas_sistema','app_version'), leerV('inventario','app_version'), leerV('oficinas_sistema','app_version_tecnicos'), leerV('oficinas_sistema','app_version_red')])
+        .then(v=>{
+            if(v.every(x=>x===null)) throw new Error('no se pudieron leer las versiones publicadas');
+            const ofiNube=parseInt((DB.config && DB.config.appVersionPublicada)||0,10)||0;
+            return { OFI:Math.max(v[0]||0, ofiNube), INV:v[1]||0, TEC:v[2]||0, RED:v[3]||0 };
+        });
+}
+// El adaptador que recibe pantallas.js. Lee USER en cada latido.
+function _pantallasOpOfi(){
+    return {
+        app:'OFI',
+        modoPrueba:!!MODO_PRUEBA,
+        entornoLocal:_esEntornoLocal(),
+        cargadaMs:_CARGA_MS_OFI,
+        datos:()=>{
+            let fase=''; try{ if(window.PV_RECARGA) fase=String(window.PV_RECARGA.estado().fase||''); }catch(e){}
+            return { v:APP_VERSION, rol:(typeof USER!=='undefined' && USER) ? String(USER.role||'') : '', nombre:_pantallasNombreOfi(),
+                     sesion:_idPestana(), vieja:_pestanaDesactualizada(), recarga:fase };
+        },
+        escribir:parche=>{
+            if(MODO_PRUEBA) return Promise.reject(new Error('modo prueba'));   // antes del set: en modo prueba ni se intenta
+            if(typeof db==='undefined' || !db) return Promise.reject(new Error('sin conexión con la nube'));
+            if(!parche || typeof parche!=='object' || !parche.sesiones) return Promise.reject(new Error('nada que escribir'));
+            const FV=firebase.firestore.FieldValue;
+            const datos=PV_PANTALLAS.traducir(parche, ()=>FV.serverTimestamp(), ()=>FV.delete());
+            return db.collection('oficinas_sistema').doc('sesiones_vivas').set(datos, {merge:true});
+        },
+        leer:()=>{
+            if(typeof db==='undefined' || !db) return Promise.reject(new Error('sin conexión con la nube'));
+            return db.collection('oficinas_sistema').doc('sesiones_vivas').get().then(s=>s.exists ? (s.data()||{}) : null);
+        },
+        leerVersiones:()=>_pantallasVersionesOfi()
+    };
+}
+function _pantallasEscOfi(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+// Lo que va dentro de #pantallasPanel: la última lectura (sin volver a leer) o la invitación a tocar el botón.
+function _pantallasContenidoOfi(){
+    try{
+        if(typeof PV_PANTALLAS==='undefined') return '';
+        const ult=PV_PANTALLAS.ultimoPanel();
+        if(window._pantallasLeyendo && !ult) return '<p style="font-size:0.84rem;color:var(--muted);">⏳ Leyendo las pantallas abiertas…</p>';
+        if(!ult) return '<p style="font-size:0.84rem;color:var(--muted);margin-bottom:6px;">Toca «🔄 Ver pantallas» para leer la lista (se lee solo cuando lo pides).</p>'
+            +'<p style="font-size:0.74rem;color:var(--muted);">'+_pantallasEscOfi(PV_PANTALLAS.NOTA)+'</p>';
+        let hora=''; try{ hora=new Date(ult.ms).toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'}); }catch(e){}
+        return '<p style="font-size:0.74rem;color:var(--muted);margin-bottom:6px;">'+(window._pantallasLeyendo?'⏳ Leyendo otra vez… · ':'')+'Leído a las '+_pantallasEscOfi(hora)+'</p>'
+            +PV_PANTALLAS.htmlPanel(ult.res);
+    }catch(e){ console.warn('Panel de pantallas:', e); return ''; }
+}
+function _pantallasPintarOfi(){
+    try{
+        const el=document.getElementById('pantallasPanel'); if(el) el.innerHTML=_pantallasContenidoOfi();
+        const b=document.getElementById('pantallasBtn'); if(b){ b.disabled=!!window._pantallasLeyendo; b.textContent=window._pantallasLeyendo?'⏳ Leyendo…':'🔄 Ver pantallas'; }
+    }catch(e){}
+}
+// El botón: una lectura (pantallas.js no la repite si ya hay una en camino) y se repinta solo la tarjeta.
+function _pantallasVerOfi(){
+    if(typeof PV_PANTALLAS==='undefined'){ alert('El panel de pantallas no cargó en esta pestaña. Recarga la página (Ctrl+F5) e inténtalo otra vez.'); return Promise.resolve(null); }
+    if(!(typeof USER!=='undefined' && USER && USER.role==='admin')) return Promise.resolve(null);
+    if(window._pantallasLeyendo) return window._pantallasLeyendo;
+    let p;
+    try{ p=Promise.resolve(PV_PANTALLAS.leerPanel(_pantallasOpOfi())); }catch(e){ p=Promise.resolve(null); }
+    window._pantallasLeyendo=p.then(r=>r, ()=>null).then(r=>{ window._pantallasLeyendo=null; _pantallasPintarOfi(); return r; });
+    _pantallasPintarOfi();
+    return window._pantallasLeyendo;
+}
+// Tarjeta de ⚙️ Administración, entre la del mantenimiento y la del buzón. Solo el administrador.
+function _tarjetaPantallasHTML(){
+    try{
+        if(!(typeof USER!=='undefined' && USER && USER.role==='admin')) return '';
+        const cargo=(typeof PV_PANTALLAS!=='undefined');
+        return `<div class="card" id="pantallas_card" style="margin-bottom:14px;border:2px solid var(--border);min-width:0;max-width:100%;box-sizing:border-box;">
+        <div class="card-header"><h2>📺 Pantallas abiertas</h2></div>
+        <p style="font-size:0.84rem;color:var(--muted);margin-bottom:10px;line-height:1.5;">Qué pantallas de las cuatro apps siguen abiertas, con qué versión y cuándo dieron señal por última vez. Una pantalla con versión vieja puede reescribir datos con su copia vieja: pide a quien la tenga que la actualice. Las de más de un día sin recargar salen en ámbar.</p>
+        ${cargo ? '' : '<p style="font-size:0.8rem;color:#ef4444;margin-bottom:10px;">El panel no cargó en esta pestaña (pantallas.js): recarga la página con Ctrl+F5.</p>'}
+        <button class="btn btn-primary" id="pantallasBtn" onclick="_pantallasVerOfi()" ${window._pantallasLeyendo?'disabled':''}>${window._pantallasLeyendo?'⏳ Leyendo…':'🔄 Ver pantallas'}</button>
+        <div id="pantallasPanel" style="margin-top:12px;min-width:0;max-width:100%;">${_pantallasContenidoOfi()}</div>
+    </div>`;
+    }catch(e){ console.warn('Tarjeta de pantallas:', e); return ''; }
+}
+window._pantallasOpOfi=_pantallasOpOfi; window._pantallasVersionesOfi=_pantallasVersionesOfi; window._pantallasVerOfi=_pantallasVerOfi;
+window._tarjetaPantallasHTML=_tarjetaPantallasHTML; window._pantallasNombreOfi=_pantallasNombreOfi;
+// Versión a la vista: junto al reloj de la cabecera, en la pantalla de entrada y en #syncStatus.
+function _pintarVersionOfi(){
+    try{
+        const v='v'+APP_VERSION;
+        const a=document.getElementById('appVersionLabel'); if(a) a.textContent=v;
+        const c=document.getElementById('appVersionCab'); if(c) c.textContent=v;
+        const l=document.getElementById('appVersionLogin'); if(l) l.textContent='Versión '+v;
+    }catch(e){}
+}
+window._pintarVersionOfi=_pintarVersionOfi;
+
 /* ═══════════════════════════════════════════════════════════════════════════
    v284 — EL ALTA DEL CLIENTE SEGÚN WISPHUB: CUÁNDO SE INSTALÓ Y QUÉ PAGÓ AL INICIO
    ────────────────────────────────────────────────────────────────────────────
@@ -35984,6 +36321,7 @@ async function _escribirRastreoWisp(cuenta, cambios){
         try{ _bloquear('rastreo_wisp_'+cuenta); }catch(e){}
         return n;
     }
+    if(_pestanaDesactualizada()) throw new Error(MSG_VERSION_VIEJA_OFI);   // Etapa 6: el estado del rastreador lo sigue la versión nueva (quien llama lo atrapa y lo repite en otra vuelta)
     const ref=_docRastreo(cuenta);
     return db.runTransaction(async tx=>{
         const s=await tx.get(ref);
@@ -35997,6 +36335,7 @@ async function _escribirRastreoWisp(cuenta, cambios){
 async function _tomarTurnoRastreo(cuenta){
     if(MODO_PRUEBA) return true;   // en prueba no se escribe: esta pantalla trabaja sola
     if(!db) return false;
+    if(_pestanaDesactualizada()) return false;   // Etapa 6: una pantalla vieja no toma el turno (además de la guarda al programar)
     const ref=db.collection('oficinas_sistema').doc('rastreo_turnos');
     const yo=_idPestana(), ahora=Date.now();
     try{
@@ -36062,6 +36401,19 @@ function _pestanaDesactualizada(){
     }catch(e){ return false; }
 }
 window._pestanaDesactualizada=_pestanaDesactualizada;
+// Etapa 6: rastro de que esta pantalla dejó de escribir por la versión vieja. UNA vez por pestaña, sin datos de clientes.
+// Se llama desde el freno (nunca desde _pestanaDesactualizada, que no tiene efectos). En modo prueba solo queda en memoria.
+function _anotarFrenoVersionOfi(que){
+    try{
+        if(window._frenoVersionAnotado) return false;
+        window._frenoVersionAnotado=true;
+        const pub=Math.max(parseInt((DB.config && DB.config.appVersionPublicada)||0,10)||0, parseInt(window._mantVersionOficinasNube||0,10)||0);
+        registrarLog('GUARDADO_FRENADO_VERSION', { version:APP_VERSION, publicada:pub, que:String(que||'') });
+        if(!MODO_PRUEBA){ try{ _enviarLogsAuditoria(); }catch(_){} }   // logs_auditoria no se frena: el rastro sale ya
+        return true;
+    }catch(e){ return false; }
+}
+window._anotarFrenoVersionOfi=_anotarFrenoVersionOfi;
 
 // v249: la revisión corre POR SU CUENTA y nunca toma el candado de las
 // sincronizaciones: si hay una corriendo, espera un minuto y vuelve a intentar.
@@ -36072,6 +36424,7 @@ function _programarRevisionHuecos(){
         try{
             if(!USER || !USER.role || USER.role==='sgsst') return;
             if(_pestanaDesactualizada() || window._mantBloqueando) return;
+            if(_capaCaducadaPuestaOfi()) return;   // Etapa 6: estacionada por la guarda de 24 h (otra pantalla toma el turno)
             if(window._huecosEnCurso) return;
             if(_syncOcupado()){
                 if(!reintento){ clearTimeout(window._huecosReintento); window._huecosReintento=setTimeout(()=>correr(true), 60000); }
@@ -36540,6 +36893,7 @@ async function _asignarPagosSinOficina(cid, gi){
     const cuenta=_cuentaDeIdSeguro(cid); if(!cuenta) return;
     const ids=_marcadosSinOficina(cid, gi);
     if(!ids.length){ alert('Marca primero los pagos que quieres meter.'); return; }
+    if(_pestanaDesactualizada()){ alert('⚠️ '+MSG_VERSION_VIEJA_OFI+'\n\nLos pagos NO se metieron: actualiza la página y vuelve a meterlos desde «Pagos sin oficina».'); return; }   // Etapa 6: _saveReal no los subiría
     const sel=document.getElementById('sa_ofi_sa_'+cid+'_g'+gi); const oid=sel && sel.value;
     const o=(DB.oficinas||[]).find(x=>x && x.id===oid && x.cuentaWisphub===cuenta);
     if(!o){ alert('Elige una oficina de esa cuenta.'); return; }
@@ -36572,7 +36926,12 @@ async function _asignarPagosSinOficina(cid, gi){
     const oViva=(DB.oficinas||[]).find(x=>x && x.id===oid); if(!Array.isArray(oViva.movimientos)) oViva.movimientos=[];
     const r=_aplicarPagosWisphub(oViva, aMeter);
     registrarLog('PAGOS_SIN_OFICINA_METIDOS',{cuenta, oficina:o.nombre, n:items.length, creados:r.creados, facturas:items.slice(0,25).map(x=>x.f.id_factura), fechaManual:fechaSin||null});
+    const _frenados0=window._guardadosFrenadosVersion||0;
     await save();
+    if((window._guardadosFrenadosVersion||0)>_frenados0){   // Etapa 6: salió una versión nueva mientras tanto y el freno no dejó guardar (_ultimoGuardadoOk queda como estaba)
+        alert('⚠️ '+MSG_VERSION_VIEJA_OFI+'\n\nLos pagos NO llegaron a la nube: actualiza la página y vuelve a meterlos desde «Pagos sin oficina».');
+        return;
+    }
     if(window._ultimoGuardadoOk!==true){
         alert('⚠️ Los pagos quedaron en pantalla, pero la nube todavía no los recibió. NO los vuelvas a meter: la app reintenta sola, y cuando lleguen salen de esta lista.');
         return;
@@ -36593,6 +36952,7 @@ async function _descartarPagosSinOficina(cid, gi){
     const cuenta=_cuentaDeIdSeguro(cid); if(!cuenta) return;
     const ids=_marcadosSinOficina(cid, gi);
     if(!ids.length){ alert('Marca primero los pagos que quieres descartar.'); return; }
+    if(_pestanaDesactualizada()){ alert('⚠️ '+MSG_VERSION_VIEJA_OFI+'\n\nNo se descartó nada: actualiza la página y vuelve a hacerlo desde «Pagos sin oficina».'); return; }   // Etapa 6: el estado del rastreador ya no se escribe desde esta pantalla
     const motivo=prompt(`Vas a descartar ${ids.length} pago(s): NO entrarán a ninguna caja (en WispHub no cambia nada).\n\n¿Por qué? (queda en el registro de auditoría)`, '');
     if(motivo===null) return;
     try{ await _escribirRastreoWisp(cuenta, {resueltosMas:ids.map(Number), sinAsigQuitar:ids}); }
@@ -36755,6 +37115,7 @@ function _programarSyncRapida(){
         try{
             if(!USER||!USER.role||USER.role==='sgsst') return;
             if(_pestanaDesactualizada() || window._mantBloqueando) return;   // v314: una pantalla vieja no sincroniza por detrás
+            if(_capaCaducadaPuestaOfi()) return;   // Etapa 6: estacionada por la guarda de 24 h hasta que la recarguen
             if(_syncOcupado()) return; // hay una sync grande corriendo
             let objetivos=[];
             if(USER.role==='oficina'){ const o=(DB.oficinas||[]).find(x=>x.id===USER.id); if(o&&o.cuentaWisphub) objetivos=[o.id]; }
@@ -39281,6 +39642,7 @@ const firebaseConfig = {
         showSync("err","Error de conexion");
         console.error(e);
     }
+    _pintarVersionOfi();   // Etapa 6: la versión se ve en la entrada y junto al reloj aunque la carga haya fallado
     document.getElementById("loading-screen").style.display="none";
     document.getElementById("syncStatus").style.display="flex";
     renderLoginOficinas();

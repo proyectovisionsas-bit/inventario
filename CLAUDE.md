@@ -25,17 +25,18 @@ sin proceso de compilación: se editan directamente y se publican tal cual.
 | Archivo | Para quién | Versión | Tamaño |
 |---|---|---|---|
 | `index.html` | Portal de entrada, solo enlaces | — | 170 líneas |
-| `OFICINAS_PTOVISION.html` | Oficina: caja, cartera, facturas, clientes, RRHH, SG-SST | `APP_VERSION = 319` | 39.322 líneas · 3,0 MB |
-| `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 114` | 12.584 líneas · 880 KB |
-| `RED_PTOVISION.html` | Red y nodos | `APP_VERSION_RED = 43` | 9.634 líneas · 599 KB |
-| `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 100` | 3.987 líneas · 275 KB |
-| `PRUEBAS.html` | Banco de pruebas (148 pruebas) | — | 7.258 líneas |
+| `OFICINAS_PTOVISION.html` | Oficina: caja, cartera, facturas, clientes, RRHH, SG-SST | `APP_VERSION = 320` | 39.684 líneas · 3,0 MB |
+| `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 115` | 12.901 líneas · 903 KB |
+| `RED_PTOVISION.html` | Red y nodos | `APP_VERSION_RED = 44` | 9.759 líneas · 607 KB |
+| `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 101` | 4.161 líneas · 289 KB |
+| `PRUEBAS.html` | Banco de pruebas (154 pruebas) | — | 7.986 líneas |
 | `FIRMA_SST.html` | Firma desde el celular (SG-SST): página pública, sin login, lee un solo documento por token | — | 187 líneas |
 | `contrato.js` | Contrato de servicio: **compartido** OFICINAS ↔ TECNICOS | `?v=6` | 956 líneas |
 | `ia.js` | Llamadas a Groq: compartido por OFICINAS, INVENTARIO y TECNICOS | `?v=5` | 388 líneas |
 | `checklists.js` | «Antes de llamar al ingeniero»: listas, motor y pantalla, **compartido** OFICINAS ↔ TECNICOS | `?v=1` | 1.413 líneas · 232 KB |
 | `buzon.js` | Buzón de sugerencias: envío, «Mis ideas», muro con votos y tablero del admin, **compartido** por las cuatro apps | `?v=1` | 1.372 líneas · 90 KB |
 | `recarga.js` | Recarga automática al publicar (cuenta de 30 s, solo con internet y sin guardados en curso), **compartido** por las cuatro apps | `?v=1` | 652 líneas · 34 KB |
+| `pantallas.js` | Pantallas abiertas: latido de cada pantalla en `oficinas_sistema/sesiones_vivas` y panel del admin con las que siguen en versión vieja, **compartido** por las cuatro apps | `?v=1` | 925 líneas · 57 KB |
 | `wisphub-explorador.html` | Herramienta aparte para explorar la API de WispHub | — | 391 líneas |
 
 Las cifras de esta tabla se actualizan con `/revisar`. Si no cuadran con lo que
@@ -90,7 +91,7 @@ cargan enteras: se leen cuando se toca ese tema.
 - @docs/09-antes-de-llamar-al-ingeniero.md — listas de validación antes de escalar (`checklists.js`), documentos `esc_*` y `fallas_masivas`, cómo corregir un paso
 - @docs/10-prestamos.md — préstamos: una cuenta por persona, `resumenPrestamo`/`estadoDe`, caja con reverso, tope y atraso, conciliación
 - @docs/11-buzon.md — buzón de sugerencias (`buzon.js`): documentos `buzon_<id>`, contrato `op` de cada app, privacidad, tablero del admin
-- @docs/12-revision-sincronizacion-2026-10.md — revisión de sincronización por etapas (borrados que vuelven, equipo instalado que vuelve); Etapa 1 hecha: rastro, sello, vigilancia y recarga automática
+- @docs/12-revision-sincronizacion-2026-10.md — revisión de sincronización por etapas (borrados que vuelven, equipo instalado que vuelve); Etapas 1 y 6 hechas: rastro, sello, vigilancia, recarga automática y pantallas abiertas
 
 ## Pendientes conocidos
 

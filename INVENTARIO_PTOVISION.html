@@ -11,6 +11,8 @@
     <script src="buzon.js?v=1"></script>
     <!-- Recarga automática al publicar, compartida: editar recarga.js, no copiarlo aquí -->
     <script src="recarga.js?v=1"></script>
+    <!-- Pantallas abiertas (latido), compartido: editar pantallas.js, no copiarlo aquí -->
+    <script src="pantallas.js?v=1"></script>
     <style>
         :root { --primary: #1a5276; --primary-light: #2980b9; --secondary: #27ae60; --danger: #e74c3c; --warning: #f39c12; --dark: #2c3e50; --light: #ecf0f1; --gray: #95a5a6; --white: #ffffff; --shadow: 0 4px 15px rgba(0,0,0,0.1); --radius: 10px; }
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -308,7 +310,7 @@
     </div>
 </div>
 <div id="loading-screen"><div class="spinner"></div><p style="color:var(--gray);">Conectando con Firebase...</p></div>
-<div id="syncStatus" style="display:none;"><div class="sync-dot sync-ok" id="syncDot"></div><span id="syncText">Sincronizado</span><span id="invVersionLabel" style="opacity:0.5;font-size:0.68rem;margin-left:4px;" title="Versión del sistema"></span></div>
+<div id="syncStatus" style="display:none;"><div class="sync-dot sync-ok" id="syncDot"></div><span id="syncText">Sincronizado</span><span id="invVersionLabel" style="color:#1a5276;font-weight:700;font-size:0.74rem;margin-left:4px;" title="Versión del sistema"></span></div>
 <div id="saveOverlay" style="display:none;">
     <div class="save-overlay-card">
         <div class="save-spinner">
@@ -328,6 +330,8 @@
         <div class="text-center" style="font-size:3rem; margin-bottom:10px;">📦</div>
         <h2 class="text-center" style="color:var(--primary); margin-bottom:5px;">PROYECTOVISION</h2>
         <p class="text-center text-muted" style="margin-bottom:20px;">Sistema de Gestión V9.1 ☁️ Firebase</p>
+        <!-- Etapa 6: la versión que tiene cargada esta pantalla (la llena el módulo de Firebase al cargar) -->
+        <p class="text-center" id="invVersionLogin" style="margin:-14px 0 16px;font-size:0.8rem;font-weight:700;color:#1a5276;" title="Versión del sistema"></p>
         <div class="login-tabs">
             <div class="login-tab active" onclick="switchLogin('admin')">🔑 Admin</div>
             <div class="login-tab" onclick="switchLogin('bodega')">🏭 Jefe Bodega</div>
@@ -1986,6 +1990,9 @@ function enterApp() {
     setTimeout(function(){ mostrarSaludoBienvenida(_nom, 'al Inventario PROYECTOVISION'); }, 400);
     try{ if(window.PV_BUZON && PV_BUZON.estado().montado) PV_BUZON.montar(_buzonOpInv()); }catch(e){}   // v113: otra sesión en la misma pestaña: el buzón cambia de identidad ya
     setTimeout(_buzonArrancarInv, 4000);   // v113: buzón de sugerencias (buzon.js)
+    // Etapa 6: latido de «pantallas abiertas» (pantallas.js). Solo aquí, con sesión (al entrar y al
+    // reanudar); idempotente: otra sesión en la misma pestaña no crea otra clave ni otro temporizador.
+    try{ if(window.PV_PANTALLAS && typeof window._pantallasOpInv==='function') PV_PANTALLAS.iniciar(window._pantallasOpInv()); }catch(e){ console.warn('pantallas abiertas:', e); }
 }
 
 // 👋 Saludo de bienvenida según la hora del día
@@ -2094,6 +2101,7 @@ window.toggleNavGroup = toggleNavGroup;
 function doLogout() {
     try{ _olvidarSesionInv(); }catch(e){}
     try{ if(window.PV_BUZON) PV_BUZON.cerrar(); }catch(e){}   // v113: el buzón no queda abierto sobre el login
+    try{ if(window.PV_PANTALLAS) PV_PANTALLAS.detener(); }catch(e){}   // Etapa 6: sin sesión no se late (al volver a entrar, enterApp lo arranca otra vez)
     USER = null;
     try{ if(window.PV_BUZON && PV_BUZON.estado().montado) PV_BUZON.montar(_buzonOpInv()); }catch(e){}   // v113: sin sesión el buzón queda sin identidad y se vacía el borrador
     id('app').classList.add('hidden');
@@ -3020,6 +3028,54 @@ function verChequeoInventarioInv(){
     openModal('🛡️ Chequeo de inventario', html);
     const pie=document.getElementById('mFooter'); if(pie) pie.innerHTML='<button class="btn btn-primary" onclick="closeModal()">Cerrar</button>';
 }
+/* Etapa 6 (docs/12) · 📺 PANTALLAS ABIERTAS, el panel del administrador (pantallas.js).
+   Tarjeta APARTE de la 🛡️ (esa se repinta en cada sincronización) y solo en ⚙️
+   Configuración. Sin oyente: lee la nube solo cuando se toca «🔄 Ver pantallas»
+   (1 lectura de oficinas_sistema/sesiones_vivas + las 4 de versión), por la cuota.
+   Al repintarse muestra la última lectura, sin volver a leer. Todo lo que pinta
+   sale de PV_PANTALLAS.htmlPanel, que escapa lo que viene de la base. */
+function _tarjetaPantallasInv(){
+    try{
+        const u=(typeof USER!=='undefined' && USER) ? USER : null;
+        if(!u || u.role!=='admin') return '';
+        const P=window.PV_PANTALLAS;
+        let cuerpo;
+        if(!P) cuerpo='<p class="text-muted" style="margin:0;font-size:0.82rem;">No se pudo cargar pantallas.js (¿sin señal al abrir la app?). Recarga la página para ver las pantallas abiertas.</p>';
+        else{
+            const ult=(typeof P.ultimoPanel==='function') ? P.ultimoPanel() : null;
+            cuerpo = ult && ult.res
+                ? P.htmlPanel(ult.res)+'<div class="text-muted" style="font-size:0.75rem;margin-top:6px;">Leído '+_escInv(_haceCuantoInv(ult.ms))+'.</div>'
+                : '<p class="text-muted" style="margin:0 0 6px;font-size:0.82rem;">Toca «🔄 Ver pantallas» para leer cuáles están abiertas ahora.</p>'
+                  +'<div class="text-muted" style="font-size:0.75rem;">'+_escInv(P.NOTA||'')+'</div>';
+        }
+        return `<div class="card" id="tarjetaPantallasInv" style="margin-bottom:15px;min-width:0;max-width:100%;box-sizing:border-box;">
+            <div class="card-header"><h2>📺 Pantallas abiertas</h2></div>
+            <p class="text-muted" style="margin:0 0 8px;font-size:0.8rem;">Qué pantallas de las cuatro apps siguen abiertas, con qué versión y desde cuándo. Solo lee la nube cuando tocas el botón.</p>
+            <button class="btn btn-primary btn-sm" id="btnVerPantallasInv" onclick="verPantallasInv()" ${P ? '' : 'disabled'}>🔄 Ver pantallas</button>
+            <div id="panelPantallasInv" style="margin-top:10px;min-width:0;max-width:100%;overflow-wrap:anywhere;">${cuerpo}</div>
+        </div>`;
+    }catch(err){ console.warn('tarjeta de pantallas abiertas:', err); return ''; }
+}
+async function verPantallasInv(){
+    const u=(typeof USER!=='undefined' && USER) ? USER : null;
+    if(!u || u.role!=='admin') return;
+    const P=window.PV_PANTALLAS;
+    if(!P || typeof P.leerPanel!=='function') return alert('⚠️ No se pudo cargar pantallas.js. Recarga la página e intenta de nuevo.');
+    if(!window._fbLatidoInv || typeof window._pantallasOpInv!=='function') return alert('⚠️ La conexión con la nube aún no está lista. Espera unos segundos e intenta de nuevo.');
+    const textoBtn='🔄 Ver pantallas';
+    const btn0=document.getElementById('btnVerPantallasInv'); if(btn0){ btn0.disabled=true; btn0.textContent='⏳ Leyendo…'; }
+    try{
+        const res=await P.leerPanel(window._pantallasOpInv());
+        const caja=document.getElementById('panelPantallasInv');   // se busca otra vez: la página pudo repintarse mientras tanto
+        if(caja) caja.innerHTML=P.htmlPanel(res)+'<div class="text-muted" style="font-size:0.75rem;margin-top:6px;">Leído '+_escInv(_haceCuantoInv(Date.now()))+'.</div>';
+    }catch(e){
+        const caja=document.getElementById('panelPantallasInv');
+        if(caja) caja.innerHTML='<p style="color:#991b1b;margin:0;font-size:0.82rem;">⚠️ No se pudo leer la lista de pantallas: '+_escInv((e&&e.message)||e)+'</p>';
+    }finally{
+        const btn=document.getElementById('btnVerPantallasInv'); if(btn){ btn.disabled=false; btn.textContent=textoBtn; }
+    }
+}
+window.verPantallasInv=verPantallasInv;
 async function descargarRespaldoInv(btn){
     const u=(typeof USER!=='undefined' && USER) ? USER : null;
     if(!u || u.role!=='admin') return alert('Solo el administrador puede descargar el respaldo.');
@@ -9800,7 +9856,7 @@ function delInst(eid) { if(!confirm('¿Eliminar?')) return; DB.instalaciones=DB.
 
 // ADMIN
 function renderAdmin(c) {
-    c.innerHTML = `${_tarjetaVigilanciaInv()}<div class="card">
+    c.innerHTML = `${_tarjetaVigilanciaInv()}${_tarjetaPantallasInv()}<div class="card">
         <div class="card-header"><h2>⚙️ Administración</h2></div>
         <div class="form-group"><label>Contraseña Admin Actual</label>
             <input id="aOld" type="password" class="form-control" style="margin-bottom:5px;">
@@ -11089,7 +11145,7 @@ window._ejecutarImport=_ejecutarImport;
 
 <script type="module">
 import { initializeApp, getApps, getApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, runTransaction, collection, query, where, getDocs, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, runTransaction, collection, query, where, getDocs, serverTimestamp, deleteField } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 import { getMessaging, getToken, onMessage, isSupported as _msgSoportado } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging.js';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -11158,8 +11214,11 @@ const HISTORIAL_DOC = 'inventario/historial';
 // Campos que SOLO escribe Inventario (Técnicos no los toca) y que solo crecen.
 // Se guardan en un documento aparte para que inventario/datos no llegue al tope de 1MB.
 const HISTORIAL_FIELDS = ['editRequests','entregas','cuartos','logs','transfers','deleteRequests','ventas'];
-const APP_VERSION_INV = 114; // ⬆️ Subir en cada versión publicada de Inventario (v114: ETAPA 1 de docs/12: el registro dice quién hizo cada cosa y no se pierden entradas entre pantallas, sello de quién escribió en la nube, tarjeta 🛡️ Vigilancia con medidor, chequeo y respaldo, y recarga sola al publicar con recarga.js. v113: BUZÓN DE SUGERENCIAS: botón 💡 Ideas en la cabecera para enviar ideas, fallas, lo que complica o felicitaciones, seguirlas en Mis ideas y votar en el muro (compartido con OFICINAS, TÉCNICOS y RED en buzon.js); puente _fbBuzonInv que escribe oficinas_sistema/buzon_<id> con merge y no escribe en modo prueba, mantenimiento ni versión vieja. v112: EL EQUIPO INSTALADO YA NO SIGUE APARECIENDO EN LA CUADRILLA. Revisión del 23 sep 2026: [1] el serial se reconoce escrito de cualquier forma (mayúsculas, espacios, HWTC… = 48575443…) y sale de la fila donde está; si no está en la cuadrilla no se descuenta otro en su lugar; [2] se confirma unidad por unidad: lo que alcanza se descuenta y lo demás queda pendiente aparte, de la misma orden; rechazar avisa si el equipo sigue en la cuadrilla; la tarjeta mide igual que la confirmación; [3] cuadrillas y bodegas se fusionan fila por fila entre pantallas (una copia vieja ya no devuelve un equipo confirmado); [4] el guardado general va por transacción y escribe solo lo que cambió (un consumo que llega en medio ya no se borra); [5] Auditoría: lee bien las fechas 17/9/2026, solo cuenta pendientes, usa los campos de TÉCNICOS, cédula por dígitos, y dos revisiones nuevas: equipo instalado que sigue en una cuadrilla y órdenes finalizadas con material sin consumo; [6] una pantalla con versión vieja ya no guarda y una copia local no anuncia su versión. v111: modo mantenimiento, lo activa el administrador desde OFICINAS y bloquea la app con un aviso. v110: en el celular ninguna pestaña se sale de la pantalla. v109: SE CORTA EL BUCLE DE GUARDADOS. La v108 extendio la regla de quien toco el registro al historial, pero la base de comparacion solo se tomaba de inventario/datos: las listas de inventario/historial nunca tenian con que compararse, cada snapshot las daba por tocadas y las reenviaba. Resultado (10 sep 2026): todas las sesiones reescribian el historial cada ~10 s, se disparo el consumo de lecturas (44.000 de 50.000 gratis) y una entrega fallo con Quota exceeded. Ahora el historial tambien tiene base (tomada de la nube, antes de proteger), sin base no se reenvia, hay un freno de 3 reenvios por 10 minutos, una creacion en vuelo se reenvia como mucho 2 veces y la comparacion no depende del orden de las llaves. Incluye v108: LA MISMA REGLA, PARA TODO. Elkin: no se estan guardando las modificaciones en las diferentes areas. La comparacion contra la ultima sincronia (quien toco el registro) ya existia desde la v88 pero solo para bodegas y cuadrillas; en las demas listas seguia ganando la sesion que guardaba de ultimo, y una entrega, una instalacion o una solicitud que otro equipo acababa de registrar se perdia en silencio. Ahora vale para todas. Es segura por construccion: solo deja entrar cambios ajenos que antes se descartaban. Incluye v107: AVISOS AL CELULAR. Pedido de Elkin: una notificacion al celular cuando haya solicitudes de aprobacion pendientes, en Android y en iPhone. Va a traves de Google (Firebase Cloud Messaging), el mismo Firebase de la base. Tres piezas: [1] la tarjeta 🔔 en Inicio (admin) pide permiso, instala el receptor firebase-messaging-sw.js -un archivo nuevo junto a la app, que NO intercepta nada: solo recibe avisos- y guarda la direccion del celular en inventario/avisos; [2] el receptor muestra la notificacion aunque la app este cerrada y al tocarla abre la app; [3] el vigilante AVISOS_PENDIENTES.gs en el Apps Script del Drive mira cada 5 minutos las solicitudes pendientes -edicion y borrado en inventario; registros con fecha pasada, eliminar/editar movimientos, prestamos y abonos especiales en oficinas- leyendo SOLO esos campos con mascara, avisa solo lo NUEVO (recuerda lo ya avisado y olvida lo resuelto) y a las 7 a.m. recuerda lo que sigue pendiente. La clave privada para enviar (cuenta de servicio) vive en las propiedades del script, nunca en la app; la clave publica (VAPID) si va en la base, porque es publica. Con la app abierta el aviso se muestra adentro. Prueba: el comparador real del vigilante leido del archivo. v106: BUSCAR Y FILTRAR EN LAS BODEGAS. Pedido de Elkin: una barra de busqueda en los materiales y filtros. Con 255 filas en cinco bodegas, encontrar la ONT usada que quedo en Paujil era abrir cada bodega y bajar con el dedo. La busqueda mira el nombre, la referencia y sus alias, las etiquetas, los seriales y las observaciones, y varias palabras se exigen todas (ont wifi 6). Filtros: categoria, nuevo/usado, estado del stock (con stock, en cero, bajo minimo), con o sin seriales, y etiqueta. Funciona igual en la vista clasica y en la de referencia; en la de referencia el stock se mira por grupo, que es lo que tiene sentido. Al filtrar se abren solas las bodegas que tienen coincidencias y cada una dice cuantas; sin filtro, las bodegas recuerdan si estaban abiertas. Se repinta solo el listado, asi que la barra conserva el cursor y lo escrito. Filtrar no toca ningun dato. v105: ETIQUETAS EN LAS REFERENCIAS. Pregunta de Elkin: si es la misma referencia de ONT pero unas son dual band, otras WiFi 5 y otras WiFi 6, como se lleva. La regla: es la misma referencia si a un tecnico que pide una se le puede entregar cualquiera; WiFi 5 y WiFi 6 son modelos distintos y por tanto referencias distintas (Huawei lo dice en el codigo: V5 es dual band WiFi 5, X6 es WiFi 6). Nuevo/usado, proveedor, lote y ubicacion describen la UNIDAD, nunca crean referencia. Y para preguntar cosas que cruzan modelos -cuantas ONT WiFi 6 tengo en todas las bodegas- cada referencia lleva ETIQUETAS (WiFi 6, dual band, GPON, para exteriores...): se escriben separadas por coma, se limpian sin repetir, se ven como chips en el catalogo, en la bodega y en los totales, y en los totales una barra de etiquetas filtra con un clic. Riesgo cero: es un campo mas del catalogo, que sigue viviendo en su documento aparte. v104: EL CATALOGO COMO CAPA, Etapa 1 del nuevo orden de bodegas. La radiografia del 2 sep 2026 sobre los datos reales mostro 16 modelos escritos de hasta cuatro formas (ONT EG8145V5 GPON DUAL BAND, EG8145V5, ONU GPON EG8145V5 5G, ONU EG8145V5), 25 filas repetidas dentro de una misma bodega porque nuevo y usado son articulos separados, tres formas de la misma unidad y 80 filas material con seriales. Nadie lo creo mal: lo fabrican los traslados, que buscan el destino por nombre EXACTO y crean otra fila cuando no lo encuentran. Los mejores sistemas separan el CATALOGO (la referencia definida una vez) de las EXISTENCIAS por bodega; esta etapa trae el catalogo como una CAPA encima de lo que hay, sin tocar un dato: [1] pestaña Catalogo (admin) donde una referencia agrupa los nombres con que el mismo articulo quedo escrito, con propuestas automaticas por codigo de modelo que se REVISAN antes de aceptar (dos SFP de distinto alcance comparten codigo y no son lo mismo); vive en su propio documento inventario/catalogo. [2] En Bodegas, la vista Por referencia: una fila por referencia con nuevo, usado y total, y debajo las filas de siempre con SUS MISMOS botones; para el admin, los totales por referencia en todas las bodegas, que es la pregunta que antes no tenia respuesta. Se apaga con un clic y todo vuelve a como estaba. La prueba exige lo que importa: la suma de los grupos es la suma de las filas, sobre los datos reales. v103: LOTES — EL PASAPORTE DE CADA EQUIPO. Pedido de Elkin: las referencias llegan en lotes distintos, de proveedores distintos, en fechas distintas, y cuando un equipo sale por garantia hay que saber de que proveedor es, de que lote y cuando llego. Esa informacion solo existe completa EN EL MOMENTO EN QUE LLEGA la mercancia, asi que se captura ahi: Reabastecer y Agregar material ganan dos campos OPCIONALES (proveedor, con lista de los ya usados, y lote/factura); la fecha la pone el sistema. No son obligatorios a proposito: un campo obligatorio molesto termina en xxx tecleado, que es peor que vacio. Se registra el lote solo si trae algo que recordar (proveedor, factura o seriales): el cable reabastecido sin datos no llena el registro de ruido. La consulta es el boton ESCUDO Garantia en Bodegas: se pega o se ESCANEA con la camara el serial del equipo dañado y responde de que proveedor llego, en que lote, cuando, a que bodega, donde esta hoy (bodega o cuadrilla) y por donde ha pasado (el rastro de la v99). La busqueda va del lote mas reciente hacia atras: si un equipo salio y volvio a entrar en otra compra, manda la ultima llegada. Los lotes viven en SU PROPIO documento de la nube (inventario/lotes) porque el principal ya conoce de cerca el limite de 1 MB, y si el registro pasa de 850 KB avisa con tiempo. Los seriales que llegaron antes del 2 de septiembre de 2026 responden sin-origen-registrado en vez de inventar. v99: LOS SERIALES REPETIDOS — POR QUE VUELVEN. Elkin pregunto por que no se resolvia de una vez la unica prueba que quedaba en ambar. No era una falla del programa sino del inventario: 27 seriales anotados en dos sitios son 27 equipos contados dos veces, y eso no se arregla desde el codigo porque depende de donde esta el aparato de verdad. Pero al mirarlos uno por uno aparecieron tres cosas que si son del programa. [1] LA HERRAMIENTA QUE LOS ARREGLA BORRABA EL EQUIPO. _dejarSNSoloEn quitaba el serial por VALOR en cada sitio descartado, y ese filtro se lleva TODAS las copias de ese articulo. Cuando el serial estaba dos veces dentro de la MISMA lista -tres casos en los datos de hoy- el sitio elegido y el descartado eran el mismo objeto, asi que tambien se borraba la copia que se queria conservar: el equipo desaparecia del inventario y la cantidad bajaba igual. Ahora se cuenta por material cuantas copias deben quedar (una en el elegido, cero en los demas) y se recorta a esa cifra. [2] LA CAUSA SEGUIA ABIERTA. integrarRecuperado sumaba el serial a la bodega sin mirar si ya estaba en otro lado. El aviso de la v82 no lo atrapaba: compara NOMBRE y cantidad, y solo actua cuando el recuperado trae cuadrillaId, y los que manda la app de Tecnicos por retiro de un cliente no la traen. Medido: 9 de los 27 entraron justo por ahi. Integrar significa que el aparato VOLVIO a la bodega, asi que ahora se MUEVE en vez de duplicarse: se enseña de donde sale, se pide confirmacion y se descuenta de alla. Reabastecer tambien revisa los seriales, igual que Agregar Serial, porque se teclean a mano igual. [3] YA NO HAY QUE ADIVINAR. Antes la herramienta pedia elegir a ciegas entre dos sitios. Ahora le pregunta al historial: si el equipo entro por un recuperado YA INTEGRADO a una bodega, por un traslado aceptado o por una entrega a esa cuadrilla, esa es la respuesta, y viene marcada con el motivo y la fecha. Entre dos articulos de la misma bodega desempata el nombre, que es la misma regla con la que se creo el duplicado. Hay un boton que resuelve de una vez todos los que tienen prueba, enseñando antes la lista completa. Medido hoy sobre los datos reales: de los 27, en 13 el historial lo demuestra y 14 siguen decidiendose a mano -los que no dejaron rastro, como dos ONT que figuran a la vez en FLORENCIA y en DONCELLO-. Nada se aplica sin enseñar antes que va a pasar. v98: LA APROBACION SE DESHACIA SOLA. Reportado por Elkin: acepta una solicitud, desaparece y despues vuelve a salir, y bodega termina creando la misma orden varias veces. Encontrado y REPRODUCIDO paso a paso. Al recibir un snapshot, _protegerSnapshotInv mete en el array entrante los registros que esta sesion edito y aun no ha guardado -eso esta bien, si no el snapshot los borraria de la pantalla-. Pero acto seguido se guardaba ESE MISMO array como la foto de referencia de lo que hay en la nube, con el cambio local adentro. A partir de ahi _sesionTocoInv, que es quien decide los conflictos, comparaba lo local contra una foto que ya traia lo local: respondia que la sesion NO habia tocado nada, y en el siguiente guardado la fusion dejaba entrar el valor VIEJO de la nube. Medido: aprobar dejaba el material en 1, llegaba un snapshot cualquiera y al fusionar volvia a 0. Nada avisaba, porque en pantalla el cambio se veia aplicado; por eso bodega pedia lo mismo otra vez. En los datos hay tres casos repetidos, separados 6, 39 y 49 minutos, todos de DONCELLO. Ahora la foto se toma ANTES de proteger, asi que retrata la NUBE y no la pantalla. Comprobado en los dos sentidos: la aprobacion propia sobrevive, y el cambio hecho por otra oficina sigue entrando cuando esta sesion no toco nada. Nota aparte: el sintoma tambien lo producia el limite de 1 MB, resuelto en la v97; el archivador esta funcionando (historial 15%, datos 48%). v97: LOS CUATRO REPORTES DE HOY. [1] TIEMPO REAL EN TODOS LOS DISPOSITIVOS. Los escuchas de Firebase ya estaban puestos: lo que fallaba era el GUARDADO. Medido sobre los datos reales de hoy, inventario/datos pesaba 790 KB y inventario/historial 747 KB, del maximo de 1 MB que admite Firestore. Pasado ese tope Firebase RECHAZA la escritura entera, asi que el cambio no salia del equipo y los demas no lo veian nunca. El archivador de la v90 no podia ayudar: sus plazos fijos (45, 120, 180 dias) no alcanzaban a NADA, porque lo que llena el documento son 389 consumos y 339 instalaciones RECIENTES. Ahora el archivador se regula solo: si un documento pasa del 70% del limite, acorta los plazos por escalones (30, 20, 14, 7 dias) hasta dejarlo por debajo del 60%, y nunca los alarga. Ademas archiva siete listas mas que antes (solicitudes de cambio y de borrado ya decididas, entregas, transferencias, ventas, logs). Probado hoy: 1.271 registros y 913 KB al archivo, historial 73%->15% y datos 77%->44%. Lo PENDIENTE no se archiva nunca y nada sale de la base sin haberlo leido antes en el archivo. [2] LA RECARGA YA NO PIDE LA CLAVE. La sesion se recuerda en sessionStorage, que vive solo en esa pestana y muere al cerrarla, asi que el equipo compartido de la bodega no amanece con la sesion abierta. Caduca a las 12 horas, no guarda la contrasena y se comprueba contra la base al volver: si a la bodega le cambiaron la clave o la borraron, se pide entrar de nuevo. [3] LA SOLICITUD DECIDIDA YA NO REAPARECE. El blindaje de la v79 caducaba a los 3 minutos; si el guardado fallaba por lo del punto [1], al minuto 4 el snapshot la devolvia a pendiente. Ahora la decision se sostiene SIN PLAZO y solo se suelta cuando la nube ya la trae con ese mismo estado. Se guarda tambien en el navegador, asi que sobrevive a una recarga, y se limpia a los 30 dias. [4] UN SERIAL, UN SITIO. modalAddSN solo miraba dentro del mismo articulo, asi que el mismo equipo podia quedar en dos bodegas, o en una bodega y una cuadrilla a la vez. Medido: 31 seriales estaban en dos sitios (un ONT figuraba en FLORENCIA y en DONCELLO). Ahora se BLOQUEA en vez de avisar, y en la Auditoria hay 🔧 Seriales repetidos para arreglar los que ya estaban: se elige donde esta de verdad el equipo y se quita de los demas, ajustando la cantidad. Los rellenos que no son seriales (N/A, SN, guiones) se siguen aceptando repetidos. v91: LECTURA DE FECHAS UNIFICADA. Ademas del texto, ahora se guarda una marca de tiempo NUMERICA (confirmadoMs, rechazadoMs) y la logica la prefiere. El texto se conserva sin tocar porque bodega lo muestra tal cual en pantalla, asi que el usuario no ve ningun cambio. El motivo: tanto TECNICOS como esta app guardaban las fechas con toLocaleDateString(), que en Colombia da DD/MM/AAAA, y new Date() lo interpreta como MM/DD: 17/8/2026 daba fecha invalida y 5/8/2026 se leia como 8 de MAYO. Un numero no admite interpretacion. Los registros anteriores siguen resolviendose con _msDeFechaInv. v90: EL ARCHIVADO YA ES AUTOMATICO, como en OFICINAS. Alla se resolvio asi en la v170 tras chocar con el limite de 1 MB; bodega se habia quedado solo con el boton manual, y por eso el historial viejo se acumulaba. Ahora corre dentro del guardado, antes de armar el documento. Es barato: _calcularAligerado() es puro en memoria y devuelve vacio casi siempre, asi que un guardado normal no cuesta nada extra; solo hay lecturas y escrituras cuando de verdad hay historial viejo, y una vez movido no se repite. Seguridad: escribe el archivo, lo vuelve a LEER para confirmar y solo entonces saca los registros de la base; si la escritura o la verificacion fallan, no se quita nada. El boton manual sigue existiendo y ahora comparte el mismo nucleo (_archivarInv) en vez de duplicar la logica. v89: EL ARCHIVADOR NO PODIA LEER LAS FECHAS. El boton Aligerar la base existia y sus reglas eran correctas, pero _diasDeInv usaba new Date() sobre fechas en formato colombiano DD/MM/AAAA que TECNICOS escribe con toLocaleDateString(). new Date() espera MM/DD, asi que 17/8/2026 daba Invalid Date y el registro quedaba invisible para el archivador PARA SIEMPRE, y 5/8/2026 se leia como 8 de MAYO, con la antiguedad mal calculada. Por eso habia 639 consumos ya resueltos (solo 12 seguian pendientes) ocupando el 48% de un documento al 80% de su limite. Ahora _msDeFechaInv resuelve DD/MM/AAAA a mano antes de Date.parse. Medido sobre los datos reales: los registros archivables pasaron de 1 a 458, unos 216 KB. El archivado sigue siendo manual. v88: CONFLICTOS DE CUADRILLAS Y BODEGAS RESUELTOS POR QUIEN TOCO EL REGISTRO. Habia dos reglas fijas y ninguna era correcta en ambos sentidos: el listener hacia Object.assign y la nube pisaba una edicion local sin guardar; y la fusion al guardar se quedaba con la copia local, revirtiendo el descuento que un tecnico acababa de hacer (el material quedaba en recuperados Y en la cuadrilla, contado dos veces). Ahora se guarda el contenido de cada registro en la ultima sincronia y se compara: si esta sesion no lo toco entra lo de la nube, si lo toco se conserva lo local. Sin base o registro desconocido gana lo local, igual que antes, para que un camino no cubierto degrade en vez de perder datos. Solo aplica a cuadrillas y bodegas. v87: GUARDA CONTRA CANTIDADES INVALIDAS. integrarRecuperado SUMA r.cant al stock de la bodega; si ese valor era negativo, cero o texto, restaba o corrompia el stock en silencio y lo registraba como entrada. Ahora se rechaza con un aviso claro. Se pone aqui ademas de en la app de Tecnicos porque un registro guardado ANTES de acotar la entrada seguiria causando el dano al integrarlo. Tambien se acoto la cantidad de equipos del cliente, que sin || guardaba NaN al vaciar el campo. v86: DIAGRAMA DEL CUARTO. Se restauro el boton IMPRIMIR, que estaba perdido: la funcion existia pero apuntaba al id diagSvg y el modal actual crea diagramaSVG, asi que aunque alguien la llamara no hacia nada, y ademas ningun boton la llamaba. Al imprimir se fuerza el color (print-color-adjust): sin eso el navegador omite los fondos y, como el diagrama es oscuro, salia una hoja practicamente en blanco. Se elimino descargarDiagramaSVG, que quedo redundante frente a descargarDiagrama (esta ultima si funciona y ademas agrega el xmlns al archivo). Y en la descarga: la fecha del nombre venia en UTC (de noche ponia la de manana) y la URL temporal se liberaba en el mismo instante del clic, lo que puede cortar la descarga. v85: solo comentarios. Se elimino la constante CAMPOS_DE_TECNICOS, que estaba declarada y NUNCA se usaba: era residuo del enfoque de la v72, reemplazado despues por la fusion universal _fusionarConNubeInv. El comentario del nucleo de guardado describia esa proteccion vieja, asi que enganaba a quien lo leyera. Ahora describe la fusion real y documenta su limite conocido: para un registro que ya existe en ambos lados gana la copia LOCAL, y como una cuadrilla no tiene campo 'estado', un descuento de stock hecho por un tecnico puede revertirse si esta sesion guarda antes de que el listener la refresque. Sin cambios de comportamiento. v84: limpieza de modalDiagramaCompleto duplicada. v83: MENSAJE DEL DIA al iniciar sesion. Ademas del saludo aparece una frase corta para arrancar labores, elegida segun el DIA DE LA SEMANA y estable durante toda la jornada (cambia al dia siguiente, no en cada recarga). Escritas para el trabajo de bodega: material, cuadrillas, seriales, consumos. Uno de cada tres dias se suma un recordatorio practico (anotar serial al entregar, confirmar consumos, revisar la Auditoria, registrar lo que entra, recibir devoluciones el mismo dia). Se editan en FRASES_DIA_INV y TIPS_DIA_INV. Incluye v82: COHERENCIA CON LA APP DE TECNICOS. La app de Tecnicos v71 corrigio que las devoluciones de material NO descontaban del stock del tecnico (quedaba contado dos veces). Aqui: [1] al integrar un recuperado que vino de una cuadrilla con una version anterior, se AVISA si ese material todavia figura a nombre del tecnico, para no contarlo doble. [2] La 🩺 Auditoria detecta ahora tres problemas del cruce con Tecnicos: material contado DOS veces (devuelto a la bodega pero aun en poder del tecnico), equipos danados que siguen en el stock del tecnico, tecnicos SIN CEDULA (la app de Tecnicos los busca por cedula: sin ella no pueden devolver material ni reportar consumos) y un mismo tecnico registrado en DOS cuadrillas (sus reportes irian a la cuadrilla equivocada). Incluye v81: (v81: CAUSA REAL DEL PROBLEMA DE GUARDADO — la base llego a 0.98 MB del maximo de 1 MB que permite Firestore, y pasado ese tope Firebase deja de guardar: por eso las solicitudes aprobadas reaparecian. El diagnostico de la v79 mostro que lo mas pesado NO son las fotos sino las listas de historial que crecen sin parar: consumosPendientes 370KB, bodegas 348KB, instalaciones 161KB, recuperados 81KB. NUEVO en 🩺 Auditoria: panel de espacio con barra de uso y desglose por seccion, boton ARCHIVAR HISTORIAL VIEJO (mueve a documentos por año los consumos ya resueltos de mas de 45 dias, las instalaciones de mas de 120 y los recuperados ya integrados; lo PENDIENTE nunca se archiva), boton para mover las fotos, y boton VER ARCHIVO para consultar lo guardado. Nada se borra y todo se verifica en la nube ANTES de sacarlo de la base. Incluye v80: (v80: LAS FOTOS DE MATERIALES SALEN DE LA BASE PRINCIPAL — esta era la causa de fondo de que los guardados fallaran y las solicitudes reaparecieran. Las fotos se guardaban DENTRO de inventario/datos como texto base64; entre todas hacian que el documento pasara el limite de 1 MB de Firestore, y a partir de ahi NINGUN cambio se guardaba. Ahora cada foto vive en su propio documento (inventario/foto_XXX) y el material solo guarda su codigo; se ven exactamente igual, se cargan solas al abrir la pantalla y las fotos nuevas ya no engordan la base. NUEVO en 🩺 Auditoria: panel de espacio que muestra cuanto pesa la base y cuantos MB ocupan las fotos incrustadas, con boton para MOVERLAS todas: va una por una, comprueba que quedo guardada ANTES de sacarla (ninguna se pierde), guarda bodega por bodega y se puede retomar si se interrumpe. Incluye v79: (v79: LAS SOLICITUDES APROBADAS/RECHAZADAS YA NO REAPARECEN. Causa: el snapshot de Firebase REEMPLAZA la lista completa con lo que hay en la nube; si el guardado aun no habia terminado —o FALLO, como cuando Firebase responde 'write stream exhausted maximum allowed queued writes'— la solicitud volvia a salir como pendiente. Tres correcciones: [1] BLINDAJE DE DECISIONES: toda decision tomada en esta sesion (aprobar, rechazar, aceptar/rechazar transferencia) se vuelve a imponer sobre el snapshot durante 3 minutos, hasta que quede confirmada en la nube. [2] EL GUARDADO FALLIDO YA NO ES INVISIBLE: antes solo se pintaba un indicador chiquito y se escribia en la consola, asi que el usuario creia que su cambio habia quedado; ahora avisa claro que NO se guardo y REINTENTA solo hasta 3 veces. [3] DIAGNOSTICO DE TAMANO: Firestore rechaza documentos de mas de 1 MB y no habia forma de enterarse; ahora se mide en cada guardado, se avisa en consola desde 800 KB y con alerta si pasa el limite, indicando que seccion pesa mas. Incluye v78: (v78: AUDITORIA GENERAL DEL INVENTARIO + correcciones de flujo. NUEVA PANTALLA 🩺 Auditoria (admin): revisa TUS datos reales y reporta stock negativo, seriales repetidos dentro de un articulo, el MISMO equipo registrado en dos lugares a la vez, desajustes entre cantidad y seriales, articulos duplicados en una bodega, cuadrillas con material sin bodega asignada, y material EN EL LIMBO (transferencias sin aceptar, consumos de tecnicos sin confirmar, recuperados sin integrar, solicitudes sin decidir), ordenado por gravedad y exportable a Excel. CORRECCIONES: [1] enviar transferencia validaba articulo por articulo mientras descontaba — si el stock habia cambiado quedaba NEGATIVO, y si el articulo ya no existia reventaba a mitad dejando material descontado SIN transferencia creada (perdido); ahora valida todo primero y no toca nada si algo falla. [2] aceptar/rechazar transferencia agregaba los seriales con push SIN comprobar si ya estaban (el mismo equipo dos veces en la bodega), reventaba si la bodega destino u origen ya no existia (material en el limbo) y al rechazar buscaba por NOMBRE creando duplicados si lo habian renombrado. [3] misma duplicacion de seriales corregida en recuperados integrados, devoluciones de cuadrilla y entregas. [4] KARDEX: ventas, transferencias, entregas, devoluciones y recuperados no dejaban NINGUN rastro en el historial del articulo; ahora si. [5] agregar seriales avisa si estan repetidos o si superan el stock. Incluye v77: (v77: SOLICITUDES DE CAMBIO Y ELIMINACION CORREGIDAS — cuatro fallas: [1] la EDICION de una bodega se aplicaba al material ANTES de mirar el rol, asi que el cambio quedaba hecho sin aprobacion y RECHAZARLO no revertia nada (la aprobacion era decorativa); ahora la bodega solo PROPONE y el material no se toca hasta que el admin apruebe. [2] ELIMINAR UNA VENTA no devolvia el material a la bodega aunque vender SI lo descuenta: el stock desaparecia sin venta que lo justificara; ahora se devuelve cantidad y seriales, con registro en el kardex, y si el articulo ya no existe se vuelve a crear (aplica tambien al borrado directo del admin). [3] RECHAZAR una eliminacion RESUCITABA material fantasma con la cantidad vieja cuando el articulo ya no estaba (agotado, transferido o borrado aparte); ahora rechazar no toca la bodega y, si el articulo falta, se le PREGUNTA al admin. [4] Aprobar eliminacion borraba el articulo SIN dejar rastro en el kardex y sin avisar si la cantidad habia cambiado desde la solicitud; ahora registra la salida y avisa. Ademas approveEdit avisa si la cantidad cambio antes de pisarla, y ya no cierra solicitudes en silencio cuando la bodega o el articulo ya no existen. Incluye v76: CUARTOS DE EQUIPOS — puertos huerfanos y conexiones protegidas: aviso ambar en el equipo cuando hay puertos OCUPADOS sin conexion que los respalde + boton 🧹 Liberarlos (respeta enlaces inter-sede); boton ✏️ para EDITAR conexiones (mover puertos con selector real, cable, color, notas); y TODA modificacion de conexiones (crear/editar/eliminar/liberar) va por TRANSACCION con validacion fresca — dos sesiones ya no se pisan y un puerto no puede ocuparse dos veces. Incluye v75: GUARDADO MAS RAPIDO — la fusion usa la copia del listener cuando tiene <15s (cero descargas extra, misma proteccion); si esta vieja, lee de la red como siempre. Incluye v74: FUSION UNIVERSAL ENTRE SESIONES — el trabajo simultaneo de varias bodegas y tecnicos ya no se pisa: al guardar se fusiona con la nube fresca (datos + historial), lo de otras sesiones se incorpora, los borrados propios dejan LAPIDA y no reviven, las decisiones ajenas (confirmados/integrados/aceptados) se respetan, y un snapshot ya no borra de la pantalla lo recien creado (se conserva y reenvia solo). ENTREGAS ahora con TRANSACCION multi-documento: valida el stock y los seriales sobre datos FRESCOS (si otra sesion entrego mientras tanto, avisa claro), descuenta bodega + suma cuadrilla + registra la entrega de forma atomica. Incluye v73: al CONFIRMAR un consumo de cliente, el material queda anotado AUTOMATICAMENTE en la ficha del cliente — seccion "🧰 Material instalado" — emparejando primero por CEDULA (que ahora envia el tecnico v69) y si no por nombre; si no se encuentra el cliente, avisa claro y el boton "Sincronizar material con clientes" (tambien mejorado con cedula) queda como red de seguridad. Incluye v72: [1] confirmación de consumos con TRANSACCIÓN — el descuento a la cuadrilla ya no se puede revertir por una sincronización cruzada; [2] config Firebase integrada — no vuelve a pedirla; [3] login con ojito 👁️ y Enter; [4] BLINDAJE: guardas anti-borrado de clientes (carga incompleta o encogimiento drástico NO reescriben la nube), firma para no reescribir chunks sin cambios, carga de clientes en paralelo con reintentos, COLA de guardado (nunca se solapan), fusión de envíos recientes de técnicos antes de guardar, y fotos pequeñas ya no se recomprimen)
+const APP_VERSION_INV = 115; // ⬆️ Subir en cada versión publicada de Inventario (v115: ETAPA 6 de docs/12: cada pantalla deja un latido en oficinas_sistema/sesiones_vivas (pantallas.js) y el admin ve en ⚙️ Configuración qué pantallas siguen con versión vieja; más de un día abierta pide actualizar con la pantalla quieta; versión a la vista. v114: ETAPA 1 de docs/12: el registro dice quién hizo cada cosa y no se pierden entradas entre pantallas, sello de quién escribió en la nube, tarjeta 🛡️ Vigilancia con medidor, chequeo y respaldo, y recarga sola al publicar con recarga.js. v113: BUZÓN DE SUGERENCIAS: botón 💡 Ideas en la cabecera para enviar ideas, fallas, lo que complica o felicitaciones, seguirlas en Mis ideas y votar en el muro (compartido con OFICINAS, TÉCNICOS y RED en buzon.js); puente _fbBuzonInv que escribe oficinas_sistema/buzon_<id> con merge y no escribe en modo prueba, mantenimiento ni versión vieja. v112: EL EQUIPO INSTALADO YA NO SIGUE APARECIENDO EN LA CUADRILLA. Revisión del 23 sep 2026: [1] el serial se reconoce escrito de cualquier forma (mayúsculas, espacios, HWTC… = 48575443…) y sale de la fila donde está; si no está en la cuadrilla no se descuenta otro en su lugar; [2] se confirma unidad por unidad: lo que alcanza se descuenta y lo demás queda pendiente aparte, de la misma orden; rechazar avisa si el equipo sigue en la cuadrilla; la tarjeta mide igual que la confirmación; [3] cuadrillas y bodegas se fusionan fila por fila entre pantallas (una copia vieja ya no devuelve un equipo confirmado); [4] el guardado general va por transacción y escribe solo lo que cambió (un consumo que llega en medio ya no se borra); [5] Auditoría: lee bien las fechas 17/9/2026, solo cuenta pendientes, usa los campos de TÉCNICOS, cédula por dígitos, y dos revisiones nuevas: equipo instalado que sigue en una cuadrilla y órdenes finalizadas con material sin consumo; [6] una pantalla con versión vieja ya no guarda y una copia local no anuncia su versión. v111: modo mantenimiento, lo activa el administrador desde OFICINAS y bloquea la app con un aviso. v110: en el celular ninguna pestaña se sale de la pantalla. v109: SE CORTA EL BUCLE DE GUARDADOS. La v108 extendio la regla de quien toco el registro al historial, pero la base de comparacion solo se tomaba de inventario/datos: las listas de inventario/historial nunca tenian con que compararse, cada snapshot las daba por tocadas y las reenviaba. Resultado (10 sep 2026): todas las sesiones reescribian el historial cada ~10 s, se disparo el consumo de lecturas (44.000 de 50.000 gratis) y una entrega fallo con Quota exceeded. Ahora el historial tambien tiene base (tomada de la nube, antes de proteger), sin base no se reenvia, hay un freno de 3 reenvios por 10 minutos, una creacion en vuelo se reenvia como mucho 2 veces y la comparacion no depende del orden de las llaves. Incluye v108: LA MISMA REGLA, PARA TODO. Elkin: no se estan guardando las modificaciones en las diferentes areas. La comparacion contra la ultima sincronia (quien toco el registro) ya existia desde la v88 pero solo para bodegas y cuadrillas; en las demas listas seguia ganando la sesion que guardaba de ultimo, y una entrega, una instalacion o una solicitud que otro equipo acababa de registrar se perdia en silencio. Ahora vale para todas. Es segura por construccion: solo deja entrar cambios ajenos que antes se descartaban. Incluye v107: AVISOS AL CELULAR. Pedido de Elkin: una notificacion al celular cuando haya solicitudes de aprobacion pendientes, en Android y en iPhone. Va a traves de Google (Firebase Cloud Messaging), el mismo Firebase de la base. Tres piezas: [1] la tarjeta 🔔 en Inicio (admin) pide permiso, instala el receptor firebase-messaging-sw.js -un archivo nuevo junto a la app, que NO intercepta nada: solo recibe avisos- y guarda la direccion del celular en inventario/avisos; [2] el receptor muestra la notificacion aunque la app este cerrada y al tocarla abre la app; [3] el vigilante AVISOS_PENDIENTES.gs en el Apps Script del Drive mira cada 5 minutos las solicitudes pendientes -edicion y borrado en inventario; registros con fecha pasada, eliminar/editar movimientos, prestamos y abonos especiales en oficinas- leyendo SOLO esos campos con mascara, avisa solo lo NUEVO (recuerda lo ya avisado y olvida lo resuelto) y a las 7 a.m. recuerda lo que sigue pendiente. La clave privada para enviar (cuenta de servicio) vive en las propiedades del script, nunca en la app; la clave publica (VAPID) si va en la base, porque es publica. Con la app abierta el aviso se muestra adentro. Prueba: el comparador real del vigilante leido del archivo. v106: BUSCAR Y FILTRAR EN LAS BODEGAS. Pedido de Elkin: una barra de busqueda en los materiales y filtros. Con 255 filas en cinco bodegas, encontrar la ONT usada que quedo en Paujil era abrir cada bodega y bajar con el dedo. La busqueda mira el nombre, la referencia y sus alias, las etiquetas, los seriales y las observaciones, y varias palabras se exigen todas (ont wifi 6). Filtros: categoria, nuevo/usado, estado del stock (con stock, en cero, bajo minimo), con o sin seriales, y etiqueta. Funciona igual en la vista clasica y en la de referencia; en la de referencia el stock se mira por grupo, que es lo que tiene sentido. Al filtrar se abren solas las bodegas que tienen coincidencias y cada una dice cuantas; sin filtro, las bodegas recuerdan si estaban abiertas. Se repinta solo el listado, asi que la barra conserva el cursor y lo escrito. Filtrar no toca ningun dato. v105: ETIQUETAS EN LAS REFERENCIAS. Pregunta de Elkin: si es la misma referencia de ONT pero unas son dual band, otras WiFi 5 y otras WiFi 6, como se lleva. La regla: es la misma referencia si a un tecnico que pide una se le puede entregar cualquiera; WiFi 5 y WiFi 6 son modelos distintos y por tanto referencias distintas (Huawei lo dice en el codigo: V5 es dual band WiFi 5, X6 es WiFi 6). Nuevo/usado, proveedor, lote y ubicacion describen la UNIDAD, nunca crean referencia. Y para preguntar cosas que cruzan modelos -cuantas ONT WiFi 6 tengo en todas las bodegas- cada referencia lleva ETIQUETAS (WiFi 6, dual band, GPON, para exteriores...): se escriben separadas por coma, se limpian sin repetir, se ven como chips en el catalogo, en la bodega y en los totales, y en los totales una barra de etiquetas filtra con un clic. Riesgo cero: es un campo mas del catalogo, que sigue viviendo en su documento aparte. v104: EL CATALOGO COMO CAPA, Etapa 1 del nuevo orden de bodegas. La radiografia del 2 sep 2026 sobre los datos reales mostro 16 modelos escritos de hasta cuatro formas (ONT EG8145V5 GPON DUAL BAND, EG8145V5, ONU GPON EG8145V5 5G, ONU EG8145V5), 25 filas repetidas dentro de una misma bodega porque nuevo y usado son articulos separados, tres formas de la misma unidad y 80 filas material con seriales. Nadie lo creo mal: lo fabrican los traslados, que buscan el destino por nombre EXACTO y crean otra fila cuando no lo encuentran. Los mejores sistemas separan el CATALOGO (la referencia definida una vez) de las EXISTENCIAS por bodega; esta etapa trae el catalogo como una CAPA encima de lo que hay, sin tocar un dato: [1] pestaña Catalogo (admin) donde una referencia agrupa los nombres con que el mismo articulo quedo escrito, con propuestas automaticas por codigo de modelo que se REVISAN antes de aceptar (dos SFP de distinto alcance comparten codigo y no son lo mismo); vive en su propio documento inventario/catalogo. [2] En Bodegas, la vista Por referencia: una fila por referencia con nuevo, usado y total, y debajo las filas de siempre con SUS MISMOS botones; para el admin, los totales por referencia en todas las bodegas, que es la pregunta que antes no tenia respuesta. Se apaga con un clic y todo vuelve a como estaba. La prueba exige lo que importa: la suma de los grupos es la suma de las filas, sobre los datos reales. v103: LOTES — EL PASAPORTE DE CADA EQUIPO. Pedido de Elkin: las referencias llegan en lotes distintos, de proveedores distintos, en fechas distintas, y cuando un equipo sale por garantia hay que saber de que proveedor es, de que lote y cuando llego. Esa informacion solo existe completa EN EL MOMENTO EN QUE LLEGA la mercancia, asi que se captura ahi: Reabastecer y Agregar material ganan dos campos OPCIONALES (proveedor, con lista de los ya usados, y lote/factura); la fecha la pone el sistema. No son obligatorios a proposito: un campo obligatorio molesto termina en xxx tecleado, que es peor que vacio. Se registra el lote solo si trae algo que recordar (proveedor, factura o seriales): el cable reabastecido sin datos no llena el registro de ruido. La consulta es el boton ESCUDO Garantia en Bodegas: se pega o se ESCANEA con la camara el serial del equipo dañado y responde de que proveedor llego, en que lote, cuando, a que bodega, donde esta hoy (bodega o cuadrilla) y por donde ha pasado (el rastro de la v99). La busqueda va del lote mas reciente hacia atras: si un equipo salio y volvio a entrar en otra compra, manda la ultima llegada. Los lotes viven en SU PROPIO documento de la nube (inventario/lotes) porque el principal ya conoce de cerca el limite de 1 MB, y si el registro pasa de 850 KB avisa con tiempo. Los seriales que llegaron antes del 2 de septiembre de 2026 responden sin-origen-registrado en vez de inventar. v99: LOS SERIALES REPETIDOS — POR QUE VUELVEN. Elkin pregunto por que no se resolvia de una vez la unica prueba que quedaba en ambar. No era una falla del programa sino del inventario: 27 seriales anotados en dos sitios son 27 equipos contados dos veces, y eso no se arregla desde el codigo porque depende de donde esta el aparato de verdad. Pero al mirarlos uno por uno aparecieron tres cosas que si son del programa. [1] LA HERRAMIENTA QUE LOS ARREGLA BORRABA EL EQUIPO. _dejarSNSoloEn quitaba el serial por VALOR en cada sitio descartado, y ese filtro se lleva TODAS las copias de ese articulo. Cuando el serial estaba dos veces dentro de la MISMA lista -tres casos en los datos de hoy- el sitio elegido y el descartado eran el mismo objeto, asi que tambien se borraba la copia que se queria conservar: el equipo desaparecia del inventario y la cantidad bajaba igual. Ahora se cuenta por material cuantas copias deben quedar (una en el elegido, cero en los demas) y se recorta a esa cifra. [2] LA CAUSA SEGUIA ABIERTA. integrarRecuperado sumaba el serial a la bodega sin mirar si ya estaba en otro lado. El aviso de la v82 no lo atrapaba: compara NOMBRE y cantidad, y solo actua cuando el recuperado trae cuadrillaId, y los que manda la app de Tecnicos por retiro de un cliente no la traen. Medido: 9 de los 27 entraron justo por ahi. Integrar significa que el aparato VOLVIO a la bodega, asi que ahora se MUEVE en vez de duplicarse: se enseña de donde sale, se pide confirmacion y se descuenta de alla. Reabastecer tambien revisa los seriales, igual que Agregar Serial, porque se teclean a mano igual. [3] YA NO HAY QUE ADIVINAR. Antes la herramienta pedia elegir a ciegas entre dos sitios. Ahora le pregunta al historial: si el equipo entro por un recuperado YA INTEGRADO a una bodega, por un traslado aceptado o por una entrega a esa cuadrilla, esa es la respuesta, y viene marcada con el motivo y la fecha. Entre dos articulos de la misma bodega desempata el nombre, que es la misma regla con la que se creo el duplicado. Hay un boton que resuelve de una vez todos los que tienen prueba, enseñando antes la lista completa. Medido hoy sobre los datos reales: de los 27, en 13 el historial lo demuestra y 14 siguen decidiendose a mano -los que no dejaron rastro, como dos ONT que figuran a la vez en FLORENCIA y en DONCELLO-. Nada se aplica sin enseñar antes que va a pasar. v98: LA APROBACION SE DESHACIA SOLA. Reportado por Elkin: acepta una solicitud, desaparece y despues vuelve a salir, y bodega termina creando la misma orden varias veces. Encontrado y REPRODUCIDO paso a paso. Al recibir un snapshot, _protegerSnapshotInv mete en el array entrante los registros que esta sesion edito y aun no ha guardado -eso esta bien, si no el snapshot los borraria de la pantalla-. Pero acto seguido se guardaba ESE MISMO array como la foto de referencia de lo que hay en la nube, con el cambio local adentro. A partir de ahi _sesionTocoInv, que es quien decide los conflictos, comparaba lo local contra una foto que ya traia lo local: respondia que la sesion NO habia tocado nada, y en el siguiente guardado la fusion dejaba entrar el valor VIEJO de la nube. Medido: aprobar dejaba el material en 1, llegaba un snapshot cualquiera y al fusionar volvia a 0. Nada avisaba, porque en pantalla el cambio se veia aplicado; por eso bodega pedia lo mismo otra vez. En los datos hay tres casos repetidos, separados 6, 39 y 49 minutos, todos de DONCELLO. Ahora la foto se toma ANTES de proteger, asi que retrata la NUBE y no la pantalla. Comprobado en los dos sentidos: la aprobacion propia sobrevive, y el cambio hecho por otra oficina sigue entrando cuando esta sesion no toco nada. Nota aparte: el sintoma tambien lo producia el limite de 1 MB, resuelto en la v97; el archivador esta funcionando (historial 15%, datos 48%). v97: LOS CUATRO REPORTES DE HOY. [1] TIEMPO REAL EN TODOS LOS DISPOSITIVOS. Los escuchas de Firebase ya estaban puestos: lo que fallaba era el GUARDADO. Medido sobre los datos reales de hoy, inventario/datos pesaba 790 KB y inventario/historial 747 KB, del maximo de 1 MB que admite Firestore. Pasado ese tope Firebase RECHAZA la escritura entera, asi que el cambio no salia del equipo y los demas no lo veian nunca. El archivador de la v90 no podia ayudar: sus plazos fijos (45, 120, 180 dias) no alcanzaban a NADA, porque lo que llena el documento son 389 consumos y 339 instalaciones RECIENTES. Ahora el archivador se regula solo: si un documento pasa del 70% del limite, acorta los plazos por escalones (30, 20, 14, 7 dias) hasta dejarlo por debajo del 60%, y nunca los alarga. Ademas archiva siete listas mas que antes (solicitudes de cambio y de borrado ya decididas, entregas, transferencias, ventas, logs). Probado hoy: 1.271 registros y 913 KB al archivo, historial 73%->15% y datos 77%->44%. Lo PENDIENTE no se archiva nunca y nada sale de la base sin haberlo leido antes en el archivo. [2] LA RECARGA YA NO PIDE LA CLAVE. La sesion se recuerda en sessionStorage, que vive solo en esa pestana y muere al cerrarla, asi que el equipo compartido de la bodega no amanece con la sesion abierta. Caduca a las 12 horas, no guarda la contrasena y se comprueba contra la base al volver: si a la bodega le cambiaron la clave o la borraron, se pide entrar de nuevo. [3] LA SOLICITUD DECIDIDA YA NO REAPARECE. El blindaje de la v79 caducaba a los 3 minutos; si el guardado fallaba por lo del punto [1], al minuto 4 el snapshot la devolvia a pendiente. Ahora la decision se sostiene SIN PLAZO y solo se suelta cuando la nube ya la trae con ese mismo estado. Se guarda tambien en el navegador, asi que sobrevive a una recarga, y se limpia a los 30 dias. [4] UN SERIAL, UN SITIO. modalAddSN solo miraba dentro del mismo articulo, asi que el mismo equipo podia quedar en dos bodegas, o en una bodega y una cuadrilla a la vez. Medido: 31 seriales estaban en dos sitios (un ONT figuraba en FLORENCIA y en DONCELLO). Ahora se BLOQUEA en vez de avisar, y en la Auditoria hay 🔧 Seriales repetidos para arreglar los que ya estaban: se elige donde esta de verdad el equipo y se quita de los demas, ajustando la cantidad. Los rellenos que no son seriales (N/A, SN, guiones) se siguen aceptando repetidos. v91: LECTURA DE FECHAS UNIFICADA. Ademas del texto, ahora se guarda una marca de tiempo NUMERICA (confirmadoMs, rechazadoMs) y la logica la prefiere. El texto se conserva sin tocar porque bodega lo muestra tal cual en pantalla, asi que el usuario no ve ningun cambio. El motivo: tanto TECNICOS como esta app guardaban las fechas con toLocaleDateString(), que en Colombia da DD/MM/AAAA, y new Date() lo interpreta como MM/DD: 17/8/2026 daba fecha invalida y 5/8/2026 se leia como 8 de MAYO. Un numero no admite interpretacion. Los registros anteriores siguen resolviendose con _msDeFechaInv. v90: EL ARCHIVADO YA ES AUTOMATICO, como en OFICINAS. Alla se resolvio asi en la v170 tras chocar con el limite de 1 MB; bodega se habia quedado solo con el boton manual, y por eso el historial viejo se acumulaba. Ahora corre dentro del guardado, antes de armar el documento. Es barato: _calcularAligerado() es puro en memoria y devuelve vacio casi siempre, asi que un guardado normal no cuesta nada extra; solo hay lecturas y escrituras cuando de verdad hay historial viejo, y una vez movido no se repite. Seguridad: escribe el archivo, lo vuelve a LEER para confirmar y solo entonces saca los registros de la base; si la escritura o la verificacion fallan, no se quita nada. El boton manual sigue existiendo y ahora comparte el mismo nucleo (_archivarInv) en vez de duplicar la logica. v89: EL ARCHIVADOR NO PODIA LEER LAS FECHAS. El boton Aligerar la base existia y sus reglas eran correctas, pero _diasDeInv usaba new Date() sobre fechas en formato colombiano DD/MM/AAAA que TECNICOS escribe con toLocaleDateString(). new Date() espera MM/DD, asi que 17/8/2026 daba Invalid Date y el registro quedaba invisible para el archivador PARA SIEMPRE, y 5/8/2026 se leia como 8 de MAYO, con la antiguedad mal calculada. Por eso habia 639 consumos ya resueltos (solo 12 seguian pendientes) ocupando el 48% de un documento al 80% de su limite. Ahora _msDeFechaInv resuelve DD/MM/AAAA a mano antes de Date.parse. Medido sobre los datos reales: los registros archivables pasaron de 1 a 458, unos 216 KB. El archivado sigue siendo manual. v88: CONFLICTOS DE CUADRILLAS Y BODEGAS RESUELTOS POR QUIEN TOCO EL REGISTRO. Habia dos reglas fijas y ninguna era correcta en ambos sentidos: el listener hacia Object.assign y la nube pisaba una edicion local sin guardar; y la fusion al guardar se quedaba con la copia local, revirtiendo el descuento que un tecnico acababa de hacer (el material quedaba en recuperados Y en la cuadrilla, contado dos veces). Ahora se guarda el contenido de cada registro en la ultima sincronia y se compara: si esta sesion no lo toco entra lo de la nube, si lo toco se conserva lo local. Sin base o registro desconocido gana lo local, igual que antes, para que un camino no cubierto degrade en vez de perder datos. Solo aplica a cuadrillas y bodegas. v87: GUARDA CONTRA CANTIDADES INVALIDAS. integrarRecuperado SUMA r.cant al stock de la bodega; si ese valor era negativo, cero o texto, restaba o corrompia el stock en silencio y lo registraba como entrada. Ahora se rechaza con un aviso claro. Se pone aqui ademas de en la app de Tecnicos porque un registro guardado ANTES de acotar la entrada seguiria causando el dano al integrarlo. Tambien se acoto la cantidad de equipos del cliente, que sin || guardaba NaN al vaciar el campo. v86: DIAGRAMA DEL CUARTO. Se restauro el boton IMPRIMIR, que estaba perdido: la funcion existia pero apuntaba al id diagSvg y el modal actual crea diagramaSVG, asi que aunque alguien la llamara no hacia nada, y ademas ningun boton la llamaba. Al imprimir se fuerza el color (print-color-adjust): sin eso el navegador omite los fondos y, como el diagrama es oscuro, salia una hoja practicamente en blanco. Se elimino descargarDiagramaSVG, que quedo redundante frente a descargarDiagrama (esta ultima si funciona y ademas agrega el xmlns al archivo). Y en la descarga: la fecha del nombre venia en UTC (de noche ponia la de manana) y la URL temporal se liberaba en el mismo instante del clic, lo que puede cortar la descarga. v85: solo comentarios. Se elimino la constante CAMPOS_DE_TECNICOS, que estaba declarada y NUNCA se usaba: era residuo del enfoque de la v72, reemplazado despues por la fusion universal _fusionarConNubeInv. El comentario del nucleo de guardado describia esa proteccion vieja, asi que enganaba a quien lo leyera. Ahora describe la fusion real y documenta su limite conocido: para un registro que ya existe en ambos lados gana la copia LOCAL, y como una cuadrilla no tiene campo 'estado', un descuento de stock hecho por un tecnico puede revertirse si esta sesion guarda antes de que el listener la refresque. Sin cambios de comportamiento. v84: limpieza de modalDiagramaCompleto duplicada. v83: MENSAJE DEL DIA al iniciar sesion. Ademas del saludo aparece una frase corta para arrancar labores, elegida segun el DIA DE LA SEMANA y estable durante toda la jornada (cambia al dia siguiente, no en cada recarga). Escritas para el trabajo de bodega: material, cuadrillas, seriales, consumos. Uno de cada tres dias se suma un recordatorio practico (anotar serial al entregar, confirmar consumos, revisar la Auditoria, registrar lo que entra, recibir devoluciones el mismo dia). Se editan en FRASES_DIA_INV y TIPS_DIA_INV. Incluye v82: COHERENCIA CON LA APP DE TECNICOS. La app de Tecnicos v71 corrigio que las devoluciones de material NO descontaban del stock del tecnico (quedaba contado dos veces). Aqui: [1] al integrar un recuperado que vino de una cuadrilla con una version anterior, se AVISA si ese material todavia figura a nombre del tecnico, para no contarlo doble. [2] La 🩺 Auditoria detecta ahora tres problemas del cruce con Tecnicos: material contado DOS veces (devuelto a la bodega pero aun en poder del tecnico), equipos danados que siguen en el stock del tecnico, tecnicos SIN CEDULA (la app de Tecnicos los busca por cedula: sin ella no pueden devolver material ni reportar consumos) y un mismo tecnico registrado en DOS cuadrillas (sus reportes irian a la cuadrilla equivocada). Incluye v81: (v81: CAUSA REAL DEL PROBLEMA DE GUARDADO — la base llego a 0.98 MB del maximo de 1 MB que permite Firestore, y pasado ese tope Firebase deja de guardar: por eso las solicitudes aprobadas reaparecian. El diagnostico de la v79 mostro que lo mas pesado NO son las fotos sino las listas de historial que crecen sin parar: consumosPendientes 370KB, bodegas 348KB, instalaciones 161KB, recuperados 81KB. NUEVO en 🩺 Auditoria: panel de espacio con barra de uso y desglose por seccion, boton ARCHIVAR HISTORIAL VIEJO (mueve a documentos por año los consumos ya resueltos de mas de 45 dias, las instalaciones de mas de 120 y los recuperados ya integrados; lo PENDIENTE nunca se archiva), boton para mover las fotos, y boton VER ARCHIVO para consultar lo guardado. Nada se borra y todo se verifica en la nube ANTES de sacarlo de la base. Incluye v80: (v80: LAS FOTOS DE MATERIALES SALEN DE LA BASE PRINCIPAL — esta era la causa de fondo de que los guardados fallaran y las solicitudes reaparecieran. Las fotos se guardaban DENTRO de inventario/datos como texto base64; entre todas hacian que el documento pasara el limite de 1 MB de Firestore, y a partir de ahi NINGUN cambio se guardaba. Ahora cada foto vive en su propio documento (inventario/foto_XXX) y el material solo guarda su codigo; se ven exactamente igual, se cargan solas al abrir la pantalla y las fotos nuevas ya no engordan la base. NUEVO en 🩺 Auditoria: panel de espacio que muestra cuanto pesa la base y cuantos MB ocupan las fotos incrustadas, con boton para MOVERLAS todas: va una por una, comprueba que quedo guardada ANTES de sacarla (ninguna se pierde), guarda bodega por bodega y se puede retomar si se interrumpe. Incluye v79: (v79: LAS SOLICITUDES APROBADAS/RECHAZADAS YA NO REAPARECEN. Causa: el snapshot de Firebase REEMPLAZA la lista completa con lo que hay en la nube; si el guardado aun no habia terminado —o FALLO, como cuando Firebase responde 'write stream exhausted maximum allowed queued writes'— la solicitud volvia a salir como pendiente. Tres correcciones: [1] BLINDAJE DE DECISIONES: toda decision tomada en esta sesion (aprobar, rechazar, aceptar/rechazar transferencia) se vuelve a imponer sobre el snapshot durante 3 minutos, hasta que quede confirmada en la nube. [2] EL GUARDADO FALLIDO YA NO ES INVISIBLE: antes solo se pintaba un indicador chiquito y se escribia en la consola, asi que el usuario creia que su cambio habia quedado; ahora avisa claro que NO se guardo y REINTENTA solo hasta 3 veces. [3] DIAGNOSTICO DE TAMANO: Firestore rechaza documentos de mas de 1 MB y no habia forma de enterarse; ahora se mide en cada guardado, se avisa en consola desde 800 KB y con alerta si pasa el limite, indicando que seccion pesa mas. Incluye v78: (v78: AUDITORIA GENERAL DEL INVENTARIO + correcciones de flujo. NUEVA PANTALLA 🩺 Auditoria (admin): revisa TUS datos reales y reporta stock negativo, seriales repetidos dentro de un articulo, el MISMO equipo registrado en dos lugares a la vez, desajustes entre cantidad y seriales, articulos duplicados en una bodega, cuadrillas con material sin bodega asignada, y material EN EL LIMBO (transferencias sin aceptar, consumos de tecnicos sin confirmar, recuperados sin integrar, solicitudes sin decidir), ordenado por gravedad y exportable a Excel. CORRECCIONES: [1] enviar transferencia validaba articulo por articulo mientras descontaba — si el stock habia cambiado quedaba NEGATIVO, y si el articulo ya no existia reventaba a mitad dejando material descontado SIN transferencia creada (perdido); ahora valida todo primero y no toca nada si algo falla. [2] aceptar/rechazar transferencia agregaba los seriales con push SIN comprobar si ya estaban (el mismo equipo dos veces en la bodega), reventaba si la bodega destino u origen ya no existia (material en el limbo) y al rechazar buscaba por NOMBRE creando duplicados si lo habian renombrado. [3] misma duplicacion de seriales corregida en recuperados integrados, devoluciones de cuadrilla y entregas. [4] KARDEX: ventas, transferencias, entregas, devoluciones y recuperados no dejaban NINGUN rastro en el historial del articulo; ahora si. [5] agregar seriales avisa si estan repetidos o si superan el stock. Incluye v77: (v77: SOLICITUDES DE CAMBIO Y ELIMINACION CORREGIDAS — cuatro fallas: [1] la EDICION de una bodega se aplicaba al material ANTES de mirar el rol, asi que el cambio quedaba hecho sin aprobacion y RECHAZARLO no revertia nada (la aprobacion era decorativa); ahora la bodega solo PROPONE y el material no se toca hasta que el admin apruebe. [2] ELIMINAR UNA VENTA no devolvia el material a la bodega aunque vender SI lo descuenta: el stock desaparecia sin venta que lo justificara; ahora se devuelve cantidad y seriales, con registro en el kardex, y si el articulo ya no existe se vuelve a crear (aplica tambien al borrado directo del admin). [3] RECHAZAR una eliminacion RESUCITABA material fantasma con la cantidad vieja cuando el articulo ya no estaba (agotado, transferido o borrado aparte); ahora rechazar no toca la bodega y, si el articulo falta, se le PREGUNTA al admin. [4] Aprobar eliminacion borraba el articulo SIN dejar rastro en el kardex y sin avisar si la cantidad habia cambiado desde la solicitud; ahora registra la salida y avisa. Ademas approveEdit avisa si la cantidad cambio antes de pisarla, y ya no cierra solicitudes en silencio cuando la bodega o el articulo ya no existen. Incluye v76: CUARTOS DE EQUIPOS — puertos huerfanos y conexiones protegidas: aviso ambar en el equipo cuando hay puertos OCUPADOS sin conexion que los respalde + boton 🧹 Liberarlos (respeta enlaces inter-sede); boton ✏️ para EDITAR conexiones (mover puertos con selector real, cable, color, notas); y TODA modificacion de conexiones (crear/editar/eliminar/liberar) va por TRANSACCION con validacion fresca — dos sesiones ya no se pisan y un puerto no puede ocuparse dos veces. Incluye v75: GUARDADO MAS RAPIDO — la fusion usa la copia del listener cuando tiene <15s (cero descargas extra, misma proteccion); si esta vieja, lee de la red como siempre. Incluye v74: FUSION UNIVERSAL ENTRE SESIONES — el trabajo simultaneo de varias bodegas y tecnicos ya no se pisa: al guardar se fusiona con la nube fresca (datos + historial), lo de otras sesiones se incorpora, los borrados propios dejan LAPIDA y no reviven, las decisiones ajenas (confirmados/integrados/aceptados) se respetan, y un snapshot ya no borra de la pantalla lo recien creado (se conserva y reenvia solo). ENTREGAS ahora con TRANSACCION multi-documento: valida el stock y los seriales sobre datos FRESCOS (si otra sesion entrego mientras tanto, avisa claro), descuenta bodega + suma cuadrilla + registra la entrega de forma atomica. Incluye v73: al CONFIRMAR un consumo de cliente, el material queda anotado AUTOMATICAMENTE en la ficha del cliente — seccion "🧰 Material instalado" — emparejando primero por CEDULA (que ahora envia el tecnico v69) y si no por nombre; si no se encuentra el cliente, avisa claro y el boton "Sincronizar material con clientes" (tambien mejorado con cedula) queda como red de seguridad. Incluye v72: [1] confirmación de consumos con TRANSACCIÓN — el descuento a la cuadrilla ya no se puede revertir por una sincronización cruzada; [2] config Firebase integrada — no vuelve a pedirla; [3] login con ojito 👁️ y Enter; [4] BLINDAJE: guardas anti-borrado de clientes (carga incompleta o encogimiento drástico NO reescriben la nube), firma para no reescribir chunks sin cambios, carga de clientes en paralelo con reintentos, COLA de guardado (nunca se solapan), fusión de envíos recientes de técnicos antes de guardar, y fotos pequeñas ya no se recomprimen)
 window._appVersionInv = APP_VERSION_INV;   // v113: el buzón (script clásico) la lee para op.version
+// Etapa 6 (docs/12): la versión se ve desde que carga la página, abajo a la derecha (#invVersionLabel) y en la entrada (#invVersionLogin)
+try{ const _vlInv=document.getElementById('invVersionLabel'); if(_vlInv) _vlInv.textContent='v'+APP_VERSION_INV;
+     const _viInv=document.getElementById('invVersionLogin'); if(_viInv) _viInv.textContent='Versión '+APP_VERSION_INV; }catch(eV){}
 /* ════════════════════════════════════════════════════════════════════
    v111 (16 sep 2026) — MODO MANTENIMIENTO.
    El administrador lo activa desde el panel de OFICINAS. Queda en el documento
@@ -11585,14 +11644,19 @@ async function compressImage(base64, maxW=400, quality=0.5) {
     });
 }
 
+// Etapa 6: window._guardadoDiferidoInv marca los 400 ms en que un guardado ya se pidió y todavía
+// no arrancó (saveTO es un let de este módulo). La guarda de 24 h lo espera: la pantalla no está quieta.
+window._guardadoDiferidoInv = false;
 window._fbSave = function() {
     showSync('saving','Guardando...');
     clearTimeout(saveTO);
-    saveTO = setTimeout(()=>{ _ejecutarSaveInv(false); }, 400);
+    window._guardadoDiferidoInv = true;
+    saveTO = setTimeout(()=>{ window._guardadoDiferidoInv = false; _ejecutarSaveInv(false); }, 400);
 };
 
 window._fbSaveImmediate = async function() {
     clearTimeout(saveTO);
+    window._guardadoDiferidoInv = false;   // el diferido que se canceló sale aquí, ahora
     return await _ejecutarSaveInv(true);
 };
 
@@ -11661,6 +11725,163 @@ try{
         });
     }
 }catch(eRec){ console.warn('recarga automática:', eRec); }
+
+/* ════════════════════════════════════════════════════════════════════
+   Etapa 6 (docs/12) — MÁS DE UN DÍA ABIERTA: PEDIR ACTUALIZAR CON LA PANTALLA QUIETA.
+   Una pestaña abierta por días sigue con el código y la memoria de cuando se
+   cargó: es la principal sospecha de los equipos instalados que volvieron a la
+   cuadrilla. Si la página lleva más de 24 h cargada (_CARGA_MS_INV, hora del
+   equipo al cargar), sale una capa propia, #capaCaducadaInv, que pide actualizar.
+   - Solo con la pantalla QUIETA (_motivoNoQuietaInv vacío): sin ventana abierta
+     (#modal.show), sin guardado en curso, en cola, diferido (los 400 ms de
+     _fbSave: window._guardadoDiferidoInv) ni reintentándose (_fallosSaveInv),
+     sin escrituras en vuelo, sin el buzón abierto, sin mantenimiento, sin un
+     anuncio de versión en marcha (recarga.js o #versionBlock, que manda) y sin
+     un campo con texto en uso.
+   - NO se frena en _ejecutarSaveInv: el patrón de la app es cambiar DB y después
+     llamar save(); frenar ahí dejaría el cambio solo en memoria y se perdería al
+     recargar. Un guardado que salga estando caducada PASA (es la versión
+     vigente y la transacción lee la nube) y la capa sale al quedar quieta.
+   - No es #versionBlock (diría «hay una versión nueva», que aquí es falso) ni
+     lleva la clase pvRecargaTexto (recarga.js escribe en todo lo que la tenga).
+     Va por debajo de #versionBlock: si sale una versión nueva, manda esa.
+   - Se revisa cada 60 s, al volver a la vista, al enfocar y al volver de la
+     caché de retroceso; mientras espera a que la pantalla quede quieta, cada 5 s.
+   - Apagada en modo prueba y con ?ignorarVersion. No escribe nada.
+   - El banco de pruebas mueve la hora de carga con window.__PV_CARGA_MS_PRUEBA
+     (número, ms), que SOLO se respeta en una copia local (como __PV_RECARGA_PRUEBA).
+   ════════════════════════════════════════════════════════════════════ */
+const _CARGA_MS_INV = Date.now();
+const _DIA_MS_INV = 86400000;
+// Pura: más de 24 h entre la carga y ahora
+function _caducadaInv(cargaMs, ahoraMs){
+    const c=Number(cargaMs), a=Number(ahoraMs);
+    return isFinite(c) && isFinite(a) && c>0 && (a-c) > _DIA_MS_INV;
+}
+window._caducadaInv=_caducadaInv;
+function _cargaMsInv(){
+    try{ const p=window.__PV_CARGA_MS_PRUEBA; if(typeof p==='number' && isFinite(p) && p>0 && _esEntornoLocalInv()) return p; }catch(e){}
+    return _CARGA_MS_INV;
+}
+window._cargaMsInv=_cargaMsInv;
+// '' si la pantalla está quieta; si no, lo que está esperando (en español, para la consola y las pruebas)
+function _motivoNoQuietaInv(){
+    const oc=_ocupadoRecargaInv(); if(oc) return oc;
+    if(window._guardadoDiferidoInv) return 'un guardado por salir';
+    if((window._fallosSaveInv||0) > 0) return 'un guardado que no llegó a la nube';
+    if(window._mantBloqueando || window._mantGuardadoPendiente) return 'el mantenimiento';
+    if(_pantallaViejaInv()) return 'hay una versión nueva publicada';
+    try{ const f=(window.PV_RECARGA && typeof window.PV_RECARGA.estado==='function') ? String(window.PV_RECARGA.estado().fase||'') : '';
+         if(f && f!=='inactivo' && f!=='prueba') return 'la actualización por versión nueva'; }catch(e){}
+    try{ const m=document.getElementById('modal'); if(m && m.classList.contains('show')) return 'una ventana abierta'; }catch(e){}
+    try{ if(window.PV_BUZON && typeof window.PV_BUZON.estado==='function' && window.PV_BUZON.estado().abierta) return 'el buzón abierto'; }catch(e){}
+    try{ const a=document.activeElement;
+         if(a && a!==document.body && ((/^(INPUT|TEXTAREA)$/.test(a.tagName) && String(a.value||'')!=='') || (a.isContentEditable && String(a.textContent||'').trim()!==''))) return 'un campo con texto en uso'; }catch(e){}
+    return '';
+}
+window._motivoNoQuietaInv=_motivoNoQuietaInv;
+// Pura (para las pruebas): c = { modoPrueba, ignorarVersion, cargaMs, ahoraMs, motivo, mostrada }
+// → 'apagada' | 'al día' | 'mostrada' | 'esperando: <motivo>' | 'mostrar'
+function _decidirCaducidadInv(c){
+    c=c||{};
+    if(c.modoPrueba || c.ignorarVersion) return 'apagada';
+    if(!_caducadaInv(c.cargaMs, c.ahoraMs)) return 'al día';
+    if(c.mostrada) return 'mostrada';
+    if(c.motivo) return 'esperando: '+c.motivo;
+    return 'mostrar';
+}
+window._decidirCaducidadInv=_decidirCaducidadInv;
+let _tmrCaducidadInv=null, _recargandoCaducadaInv=false;
+function _urlCaducadaInv(){
+    try{ if(window.PV_RECARGA && typeof window.PV_RECARGA.urlRecarga==='function') return window.PV_RECARGA.urlRecarga(location.href, Date.now()); }catch(e){}
+    try{ const u=new window.URL(location.href); u.searchParams.set('nv', String(Date.now())); return u.toString(); }catch(e){}
+    return location.href;
+}
+// El botón: recarga conservando los parámetros, pero nunca con un guardado a medias ni sin internet
+function _recargarCaducadaInv(){
+    if(_recargandoCaducadaInv) return;
+    _recargandoCaducadaInv=true;
+    const btn=document.getElementById('capaCaducadaInvBtn'); if(btn){ btn.disabled=true; btn.style.opacity='0.7'; }
+    const decir=t=>{ const est=document.getElementById('capaCaducadaInvEstado'); if(est) est.textContent=t; };
+    const intentar=()=>{
+        const fallos=window._fallosSaveInv||0;
+        let espera=_ocupadoRecargaInv() || (window._guardadoDiferidoInv ? 'un guardado por salir' : '') || (fallos>0 && fallos<=3 ? 'un guardado que se está reintentando' : '');
+        let sinRed=false; try{ sinRed=(navigator.onLine===false); }catch(e){}
+        if(espera || sinRed){
+            decir(espera ? 'Espera: '+espera+'. La página se actualiza sola cuando termine.' : 'Sin internet: la página se actualiza sola cuando vuelva la señal.');
+            setTimeout(intentar, 1000); return;
+        }
+        if(fallos>3 && !confirm('⚠️ El último guardado NO llegó a la nube.\n\nSi actualizas ahora, esos cambios se pierden.\n\n¿Actualizar de todas formas?')){
+            _recargandoCaducadaInv=false; if(btn){ btn.disabled=false; btn.style.opacity=''; }
+            decir('No se actualizó: hay cambios sin guardar en la nube.'); return;
+        }
+        decir('Actualizando…');
+        try{ location.replace(_urlCaducadaInv()); }catch(e){ try{ location.reload(); }catch(x){} }
+    };
+    intentar();
+}
+window._recargarCaducadaInv=_recargarCaducadaInv;
+// Con la capa puesta, el teclado no llega a lo que quedó detrás (solo a la capa y a #versionBlock)
+function _teclaCaducadaInv(e){
+    try{
+        const capa=document.getElementById('capaCaducadaInv');
+        if(!capa){ document.removeEventListener('keydown', _teclaCaducadaInv, true); return; }
+        const vb=document.getElementById('versionBlock');
+        if(vb && vb.contains(e.target)) return;
+        // Tab no saca el foco a lo de atrás (allí ya no respondería): vuelve al botón de la capa,
+        // o al de #versionBlock si está puesto (ese manda)
+        if(e.key==='Tab'){
+            e.preventDefault(); e.stopPropagation();
+            const bv=(vb && vb.style.display==='flex') ? vb.querySelector('button') : null;
+            const b=bv || document.getElementById('capaCaducadaInvBtn');
+            try{ if(b) b.focus(); }catch(x){}
+            return;
+        }
+        if(capa.contains(e.target)) return;
+        e.preventDefault(); e.stopPropagation();
+    }catch(x){}
+}
+function _mostrarCapaCaducadaInv(){
+    if(document.getElementById('capaCaducadaInv') || !document.body) return;
+    const capa=document.createElement('div');
+    capa.id='capaCaducadaInv';
+    capa.setAttribute('role','dialog'); capa.setAttribute('aria-modal','true'); capa.setAttribute('aria-labelledby','capaCaducadaInvTexto');
+    capa.style.cssText='position:fixed;inset:0;z-index:9999000;background:rgba(8,10,18,0.9);display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;overflow:auto;';
+    capa.innerHTML='<div style="background:#fff;color:#1e293b;border-radius:16px;padding:24px 20px;width:100%;max-width:440px;box-sizing:border-box;text-align:center;box-shadow:0 16px 50px rgba(0,0,0,0.45);overflow-wrap:anywhere;">'
+        +'<div style="font-size:2.6rem;margin-bottom:10px;">🕰️</div>'
+        +'<div id="capaCaducadaInvTexto" style="font-size:0.98rem;line-height:1.5;font-weight:600;margin-bottom:14px;">Esta pantalla lleva más de un día abierta. Actualízala para seguir trabajando con los datos al día. (Si pasaron más de 12 horas desde que entraste, te pedirá la clave otra vez.)</div>'
+        +'<div id="capaCaducadaInvEstado" style="font-size:0.84rem;color:#92400e;min-height:1.2em;margin-bottom:12px;"></div>'
+        +'<button type="button" id="capaCaducadaInvBtn" style="background:#1a5276;color:#fff;border:none;padding:12px 26px;border-radius:10px;font-weight:800;cursor:pointer;font-size:1rem;max-width:100%;">🔄 Actualizar ahora</button>'
+        +'</div>';
+    document.body.appendChild(capa);
+    const b=document.getElementById('capaCaducadaInvBtn');
+    if(b){ b.addEventListener('click', _recargarCaducadaInv); try{ b.focus(); }catch(e){} }
+    document.addEventListener('keydown', _teclaCaducadaInv, true);
+    console.log('🕰️ Esta pantalla lleva más de un día abierta: se pide actualizar.');
+}
+window._mostrarCapaCaducadaInv=_mostrarCapaCaducadaInv;
+// Solo para las pruebas: quita la capa sin recargar
+window._quitarCapaCaducadaInv=function(){ const c=document.getElementById('capaCaducadaInv'); if(c) c.remove(); document.removeEventListener('keydown', _teclaCaducadaInv, true); _recargandoCaducadaInv=false; };
+function _revisarCaducidadInv(){
+    let d='apagada';
+    try{
+        d=_decidirCaducidadInv({ modoPrueba:MODO_PRUEBA, ignorarVersion:_ignorarVersionInv(), cargaMs:_cargaMsInv(), ahoraMs:Date.now(),
+            mostrada:!!document.getElementById('capaCaducadaInv'), motivo:_motivoNoQuietaInv() });
+        if(d==='mostrar'){ _mostrarCapaCaducadaInv(); d='mostrada'; }
+        else if(d.indexOf('esperando')===0 && !_tmrCaducidadInv) _tmrCaducidadInv=setTimeout(()=>{ _tmrCaducidadInv=null; _revisarCaducidadInv(); }, 5000);
+    }catch(e){ console.warn('pantalla de más de un día:', e); }
+    window._estadoCaducidadInv=d;
+    return d;
+}
+window._revisarCaducidadInv=_revisarCaducidadInv;
+if(!MODO_PRUEBA && !_ignorarVersionInv()){
+    try{
+        setInterval(_revisarCaducidadInv, 60000);
+        document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState!=='hidden') _revisarCaducidadInv(); });
+        window.addEventListener('focus', ()=>_revisarCaducidadInv());
+        window.addEventListener('pageshow', ()=>_revisarCaducidadInv());
+    }catch(eC){ console.warn('pantalla de más de un día:', eC); }
+}
 
 function _ejecutarSaveInv(conOverlay){
     if(_pantallaViejaInv()){
@@ -11862,6 +12083,79 @@ window._fbBuzonInv = {
         return snap.docs.map(d=>Object.assign({}, d.data()||{}, {id:d.id}));
     }
 };
+
+// ════════════════════════════════════════════════════════════════
+// 📺 Etapa 6 (docs/12) · PANTALLAS ABIERTAS (LATIDO) — puente para pantallas.js
+// (script clásico, compartido con OFICINAS, TÉCNICOS y RED). Un solo documento,
+// oficinas_sistema/sesiones_vivas, y siempre un set con merge:true: la forma la
+// fija pantallas.js y la comparten las cuatro apps (regla 7). Nada en
+// inventario/datos ni en main.
+// setDoc DIRECTO a propósito, no el envoltorio _setDoc:
+//  - no cuenta en _escriturasEnVueloInv: sin señal su promesa no termina y la
+//    recarga automática se quedaría esperando un latido;
+//  - no se frena por versión vieja: justo esas pantallas son las que hay que ver.
+// Por eso el modo prueba se revisa aquí, a mano y ANTES del set (sin _bloquear:
+// el latido no suma intentos a _escriturasBloqueadas).
+// El parche llega con marcas {__ts:1}/{__del:1}; PV_PANTALLAS.traducir las cambia
+// por serverTimestamp()/deleteField(). Solo se manda la llave sesiones.
+// ════════════════════════════════════════════════════════════════
+const _RUTA_LATIDO_INV='oficinas_sistema/sesiones_vivas';
+const _RUTAS_VERSION_INV={ OFI:'oficinas_sistema/app_version', INV:'inventario/app_version', TEC:'oficinas_sistema/app_version_tecnicos', RED:'oficinas_sistema/app_version_red' };
+window._fbLatidoInv = {
+    escribir(parche){
+        if(MODO_PRUEBA) return Promise.reject(new Error('modo prueba'));
+        if(!fsDB) return Promise.reject(new Error('sin conexión'));
+        const P=window.PV_PANTALLAS;
+        if(!P || typeof P.traducir!=='function') return Promise.reject(new Error('pantallas.js no cargó'));
+        const ses=parche && typeof parche==='object' ? parche.sesiones : null;
+        if(!ses || typeof ses!=='object' || Array.isArray(ses) || !Object.keys(ses).length) return Promise.reject(new Error('latido vacío'));
+        let datos;
+        try{ datos=P.traducir({ sesiones:ses }, ()=>serverTimestamp(), ()=>deleteField()); }
+        catch(e){ return Promise.reject(new Error('no se pudo preparar el latido')); }
+        return setDoc(doc(fsDB, _RUTA_LATIDO_INV), datos, {merge:true});
+    },
+    async leer(){
+        if(!fsDB) throw new Error('sin conexión');
+        const s=await getDoc(doc(fsDB, _RUTA_LATIDO_INV));
+        return s.exists() ? (s.data()||{}) : null;
+    },
+    // Las versiones publicadas de las cuatro apps (4 lecturas), para marcar las pantallas viejas
+    async leerVersiones(){
+        if(!fsDB) throw new Error('sin conexión');
+        const claves=Object.keys(_RUTAS_VERSION_INV);
+        const vs=await Promise.all(claves.map(k=>getDoc(doc(fsDB, _RUTAS_VERSION_INV[k]))
+            .then(s=>s.exists() ? (parseInt((s.data()||{}).version,10)||0) : 0, ()=>null)));
+        if(vs.every(v=>v===null)) throw new Error('no se pudieron leer las versiones publicadas');
+        const out={}; claves.forEach((k,i)=>{ out[k]=vs[i]===null ? 0 : vs[i]; });
+        return out;
+    }
+};
+// El adaptador op de pantallas.js. Lo usa enterApp (al entrar con la clave y al reanudar la
+// sesión) para arrancar el latido: nunca al cargar, así una pantalla sin sesión no late.
+// Nombre: la bodega o 'Admin', nunca una cédula ni un nombre de persona.
+window._pantallasOpInv = function(){
+    const puente=(que, a)=>{ try{ return Promise.resolve(window._fbLatidoInv[que](a)); }catch(e){ return Promise.reject(e); } };
+    return {
+        app:'INV',
+        modoPrueba:MODO_PRUEBA,
+        entornoLocal:_esEntornoLocalInv(),
+        cargadaMs:()=>_cargaMsInv(),
+        datos:()=>{
+            const u=(typeof USER!=='undefined' && USER) ? USER : null;   // USER es un let del otro <script>: se alcanza por nombre
+            let fase=''; try{ fase=(window.PV_RECARGA && typeof window.PV_RECARGA.estado==='function') ? String(window.PV_RECARGA.estado().fase||'') : ''; }catch(e){}
+            return { v:APP_VERSION_INV, rol:u ? String(u.role||'') : '', nombre:!u ? '' : (u.role==='admin' ? 'Admin' : String(u.nombre||'')),
+                     sesion:_sesionIdInv(), vieja:_pantallaViejaInv(), recarga:fase };
+        },
+        escribir:(parche)=>puente('escribir', parche),
+        leer:()=>puente('leer'),
+        leerVersiones:()=>puente('leerVersiones')
+    };
+};
+
+// Etapa 6: el estado del oyente de inventario/app_version vive fuera de startFirebase. Si
+// startFirebase corre otra vez (la config guardada falló y se reintenta con la integrada),
+// la suscripción nueva quita la anterior y no quedan dos oyentes.
+let _genVersionInv=0, _quitarVersionInv=null, _tmrVersionInv=null;
 
 async function startFirebase(config) {
     // Reuse existing app if already initialized, avoid duplicate app error
@@ -12305,6 +12599,38 @@ async function startFirebase(config) {
     };
 
     // ── CONTROL DE VERSIÓN (bloqueo total si hay versión nueva) ──
+    /* Etapa 6 (docs/12): el oyente de inventario/app_version tiene función de error.
+       Antes no la tenía: si caía (cuota agotada, permisos, red), moría para siempre y
+       la pantalla nunca se enteraba de una versión nueva (el freno de la v112 quedaba
+       ciego). Ahora, al caer, vuelve a suscribirse a los 60 s. Cada suscripción lleva
+       su número: una vieja nunca programa otra, así no se duplican oyentes. Además
+       arranca aunque falle la lectura de abajo (sin señal al abrir), que antes lo
+       saltaba entero. Lo que hace al ver una versión mayor no cambió. */
+    const _escucharVersionInv=()=>{
+        try{ clearTimeout(_tmrVersionInv); }catch(eT){}
+        _tmrVersionInv=null;
+        const gen=++_genVersionInv;
+        try{ if(_quitarVersionInv) _quitarVersionInv(); }catch(eQ){}
+        _quitarVersionInv=null;
+        const caido=(eV)=>{
+            if(gen!==_genVersionInv) return;   // ya hay otra suscripción: esta no programa nada
+            console.warn('escucha versión inventario: se cayó; se vuelve a suscribir en 60 s:', eV);
+            window._oyenteVersionCaidoInv={ ms:Date.now(), error:String((eV&&eV.message)||eV).slice(0,200), veces:((window._oyenteVersionCaidoInv||{}).veces||0)+1 };
+            if(!_tmrVersionInv) _tmrVersionInv=setTimeout(_escucharVersionInv, 60000);
+        };
+        try{
+            _quitarVersionInv = onSnapshot(doc(fsDB, 'inventario/app_version'), (s)=>{
+                if(!s.exists()) return;
+                const rem = s.data().version||0;
+                if(rem > APP_VERSION_INV){
+                    window._versionViejaInv = true;   // v112 (W-6): desde aquí esta pantalla ya no guarda
+                    const b=document.getElementById('versionBlock'); if(b) b.style.display='flex';
+                    // Etapa 1 (punto 7): la cuenta de la recarga automática (idempotente: una sola cuenta)
+                    try{ if(window.PV_RECARGA && typeof window.PV_RECARGA.anunciada==='function') window.PV_RECARGA.anunciada(rem); }catch(eRec){ console.warn('recarga automática:', eRec); }
+                }
+            }, caido);
+        }catch(eS){ caido(eS); }
+    };
     try {
         const vlbl=document.getElementById('invVersionLabel'); if(vlbl) vlbl.textContent='v'+APP_VERSION_INV;
         const vref = doc(fsDB, 'inventario/app_version');
@@ -12319,17 +12645,8 @@ async function startFirebase(config) {
             else await _setDoc(vref, {version:APP_VERSION_INV, actualizadoEn:Date.now()});
         }
         if(remota > APP_VERSION_INV) window._versionViejaInv = true;
-        onSnapshot(vref, (s)=>{
-            if(!s.exists()) return;
-            const rem = s.data().version||0;
-            if(rem > APP_VERSION_INV){
-                window._versionViejaInv = true;   // v112 (W-6): desde aquí esta pantalla ya no guarda
-                const b=document.getElementById('versionBlock'); if(b) b.style.display='flex';
-                // Etapa 1 (punto 7): la cuenta de la recarga automática (idempotente: una sola cuenta)
-                try{ if(window.PV_RECARGA && typeof window.PV_RECARGA.anunciada==='function') window.PV_RECARGA.anunciada(rem); }catch(eRec){ console.warn('recarga automática:', eRec); }
-            }
-        });
     } catch(e){ console.warn('versión inv:', e); }
+    _escucharVersionInv();   // Etapa 6: el oyente, con su reintento (arriba)
     // v111: modo mantenimiento (lo activa el administrador desde OFICINAS)
     try{ onSnapshot(doc(fsDB,'oficinas_sistema/mantenimiento'), s=>{ window._mantenimiento=s.exists()?s.data():null; try{ _aplicarMantenimiento(); }catch(e){ console.warn('mantenimiento:', e); } }, e=>console.warn('escucha mantenimiento:', e)); }catch(e){ console.warn('mantenimiento inv:', e); }
     try{ onSnapshot(doc(fsDB,'oficinas_sistema/app_version'), s=>{ if(s.exists()){ window._mantVersionOficinasNube=parseInt(s.data().version,10)||0; try{ _aplicarMantenimiento(); }catch(e){} } }, e=>console.warn('escucha versión OFICINAS:', e)); }catch(e){}   // al publicar OFICINAS termina el mantenimiento

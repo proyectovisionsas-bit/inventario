@@ -292,9 +292,9 @@ Se le pasaron el contexto, las fallas R2–R10, los 4 casos reales y extractos d
 
 **Orden final: 1 → 6 → 2 → 3 → 4 → 5; después 7 y 8, cada una con su plan.**
 
-## 9. Etapa 1 — lo que se hizo (sin publicar)
+## 9. Etapa 1 — lo que se hizo (publicada el 9 oct 2026)
 
-Hecho el 9 oct 2026 sobre lo publicado en `58fb891`. **No se publicó, no se hizo commit y no se subió ninguna versión**: las cuatro apps siguen diciendo INVENTARIO v113, TÉCNICOS v99, OFICINAS v318 y RED v42. Nada se escribió en la base real; las pruebas con datos reales solo leyeron, en `?prueba=1`.
+Hecho el 9 oct 2026 sobre lo publicado en `58fb891`, y **publicado ese mismo día** en el commit `1b2e58f`: OFICINAS v319, INVENTARIO v114, TÉCNICOS v100 y RED v43. Los cuatro documentos de versión de la nube lo confirman desde las 20:36 UTC. Al prepararla no se escribió nada en la base real; las pruebas con datos reales solo leyeron, en `?prueba=1`.
 
 ### Qué quedó en cada archivo
 
@@ -339,9 +339,9 @@ Hecho el 9 oct 2026 sobre lo publicado en `58fb891`. **No se publicó, no se hiz
 
 - **El registro no lleva lápidas ni se archiva.** `logs` NO entró a `COLS_HIST_INV`. Ahí, cada entrada que el tope de 200 corta dejaría una lápida en `inventario/datos._tumbas`, que puede empujar fuera las de borrados reales. Además, lo local sin subir gastaría el freno de reenvíos de las listas de stock. Por lo mismo se quitó `logs` de `_REGLAS_ARCHIVO_INV`: con ids y fusión sin lápidas, lo archivado volvería desde la nube y el archivo se reescribiría en cada guardado. El tope de 200 ya acota la lista. `logs` sigue en `_CAMPOS_HIST_INV`, que solo sirve para medir el peso de cada documento.
 - **`inventario_actividad` da 403** (comprobado el 9 oct 2026): las reglas no dejan leer esa colección. Las reglas no se cambian sin Elkin, así que por ahora solo hay fusión por id. **Decisión pendiente para Elkin:** si quiere un documento por evento que ninguna pantalla reescriba, la alternativa que no toca las reglas es `inventario/actividad_<id>`, dentro de la colección que ya está abierta (como `inventario/archivo_*`).
-- **Versiones sin subir.** Se suben solo en la entrega que se publica: INVENTARIO 114, TÉCNICOS 100, OFICINAS 319 y RED 43, con el mismo formato de línea (`const APP_VERSION_INV = 114;`), que las pruebas leen con expresiones regulares.
+- **Versiones.** Se subieron solo en la entrega publicada (`1b2e58f`): INVENTARIO 114, TÉCNICOS 100, OFICINAS 319 y RED 43, con el mismo formato de línea (`const APP_VERSION_INV = 114;`), que las pruebas leen con expresiones regulares.
 - **`recarga.js?v=1` en las cuatro apps.** Al cambiar `recarga.js` hay que subir el `?v=` en las cuatro, al mismo número (la prueba 6 lo exige).
-- **`oficinas_sistema/app_version_red`** es el documento de versión de RED, `{version, actualizadoEn}`. Todavía no existe en la nube: lo crea la primera RED publicada con este código (v43). Una copia en `?prueba=1` o local nunca lo escribe.
+- **`oficinas_sistema/app_version_red`** es el documento de versión de RED, `{version, actualizadoEn}`. Lo creó la primera RED publicada con este código (v43): existe desde el 9 oct 2026. Una copia en `?prueba=1` o local nunca lo escribe.
 - **El botón «🔄 Actualizar ahora»** recarga sin mirar la página publicada ni el tope y conserva `?prueba=1`, `?ignorarVersion` y los demás parámetros. Antes los perdía.
 - **OFICINAS espera para siempre** si un guardado quedó sin llegar a la nube y ya no tiene reintento (`_ultimoGuardadoOk===false`): queda solo el botón. Es a propósito, para no perder lo no guardado. Lo decide Elkin.
 
@@ -416,9 +416,286 @@ La P7j muestra el riesgo anotado arriba en «TÉCNICOS con la franja»: con la f
 ### Lo que falta probar en la nube real (al publicar)
 
 1. Que Firestore acepte el sello: `serverTimestamp()` en el mapa `_ultimaEscritura.en` y `_escrituras` sin él. El simulador devuelve un número y la nube un Timestamp; `_msDeMarcaPV` lee los dos. Un guardado de bodega y una finalización de TÉCNICOS deben dejar el sello con la app, la versión y el nombre.
-2. Que `oficinas_sistema/app_version_red` se cree al abrir la RED publicada (hoy da 404; las reglas de la colección dejan escribir) y que una RED vieja abierta vea el bloqueo y cuente.
+2. Que `oficinas_sistema/app_version_red` se cree al abrir la RED publicada (ya existe desde el 9 oct 2026) y que una RED vieja abierta vea el bloqueo y cuente.
 3. La recarga en GitHub Pages: que la comprobación (`?nc=`, sin caché) espere mientras Pages todavía sirve la versión vieja y reintente cada minuto; que recargue una vez con la nueva y conserve los parámetros; y que nunca pase de 3 recargas en 10 minutos.
 4. TÉCNICOS en un celular, con la PWA instalada: con la ventana de material abierta, la franja y no el bloqueo; al finalizar, el plan queda en la cola; recarga; la versión nueva lo envía con sello `TEC`.
 5. El respaldo real desde el administrador (unos 1,1 MB, con datos privados) antes de publicar, como pide el §7.
 6. Que dos pantallas que registran a la vez dejen las entradas de las dos en `inventario/historial.logs`, y que la bitácora ya diga el nombre de la bodega.
 7. Cuánto suma el sello a `inventario/datos` (unos KB con 30 entradas en `_escrituras`), en el medidor.
+
+## 10. Etapa 6 — lo que se hizo (publicada el 10 oct 2026)
+
+Hecho el 9 y 10 oct 2026 sobre lo publicado en `1b2e58f` (OFICINAS v319, INVENTARIO v114, TÉCNICOS v100, RED v43). **Publicado el 10 oct 2026** como OFICINAS v320, INVENTARIO v115, TÉCNICOS v101 y RED v44, con `pantallas.js?v=1` nuevo (la nota del panel ya lo dice así). Las pruebas no escribieron nada en la base real.
+
+El 10 oct pasó una revisión adversaria (cinco lentes: `pantallas.js`, el freno de OFICINAS, TÉCNICOS, RED y la versión, y las pruebas). Lo que aquí se describe es lo que quedó **después** de sus arreglos y de dos cambios que la sesión principal hizo después (el mínimo de 5 min entre latidos y el apagado del latido de INVENTARIO al cerrar sesión); qué encontró, qué se corrigió y qué no, en «Revisión del 10 oct» y «Lo que quedó sin hacer», al final.
+
+### Qué quedó en cada archivo
+
+| Archivo | Qué cambió |
+|---|---|
+| `pantallas.js` (nuevo, `?v=1`) | El latido y el panel, una sola copia para las cuatro apps (`PV_PANTALLAS`). No conoce Firebase, `DB`, `USER` ni `TEC`: todo le llega por un adaptador. Si no carga, la app sigue igual, sin latido |
+| `INVENTARIO_PTOVISION.html` | Puente `window._fbLatidoInv`, latido desde `enterApp` (y apagado en `doLogout`), tarjeta «📺 Pantallas abiertas» en ⚙️ Configuración, guarda de 24 h (`#capaCaducadaInv`), versión a la vista y oyente de versión con reintento |
+| `OFICINAS_PTOVISION.html` | Latido desde `enterApp`, tarjeta en Administración, freno de versión vieja en `_saveReal` (con permiso para lo que ya venía en camino, `_permisoGuardadoOfi`) y en los caminos compartidos, guarda de 24 h (`#capaCaducadaOfi`), versión junto al reloj y oyente con reintento |
+| `TECNICOS_PTOVISION.html` | Latido desde `enterApp` (exceptuado del freno de versión, no del modo prueba), franja de más de un día (`#avisoCargaViejaTec`), versión en la entrada y oyente con reintento |
+| `RED_PTOVISION.html` | Latido desde `_montarAppRed`, versión a la vista (entrada y cabecera) y oyente de `app_version_red` con reintento |
+| `PRUEBAS.html` | 6 pruebas nuevas y el ayudante `pantallasAparte` (154 en total). Ninguna prueba vieja hubo que tocarla |
+
+Las cuatro apps cargan `pantallas.js?v=1` con el comentario «Pantallas abiertas (latido), compartido: editar pantallas.js, no copiarlo aquí». Al cambiar `pantallas.js` hay que subir el `?v=` en las cuatro, al mismo número (la prueba 4 lo exige). `FIRMA_SST.html` no lo carga. `pantallas.js` todavía no se ha publicado nunca (no está en git), así que sale con `?v=1` aunque haya cambiado en la revisión; si alguna vez se publica una versión anterior a estos arreglos, el siguiente cambio sube el `?v=`.
+
+### El documento `oficinas_sistema/sesiones_vivas`
+
+Lo comparten las cuatro apps (regla 7): nadie le cambia la forma por su cuenta.
+
+```
+{ sesiones: { "<clave>": { app, v, rol, nombre, sesion, equipo, disp, cargadaMs, ultimoMs, en, vieja, local, visible, recarga, n } } }
+```
+
+- **`<clave>`:** `p` + 12 letras o cifras, al azar por cada carga de página, sin puntos. La pestaña (`sesion`) va aparte: al duplicar una pestaña se copia su `sessionStorage`.
+- **`app`** `OFI`, `INV`, `TEC` o `RED`; **`v`** la versión cargada; **`rol`**; **`nombre`** (ver «Privacidad»); **`equipo`** el `pv_equipo_id` de la Etapa 1; **`disp`** `celular` o `pc`; **`cargadaMs`** y **`ultimoMs`**, horas del equipo; **`en`** `serverTimestamp()`, la hora del servidor; **`vieja`** si la pantalla ya sabe que hay una versión mayor; **`local`** copia local; **`visible`**; **`recarga`** la fase de `recarga.js`; **`n`** latidos enviados en esta carga.
+- La entrada sale de `PV_PANTALLAS.entrada`, con lista blanca: cualquier otra llave se descarta y nunca queda un `undefined`. No tiene campos de primer nivel `tipo`, `firmaRef` ni `clienteCedula`, que entrarían en consultas que ya existen. Nada va en `main` ni en `inventario/datos`: todas las pantallas los escuchan, y cada latido costaría una lectura por pantalla.
+- **Se escribe siempre** `set({ sesiones: { [clave]: entrada, [vieja]: deleteField() } }, { merge:true })`. Nunca `update` del mapa (lo reemplaza entero), nunca `set` sin merge, nunca `mergeFields`, nunca un mapa `sesiones` vacío. `pantallas.js` arma el parche con marcas (`{__ts:1}`, `{__del:1}`) y cada app las traduce a `serverTimestamp()` y `deleteField()`.
+- **Poda a 24 h, con la hora del servidor.** En el mismo `set merge` del primer latido de cada carga (con una lectura antes) y al abrir el panel, se borran las entradas cuyo `en` es más de 24 h anterior al `en` creíble más nuevo del documento. Nunca contra la hora del equipo: un celular con la hora adelantada tres días borraría a todas las demás. Una entrada sin `en` legible se conserva hasta 48 h. Si quedan más de 400, se van las más viejas. Nunca se borra la propia. Una entrada viva podada por error vuelve en su siguiente latido. Son datos de vigilancia efímeros, no datos del negocio.
+- **Hora imposible (revisión del 10 oct).** Las apps escriben `en` con `serverTimestamp()`, pero el documento se escribe desde internet sin autenticación. Antes, una sola entrada con `en` del año 2100 (como número, `{seconds}` o `Timestamp`) pasaba a ser «el más nuevo»: cada carga borraba a todas las demás y el panel las veía todas «sin latido», para siempre, porque esa entrada nunca se podaba. Ahora un `en` más de 24 h por delante de la hora de quien lee (`limiteEn`, `enCreible`) no cuenta: ni como el más nuevo (`enMasNuevo`, `podar`, `resumen`), ni como latido en el panel, y en el tope de 400, si no trae otra hora creíble, es la primera en salir (`momento`). La hora del equipo solo sirve de tope: con el reloj de quien lee atrasado, la poda borra menos o nada, nunca más. La poda del latido nunca borra una entrada por tener la hora imposible; eso lo hace solo el panel (ver abajo).
+- **Tamaño:** unos 195 B por entrada. Con la poda quedan las cargas del último día (60 a 150): de 12 a 30 KB.
+
+### El latido
+
+- **Arranca solo con la sesión iniciada:** `enterApp` en INVENTARIO, OFICINAS y TÉCNICOS (al entrar y al reanudar la sesión); arriba de `_montarAppRed` en RED, antes del `return` del técnico. Nunca al cargar ni en un `setInterval` suelto: en PRUEBAS.html nadie inicia sesión.
+- **Se apaga al cerrar sesión:** INVENTARIO, OFICINAS y TÉCNICOS llaman `PV_PANTALLAS.detener()` en `doLogout`; al volver a entrar, `enterApp` lo arranca otra vez con la misma clave. INVENTARIO lo hace desde la revisión: antes seguía latiendo en la pantalla de entrada, con rol y nombre vacíos. RED no lo necesita: `salir()` recarga la página.
+- **Cadencia:** el primero al iniciar; después cada 5 min con la pestaña a la vista y cada 15 oculta; al volver a la vista, uno inmediato si pasó más de 5 min (así cambiar de pestaña nunca suma más latidos que el ritmo normal: máximo 12 por hora a la vista; después de la revisión se subió de 1 a 5 min por la cuota de Firebase); al volver la señal, otro si el último falló y el último bueno tiene 5 min o más. Los 5 min se cuentan desde el último intento (`minEntreMs` = 300000 en `PV_PANTALLAS.TIEMPOS`; un latido forzado con `latir()` respeta el mismo mínimo). Un solo temporizador. Sin señal no se escribe. Si la nube no responde en 30 s, se suelta.
+- **Si la hora del equipo retrocede** (alguien la corrige a mano en Ajustes), ningún turno pasa de 5 o 15 min (`siguiente()` lleva tope) y una diferencia negativa cuenta como «ya pasó el tiempo» (`pasoMinimo`, `alVolverRed`): la pantalla sigue latiendo. Antes, un celular con la hora 2 días adelantada que la corregía quedaba con el turno a 48 h, salía «sin latido» y la poda lo borraba al día siguiente, aunque siguiera abierto.
+- **Un latido que falla** (sin señal, cuota, reglas) nunca lanza ni afecta nada: se reintenta en el siguiente turno. Si la pantalla no puede decir quién es, ese latido no sale.
+- **Modo prueba:** no lee, no escribe ni lo intenta. Cada app mira `MODO_PRUEBA` (`MODO_PRUEBA_TEC`) ANTES del `set`, para no sumar intentos a `_escriturasBloqueadas`.
+- **No pasa por los frenos ni por los contadores:**
+  - INVENTARIO usa `setDoc` directo, no `_setDoc`: no cuenta en `_escriturasEnVueloInv` ni se frena por versión vieja.
+  - OFICINAS y RED escriben con `db.collection('oficinas_sistema').doc('sesiones_vivas')`, nunca con `db.doc(…)`, que el modo prueba no cubre.
+  - En TÉCNICOS, `_protegerRefTec` deja pasar el latido (solo un `set` con `merge:true` sobre `sesiones_vivas`) con la pantalla vieja y sin contarlo en `_escriturasEnVueloTec`. El modo prueba lo bloquea igual que todo lo demás.
+  - Justo las pantallas viejas son las que hay que ver, y la recarga automática no debe esperar a un latido sin señal.
+- `window.__PV_LATIDO_PRUEBA` (tiempos acelerados del banco de pruebas) solo vale en una copia local.
+
+### El panel «📺 Pantallas abiertas»
+
+- **Dónde:** en OFICINAS, en ⚙️ Administración, entre la tarjeta del mantenimiento y la del buzón. En INVENTARIO, en ⚙️ Configuración, en una tarjeta aparte de la 🛡️ Vigilancia, que se repinta en cada sincronización. Solo el administrador.
+- **Bajo pedido:** lee la nube solo al tocar «🔄 Ver pantallas»: una lectura del documento y las cuatro de versión. Sin oyente, por la cuota. Un repintado muestra la última lectura sin volver a leer.
+- Arriba: «N pantallas abiertas · M con versión vieja · K sin latido hace más de 15 min» y las versiones publicadas.
+- Una fila por pantalla: en **rojo** la de versión vieja (menor que la publicada, o la pantalla ya lo sabía), en **ámbar** la que lleva más de 24 h sin recargar, en **gris** la que no late hace más de 15 min. Las viejas van primero. «Sin latido» se mide contra el latido creíble más nuevo del documento, no con el reloj de quien mira.
+- Una entrada con la hora imposible sale «sin latido» y con la etiqueta «⚠️ Hora imposible (más de un día en el futuro)» (`futura:true`); las demás siguen viéndose vivas.
+- Al abrirlo poda lo de más de 24 h y quita las de hora imposible, en un solo `set merge` de solo borrados (en modo prueba no). El aviso dice cuántos registros quitó por edad y cuántos por hora imposible; si no hubo de estos, el texto es el de antes.
+- **Qué quita por hora imposible** (`PV_PANTALLAS.futuras`, pura): las entradas cuyo `en` pasa de la hora de quien lee + 24 h **y** va más de 24 h por delante del `en` creíble más nuevo, y solo si las entradas con `en` creíble son más que las de hora imposible. Si no (por ejemplo, el reloj de quien abre el panel va días atrasado y todas le parecen del futuro), no se sabe quién está mal y no quita nada. Nunca quita la propia.
+- Todo lo que pinta va escapado: el documento se puede escribir desde internet.
+- Siempre dice: «Solo aparecen las pantallas con este código (desde OFICINAS v320, INVENTARIO v115, TÉCNICOS v101 y RED v44). Las anteriores no envían latido.»
+- Cabe en 375 px.
+
+### OFICINAS ya no guarda con versión vieja
+
+OFICINAS reescribe `oficinas_sistema/main`, donde TÉCNICOS escribe las órdenes: una pantalla vieja las pisaría con su copia.
+
+- **El freno de `_saveReal`.** Con una versión publicada mayor (`_pestanaDesactualizada()`), un guardado **sin permiso** (ver abajo) no escribe y avisa en el indicador: «Hay una versión nueva: esta pantalla ya no guarda. Actualízala.»
+  - Cuenta los frenados en `window._guardadosFrenadosVersion` y deja un solo registro `GUARDADO_FRENADO_VERSION` por pestaña (versión, publicada y qué), sin datos de clientes.
+  - Va después del freno de mantenimiento y antes de subir `appVersionPublicada` y de `_saveInProgress`.
+  - Solo marcas en memoria: no lee la nube y no abre ventanas. Ese aviso del indicador queda tapado por el de versión nueva (`#versionBanner`); por eso los trabajos de abajo avisan con su propia ventana.
+- **No deja el guardado como fallido.** `_ultimoGuardadoOk` queda como estaba. Si quedara en `false`, la recarga automática esperaría para siempre justo en las pantallas viejas (riesgo R1). Si ya estaba en `false` por un fallo anterior, decide la Etapa 1: espera el botón.
+- **Lo que ya venía en camino sí se guarda (revisión del 10 oct).** Antes, lo que la oficina empezaba con la versión al día y terminaba después de publicada la nueva se perdía: la recarga automática de la Etapa 1 esperaba justo esas cosas (subidas a Drive, la ventana del repetido, la fila, el reintento) y después el freno botaba el resultado, a veces con un «✅ … correctamente» falso. Ahora pasa el freno todo guardado que lleve **permiso**:
+  - `_permisoGuardadoOfi()` da `{alDia:true, ms}` si la versión sigue al día y `null` si ya hay una nueva. No tiene efectos.
+  - **Trabajos que guardan al final:** lo toman al EMPEZAR y lo pasan a `save({permiso})`: el 📎 (`procesarArchivos`), el cargue por lotes (`guardarComprobantesRegistrados`), los comprobantes de un abono (`subirCompsAbonoExistente`), el abono de un cliente especial (`guardarAbonoEspecial`), Efecty (`guardarReporteEfecty`) y la gestión de una recogida (`_guardarGestionRecogida`). Si empezaron al día, su guardado pasa aunque la versión nueva salga mientras suben los archivos (a Drive; los de la recogida, a Cloudinary) o mientras alguien decide en la ventana del repetido.
+  - **La fila:** cada pedido que entra mientras otro guarda lleva su permiso (o el que haya en ese momento) en `window._colaPermiso`; basta que uno de los pedidos fusionados lo tenga, porque el guardado lleva toda la memoria.
+  - **El reintento:** si el guardado falla o queda parcial, `_permisoReintento` (el de la salida del mantenimiento, el que trajo, o «al día» si la versión aún lo estaba) viaja en el temporizador de `_programarReintentoGuardado(motivo, permiso)`. Lo llevan los 3 reintentos automáticos (20, 45 y 90 s) y la emergencia por 1 MB. Vence con los 3 reintentos.
+  - Lo que **empieza** con el aviso ya puesto recibe `null` y se frena como siempre (también un `save()` pedido después del aviso: L6a, L6b y L2a del banco y la prueba 5 lo exigen). Como el aviso tapa la pantalla, eso es casi solo trabajo de fondo.
+- **Si el freno actuó, lo dicen** (comparan `_guardadosFrenadosVersion` antes y después del `save()` y muestran una ventana del navegador, que sale encima del aviso, en vez del mensaje de éxito). Con el permiso, solo pasa si el trabajo empezó con el aviso ya puesto:
+  - 📎: «ESTE COMPROBANTE NO QUEDÓ GUARDADO… toca «Actualizar ahora» y vuelve a adjuntarlo a este pago», y no vuelve a abrir la ventana del pago (lo mostraría como guardado);
+  - comprobantes de un abono: «LOS COMPROBANTES NO QUEDARON GUARDADOS», en vez de «✅ N comprobante(s) agregado(s) correctamente»;
+  - abono de un cliente especial: «EL ABONO NO QUEDÓ GUARDADO»;
+  - Efecty: «EL REPORTE EFECTY NO QUEDÓ GUARDADO», en vez de «Reporte Efecty registrado»;
+  - cargue por lotes: revisa la versión antes de subir nada y, si el freno actuó, «HAY UNA VERSIÓN NUEVA Y ESTA PANTALLA YA NO GUARDA: LA NUBE NO RECIBIÓ ESTOS COMPROBANTES»;
+  - «Pagos sin oficina» (`_asignarPagosSinOficina`): revisa antes de meter y compara después; no lleva permiso porque entre su revisión y el `save()` solo hay `confirm` y `prompt`, que no dejan correr al oyente de versión;
+  - la gestión de una recogida lleva el permiso pero **no avisa** si se frenó: cierra la ventana como si hubiera guardado (ver «Lo que quedó sin hacer»).
+- **Excepción decidida: la salida del mantenimiento.** El guardado que el mantenimiento dejó en pausa sale al terminar con la marca de un solo uso `window._mantSalidaGuardado`, que `_saveReal` consume al entrar. Al publicar con «termina al publicar», la pantalla vieja ve terminar el mantenimiento justo cuando ya hay versión nueva; frenarlo perdería lo que la oficina escribió antes del aviso. Desde la revisión, si ese guardado falla o queda parcial (`movs_index` ilegible, la recarga de bloques pasa de 60 s, Firebase ocupado), sus reintentos automáticos llevan el permiso `{mant:true}`: antes la marca se gastaba en el primer intento y el reintento que el aviso promete («reintenta sola en 20 s») se frenaba. La marca global no se vuelve a poner: ningún otro guardado puede usarla. Ese guardado no baja la versión publicada que la pantalla ya conoce por el oyente (antes de escribir, sube `DB.config.appVersionPublicada` a `window._mantVersionOficinasNube`; esa línea corre en todo guardado que pasa el freno, ver «Lo que quedó sin hacer»).
+- **Los otros caminos que escriben documentos compartidos o de fondo** miran la versión antes de escribir, con el mismo mensaje:
+  - contratos: guardar, subir a Drive, firmar, anular, reactivar, quitar, firma de la oficina y los pendientes;
+  - casos del ingeniero (`_ingGuardar`, `_ingGuardarMasiva`, `_ingCerrarMasiva`): el caso queda en la cola local de `checklists.js` y la versión nueva lo reenvía;
+  - revisión de soportes (`_revEncolarNuevos`, `_revResolver`, el barrido);
+  - rastreador (`_escribirRastreoWisp`, además de la guarda al programar);
+  - firmas de los bloques (`_sembrarFirmasMovs`);
+  - el cargue de comprobantes y «Pagos sin oficina» miran la versión antes de subir o de meter pagos.
+- **No se frenan:** la auditoría (`_enviarLogsAuditoria`), las sesiones (`registrarSesion`), los fallos de guardado (`_registrarFalloGuardado`) y el latido.
+- `?ignorarVersion` salta el freno y la guarda de 24 h, a propósito: es el mismo escape de `_pestanaDesactualizada`.
+
+### Más de 24 h abierta
+
+- **INVENTARIO y OFICINAS:** si la página lleva más de 24 h cargada (hora del equipo al cargar), sale una capa propia que pide actualizar: «Esta pantalla lleva más de un día abierta. Actualízala para seguir trabajando con los datos al día. (Si pasaron más de 12 horas desde que entraste, te pedirá la clave otra vez.)», con «🔄 Actualizar ahora».
+  - Sale solo con la pantalla **quieta**: sin una ventana abierta, sin nadie tecleando, sin nada guardándose, en la fila, por reintentar o sin llegar a la nube, sin el buzón ni la lista «Antes de llamar» abiertos y sin un aviso de versión en marcha. Mientras tanto espera.
+  - **No frena el guardado:** si alguien guarda estando caducada (porque estaba escribiendo), ese guardado pasa (es la versión vigente) y la capa sale cuando la pantalla queda quieta.
+  - La capa va por debajo del aviso de versión nueva (`#capaCaducadaInv` por debajo de `#versionBlock`; `#capaCaducadaOfi` por debajo del mantenimiento, de `#ovVersionVieja` y de `#versionBanner`), sin la clase `pvRecargaTexto`.
+  - El botón recarga conservando `?prueba=1`, `?ignorarVersion` y los demás parámetros, también sin `recarga.js`.
+  - Se revisa cada 60 s, al volver a la vista y al enfocar la ventana.
+  - En OFICINAS, con la capa puesta, la sincronización rápida, el rastreador, el barrido de la revisión y la siembra de firmas no arrancan vueltas nuevas (`_capaCaducadaPuestaOfi()` en `_programarSyncRapida`, `_programarRevisionHuecos`, `_revProgramarBarrido` y `_sembrarFirmasMovs`). Desde la revisión, L4b del banco provoca de verdad una vuelta de cada uno con la capa puesta; antes su comprobación no podía fallar.
+  - Apagada en modo prueba y con `?ignorarVersion`. No va en `_pestanaDesactualizada`: apagaría la sincronización y el rastreador con la pantalla en uso.
+- **TÉCNICOS: solo un aviso, sin bloquear,** para no estorbar su cola sin señal.
+  - La franja `#avisoCargaViejaTec` va antes de la lista (como `#colaFinTec`): «La app lleva más de un día abierta. Cuando termines lo que estás haciendo y tengas señal, toca «Recargar».», y «Tienes N por enviar: no se pierden.» si hay cola.
+  - «Recargar» solo recarga sin nada guardándose ni enviándose, sin una ventana abierta y con señal; si no, dice por qué espera. La señal se comprueba de verdad (la página publicada responde, en 10 s como mucho) solo si `recarga.js` cargó; si no cargó (se abrió con señal débil), la única barrera es `navigator.onLine`, que en un celular con una barra da `true` (ver «Lo que quedó sin hacer»).
+  - Se oculta con el aviso de versión nueva. No frena escrituras ni la recarga automática.
+- Al recargar una pestaña de más de 12 h se pide la clave otra vez (riesgo R5): la capa lo dice.
+- Funciones puras para las pruebas: `_caducadaInv`, `_caducadaOfi` y `_caducadaTec` (más de 24 h; exactamente 24 h todavía no), `_decidirCaducidadInv` y `_decidirCaducadaOfi`.
+
+### La versión a la vista y los oyentes de versión
+
+- **INVENTARIO:** `#invVersionLabel` legible (ya no tenue) y la versión en la entrada (`#invVersionLogin`).
+- **OFICINAS:** `#appVersionCab` junto al reloj de la cabecera, y la versión en la entrada (`#appVersionLogin`). Además, `_recargarVistaSilenciosa` ahora cambia solo `#syncText`, y no lo toca si el punto está en error o guardando (`sync-err`, `sync-saving`). Antes reemplazaba todo `#syncStatus` y borraba `#syncDot` y `#appVersionLabel` al primer repintado; desde ahí `showSync` no mostraba nada.
+- **TÉCNICOS:** `#hVersion` y la versión en la entrada (`#liVersion`).
+- **RED:** antes no se veía en ninguna parte. Ahora va en la entrada (`#versionRedEntrada`) y en la cabecera (`#versionRedApp`).
+- **Oyentes con reintento:** si el oyente del documento de versión cae (sin señal largo rato, cuota, reglas), Firestore no lo revive y la pantalla nunca se enteraría de una versión nueva. Ahora las cuatro apps vuelven a suscribirse a los 60 s, con un solo reintento vivo a la vez y sin duplicar el oyente.
+
+### Lo que el latido NO ve
+
+- **Las pantallas anteriores a esta etapa** (OFICINAS hasta v319, INVENTARIO hasta v114, TÉCNICOS hasta v100, RED hasta v43) no envían latido y el panel no las ve. Es lo que más importa: son las sospechosas. El panel lo dice siempre.
+- **Cómo se delatan:**
+  - Las de la Etapa 1 (v319, v114, v100, v43) sellan sus escrituras a `inventario/datos` con app y versión (`_ultimaEscritura`): la 🛡️ Vigilancia muestra cuál escribió.
+  - Las anteriores a la Etapa 1 escriben sin sello, y eso también se anota (`_escrituraSinSelloInv`).
+  - `logs_sesiones` dice quién entró, pero no la versión.
+- **Al publicar esta etapa,** las pantallas de la Etapa 1 se recargan solas (`recarga.js`) cuando quedan quietas y vuelven con latido. Las anteriores a la Etapa 1 necesitan el botón o cerrar y abrir, como dice el §7.
+- **Un celular con la app de fondo** no corre nada: el panel la muestra «sin latido» aunque siga abierta.
+- **Si nadie ha latido en horas** (por ejemplo, el administrador abre el panel antes de su primer latido), el latido más nuevo es viejo y las pantallas muertas cerca de esa hora no salen como «sin latido». La columna «hace cuánto», con la hora de quien mira, sí lo deja ver.
+- **Un `en` escrito desde internet a menos de 24 h por delante** (por ejemplo, ahora + 23 h) todavía es creíble y cuenta como el más nuevo: mientras tanto el panel ve a todas «sin latido» y la poda quita antes de tiempo las que llevan más de 1 h sin latir. Se cura solo en menos de 2 días (ya no es permanente, como el del año 2100). Lo cierra la autenticación real (`docs/SEGURIDAD-URGENTE.md`).
+
+### Costos (plan gratuito: 20.000 escrituras y 50.000 lecturas al día)
+
+Estimación con los inicios de sesión reales (21 sep–9 oct) y la auditoría de OFICINAS: unas 15 pantallas abiertas a la vez de base y 25 en el peor caso.
+
+| Qué | Al día | % de lo gratis |
+|---|---|---|
+| Latidos, 15 pantallas de 7:00 a 18:00 (12 por hora cada una) | ~1.980 escrituras | 10 % |
+| Latidos, 25 pantallas de 7:00 a 18:00 | ~3.300 escrituras | 17 % |
+| Más 3 pestañas que pasan la noche abiertas | +468 escrituras | +2,3 % |
+| Peor caso: 25 pantallas las 24 h | 7.200 escrituras | 36 % |
+| Una lectura por carga de página (para podar) | 50–150 lecturas | < 0,3 % |
+| Panel: 5 lecturas por apertura (el documento y las 4 versiones) | unas decenas | despreciable |
+
+- **Los 12 por hora son un techo, no un promedio** (a la vista; oculta son 4). Lo cambió la sesión principal después de la revisión: con el mínimo de 1 min que tenía antes `minEntreMs`, cada vuelta a la pestaña disparaba un latido. Medido por los revisores con el `pantallas.js` real: una cajera que alterna con WhatsApp Web cada 2 min daba 30 latidos por hora (unas 8.250 escrituras al día con 25 pantallas, el 41 %), y cada 70 s, 51 por hora (unas 14.000, el 70 %). Con el mínimo en 5 min, ir y venir entre pestañas nunca pasa del ritmo normal (lo comprueba la prueba 2). Importa porque si el total del día (latidos más guardados de las cuatro apps) pasa de 20.000, Firestore rechaza **todas** las escrituras hasta la medianoche del Pacífico, también los guardados de caja y de bodega.
+- Cada carga de página (abrir, F5, la recarga automática) empieza con un latido inmediato y una lectura (la de la tabla): recargar mucho sí suma.
+- La poda no suma escrituras: va en el mismo `set merge` del latido. Solo el panel escribe una vez cuando hay algo que podar o una entrada con hora imposible que quitar (las dos cosas en el mismo `set merge`).
+- Ninguna pantalla escucha el documento: si todas lo escucharan, con 15 pantallas serían unas 29.700 lecturas al día (59 %), y con 25 se pasaría del límite.
+- **Lo que ya se gasta hoy no se pudo medir:** está en la consola de Firebase, en «Uso». Las lecturas ya llegaron a 44.000 de 50.000 el 10 sep. Conviene mirarlo la primera semana.
+
+### Privacidad
+
+`oficinas_sistema` se lee sin autenticación desde internet.
+
+- **Qué nombre lleva cada latido:**
+  - INVENTARIO: el nombre de la bodega o «Admin».
+  - OFICINAS: el de la oficina, «Admin» o «SG-SST».
+  - TÉCNICOS: solo el primer nombre del técnico.
+  - RED: la sede y el primer nombre («DONCELLO · Ana»), «Admin» o la bodega.
+- **Nunca** una cédula (`TEC.documento`, `USER.doc` de RED), un teléfono, un correo ni un nombre completo. Del navegador solo «celular» o «pc».
+- `entrada()` además quita del nombre los correos y los tramos de 5 o más cifras.
+- **Límite:** `entrada()` no distingue un nombre completo del nombre de una sede. Por eso TÉCNICOS y RED entregan el primer nombre ya sacado; quien agregue otra app debe hacer lo mismo (o usar la llave `persona`, que lo garantiza).
+- **Límite que el primer nombre no cierra (encontrado en la revisión, sin corregir):** el latido lleva `sesion` y `equipo`, los mismos identificadores (`_sesionTec`, `pv_equipo_id`) que el sello de la Etapa 1 en `inventario/datos` (`_ultimaEscritura`, `_escrituras`), y el sello de TÉCNICOS (`_selloEscrituraTec`) guarda en `quien` el nombre **completo** del técnico. Los dos documentos se leen sin autenticación: uniendo por `sesion` o por `equipo` (que dura días en el celular), cualquiera sabe, con nombre y apellidos, cuándo tiene un técnico la app abierta y a la vista, con qué celular y su último latido. Antes solo estaba la hora de entrada en `logs_sesiones`. La forma de `sesiones_vivas` no hay que tocarla para cerrarlo: lo más simple es que el sello de TÉCNICOS guarde solo el primer nombre o el rol (y lo mismo `plan.tecNombre`, que lo alimenta desde la cola); la otra opción, quitar `sesion` y `equipo` del latido de TÉCNICOS, pierde la correlación con la 🛡️ Vigilancia. Decisión de Elkin.
+
+### Riesgo anotado: RED trabaja con datos viejos
+
+RED carga `main` e INVENTARIO una sola vez y no escucha sus documentos `red_*`. Una pestaña de RED abierta mucho tiempo puede pisar datos con su copia vieja: plantillas, permisos o la red de la sede. RED no lleva guarda de 24 h, porque el §5 solo la pide para INVENTARIO, OFICINAS y un aviso en TÉCNICOS. Queda para una etapa futura: escuchar los `red_*` o pedir recargar como en las otras dos.
+
+### Pruebas
+
+**`PRUEBAS.html`: 154 pruebas** (35 de INVENTARIO, 86 de OFICINAS, 32 de RED y 1 de Firma). Las seis nuevas:
+
+| # | Grupo | Prueba |
+|---|---|---|
+| 1 | inv | El latido dice qué pantalla es sin datos personales |
+| 2 | inv | La poda usa la hora del servidor y nunca borra a otros por un reloj mal puesto |
+| 3 | inv | El panel marca las pantallas viejas, las de más de 24 h y las que no laten |
+| 4 | red | Ninguna app late en modo prueba y el latido arranca solo tras iniciar sesión |
+| 5 | ofi | OFICINAS ya no guarda con versión vieja (y el guardado del mantenimiento sí sale) |
+| 6 | ofi | Más de 24 h: INVENTARIO y OFICINAS piden actualizar con la pantalla quieta; TÉCNICOS solo avisa |
+
+- **1 a 3** usan el `PV_PANTALLAS` del marco de INVENTARIO para lo puro. Lo que corre en el tiempo (el latido, el panel, un reloj adelantado o que retrocede) va en una copia aparte de `pantallas.js` (`pantallasAparte`): navegador falso, temporizadores que no corren solos y otra `Date`.
+- **La 1** exige los tiempos nuevos: `TIEMPOS` = `{visibleMs:300000, ocultaMs:900000, minEntreMs:300000, edad24Ms:86400000, sinLatidoMs:960000, tope:400}`, congelado.
+- **Casos que pidieron los revisores** (agregados después de la revisión, sin escribir en la nube ni sumar a `_escriturasBloqueadas`):
+  - en la 2: un `en` del año 2100 (número, `{seconds}` o `Timestamp`) no hace podar a las demás, ni en `podar` ni en el primer latido de una carga con esa entrada en la nube; con el tope de 400 es la primera en salir; y con el reloj de quien poda 3 días atrasado, poda menos, nunca más;
+  - en la 2: la hora del equipo va 2 días adelantada y retrocede entre ocultar y volver (con los tiempos de verdad): oculta, el turno queda en 15 min como mucho; al volver, el latido sale en 5 min o menos (sale enseguida) y el siguiente en 5; si retrocede otra vez, un latido forzado igual sale;
+  - en la 2: cambiar de pestaña no suma latidos: al volver a la vista a los 2 min espera su turno (3 min más); a los 6 min late enseguida;
+  - en la 3: con un `en` del año 2100 el panel no queda ciego (las 5 que laten siguen vivas, el más nuevo sigue siendo el creíble), su fila dice «Hora imposible», `futuras` la quita (nunca la propia, y nada si el reloj de quien lee va días atrasado), al abrir el panel sale junto con las de más de 24 h en un solo `set merge` y el aviso lo dice; en modo prueba no quita nada.
+- **4** va en el grupo de RED, al final, para que estén abiertos los marcos de INVENTARIO, OFICINAS y RED. TÉCNICOS se lee como texto.
+- **5** infla `appVersionPublicada` solo en memoria y restaura todo. Los intentos del guardado de la excepción (bloqueados por el modo prueba) se cuentan aparte y se quitan, como en la 5368. Desde la revisión, además quita `#ovVersionVieja` en el `finally` si no estaba al empezar, y lo comprueba: si el tic de 30 s de `_verificarVersionVieja` caía durante el guardado de la excepción, la capa quedaba puesta y la 6 fallaba (en un 3 a 15 % de las corridas, según el revisor).
+- **6** simula la hora de carga (25 h). Pone y quita la capa a mano: en modo prueba la revisión real siempre da «apagada». Toma la pantalla como quieta con `_ultimaTeclaApp` en 0, porque la prueba 5826 teclea en un campo poco antes y OFICINAS cuenta 45 s como «escribiendo». Luego lo restaura.
+- **Ninguna prueba vieja hubo que adaptarla:** `#syncStatus`, la versión en la cabecera, la del celular y los textos que buscan la 4744, la 7087 y la 2627 siguen pasando.
+
+**Corrido el 10 oct 2026** sobre la base SIMULADA del banco, sin servidor (Playwright sirve los archivos del repo desde el disco), con las apps de la copia de trabajo, antes y después de la revisión (la segunda vez con `pantallas.js`, OFICINAS, INVENTARIO y `PRUEBAS.html` ya corregidos):
+- `PRUEBAS.html` completo: 153 de 154 bien, las dos veces. Falla solo «Rastreador v314: la ficha de una factura REAL de WispHub», que necesita WispHub de verdad. Con el `PRUEBAS.html` de `1b2e58f` falla igual.
+- Ninguna escritura en la base simulada; ningún error de JavaScript. Los 5 intentos bloqueados que quedan en el marco de OFICINAS son de pruebas anteriores (salen igual con el `PRUEBAS.html` de `1b2e58f`). Los de INVENTARIO y RED, en 0.
+- **Copias dañadas, después de la revisión:** se hicieron 5 copias de `pantallas.js`, cada una sin un arreglo: `enCreible` que acepta cualquier `en` (sin la regla de la hora imposible), `siguiente()` sin tope, `pasoMinimo` sin la diferencia negativa, los tres arreglos del reloj juntos, y `minEntreMs` de vuelta a 60 s. Las 5 fallan: la primera en la 2 y la 3; las tres del reloj, en la 2; la de 60 s en la 1 (los tiempos) y en la 2 (cambiar de pestaña).
+- **Copias dañadas, antes de la revisión:** las 6 pruebas detectan las 35 de `pantallas.js` (sin modo prueba, poda con la hora del equipo, sin lista blanca, panel sin escapar, sin tope, latido sin poda, sin reintento al volver la señal, un carácter bidireccional en el fuente, entre otras). También detectan 24 de las apps: sin freno en `_saveReal`, freno que deja el guardado fallido, excepción del mantenimiento perdida, `_ingGuardar` sin guarda, latido sin modo prueba o por `_setDoc`, latido arrancado al cargar, capa por encima del aviso de versión, TÉCNICOS sin la excepción del latido o con el nombre completo, RED con la cédula o sin merge, entre otras.
+
+**El banco simulado, antes de la revisión** (`_PRUEBAS_SIMULADAS_2026-10-09/trabajo/etapa6_resultados/`, 10 oct 2026, 11:23–11:33):
+
+| Qué | Resultado |
+|---|---|
+| `inv/etapa6.js` (nuevo) | 10 de 10: L1 latidos de seis pantallas, L2a pantalla vieja que late con `vieja:true`, L2b el código anterior no late, L3 panel, L4a–c más de 24 h en las tres apps, L5 reloj adelantado, L6a–b freno de OFICINAS y la excepción del mantenimiento |
+| `inv/pantallas_unit.js` (nuevo) | 174 bien |
+| `recarga_unit.js` | 167 bien |
+| `repro.js` | 21 de 21 |
+| `escenarios2.js` | 20 de 20 |
+| `etapa1.js` | 16 de 16 |
+| `revision_oct.js` | 5 pasan y 6 fallan a propósito: R2–R5, R7 y R7b son de las Etapas 2 a 5 |
+
+**Después de la revisión** solo se volvió a correr lo que tocaron los arreglos:
+
+| Qué | Resultado |
+|---|---|
+| `inv/pantallas_unit.js` | 216 bien (antes 174; vuelto a correr al cerrar este documento). De las 42 comprobaciones nuevas (hora imposible y reloj que retrocede), 30 fallan con el `pantallas.js` anterior |
+| `inv/etapa6.js` L3 y L5 | pasan (panel y reloj adelantado 3 días) |
+| `inv/etapa6.js` L4b, reescrita | pasa en 11 s. Con la capa puesta provoca una vuelta de la sincronización rápida, el rastreador, el barrido y la siembra, y exige que no escriban `main`, `movs_*`, `rastreo_*` ni `revision_soportes`; una contraprueba quita la capa un instante para que la sonda no pueda quedar ciega. Detecta 5 copias de OFICINAS dañadas en memoria (sin cada guarda, M1–M5) |
+| `inv/etapa6.js` L6a y L6b | pasan (freno y excepción del mantenimiento), también después de todos los cambios |
+| R1–R3 del permiso (copia en el scratchpad de la sesión, no en el banco) | R1: la salida del mantenimiento falla una vez y el reintento de 20 s pasa el freno. R2: un 📎 empezado al día llega a la nube aunque la versión nueva salga mientras sube; uno empezado con el aviso se frena y lo dice. R3: lo que entró a la fila antes del aviso llega; lo pedido después se frena |
+
+**No se volvió a correr después de la revisión:** L1, L2a, L2b, L4a y L4c de `etapa6.js`, `recarga_unit.js`, `repro.js`, `escenarios2.js`, `etapa1.js`, `revision_oct.js` ni las 24 copias dañadas de las apps. Los escenarios que abren TÉCNICOS se dejaron fuera; TÉCNICOS y RED no se tocaron en la revisión (sí el `pantallas.js` que cargan).
+
+### Revisión del 10 oct
+
+Seis hallazgos confirmados (dos revisores de acuerdo en cada uno) y seis dudosos (uno de dos). Tres más se refutaron; los tres decían lo mismo: que las pruebas 1 y 4 llaman al escritor real del latido de INVENTARIO y, si su guarda de modo prueba se rompiera, dejarían en la base real una entrada que nunca se poda.
+
+| Hallazgo | Gravedad | Qué se hizo |
+|---|---|---|
+| Un guardado frenado al salir la versión nueva se perdía en la recarga automática, sin aviso o con un «✅ … correctamente» falso (📎, la fila, comprobantes de un abono) | alta | Permiso tomado al empezar, que heredan la fila y el reintento, y avisos donde se frena (arriba, «Lo que ya venía en camino») |
+| La excepción del mantenimiento valía para un solo intento: si fallaba, el reintento prometido se frenaba | baja | El reintento hereda `{mant:true}` |
+| Si la hora del equipo se corrige hacia atrás, el turno se iba a días y la pantalla salía del panel | baja | Tope en `siguiente()` y diferencia negativa como «ya pasó» |
+| Un solo `en` del futuro escrito desde internet borraba a todas las demás en cada carga y dejaba el panel ciego para siempre | baja | Regla de la hora imposible y `futuras` en el panel |
+| La prueba 5 podía dejar `#ovVersionVieja` puesto y hacer fallar la 6 | baja | La 5 la quita y lo comprueba |
+| La comprobación de L4b no podía fallar | baja | L4b reescrita, con contraprueba |
+| (dudoso, dos veces) Volver a la pestaña disparaba un latido por minuto: hasta 30 a 60 por hora, no 12 | media | `minEntreMs` de 1 a 5 min (la sesión principal, después de la revisión) |
+| (dudoso) `?ignorarVersion` puede llevar a `main` una versión publicada errada | baja | Sin hacer |
+| (dudoso) «Buscando factura #N...» queda pegado en el indicador | baja | Sin hacer |
+| (dudoso) El latido de TÉCNICOS se une al nombre completo por `sesion` y `equipo` | baja | Sin hacer (anotado en «Privacidad») |
+| (dudoso) «Recargar» de TÉCNICOS recarga sin comprobar la señal si `recarga.js` no cargó | baja | Sin hacer |
+
+### Lo que quedó sin hacer
+
+Lo que los correctores dejaron sin hacer y sigue siendo cierto, y los dudosos que no se corrigieron, con su riesgo:
+
+1. **El permiso de OFICINAS no vence.** Un trabajo que empezó con la versión al día pasa el freno cuando termine, aunque sea mucho después (por ejemplo, alguien que deja abierta la ventana del repetido). Esa pantalla vieja escribe `main` y sus bloques una vez más con su código viejo; las órdenes de TÉCNICOS siguen protegidas por la fusión de órdenes que corre en cada intento de escritura (v277). Los revisores proponían una ventana de 2 min desde que la pantalla supo de la versión nueva; no se hizo porque dejaría pasar el `save()` que L6a, L6b, L2a y la prueba 5 exigen frenar.
+2. **La gestión de una recogida no avisa si se frenó:** lleva el permiso, pero si empezó con el aviso ya puesto, cierra la ventana como si hubiera guardado.
+3. **Lo que se frena sin un trabajo que avise** (un guardado de fondo pedido después del aviso) se pierde con solo el aviso del indicador, que queda tapado por `#versionBanner`. No se hizo el «plan B» de los revisores: decirlo dentro de `#versionBanner`/`#ovVersionVieja`, anotarlo en `sessionStorage` para repetirlo al volver a entrar y darle un motivo propio en `_ocupadoRecargaOfi`. Con el permiso, eso es casi solo trabajo de fondo.
+4. **Otros caminos que suben archivos** (`heGuardar`, `_subirSoportePrest`, `guardarAbono` de préstamos) no pasan por `_saveReal`: este freno no los toca.
+5. **`_ocupadoRecargaOfi`** sigue diciendo «una oficina no cargó completa» cuando un guardado quedó parcial por un índice ilegible o una espera larga (texto de la Etapa 1). Con el reintento heredado, solo sale si fallan los 3 reintentos.
+6. **(dudoso) `?ignorarVersion` puede dejar una versión errada en `main`.** La línea que sube `DB.config.appVersionPublicada` a `window._mantVersionOficinasNube` corre en todo guardado que pasa el freno, no solo en el de la salida del mantenimiento. Si `app_version` queda con una versión que no existe (999: una copia abierta desde un nombre de equipo que `_esEntornoLocal` no reconoce, o cualquiera desde internet), todas las oficinas quedan tapadas; el administrador entra con `?ignorarVersion` y cada guardado suyo escribe 999 en `main`. Al corregir `app_version`, ninguna oficina guarda hasta que alguien corrija también `main`. Arreglo propuesto: subirla solo cuando el guardado sale del mantenimiento, o nunca con `?ignorarVersion`.
+7. **(dudoso) «Buscando factura #N...» queda pegado.** `recuperarFacturaPorNumero` pone `showSync('saving', …)` y en varias salidas (no existe, no está pagada, vale 0, falla la consulta, cancelar) no lo quita. Como `_recargarVistaSilenciosa` ya no toca el texto con el punto en `sync-saving`, queda parpadeando hasta el siguiente guardado. Arreglo propuesto: saltar solo con `sync-err`, o con `sync-saving` y `_saveInProgress`; o `showSync('ok', …)` en esas salidas.
+8. **(dudoso) Privacidad de TÉCNICOS:** la unión por `sesion` y `equipo` con el nombre completo del sello (ver «Privacidad»). Decisión de Elkin.
+9. **(dudoso) «Recargar» de TÉCNICOS sin `recarga.js`:** si `recarga.js` no cargó al abrir (señal débil), el botón solo mira `navigator.onLine`. Con una barra sin datos recarga, la página no carga (no hay service worker) y el técnico queda en «sin conexión» hasta que vuelva el internet; la cola no se pierde (está en el celular), pero no puede ver órdenes ni finalizar. Arreglo propuesto: el mismo `fetch` de la página con `cache:'no-store'`, tope de 10 s y `APP_VERSION_TEC` en el texto, antes de `location.replace`.
+10. **`pantallas.js`:** un `en` a menos de 24 h por delante todavía cuenta (ver «Lo que el latido NO ve»); el panel podría quitar entradas vivas si el reloj de quien lo abre va más de un día atrasado y además quedan más registros viejos sin podar que pantallas vivas (vuelven en su siguiente latido, de 5 a 15 min); las claves que no tienen la forma `p` + 12 no se tratan como basura (cambiaría qué se conserva y rompería pruebas que usan claves cortas); y `en` numérico se sigue aceptando fuera de la copia local (un `timestampValue` escrito por REST llega como `Timestamp` de verdad, así que no cerraría nada).
+11. **Pruebas que faltan:** en el banco, las copias dañadas de `apps_mut.js` sin cada guarda de la capa (la contraprueba de L4b y M1–M5 lo cubren en parte) y pasar R1–R3 del permiso al banco como L6c–L6e; en `PRUEBAS.html`, una revisión por texto de que las cuatro funciones llaman `_capaCaducadaPuestaOfi()` y de `_permisoReintento` y `save({permiso`.
+12. **`recarga.js` en modo prueba:** si el tic de 30 s cae durante el guardado de la excepción de la prueba 5, el `PV_RECARGA` del marco de OFICINAS queda con `objetivo` = la versión inflada. Su fase sigue en «prueba» y ninguna prueba lo mira, así que no afecta; `recarga.js` no tiene cómo reiniciarse desde fuera.
+
+### Pendiente
+
+1. **Correr `PRUEBAS.html` en el navegador contra la base real** (en `?prueba=1`) antes de publicar. Aquí se corrió solo sobre la simulada.
+2. **Al publicar,** subir las cuatro versiones (OFICINAS 320, INVENTARIO 115, TÉCNICOS 101, RED 44) con el formato de siempre, porque la nota del panel ya las nombra. Después, comprobar en la nube real:
+   - que se cree `oficinas_sistema/sesiones_vivas` y que `en` llegue como `Timestamp`;
+   - que el `set merge` con `deleteField()` borre solo esas claves (el simulador lo hace, pero no se comprobó en Firestore);
+   - que el panel marque bien una pantalla vieja;
+   - mirar el gasto la primera semana (con el mínimo de 5 min, unas 12 escrituras por hora por pantalla a la vista como mucho).
+3. **Decidir con Elkin** los puntos 1, 3, 6, 8 y 9 de «Lo que quedó sin hacer»: el permiso sin vencimiento, el aviso de lo frenado en el fondo, `?ignorarVersion` y `appVersionPublicada`, la privacidad de TÉCNICOS y el «Recargar» sin `recarga.js`.
+4. **`_sgEscribir` y las firmas SG-SST no tienen el freno de versión:** el §2.2 del plan no las incluía. `_sgEscribir` además sigue guardando el nombre completo en `actualizadoPor` (ver `docs/07-sgsst.md`).
+5. **RED:** el riesgo de datos viejos (arriba). Además, ya anotados y sin tocar: `anotarEstadosVistos` guarda la sede entera, `#versionBlock` aparece aunque se use `?ignorarVersion` y `borrarPlantilla` no tiene `try/catch`.
+6. **INVENTARIO:** si `startFirebase` corre dos veces, los oyentes de `oficinas_sistema/mantenimiento` y `oficinas_sistema/app_version` se duplican. Ya pasaba antes de esta etapa.
+7. **La 6b** (reglas de Firestore que rechacen versiones viejas) sigue opcional y con Elkin: el latido no la reemplaza, solo deja ver las pantallas.
+
+Resuelto en la revisión: INVENTARIO ya no sigue latiendo después de cerrar sesión (`PV_PANTALLAS.detener()` en su `doLogout`).

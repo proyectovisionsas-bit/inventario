@@ -146,6 +146,28 @@ const APPS = {
    sus cosas con let/const/var, y solo var queda colgada de window. */
 const E = (W, cuerpo) => W.eval('(function(){'+cuerpo+'})()');
 
+/* Etapa 6: una copia APARTE de pantallas.js (la misma ?v= que cargó el marco W) con un navegador falso:
+   los temporizadores no corren solos (S.turno() corre el siguiente), sin red ni almacenamiento de verdad.
+   Fecha (opcional) reemplaza a Date DENTRO de la copia: así se simula un reloj mal puesto. No toca los
+   marcos ni la nube. Devuelve null si no se pudo leer pantallas.js. */
+async function pantallasAparte(W, Fecha){
+  let src='';
+  try{ const s=W.document.querySelector('script[src^="pantallas.js"]'), u=s ? s.getAttribute('src') : '';
+       const x=u ? await fetch(u, {cache:'no-store'}) : null; src=(x && x.ok) ? (await x.text()).replace(/\r/g,'') : ''; }catch(e){ src=''; }
+  if(!src || src.indexOf('PV_PANTALLAS')<0) return null;
+  const S={T:[], ev:{}, dev:{}, ls:{}, escritos:[], leidos:0}; let n=0;
+  const g={ setTimeout:(fn,ms)=>{ const i=++n; S.T.push({i, fn, ms}); return i; }, clearTimeout:i=>{ const k=S.T.findIndex(t=>t.i===i); if(k>=0) S.T.splice(k,1); },
+    navigator:{onLine:true, userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}, addEventListener:(nom,f)=>{ (S.ev[nom]=S.ev[nom]||[]).push(f); },
+    document:{visibilityState:'visible', addEventListener:(nom,f)=>{ (S.dev[nom]=S.dev[nom]||[]).push(f); }},
+    localStorage:{ getItem:k=>Object.prototype.hasOwnProperty.call(S.ls,k) ? S.ls[k] : null, setItem:(k,v)=>{ S.ls[k]=String(v); } } };
+  try{ new Function('globalThis','self','module','Date', src)(g, g, undefined, Fecha||Date); }catch(e){ return null; }
+  if(!g.PV_PANTALLAS) return null;
+  S.g=g; S.P=g.PV_PANTALLAS;
+  S.esperar=async()=>{ for(let k=0;k<6;k++) await new Promise(r=>setTimeout(r,10)); };
+  S.turno=async()=>{ const t=S.T.shift(); if(t) t.fn(); await S.esperar(); return t||null; };
+  return S;
+}
+
 const PRUEBAS = [
 
 // ─────────────────────────────── INVENTARIO ───────────────────────────────
@@ -5316,6 +5338,363 @@ const PRUEBAS = [
      ? 'Con datos inventados cuenta 1 serial en dos sitios (escrito de dos formas), 2 instalados que siguen (una entrega o una vuelta posterior los quita), 2 negativos y 2 filas con cantidad distinta (una en bodega); los N/A no cuentan; la entrada queda idéntica y las cifras son las de la Auditoría ✓'
       +'\n'+realTxt+(coinciden ? ' ✓' : '\n⚠️ Con los datos reales el chequeo y la Auditoría no dan lo mismo: revisar.')
      : 'Fallan: '+mal.join(', ')+'\n'+JSON.stringify({res:s, A, real:R, AR}).slice(0,1500).replace(/</g,'&lt;')};}},
+// ───────────── Etapa 6 (docs/12): pantallas abiertas (pantallas.js) ─────────────
+{app:'inv', titulo:'Etapa 6 · El latido dice qué pantalla es sin datos personales',
+ porque:'Etapa 6 de la revisión del 9 oct 2026 (docs/12): una pantalla vieja abierta por días puede reescribir datos con su copia vieja, y es la '
+       +'principal sospecha de los equipos instalados que volvieron a la cuadrilla. Cada pantalla deja un latido en oficinas_sistema/sesiones_vivas '
+       +'(pantallas.js, el mismo en las cuatro apps) para que el administrador vea cuáles siguen abiertas y con qué versión. Esa colección se lee sin '
+       +'autenticación desde internet: el latido lleva la app, la versión, el rol y la sede (o el primer nombre), nunca una cédula, un teléfono ni un '
+       +'nombre completo, y no trae los campos tipo, firmaRef ni clienteCedula, que entrarían en consultas que ya existen. Datos inventados; USER y '
+       +'la pestaña se restauran; nada se escribe.',
+ correr:async W=>{
+   for(let k=0;k<20;k++){ if(W.PV_PANTALLAS && W._fbLatidoInv) break; await new Promise(r=>setTimeout(r,500)); }
+   const P=W.PV_PANTALLAS, bloq=()=>(W._escriturasBloqueadas||[]).length, n0=bloq();
+   if(!P || typeof P.entrada!=='function') return {ok:false, detalle:'INVENTARIO no tiene PV_PANTALLAS: no cargó pantallas.js.'};
+   const T0=1790000000000, CED='1117000999', TEL='3101234567', COMPLETO='JUAN CARLOS PEREZ GOMEZ';
+   const ORDEN='app,v,rol,nombre,sesion,equipo,disp,cargadaMs,ultimoMs,en,vieja,local,visible,recarga,n';
+   const sinIndef=o=>!!o && typeof o==='object' && Object.keys(o).every(k=>o[k]!==undefined);
+   const resultado=fn=>new Promise(ok=>{ const t=setTimeout(()=>ok('sin respuesta en 8 s'),8000); let p; try{ p=Promise.resolve(fn()); }catch(e){ p=Promise.reject(e); } p.then(()=>{ clearTimeout(t); ok('resolvió'); }, e=>{ clearTimeout(t); ok(String((e&&e.message)||e)); }); });
+   // La entrada, con todo lo que NO debe pasar mezclado con lo que sí
+   const e=P.entrada({app:'tec', v:'101', rol:'tecnico', nombre:'DONCELLO', persona:COMPLETO, sesion:'se_abc123', equipo:'eq_abcdefghij', disp:'celular',
+       cargadaMs:T0-3600000, vieja:1, local:0, visible:undefined, recarga:'cuenta', n:3, ultimoMs:5, en:'falso',
+       cedula:CED, documento:CED, telefono:TEL, celular:TEL, nombreCompleto:COMPLETO, tipo:'contrato', firmaRef:'2026|x', clienteCedula:CED, extra:{a:1}}, T0);
+   const s=JSON.stringify(e);
+   const e2=P.entrada({app:'INV', v:115, rol:'bodega', nombre:'BODEGA '+CED+' ana@correo.com', sesion:'se.x/y', equipo:'<eq>'}, T0);
+   const e3=P.entrada(null, T0), e4=P.entrada({app:'XYZ', disp:'tablet', v:-3, n:'x'}, T0);
+   const claves=Array.from({length:200}, ()=>P.nuevaClave());
+   const parche=P.armarParche('pabcdefghijkl', e, ['pviejaaaaaaaa','pabcdefghijkl','']), tr=parche ? P.traducir(parche, ()=>'HORA', ()=>'BORRAR') : null;
+   // El adaptador de INVENTARIO con una bodega, con el administrador y sin sesión (USER y la pestaña se restauran)
+   let x=null, errX='';
+   try{
+     x=E(W, 'const u=USER, ss0=sessionStorage.getItem("inv_sesion_id");'
+       +'try{ const b=((typeof DB!=="undefined" && DB && DB.bodegas)||[]).find(y=>y && y.id && y.nombre) || {id:"bod_prueba_e6", nombre:"BODEGA PRUEBA"};'
+       +'  const op=window._pantallasOpInv();'
+       +'  USER={role:"bodega", id:b.id, nombre:b.nombre, cedula:"'+CED+'", telefono:"'+TEL+'"}; const dB=op.datos();'
+       +'  USER={role:"admin", nombre:"Administrador", cedula:"'+CED+'"}; const dA=op.datos();'
+       +'  USER=null; const dN=op.datos();'
+       +'  return {bodega:String(b.nombre), dB, dA, dN, app:op.app, modoPrueba:op.modoPrueba, ver:window._appVersionInv, fns:["datos","escribir","leer","leerVersiones"].every(k=>typeof op[k]==="function")};'
+       +'} finally { USER=u; if(ss0===null) sessionStorage.removeItem("inv_sesion_id"); else sessionStorage.setItem("inv_sesion_id", ss0); }');
+   }catch(err){ errX=String((err&&err.message)||err).slice(0,300); }
+   const eB=x ? P.entrada(Object.assign({app:x.app}, x.dB), T0) : null, eA=x ? P.entrada(Object.assign({app:x.app}, x.dA), T0) : null;
+   const rEsc=W._fbLatidoInv ? await resultado(()=>W._fbLatidoInv.escribir({sesiones:{pzzzzzzzzzzzz:{app:'INV'}}})) : 'no hay _fbLatidoInv';
+   const C=[
+     ['pantallas.js v1 con los tiempos acordados (5 min a la vista, 15 oculta, al volver a la vista uno inmediato solo si pasaron 5 min, poda a 24 h, tope 400), que no se pueden cambiar',
+        P.version===1 && JSON.stringify(P.TIEMPOS)==='{"visibleMs":300000,"ocultaMs":900000,"minEntreMs":300000,"edad24Ms":86400000,"sinLatidoMs":960000,"tope":400}' && Object.isFrozen(P.TIEMPOS)],
+     ['la entrada trae solo las 15 llaves acordadas, en orden', Object.keys(e).join()===ORDEN && Object.keys(e2).join()===ORDEN && Object.keys(e3).join()===ORDEN],
+     ['cédula, teléfono, nombre completo y llaves de más se descartan', [CED, TEL, 'CARLOS', 'PEREZ', 'GOMEZ', 'contrato', 'firmaRef', 'extra'].every(z=>s.indexOf(z)<0)],
+     ['sin tipo, firmaRef ni clienteCedula (entrarían en consultas que ya existen)', [e,e2,e3,e4].every(o=>!('tipo' in o) && !('firmaRef' in o) && !('clienteCedula' in o))],
+     ['de la persona solo el primer nombre, después de la sede', e.nombre==='DONCELLO · Juan'],
+     ['los valores salen limpios y con su tipo', e.app==='TEC' && e.v===101 && e.rol==='tecnico' && e.sesion==='se_abc123' && e.equipo==='eq_abcdefghij' && e.disp==='celular'
+        && e.cargadaMs===T0-3600000 && e.ultimoMs===T0 && JSON.stringify(e.en)==='{"__ts":1}' && e.vieja===true && e.local===false && e.visible===true && e.recarga==='cuenta' && e.n===3],
+     ['una cédula o un correo metidos en el nombre se quitan', e2.nombre==='BODEGA' && e2.sesion==='sexy' && e2.equipo==='eq'],
+     ['nunca undefined, aunque lleguen datos vacíos o raros', [e,e2,e3,e4].every(sinIndef) && e3.ultimoMs===T0 && e4.app==='' && e4.disp==='pc' && e4.v===0 && e4.n===0],
+     ['primerNombre: «JUAN CARLOS PEREZ» → «Juan»; vacío, cifras u otra cosa → nada', P.primerNombre('JUAN CARLOS PEREZ')==='Juan' && P.primerNombre('  maría   josé ')==='María'
+        && P.primerNombre('')==='' && P.primerNombre(null)==='' && P.primerNombre(CED)==='' && P.primerNombre(42)===''],
+     ['del navegador solo «celular» o «pc»', P.dispositivo('Mozilla/5.0 (Linux; Android 14) Mobile Safari')==='celular' && P.dispositivo('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)')==='celular'
+        && P.dispositivo('Mozilla/5.0 (Windows NT 10.0; Win64; x64)')==='pc' && P.dispositivo('')==='pc'],
+     ['nuevaClave: «p» + 12 letras o cifras, sin puntos y sin repetirse', claves.every(k=>/^p[a-z0-9]{12}$/.test(k) && P.claveValida(k)) && new Set(claves).size===claves.length
+        && !P.claveValida('p.bcdefghijkl') && !P.claveValida('pABCDEFGHIJKL')],
+     ['msDe lee un número, un Timestamp ({toMillis}) y {seconds}; lo demás da null', P.msDe(T0)===T0 && P.msDe({toMillis:()=>T0+123})===T0+123 && P.msDe({seconds:1790000000, nanoseconds:456000000})===1790000000456
+        && P.msDe({_seconds:1790000001, _nanoseconds:0})===1790000001000 && P.msDe(new Date(T0))===T0 && [null, undefined, '1790000000000', NaN, Infinity, {}, []].every(z=>P.msDe(z)===null)],
+     ['el parche es un set merge del mapa sesiones: la propia y {__del:1} por cada vieja, nunca un mapa vacío', !!parche && Object.keys(parche).join()==='sesiones'
+        && Object.keys(parche.sesiones).sort().join()==='pabcdefghijkl,pviejaaaaaaaa' && JSON.stringify(parche.sesiones.pviejaaaaaaaa)==='{"__del":1}'
+        && P.armarParche('', null, [])===null && P.armarParche('pabcdefghijkl', null, [])===null],
+     ['traducir cambia las marcas por la hora del servidor y el borrado, en una copia', !!tr && tr.sesiones.pabcdefghijkl.en==='HORA' && tr.sesiones.pviejaaaaaaaa==='BORRAR'
+        && tr.sesiones.pabcdefghijkl.n===3 && JSON.stringify(parche.sesiones.pabcdefghijkl.en)==='{"__ts":1}'],
+     ['el adaptador de INVENTARIO responde', !!x && x.app==='INV' && x.modoPrueba===true && x.fns===true],
+     ['una bodega late con su nombre, su rol y la versión de la pantalla', !!x && !!eB && x.dB.nombre===x.bodega && eB.rol==='bodega' && eB.app==='INV' && typeof x.ver==='number' && eB.v===x.ver
+        && typeof x.dB.vieja==='boolean' && /^se_/.test(x.dB.sesion||'')],
+     ['el administrador late como «Admin»; sin sesión, sin nombre ni rol', !!x && !!eA && eA.nombre==='Admin' && eA.rol==='admin' && x.dN.rol==='' && x.dN.nombre===''],
+     ['del adaptador no sale la cédula ni el teléfono', !!x && JSON.stringify([x.dB, x.dA, x.dN, eB, eA]).indexOf(CED)<0 && JSON.stringify([x.dB, eB]).indexOf(TEL)<0],
+     ['en modo prueba el puente rechaza sin intentar escribir', /modo prueba/i.test(rEsc) && bloq()-n0===0],
+     ['sin error', !errX]
+   ];
+   const mal=C.filter(c=>c[1]!==true).map(c=>c[0]);
+   return {ok:!mal.length, detalle: !mal.length
+     ? 'La entrada del latido trae solo app, versión, rol, sede o primer nombre («DONCELLO · Juan»), pestaña, navegador, celular o pc, horas, si ya sabe que es vieja, si es copia local, si está a la vista, la fase de la recarga y el número de latido ✓'
+      +'\nCédula, teléfono, nombre completo, tipo, firmaRef, clienteCedula y cualquier llave de más se descartan; una cédula o un correo dentro del nombre se quitan; nunca queda un campo vacío (undefined) ✓'
+      +'\nLas claves son «p» + 12 letras o cifras, sin puntos y sin repetirse; la hora se lee como número, Timestamp o {seconds}; el parche es un set merge del mapa sesiones y nunca un mapa vacío ✓'
+      +'\nEl adaptador de INVENTARIO: la bodega '+x.bodega+' late con su nombre y v'+x.ver+', el administrador como «Admin», sin cédula; en modo prueba el puente rechaza sin intentar escribir ✓'
+     : 'Fallan: '+mal.join(', ')+'\n'+JSON.stringify({e, e2, e4, x, eB, eA, rEsc, errX}).slice(0,1500).replace(/</g,'&lt;')};}},
+{app:'inv', titulo:'Etapa 6 · La poda usa la hora del servidor y nunca borra a otros por un reloj mal puesto',
+ porque:'Etapa 6 (docs/12): el documento de latidos se poda a 24 h para no llegar al límite de 1 MiB (con 60 a 150 cargas al día se llenaría en '
+       +'1 a 3 meses). La edad se mide con la hora del SERVIDOR (el campo en) contra el latido más nuevo del documento, nunca con el reloj del '
+       +'equipo: un celular con la hora adelantada tres días borraría a todas las demás pantallas. Una entrada sin hora del servidor se conserva '
+       +'48 h; la propia nunca se borra; si quedan más de 400, se van las más viejas. La poda va en el MISMO set merge del primer latido de cada '
+       +'carga, con una sola lectura antes. El documento se escribe desde internet: un en más de un día en el futuro (año 2100) no cuenta como el '
+       +'más nuevo, porque si contara cada carga borraría a todas las demás. Y si la hora del equipo retrocede (alguien la corrigió a mano), la '
+       +'pantalla sigue latiendo: ningún turno se va a días. Cambiar de pestaña no suma latidos (cuota de Firebase): al volver a la vista solo '
+       +'late enseguida si pasaron 5 min. Aquí pantallas.js corre también aparte, con un navegador falso y un reloj adelantado '
+       +'o que retrocede: nada se escribe.',
+ correr:async W=>{
+   const P=W.PV_PANTALLAS; if(!P || typeof P.podar!=='function') return {ok:false, detalle:'INVENTARIO no tiene PV_PANTALLAS: no cargó pantallas.js.'};
+   const H=3600000, R=1790000000000, orden=a=>(a||[]).slice().sort().join();
+   const ses=()=>({ fresca:{app:'OFI', en:R, ultimoMs:R, cargadaMs:R-H},
+     h23:{app:'INV', en:R-23*H, ultimoMs:R-23*H, cargadaMs:R-24*H}, borde24:{app:'INV', en:R-24*H, ultimoMs:R-24*H}, pasado24:{app:'OFI', en:R-24*H-1},
+     h25:{app:'TEC', en:R-25*H, ultimoMs:R-25*H, cargadaMs:R-26*H}, h49:{app:'RED', en:{seconds:(R-49*H)/1000, nanoseconds:0}},
+     propia:{app:'OFI', en:R-72*H, ultimoMs:R-72*H},
+     reloj3d:{app:'TEC', en:{toMillis:()=>R-H}, ultimoMs:R+72*H, cargadaMs:R+71*H},
+     sinEn30h:{app:'INV', ultimoMs:R-30*H}, sinEn50h:{app:'RED', ultimoMs:R-50*H}, sinNada:{app:'OFI'} });
+   const S0=ses(), antes=JSON.stringify(S0), b1=P.podar(S0, 'propia'), b2=P.podar(S0, '');
+   const big={}; for(let i=0;i<405;i++) big['p'+String(i).padStart(4,'0')]={app:'OFI', en:R-i*1000};
+   const big2=Object.assign({}, big, {propia:{app:'OFI', en:R-999000}}), seis='p0399,p0400,p0401,p0402,p0403,p0404';
+   const bt=P.podar(big, 'pnuevaaaaaaaa'), bt2=P.podar(big2, 'propia'), bt3=P.podar(big, '');
+   // Una hora imposible: un en del año 2100 escrito desde internet (como número, {seconds} o Timestamp). Se poda con la hora R de
+   // quien lee, para no depender del reloj de este equipo.
+   const F2100=4102444800000, conF=v=>Object.assign(ses(), {p2100:{app:'OFI', v:320, en:v}});
+   const bR=P.podar(ses(), 'propia', undefined, R), bF=[F2100, {seconds:F2100/1000, nanoseconds:0}, {toMillis:()=>F2100}].map(v=>P.podar(conF(v), 'propia', undefined, R));
+   const btF=P.podar(Object.assign({}, big, {p2100:{app:'OFI', en:F2100}}), 'pnuevaaaaaaaa', undefined, R), bAtras=P.podar(conF(F2100), 'propia', undefined, R-72*H);
+   // Quien poda con el reloj 3 días adelantado (copia aparte de pantallas.js con otra Date)
+   class Adelantada extends Date { static now(){ return Date.now()+72*H; } }
+   const Pf=await pantallasAparte(W, Adelantada);
+   // El primer latido de una carga: lee una vez y poda en el MISMO set merge; después solo late. extra: más entradas en la nube
+   const flujo=async (Fecha, extra)=>{
+     const S=await pantallasAparte(W, Fecha); if(!S) return null;
+     const nube={sesiones:Object.assign(ses(), extra||{})}; delete nube.sesiones.propia;
+     const op={app:'INV', modoPrueba:false, entornoLocal:false, cargadaMs:R-H,
+       datos:()=>({v:115, rol:'bodega', nombre:'BODEGA PRUEBA', sesion:'se_prueba0001', vieja:false, recarga:'inactivo'}),
+       leer:()=>{ S.leidos++; return Promise.resolve(nube); },
+       escribir:p=>{ S.escritos.push(JSON.parse(JSON.stringify(p))); return Promise.resolve(); } };
+     const e0=S.P.iniciar(op), t1=S.T.length===1 ? S.T[0].ms : null;
+     await S.turno(); const p1=S.escritos[0]||null, est1=S.P.estado(), prox=S.T.length===1 ? S.T[0].ms : null;
+     await S.turno(); const p2=S.escritos[1]||null, est2=S.P.estado();
+     const otraVez=await S.P.latir(), nEsc=S.escritos.length;
+     S.g.document.visibilityState='hidden'; (S.dev.visibilitychange||[]).forEach(f=>f()); const proxOculta=S.T.length===1 ? S.T[0].ms : null;
+     S.g.navigator.onLine=false; await S.turno(); const sinSenal={esc:S.escritos.length, err:S.P.estado().ultimoError, T:S.T.length};
+     S.g.navigator.onLine=true; op.escribir=()=>Promise.reject(new Error('Quota exceeded'));
+     const e1=S.P.iniciar(op), otraIni={clave:e1.clave, T:S.T.length, ms:S.T.length ? S.T[0].ms : null};   // iniciar otra vez solo cambia el adaptador
+     await S.turno();
+     const est3=S.P.estado(), falla={err:est3.ultimoError, T:S.T.length, n:est3.n};
+     S.P.detener();
+     const mia=(p1 && p1.sesiones && p1.sesiones[e0.clave]) || {};
+     return {clave:e0.clave, t1, p1, mia, est1, prox, p2, est2, otraVez, nEsc, proxOculta, sinSenal, otraIni, falla, leidos:S.leidos, equipo:S.ls.pv_equipo_id||'', ahora:Date.now()};
+   };
+   // Un latido que falla no puede dejar un error sin atender en la página
+   const noAtendidos=[], alNoAtendido=ev=>{ noAtendidos.push(String((ev && ev.reason && ev.reason.message) || (ev && ev.reason) || '?').slice(0,80)); };
+   window.addEventListener('unhandledrejection', alNoAtendido);
+   let fN=null, fA=null, fF=null, vista=null, datosMal=null, reloj=null, pestana=null;
+   try{
+     fN=await flujo(null); fA=await flujo(Adelantada);
+     // En la nube hay además una entrada con un en del año 2100: el primer latido no puede borrar a las demás por ella
+     fF=await flujo(null, {p2100:{app:'OFI', v:320, rol:'admin', nombre:'Admin', en:F2100, ultimoMs:R, cargadaMs:R-H}});
+     // Volver a la vista o volver la señal: un latido enseguida. El mínimo de 5 min entre latidos se baja a 0, como en el banco de
+     // pruebas (__PV_LATIDO_PRUEBA, que solo vale en una copia local).
+     vista=await (async()=>{ const S=await pantallasAparte(W); if(!S) return null; S.g.__PV_LATIDO_PRUEBA={minEntreMs:0};
+       S.P.iniciar({app:'OFI', modoPrueba:false, entornoLocal:true, datos:()=>({v:320, rol:'admin', nombre:'Admin', sesion:'s'}), leer:()=>Promise.resolve(null), escribir:p=>{ S.escritos.push(p); return Promise.resolve(); }});
+       await S.turno();
+       S.g.document.visibilityState='hidden'; (S.dev.visibilitychange||[]).forEach(f=>f()); const oculta=S.T.length===1 ? S.T[0].ms : null;
+       S.g.document.visibilityState='visible'; (S.dev.visibilitychange||[]).forEach(f=>f()); const vuelve=S.T.length===1 ? S.T[0].ms : null;
+       await S.turno(); const nVista=S.escritos.length;
+       S.g.navigator.onLine=false; await S.turno(); const sinRed=S.escritos.length;
+       S.g.navigator.onLine=true; (S.ev.online||[]).forEach(f=>f()); const alVolver=S.T.length===1 ? S.T[0].ms : null; await S.turno(); const nRed=S.escritos.length;
+       S.P.detener(); return {oculta, vuelve, nVista, sinRed, alVolver, nRed}; })();
+     // Si la pantalla no puede decir quién es (datos() falla), ese latido no sale: mejor nada que una versión 0 marcada como vieja
+     datosMal=await (async()=>{ const S=await pantallasAparte(W); if(!S) return null;
+       S.P.iniciar({app:'TEC', modoPrueba:false, entornoLocal:false, datos:()=>{ throw new Error('sin sesión'); }, leer:()=>Promise.resolve(null), escribir:p=>{ S.escritos.push(p); return Promise.resolve(); }});
+       await S.turno(); const r={esc:S.escritos.length, err:S.P.estado().ultimoError, T:S.T.length}; S.P.detener(); return r; })();
+     // La hora del equipo iba 2 días adelantada y alguien la corrige a mano entre ocultar y volver (con los tiempos de verdad, sin
+     // __PV_LATIDO_PRUEBA): oculta, el turno no pasa de 15 min; al volver, el latido sale en 5 min o menos (antes quedaba a 2 días).
+     reloj=await (async()=>{ let desfase=48*H; class Movil extends Date { static now(){ return Date.now()+desfase; } }
+       const S=await pantallasAparte(W, Movil); if(!S) return null;
+       S.P.iniciar({app:'TEC', modoPrueba:false, entornoLocal:false, datos:()=>({v:101, rol:'tecnico', nombre:'Juan', sesion:'s'}), leer:()=>Promise.resolve(null), escribir:p=>{ S.escritos.push(p); return Promise.resolve(); }});
+       await S.turno(); const n1=S.escritos.length;
+       desfase=0; S.g.document.visibilityState='hidden'; (S.dev.visibilitychange||[]).forEach(f=>f()); const oculta=S.T.length===1 ? S.T[0].ms : null;
+       S.g.document.visibilityState='visible'; (S.dev.visibilitychange||[]).forEach(f=>f()); const vuelve=S.T.length===1 ? S.T[0].ms : null;
+       await S.turno(); const n2=S.escritos.length, prox=S.T.length===1 ? S.T[0].ms : null;
+       // y si vuelve a retroceder 2 días, un latido forzado igual sale (la diferencia negativa cuenta como «ya pasó»)
+       desfase=-48*H; const forzado=await S.P.latir(); await S.esperar(); const n3=S.escritos.length, prox3=S.T.length===1 ? S.T[0].ms : null;
+       S.P.detener(); return {n1, oculta, vuelve, n2, prox, forzado, n3, prox3, T:S.T.length}; })();
+     // Cambiar de pestaña no suma latidos (cuota de Firebase): al volver a la vista antes de 5 min espera su turno; pasados 5 min, late ya
+     pestana=await (async()=>{ let desfase=0; class Corre extends Date { static now(){ return Date.now()+desfase; } }
+       const S=await pantallasAparte(W, Corre); if(!S) return null;
+       S.P.iniciar({app:'OFI', modoPrueba:false, entornoLocal:false, datos:()=>({v:320, rol:'oficina', nombre:'NATALIA', sesion:'s'}), leer:()=>Promise.resolve(null), escribir:p=>{ S.escritos.push(p); return Promise.resolve(); }});
+       await S.turno();
+       const ver=v=>{ S.g.document.visibilityState=v; (S.dev.visibilitychange||[]).forEach(f=>f()); return S.T.length===1 ? S.T[0].ms : null; };
+       desfase=60000; ver('hidden'); desfase=2*60000; const a2=ver('visible');
+       desfase=4*60000; ver('hidden'); desfase=6*60000; const a6=ver('visible');
+       const n=S.escritos.length; S.P.detener(); return {a2, a6, n}; })();
+     await new Promise(r=>setTimeout(r,80));
+   } finally { window.removeEventListener('unhandledrejection', alNoAtendido); }
+   const borra=f=>!!f && !!f.p1 && orden(Object.keys(f.p1.sesiones||{}))===orden([f.clave,'h25','h49','pasado24','sinEn50h']) && ['h25','h49','pasado24','sinEn50h'].every(k=>JSON.stringify(f.p1.sesiones[k])==='{"__del":1}');
+   const C=[
+     ['más de 24 h antes del latido más nuevo se borran; las de 23 h y las de 24 h justas se quedan', orden(b1)==='h25,h49,pasado24,sinEn50h'],
+     ['la propia nunca se borra, aunque sea vieja', b1.indexOf('propia')<0 && b2.indexOf('propia')>=0],
+     ['un equipo con el reloj 3 días adelantado se queda mientras su hora del servidor sea reciente', b1.indexOf('reloj3d')<0 && b1.indexOf('fresca')<0],
+     ['sin hora del servidor se conserva hasta 48 h (por su propia hora)', b1.indexOf('sinEn30h')<0 && b1.indexOf('sinNada')<0 && b1.indexOf('sinEn50h')>=0],
+     ['si nadie trae hora del servidor, no se borra nada', P.podar({a:{ultimoMs:1}, b:{}}, '').length===0 && P.podar(null, 'x').length===0],
+     ['no cambia lo que recibe', JSON.stringify(S0)===antes && typeof S0.reloj3d.en.toMillis==='function'],
+     ['tope de 400: se van las más viejas, nunca la propia', orden(bt)===seis && orden(bt2)===seis && bt2.indexOf('propia')<0 && orden(bt3)==='p0400,p0401,p0402,p0403,p0404'],
+     ['quien poda con el reloj 3 días adelantado borra exactamente lo mismo', !!Pf && orden(Pf.P.podar(ses(), 'propia'))===orden(b1)],
+     ['un en del año 2100 (número, {seconds} o Timestamp) no cuenta como el más nuevo: no hace borrar a las demás, y la poda no lo borra por edad', orden(bR)===orden(b1)
+        && bF.every(b=>orden(b)===orden(bR)) && !!Pf && orden(Pf.P.podar(conF(F2100), 'propia'))===orden(b1)],
+     ['con más de 400, la entrada con la hora imposible es la primera en salir', orden(btF)===seis+',p2100'],
+     ['si el reloj de quien poda va 3 días atrasado, poda menos, nunca más', Array.isArray(bAtras) && bAtras.length===0],
+     ['el primer latido sale enseguida, con UNA lectura antes', !!fN && P.claveValida(fN.clave) && fN.t1===0 && fN.leidos===1],
+     ['y poda en el MISMO set merge: la entrada propia y {__del:1} por cada vieja, sin tocar a las demás', borra(fN) && !!fN && fN.est1.podaHecha===true && fN.est1.podadas===4],
+     ['la entrada propia sale completa', !!fN && fN.mia.app==='INV' && fN.mia.v===115 && fN.mia.nombre==='BODEGA PRUEBA' && fN.mia.n===1 && JSON.stringify(fN.mia.en)==='{"__ts":1}'
+        && fN.mia.disp==='pc' && fN.mia.cargadaMs===R-H && /^eq_[a-z0-9]{10}$/.test(fN.mia.equipo||'') && fN.mia.equipo===fN.equipo && fN.est1.n===1],
+     ['después late cada 5 min a la vista y cada 15 oculta, sin volver a leer', !!fN && fN.prox>295000 && fN.prox<=300000 && !!fN.p2 && orden(Object.keys(fN.p2.sesiones||{}))===fN.clave
+        && fN.p2.sesiones[fN.clave].n===2 && fN.est2.n===2 && fN.leidos===1 && fN.proxOculta>895000 && fN.proxOculta<=900000],
+     ['un latido forzado antes de 5 min no sale', !!fN && fN.otraVez===false && fN.nEsc===2],
+     ['sin señal no intenta escribir y sigue programado', !!fN && fN.sinSenal.esc===2 && fN.sinSenal.err==='sin señal' && fN.sinSenal.T===1],
+     ['iniciar otra vez no crea otra clave ni otro temporizador', !!fN && fN.otraIni.clave===fN.clave && fN.otraIni.T===1 && fN.otraIni.ms>800000],
+     ['un latido que falla (cuota) no lanza, no deja errores sin atender y se reintenta en el siguiente turno', !!fN && /^no se pudo enviar el latido: Quota exceeded/.test(fN.falla.err) && fN.falla.T===1 && fN.falla.n===2 && !noAtendidos.length],
+     ['al volver a la vista y al volver la señal, un latido enseguida', !!vista && vista.oculta>895000 && vista.vuelve===0 && vista.nVista===2 && vista.sinRed===2 && vista.alVolver===0 && vista.nRed===3],
+     ['si la pantalla no puede decir quién es, ese latido no sale', !!datosMal && datosMal.esc===0 && /^no se pudieron leer los datos de esta pantalla: sin sesión/.test(datosMal.err) && datosMal.T===1],
+     ['con el reloj del equipo 3 días adelantado el primer latido borra lo mismo, y su hora va aparte de la del servidor', borra(fA) && !!fA && fA.mia.ultimoMs-fA.ahora>71*H && JSON.stringify(fA.mia.en)==='{"__ts":1}'],
+     ['con una entrada del año 2100 en la nube, el primer latido borra solo lo de más de 24 h (ni a las demás ni a la del 2100)', borra(fF)],
+     ['si la hora del equipo retrocede 2 días entre ocultar y volver, sigue latiendo: oculta, el turno no pasa de 15 min; al volver, el latido sale en 5 min o menos', !!reloj && reloj.n1===1
+        && reloj.oculta!==null && reloj.oculta<=900000 && reloj.vuelve!==null && reloj.vuelve<=300000 && reloj.n2===2 && reloj.prox!==null && reloj.prox<=300000],
+     ['y si retrocede otra vez, un latido forzado sale y el siguiente turno no pasa de 5 min', !!reloj && reloj.forzado===true && reloj.n3===3 && reloj.prox3!==null && reloj.prox3<=300000 && reloj.T===0],
+     ['cambiar de pestaña no suma latidos: al volver a la vista a los 2 min espera su turno (a los 5 min); a los 6 min late enseguida', !!pestana && pestana.a2!==null && pestana.a2>=170000
+        && pestana.a2<=180000 && pestana.a6===0 && pestana.n===1]
+   ];
+   const mal=C.filter(c=>c[1]!==true).map(c=>c[0]);
+   return {ok:!mal.length, detalle: !mal.length
+     ? 'Contra el latido más nuevo del documento: 23 h y 24 h justas se quedan, 24 h y un milisegundo, 25 h y 49 h se borran; sin hora del servidor se espera a las 48 h; la propia nunca ✓'
+      +'\nUna pantalla con el reloj 3 días adelantado no se borra (manda su hora del servidor) y, si es ella la que poda, borra exactamente lo mismo ✓'
+      +'\nCon 405 entradas quedan 400 (se van las más viejas, nunca la propia); la entrada no se modifica ✓'
+      +'\nEl primer latido de una carga lee una vez y poda en el mismo set merge; después late cada 5 min a la vista y cada 15 oculta, sin volver a leer; sin señal no escribe; si falla (cuota) no lanza ni deja errores sin atender y vuelve a intentar ✓'
+      +'\nAl volver a la vista o la señal late enseguida; iniciar otra vez no crea otra clave ni otro temporizador; si la pantalla no puede decir quién es, ese latido no sale ✓'
+      +'\nUn en del año 2100 escrito desde internet no cuenta como el más nuevo: ni la poda ni el primer latido borran a las demás por él, con el tope sale primero, y con el reloj atrasado se poda menos ✓'
+      +'\nSi la hora del equipo retrocede 2 días entre ocultar y volver: oculta, el turno queda en '+Math.round(reloj.oculta/60000)+' min; al volver, el latido sale en '+Math.round(reloj.vuelve/60000)+' min; el siguiente, en '+Math.round(reloj.prox/60000)+' ✓'
+      +'\nCambiar de pestaña no suma latidos: al volver a la vista a los 2 min espera su turno ('+Math.round(pestana.a2/60000)+' min más); a los 6 min late enseguida ✓'
+     : 'Fallan: '+mal.join(', ')+'\n'+JSON.stringify({b1, b2, bt, bt2, bt3, bR, bF, btF, bAtras, fN, fA:fA?{clave:fA.clave, p1:fA.p1}:null, fF:fF?{clave:fF.clave, p1:fF.p1}:null, reloj, pestana, vista, datosMal, noAtendidos}).slice(0,2400).replace(/</g,'&lt;')};}},
+{app:'inv', titulo:'Etapa 6 · El panel marca las pantallas viejas, las de más de 24 h y las que no laten',
+ porque:'Etapa 6 (docs/12): el administrador ve en «📺 Pantallas abiertas» (⚙️ Configuración de INVENTARIO y Administración de OFICINAS) qué '
+       +'pantallas siguen abiertas: en rojo las de versión vieja, en ámbar las que llevan más de 24 h sin recargar y en gris las que ya no laten '
+       +'(más de 15 min). «Sin latido» se mide contra el latido más nuevo del documento, no con el reloj de quien mira. El documento se puede '
+       +'escribir desde internet, así que todo lo que pinta el panel va escapado, y siempre dice que las pantallas anteriores a este código no '
+       +'envían latido. Lee la nube solo al tocar el botón (una lectura del documento y las de versión), por la cuota. Una entrada con un en del '
+       +'año 2100 (escrita desde internet) no deja ciego el panel: no cuenta como el latido más nuevo, su fila dice «hora imposible» y el panel la '
+       +'quita. Datos inventados; la lectura del panel corre en una copia aparte de pantallas.js; nada se escribe.',
+ correr:async W=>{
+   const P=W.PV_PANTALLAS; if(!P || typeof P.resumen!=='function') return {ok:false, detalle:'INVENTARIO no tiene PV_PANTALLAS: no cargó pantallas.js.'};
+   const R=1790000000000, H=3600000, M=60000, cuenta=(t,s)=>t.split(s).length-1;
+   const XSS='<img src=x onerror="window.__pvXSS=1">', CLAVE_XSS='x"><b id=pvXSS2>', ROL_XSS='<scr'+'ipt>x</scr'+'ipt>';
+   const NOTA='Solo aparecen las pantallas con este código (desde OFICINAS v320, INVENTARIO v115, TÉCNICOS v101 y RED v44). Las anteriores no envían latido.';
+   const ses=()=>({
+     pok:{app:'OFI', v:320, rol:'oficina', nombre:'NATALIA', disp:'pc', en:R, ultimoMs:R, cargadaMs:R-2*H, visible:true, recarga:'inactivo', n:5},
+     pvieja:{app:'INV', v:114, rol:'bodega', nombre:'BODEGA CENTRAL', disp:'pc', en:R-M, ultimoMs:R-M, cargadaMs:R-3*H, n:9},
+     psabe:{app:'OFI', v:320, rol:'admin', nombre:'Admin', vieja:true, en:{seconds:(R-2*M)/1000, nanoseconds:0}, ultimoMs:R-2*M, cargadaMs:R-H},
+     p24:{app:'TEC', v:101, rol:'tecnico', nombre:'Juan', disp:'celular', en:{toMillis:()=>R-M}, ultimoMs:R-M, cargadaMs:R-25*H},
+     pmuda:{app:'RED', v:44, rol:'oficina', nombre:'DONCELLO · Ana', en:R-20*M, ultimoMs:R-20*M, cargadaMs:R-H},
+     psinen:{app:'INV', v:115, rol:'bodega', nombre:'BODEGA SUR', ultimoMs:R-H, cargadaMs:R-2*H},
+     [CLAVE_XSS]:{app:'<b>INV</b>', v:115, rol:ROL_XSS, nombre:XSS, recarga:'<i>x</i>', en:R-30000, ultimoMs:R-30000, cargadaMs:R-H} });
+   const pub={OFI:320, INV:115, TEC:101, RED:44};
+   const res=P.resumen(ses(), pub, R+M), resAdel=P.resumen(ses(), pub, R+72*H), resSinPub=P.resumen(ses(), null, R+M);
+   const fila=k=>(res.filas||[]).find(f=>f.clave===k)||{};
+   // Una entrada con un en del año 2100 (escrita desde internet): no puede volverse «el latido más nuevo» y dejar ciego el panel
+   const F2100=4102444800000, e2100={app:'OFI', v:320, rol:'admin', nombre:'Admin', en:F2100, ultimoMs:R, cargadaMs:R-H};
+   const resF=P.resumen(Object.assign(ses(), {p2100:e2100}), pub, R+M), filaF=(resF.filas||[]).find(f=>f.clave==='p2100')||{}, htmlF=P.htmlPanel(resF);
+   const fut=(propia, ahora)=>typeof P.futuras==='function' ? P.futuras(Object.assign(ses(), {p2100:e2100}), propia, undefined, ahora) : null;
+   const futBien=fut('', R+M), futPropia=fut('p2100', R+M), futAtras=fut('', R-72*H);
+   const html=P.htmlPanel(res), htmlVacio=P.htmlPanel(P.resumen({}, pub, R)), htmlError=P.htmlPanel({error:'No se pudo leer la lista de pantallas (sin señal).'});
+   let htmlNulo=''; try{ htmlNulo=P.htmlPanel(null); }catch(e){ htmlNulo='LANZÓ: '+e.message; }
+   // Lo que pinta el panel, leído como HTML inerte (template): nada se ejecuta
+   const leerHTML=h=>{ const t=W.document.createElement('template'); t.innerHTML=h; return t.content; };
+   const F=leerHTML(html), todos=[...F.querySelectorAll('*')], textoF=F.textContent||'';
+   const filas=[...F.querySelectorAll('tr.pvPantFila')], tr=k=>filas.find(x=>x.getAttribute('data-clave')===k)||null;
+   const estado=(k, clase, est, color)=>{ const x=tr(k); return !!x && x.classList.contains(clase) && x.getAttribute('data-estado')===est && (!color || (x.getAttribute('style')||'').indexOf(color)>=0); };
+   const seguro=!todos.some(el=>/^(IMG|SCRIPT|I)$/.test(el.tagName) || el.id==='pvXSS2' || [...el.attributes].some(a=>/^on/i.test(a.name)));
+   // 375 px: el panel en una caja del ancho de un celular (16 px de margen a cada lado), dentro de la página de INVENTARIO
+   let ancho=null;
+   if(seguro){ const caja=W.document.createElement('div'); caja.style.cssText='position:absolute;left:0;top:0;width:375px;padding:0 16px;box-sizing:border-box;visibility:hidden;';
+     try{ caja.innerHTML=html; W.document.body.appendChild(caja); await new Promise(r=>setTimeout(r,60));
+       const raiz=caja.querySelector('.pvPantallas'), marco=caja.querySelector('.pvPantMarco'), tabla=caja.querySelector('.pvPantTabla');
+       ancho={caja:caja.scrollWidth-caja.clientWidth, raiz:raiz?raiz.scrollWidth-raiz.clientWidth:null, marco:marco?marco.scrollWidth-marco.clientWidth:null, tabla:tabla?Math.round(tabla.getBoundingClientRect().width):null}; }
+     finally{ caja.remove(); } }
+   // La tarjeta de ⚙️ Configuración de INVENTARIO (USER se restaura)
+   let tarj=null, errT='';
+   try{ tarj=E(W, 'const u=USER; try{ USER={role:"admin", nombre:"Administrador"}; const a=_tarjetaPantallasInv(); USER={role:"bodega", id:"b", nombre:"BODEGA"}; const b=_tarjetaPantallasInv(); USER=null; const c=_tarjetaPantallasInv(); return {a, b, c}; } finally { USER=u; }'); }
+   catch(e){ errT=String((e&&e.message)||e).slice(0,200); }
+   // El código de las dos apps con panel (texto)
+   const leer=async f=>{ try{ const x=await fetch(f,{cache:'no-store'}); return x.ok ? await x.text() : ''; }catch(e){ return ''; } };
+   const sinCom=t=>t.split('\n').map(l=>l.replace(/\/\/.*$/,'')).join('\n');
+   const fx=(t,n)=>{ const i=t.search(new RegExp('\\n(async\\s+)?function\\s+'+n+'\\s*\\(')); if(i<0) return ''; const j=t.indexOf('\n}', i+1); return sinCom(t.slice(i+1, j<0 ? i+8000 : j)); };
+   const tI=(await leer('INVENTARIO_PTOVISION.html')).replace(/\r/g,''), tO=(await leer('OFICINAS_PTOVISION.html')).replace(/\r/g,'');
+   const iM=tO.indexOf('${_tarjetaMantenimientoHTML()}'), iP=tO.indexOf('${_tarjetaPantallasHTML()}'), iB=tO.indexOf('${_tarjetaBuzonHTML()}');
+   // Abrir el panel, en una copia aparte de pantallas.js: una lectura del documento y una de versiones; poda con un set merge de solo borrados
+   let panel=null, futura=null, errP='';
+   const S=await pantallasAparte(W);
+   if(S){ try{
+     let lect=0, vers=0; const esc=[];
+     const doc={sesiones:Object.assign(ses(), {ph25:{app:'OFI', v:319, en:R-25*H, ultimoMs:R-25*H, cargadaMs:R-26*H}, ph49:{app:'TEC', v:100, en:R-49*H}})};
+     const op={app:'INV', modoPrueba:false, entornoLocal:false, leer:()=>{ lect++; return Promise.resolve(doc); }, leerVersiones:()=>{ vers++; return Promise.resolve(pub); },
+               escribir:p=>{ esc.push(JSON.parse(JSON.stringify(p))); return Promise.resolve(); } };
+     const pa=S.P.leerPanel(op), pb=S.P.leerPanel(op); const ra=await pa, rb=await pb;
+     const una={lect, vers, esc:esc.length, misma:pa===pb && ra===rb, ult:!!S.P.ultimoPanel() && S.P.ultimoPanel().res===ra};
+     await S.P.leerPanel(op); const otra={lect, vers};
+     const rf=await S.P.leerPanel(Object.assign({}, op, {leer:()=>Promise.reject(new Error('sin señal'))}));
+     const nE=esc.length, rp=await S.P.leerPanel(Object.assign({}, op, {modoPrueba:true})), escP=esc.length-nE;
+     // Con un en del año 2100 en el documento: el panel lo quita en el mismo set merge que las de más de 24 h y ve vivas a las que laten
+     const docF={sesiones:Object.assign(ses(), {ph25:{app:'OFI', v:319, en:R-25*H, ultimoMs:R-25*H, cargadaMs:R-26*H}, p2100:e2100})};
+     const nF=esc.length, rF=await S.P.leerPanel(Object.assign({}, op, {leer:()=>Promise.resolve(docF)})), escF=esc.length-nF, pF=esc[nF]||null;
+     const nFp=esc.length, rFp=await S.P.leerPanel(Object.assign({}, op, {leer:()=>Promise.resolve(docF), modoPrueba:true}));
+     futura={poda:pF, esc:escF, total:rF.total, vivas:rF.vivas, sinLatido:rF.sinLatido, enMasNuevo:rF.enMasNuevo, podadas:rF.podadas, futuras:rF.futuras, podaOk:rF.podaOk,
+             texto:(leerHTML(P.htmlPanel(rF)).querySelector('.pvPantPoda')||{}).textContent||'', prueba:{esc:esc.length-nFp, podaOk:rFp.podaOk, futuras:rFp.futuras}};
+     // Sin respuesta de la nube (sin señal): a los 30 s se suelta con un aviso, en vez de quedar «Leyendo…» para siempre
+     const pc=S.P.leerPanel(Object.assign({}, op, {leer:()=>new Promise(()=>{}), leerVersiones:()=>new Promise(()=>{})}));
+     const topes=S.T.filter(t=>t.ms===30000); topes.forEach(t=>{ S.T.splice(S.T.indexOf(t),1); t.fn(); });
+     const rc=await Promise.race([pc, new Promise(res=>setTimeout(()=>res('colgado'), 1000))]);
+     panel={una, otra, poda:esc[0]||null, ra:{total:ra.total, viejas:ra.viejas, sinLatido:ra.sinLatido, abiertas24:ra.abiertas24, podadas:ra.podadas, podaOk:ra.podaOk},
+            falla:{error:rf.error||'', html:P.htmlPanel(rf)}, prueba:{podaOk:rp.podaOk, nota:rp.podaNota||'', esc:escP, podadas:rp.podadas},
+            colgado:{topes:topes.length, error:rc==='colgado' ? 'colgado' : (rc.error||'')}};
+   }catch(e){ errP=String((e&&e.message)||e).slice(0,200); } }
+   const C=[
+     ['las cuentas del resumen', res.total===7 && res.viejas===2 && res.abiertas24===1 && res.sinLatido===2 && res.vivas===5 && res.viejasVivas===2],
+     ['las cuentas por app', !!res.porApp.OFI && res.porApp.OFI.total===2 && res.porApp.OFI.viejas===1 && res.porApp.INV.total===2 && res.porApp.INV.viejas===1 && res.porApp.INV.sinLatido===1
+        && res.porApp.TEC.abiertas24===1 && res.porApp.RED.sinLatido===1],
+     ['versión vieja: menor que la publicada, o la pantalla ya lo sabía', fila('pvieja').vieja===true && fila('pvieja').publicada===115 && fila('psabe').vieja===true && fila('pok').vieja===false && resSinPub.viejas===1],
+     ['más de 24 h sin recargar (con las dos horas del mismo equipo)', fila('p24').abierta24===true && fila('pok').abierta24===false],
+     ['sin latido: más de 15 min antes del latido más nuevo, o sin hora del servidor', fila('pmuda').sinLatido===true && fila('psinen').sinLatido===true && fila('psabe').sinLatido===false
+        && fila('p24').sinLatido===false && fila('pmuda').hace==='hace 21 min' && fila('psinen').hace==='sin dato'],
+     ['el reloj de quien mira no cambia las cuentas, solo el «hace cuánto»', resAdel.viejas===2 && resAdel.sinLatido===2 && resAdel.abiertas24===1 && res.enMasNuevo===R && resAdel.enMasNuevo===R
+        && ((resAdel.filas||[]).find(f=>f.clave==='pok')||{}).hace!==fila('pok').hace],
+     ['primero las viejas y al final las que no laten', (res.filas||[]).length===7 && res.filas.slice(0,2).every(f=>f.vieja) && res.filas.slice(-2).every(f=>f.sinLatido)],
+     ['el texto del resumen', P.textoResumen(res)==='7 pantallas abiertas · 2 con versión vieja · 2 sin latido hace más de 15 min'
+        && P.textoResumen({total:1, viejas:0, sinLatido:0})==='1 pantalla abierta · 0 con versión vieja · 0 sin latido hace más de 15 min'],
+     ['el panel escapa todo lo que viene de la base (nombre, rol, app, recarga y la clave)', seguro && textoF.indexOf(XSS)>=0 && textoF.indexOf(ROL_XSS)>=0 && textoF.indexOf('<B>INV</B>')>=0
+        && textoF.indexOf('<i>x</i>')>=0 && !!tr(CLAVE_XSS) && W.__pvXSS===undefined],
+     ['una fila por pantalla con su color: rojo vieja, ámbar más de 24 h, gris sin latido, verde al día', filas.length===7 && estado('pvieja','pvPantVieja','vieja','rgba(220,38,38')
+        && estado('p24','pvPant24','abierta24','rgba(245,158,11') && estado('pmuda','pvPantSinLatido','sinLatido','rgba(128,128,128') && estado('pok','pvPantOk','ok','')],
+     ['arriba el resumen y las versiones publicadas', (F.querySelector('.pvPantResumen')||{}).textContent===P.textoResumen(res) && /INVENTARIO v115/.test((F.querySelector('.pvPantPublicadas')||{}).textContent||'')],
+     ['siempre la nota: las pantallas anteriores no envían latido', P.NOTA===NOTA && [html, htmlVacio, htmlError, htmlNulo].every(h=>(leerHTML(h).querySelector('.pvPantNota')||{}).textContent===NOTA)],
+     ['sin pantallas o con error, lo dice', !!leerHTML(htmlVacio).querySelector('.pvPantVacio') && !!leerHTML(htmlError).querySelector('.pvPantError')],
+     ['cabe en 375 px', !!ancho && ancho.caja<=1 && ancho.raiz<=1 && ancho.marco<=1 && ancho.tabla!==null && ancho.tabla<=343],
+     ['la tarjeta de INVENTARIO: solo el administrador, con su botón «🔄 Ver pantallas» y la nota', !!tarj && tarj.a.indexOf('id="tarjetaPantallasInv"')>=0 && tarj.a.indexOf('onclick="verPantallasInv()"')>=0
+        && tarj.a.indexOf('🔄 Ver pantallas')>=0 && tarj.a.indexOf(NOTA)>=0 && tarj.b==='' && tarj.c===''],
+     ['INVENTARIO: tarjeta aparte de la 🛡️ Vigilancia (que se repinta en cada sincronización); solo el botón lee', tI.indexOf('${_tarjetaVigilanciaInv()}${_tarjetaPantallasInv()}')>=0
+        && !/_tarjetaPantallasInv|leerPanel/.test(fx(tI,'_tarjetaVigilanciaInv')) && cuenta(fx(tI,'verPantallasInv'),'leerPanel(')>=1 && cuenta(sinCom(tI),'leerPanel(')===cuenta(fx(tI,'verPantallasInv'),'leerPanel(')],
+     ['OFICINAS: la tarjeta va entre la del mantenimiento y la del buzón, solo para el administrador; solo el botón lee', iM>=0 && iM<iP && iP<iB && iB-iM<400
+        && /USER\.role==='admin'/.test(fx(tO,'_tarjetaPantallasHTML')) && /USER\.role==='admin'/.test(fx(tO,'_pantallasVerOfi'))
+        && cuenta(fx(tO,'_pantallasVerOfi'),'leerPanel(')>=1 && cuenta(sinCom(tO),'leerPanel(')===cuenta(fx(tO,'_pantallasVerOfi'),'leerPanel(')],
+     ['al abrir el panel: una lectura del documento y una de las versiones (dos aperturas a la vez comparten la lectura)', !!panel && panel.una.lect===1 && panel.una.vers===1 && panel.una.misma && panel.una.ult && panel.otra.lect===2],
+     ['al abrir el panel se quitan las de más de 24 h, con un set merge de solo borrados', !!panel && !!panel.poda && Object.keys(panel.poda).join()==='sesiones' && orden3(panel.poda.sesiones)==='ph25,ph49'
+        && Object.values(panel.poda.sesiones).every(v=>JSON.stringify(v)==='{"__del":1}') && panel.ra.podadas===2 && panel.ra.podaOk===true && panel.ra.total===7 && panel.ra.viejas===2],
+     ['si la lectura falla, lo dice en español (y la nota sigue)', !!panel && /^No se pudo leer la lista de pantallas \(sin señal\)/.test(panel.falla.error)
+        && !!leerHTML(panel.falla.html).querySelector('.pvPantError') && !!leerHTML(panel.falla.html).querySelector('.pvPantNota')],
+     ['en modo prueba el panel no poda', !!panel && panel.prueba.podaOk===false && /modo prueba/.test(panel.prueba.nota) && panel.prueba.esc===0 && panel.prueba.podadas===2],
+     ['sin respuesta de la nube, a los 30 s el panel lo dice en vez de quedarse leyendo', !!panel && panel.colgado.topes===2 && /^No se pudo leer la lista de pantallas \(sin respuesta/.test(panel.colgado.error)],
+     ['un en del año 2100 no deja ciego el panel: las que laten siguen vivas y esa fila dice «hora imposible»', resF.enMasNuevo===R && resF.total===8 && resF.vivas===5 && resF.sinLatido===3
+        && filaF.futura===true && filaF.sinLatido===true && htmlF.indexOf('Hora imposible')>=0 && (res.filas||[]).every(f=>f.futura===false)],
+     ['el panel quita la del 2100, nunca la propia, y con el reloj de quien lee días atrasado no quita nada', Array.isArray(futBien) && futBien.join()==='p2100'
+        && Array.isArray(futPropia) && futPropia.length===0 && Array.isArray(futAtras) && futAtras.length===0],
+     ['al abrir el panel, la del 2100 sale con las de más de 24 h en el mismo set merge, y las que laten se ven vivas', !!futura && !!futura.poda && futura.esc===1
+        && orden3(futura.poda.sesiones)==='p2100,ph25' && Object.values(futura.poda.sesiones).every(v=>JSON.stringify(v)==='{"__del":1}') && futura.podadas===2 && futura.futuras===1
+        && futura.podaOk===true && futura.total===7 && futura.vivas===5 && futura.sinLatido===2 && futura.enMasNuevo===R && /con una hora imposible/.test(futura.texto)],
+     ['en modo prueba tampoco quita la del 2100', !!futura && futura.prueba.esc===0 && futura.prueba.podaOk===false && futura.prueba.futuras===1],
+     ['sin error', !errT && !errP && !!S && !!tI && !!tO]
+   ];
+   function orden3(o){ return Object.keys(o||{}).sort().join(); }
+   const mal=C.filter(c=>c[1]!==true).map(c=>c[0]);
+   return {ok:!mal.length, detalle: !mal.length
+     ? 'Con 7 pantallas inventadas: «7 pantallas abiertas · 2 con versión vieja · 2 sin latido hace más de 15 min»; vieja en rojo (menor que la publicada, o la pantalla ya lo sabía), más de 24 h en ámbar, sin latido en gris; las viejas primero ✓'
+      +'\n«Sin latido» se mide contra el latido más nuevo: el reloj de quien mira solo cambia el «hace cuánto» ✓'
+      +'\nUn nombre, un rol, una app o una clave con HTML salen como texto; la nota de las pantallas anteriores sale siempre (también vacío o con error); cabe en 375 px ('+ancho.tabla+' px de tabla) ✓'
+      +'\nLa tarjeta solo la ve el administrador, va aparte de la 🛡️ en INVENTARIO y entre el mantenimiento y el buzón en OFICINAS; solo el botón lee: una lectura del documento y una de versiones por apertura, y quita las de más de 24 h con un set merge de solo borrados (en modo prueba no); sin respuesta de la nube, a los 30 s lo dice ✓'
+      +'\nUna entrada con un en del año 2100 no deja ciego el panel: las 5 que laten siguen vivas, su fila dice «hora imposible», el panel la quita en el mismo set merge (en modo prueba no) y con el reloj de quien lee días atrasado no quita nada ✓'
+     : 'Fallan: '+mal.join(', ')+'\n'+JSON.stringify({res:{total:res.total, viejas:res.viejas, sinLatido:res.sinLatido, abiertas24:res.abiertas24}, resF:{total:resF.total, vivas:resF.vivas, sinLatido:resF.sinLatido, enMasNuevo:resF.enMasNuevo}, futBien, futPropia, futAtras, futura, ancho, panel, tarj:tarj?{a:tarj.a.slice(0,200), b:tarj.b, c:tarj.c}:null, errT, errP}).slice(0,2200).replace(/</g,'&lt;')};}},
 {app:'ofi', titulo:'Un comprobante bloqueado por duplicado se puede subir escribiendo por qué no es el mismo, y queda marcado para el administrador',
  porque:'Pedido de Elkin del 15/9/2026: cuando la app dice que un comprobante está repetido, poder subirlo igual con un comentario '
        +'que explique por qué no es el mismo. Antes solo había un aviso y no se podía seguir. El motivo es obligatorio, queda en el '
@@ -6872,6 +7251,217 @@ const PRUEBAS = [
    return {ok:bien, detalle: bien
      ? `La ficha de la factura #${r.n} (cuenta ${r.cuenta}) llegó con su mismo número, está pagada y vale ${r.valor.toLocaleString('es-CO')} (en la caja: ${Number(r.enCaja||0).toLocaleString('es-CO')}) ✓`
      : JSON.stringify(r)};}},
+// ───────────── Etapa 6 (docs/12): pantallas viejas en OFICINAS ─────────────
+{app:'ofi', titulo:'Etapa 6 · OFICINAS ya no guarda con versión vieja (y el guardado del mantenimiento sí sale)',
+ porque:'Etapa 6 (docs/12): «verificar que OFICINAS y RED tengan el mismo freno si escriben en documentos compartidos». OFICINAS reescribe '
+       +'oficinas_sistema/main, donde TÉCNICOS escribe las órdenes: una pantalla vieja abierta por días las pisaría con su copia. Con una versión '
+       +'publicada mayor, _saveReal ya no escribe, dice «Hay una versión nueva: esta pantalla ya no guarda. Actualízala.» y deja un solo registro '
+       +'por pestaña. NO marca el guardado como fallido: si lo hiciera, la recarga automática esperaría para siempre justo en las pantallas viejas. '
+       +'La excepción es el guardado que el mantenimiento dejó en pausa: sale UNA vez al terminar, para no perder lo que la oficina escribió antes '
+       +'del aviso. Los demás caminos que escriben documentos compartidos o de fondo (contratos, casos del ingeniero, revisión de soportes, '
+       +'rastreador, firmas de los bloques) también se frenan; la auditoría, las sesiones, los fallos de guardado y el latido no. La versión se '
+       +'infla solo en memoria y todo se restaura; en modo prueba nada llega a la nube (los intentos de la excepción se cuentan aparte y se quitan).',
+ correr:async W=>{
+   for(let k=0;k<90;k++){ if(E(W,'return window._cargaMovsIncompleta===false && (DB.oficinas||[]).some(o=>(o.movimientos||[]).length>0);')) break; await new Promise(r=>setTimeout(r,1000)); }
+   let r=null;
+   try{
+     r=await W.eval('(async function(){'
+       +'const bloq=()=>(window._escriturasBloqueadas||[]).length, bl0=bloq(), ln=window._logsEnNube, lnCopia=ln ? new Set(ln) : null;'
+       +'const ovAntes=!!document.getElementById("ovVersionVieja");'   // la capa de versión nueva: si el tic de 30 s la pone durante el guardado de la excepción, se quita al final
+       +'const g={pub:DB.config.appVersionPublicada, fren:window._guardadosFrenadosVersion, anot:window._frenoVersionAnotado, ok:window._ultimoGuardadoOk, salida:window._mantSalidaGuardado,'
+       +'  sil:window._saveSilencioso, parcial:window._parcialReintentable, logs:Array.isArray(DB.logsAuditoria) ? DB.logsAuditoria.slice() : DB.logsAuditoria,'
+       +'  agr:window._logsAgregados, enDoc:window._logsEnDoc, alerta:window.alert, lote:db.batch};'
+       +'const sd=document.getElementById("syncDot"), st=document.getElementById("syncText"), ss=document.getElementById("syncStatus"); const gS={c:sd?sd.className:"", t:st?st.textContent:"", d:ss?ss.style.display:""};'
+       +'const alertas=[]; let conjuntos=0; const out={};'
+       +'try{'
+       +'  window.alert=t=>{ alertas.push(String(t).slice(0,80)); };'
+       +'  const b0=g.lote.bind(db); db.batch=function(){ const b=b0(); const s0=b.set.bind(b); b.set=function(){ conjuntos++; return s0.apply(b, arguments); }; return b; };'
+       +'  DB.config.appVersionPublicada=APP_VERSION+1; window._mantSalidaGuardado=null; window._frenoVersionAnotado=false; window._ultimoGuardadoOk=true;'
+       +'  const f0=window._guardadosFrenadosVersion||0, n0=bloq(); out.vieja=_pestanaDesactualizada();'
+       +'  let t0=Date.now(); await _saveReal({silencioso:true}); out.ms1=Date.now()-t0;'
+       +'  out.frena1={frenados:(window._guardadosFrenadosVersion||0)-f0, ok:window._ultimoGuardadoOk, enCurso:_saveInProgress, bloq:bloq()-n0, conjuntos, texto:st?st.textContent:"", punto:sd?sd.className:"", anotado:window._frenoVersionAnotado===true, ocupado:_ocupadoRecargaOfi()};'
+       +'  t0=Date.now(); await _saveReal({silencioso:true}); out.ms2=Date.now()-t0;'
+       +'  const nuevos=(DB.logsAuditoria||[]).filter(l=>l && l.accion==="GUARDADO_FRENADO_VERSION" && (g.logs||[]).indexOf(l)<0);'
+       +'  out.frena2={frenados:(window._guardadosFrenadosVersion||0)-f0, ok:window._ultimoGuardadoOk, bloq:bloq()-n0, conjuntos, logs:nuevos.length, det:nuevos[0] ? nuevos[0].detalles : null};'
+       +'  if(Array.isArray(g.logs)) DB.logsAuditoria=g.logs.slice();'   // el registro del freno no debe salir con el guardado de la excepción
+       +'  window._mantSalidaGuardado={ms:Date.now()}; DB.config.appVersionPublicada=APP_VERSION+1; const fA=window._guardadosFrenadosVersion||0, nA=bloq(), cA=conjuntos; t0=Date.now(); await _saveReal({silencioso:true});'
+       +'  out.salida={frenados:(window._guardadosFrenadosVersion||0)-fA, marca:window._mantSalidaGuardado, intentos:bloq()-nA, conjuntos:conjuntos-cA, ms:Date.now()-t0};'
+       +'  if(window._escriturasBloqueadas) window._escriturasBloqueadas.length=nA;'   // los intentos esperados de la excepción, contados aparte
+       +'  DB.config.appVersionPublicada=APP_VERSION+1; const fB=window._guardadosFrenadosVersion||0, cB=conjuntos, nB=bloq(); await _saveReal({silencioso:true});'
+       +'  out.unaVez={frenados:(window._guardadosFrenadosVersion||0)-fB, conjuntos:conjuntos-cB, bloq:bloq()-nB};'
+       +'  out.alertas=alertas.slice();'
+       +'} finally {'
+       +'  DB.config.appVersionPublicada=g.pub; window._guardadosFrenadosVersion=g.fren; window._frenoVersionAnotado=g.anot; window._ultimoGuardadoOk=g.ok; window._mantSalidaGuardado=g.salida;'
+       +'  window._saveSilencioso=g.sil; window._parcialReintentable=g.parcial; window._logsAgregados=g.agr; window._logsEnDoc=g.enDoc; window.alert=g.alerta; db.batch=g.lote;'
+       +'  if(g.logs===undefined) delete DB.logsAuditoria; else DB.logsAuditoria=g.logs;'
+       +'  if(ln && lnCopia){ ln.clear(); lnCopia.forEach(x=>ln.add(x)); }'
+       +'  if(sd) sd.className=gS.c; if(st) st.textContent=gS.t; if(ss) ss.style.display=gS.d;'
+       +'  if(!ovAntes){ const ov=document.getElementById("ovVersionVieja"); if(ov) ov.remove(); }'   // _verificarVersionVieja no se apaga en modo prueba; ya restaurada la versión, su tic no la vuelve a poner
+       +'}'
+       +'out.restaurado=DB.config.appVersionPublicada===g.pub && window._ultimoGuardadoOk===g.ok && window._mantSalidaGuardado===g.salida && db.batch===g.lote && window.alert===g.alerta'
+       +'  && (ovAntes || !document.getElementById("ovVersionVieja"));'
+       +'out.bloqFinal=bloq()-bl0; out.msg=MSG_VERSION_VIEJA_OFI; out.v=APP_VERSION;'
+       +'return out;'
+       +'})()');
+   }catch(e){ r={error:String((e&&e.message)||e)}; }
+   // Los otros caminos que escriben documentos compartidos o de fondo (texto)
+   const leer=async f=>{ try{ const x=await fetch(f,{cache:'no-store'}); return x.ok ? await x.text() : ''; }catch(e){ return ''; } };
+   const sinCom=t=>t.split('\n').map(l=>l.replace(/\/\/.*$/,'')).join('\n');
+   const tO=(await leer('OFICINAS_PTOVISION.html')).replace(/\r/g,'');
+   const fO=n=>{ const i=tO.search(new RegExp('\\n(async\\s+)?function\\s+'+n+'\\s*\\(')); if(i<0) return ''; const j=tO.indexOf('\n}', i+1); return sinCom(tO.slice(i+1, j<0 ? i+8000 : j)); };
+   const ESCRIBE=/\.set\(|\.update\(|\.delete\(|runTransaction\(|\.commit\(|\.add\(|subirArchivoDrive\(|_subirContratoADrive\(|\bsave\(|_saveReal\(|_guardarContratoCliente\(/;
+   const caminos=[['_guardarContratoCliente','guardar un contrato'],['_subirContratoADrive','subir un contrato a Drive'],['_confirmarFirmaContrato','firmar un contrato'],['_confirmarAnular','anular un contrato'],
+     ['_reactivarContrato','reactivar un contrato'],['_eliminarContrato','quitar un contrato'],['_guardarFirmaOficina','la firma de la oficina'],['_subirTodosPendientes','los contratos pendientes'],
+     ['_ingGuardar','un caso del ingeniero'],['_ingGuardarMasiva','una falla masiva'],['_ingCerrarMasiva','cerrar una falla masiva'],['_revEncolarNuevos','la revisión de soportes'],
+     ['_revResolver','resolver un soporte'],['_escribirRastreoWisp','el rastreador'],['_sembrarFirmasMovs','las firmas de los bloques']];
+   const sinGuarda=caminos.filter(([n])=>{ const c=fO(n), cuerpo=c.slice(c.indexOf('{')+1), iG=cuerpo.search(/_pestanaDesactualizada\(\)/), m=cuerpo.match(ESCRIBE); return !c || iG<0 || (m && m.index<iG); }).map(x=>x[0]+' ('+x[1]+')');
+   const frenadosDeMas=['_enviarLogsAuditoria','registrarSesion','_registrarFalloGuardado'].filter(n=>{ const c=fO(n); return !c || /_pestanaDesactualizada/.test(c); });
+   const opL=fO('_pantallasOpOfi'), latido=(opL.split('escribir:')[1]||'').split('leer:')[0];
+   const sr=fO('_saveReal'), iMant=sr.indexOf('if(window._mantBloqueando)'), iFreno=sr.indexOf('if(!_salidaMant && _pestanaDesactualizada())'), iCurso=sr.indexOf('_saveInProgress = true'), iPub=sr.indexOf('DB.config.appVersionPublicada=APP_VERSION');
+   const bloque=iFreno<0 ? '' : sr.slice(iFreno, sr.indexOf('return;', iFreno)+7);
+   const C=[
+     ['la versión inflada hace vieja a la pantalla', !!r && !r.error && r.vieja===true],
+     ['con versión vieja _saveReal no escribe ni intenta escribir, y no tarda', !!r && !!r.frena1 && r.frena1.bloq===0 && r.frena1.conjuntos===0 && r.frena2.bloq===0 && r.frena2.conjuntos===0 && r.frena1.enCurso===false && r.ms1<1500 && r.ms2<1500],
+     ['cuenta cada guardado frenado', !!r && !!r.frena1 && r.frena1.frenados===1 && r.frena2.frenados===2],
+     ['no deja el guardado como fallido: la recarga automática no queda esperando para siempre', !!r && !!r.frena1 && r.frena1.ok===true && r.frena2.ok===true && String(r.frena1.ocupado).indexOf('no va a terminar solo')<0],
+     ['avisa en el indicador, en español y sin ventanas emergentes', !!r && !!r.frena1 && r.frena1.texto===r.msg && /sync-err/.test(r.frena1.punto) && r.msg==='Hay una versión nueva: esta pantalla ya no guarda. Actualízala.' && (r.alertas||[]).length===0],
+     ['deja UN registro por pestaña, sin datos de clientes', !!r && !!r.frena2 && r.frena1.anotado===true && r.frena2.logs===1 && !!r.frena2.det && Object.keys(r.frena2.det).sort().join()==='publicada,que,version' && r.frena2.det.que==='guardado' && r.frena2.det.version===r.v],
+     ['el guardado que el mantenimiento dejó en pausa sí sale (marca de un solo uso, que se consume)', !!r && !!r.salida && r.salida.frenados===0 && r.salida.marca===null && (r.salida.intentos>0 || r.salida.conjuntos>0)],
+     ['solo una vez: el siguiente guardado vuelve a frenarse', !!r && !!r.unaVez && r.unaVez.frenados===1 && r.unaVez.conjuntos===0 && r.unaVez.bloq===0],
+     ['todo quedó como estaba', !!r && r.restaurado===true && r.bloqFinal===0],
+     ['el freno va después del de mantenimiento y antes de publicar la versión y de empezar el guardado; solo marcas en memoria', iMant>=0 && iFreno>iMant && iCurso>iFreno && iPub>iFreno
+        && !/_ultimoGuardadoOk|alert\(|\.get\(|await/.test(bloque) && /_anotarFrenoVersionOfi\('guardado'\)/.test(bloque)],
+     ['los otros caminos que escriben documentos compartidos o de fondo miran la versión antes de escribir', !sinGuarda.length],
+     ['la auditoría, las sesiones, los fallos de guardado y el latido no se frenan', !frenadosDeMas.length && !!latido && !/_pestanaDesactualizada/.test(latido)]
+   ];
+   const mal=C.filter(c=>c[1]!==true).map(c=>c[0]);
+   return {ok:!mal.length, detalle: !mal.length
+     ? 'Con una versión publicada mayor, _saveReal no escribe nada (ni lo intenta), en menos de '+Math.max(r.ms1, r.ms2)+' ms; el indicador dice «'+r.msg+'» y queda un solo registro GUARDADO_FRENADO_VERSION (versión, publicada y qué) por pestaña ✓'
+      +'\nNo deja _ultimoGuardadoOk en falso: la recarga automática no queda esperando para siempre en la pantalla vieja ✓'
+      +'\nEl guardado que el mantenimiento dejó en pausa sale una vez (aquí lo bloqueó el modo prueba: '+r.salida.intentos+' intento(s), contados aparte y quitados); el siguiente vuelve a frenarse ✓'
+      +'\nContratos, casos del ingeniero, revisión de soportes, rastreador y firmas de los bloques miran la versión antes de escribir; auditoría, sesiones, fallos de guardado y latido no se frenan ✓'
+     : 'Fallan: '+mal.join(', ')+(sinGuarda.length ? '\nSin guarda: '+sinGuarda.join(', ') : '')+(frenadosDeMas.length ? '\nFrenados de más: '+frenadosDeMas.join(', ') : '')+'\n'+JSON.stringify(r).slice(0,1500).replace(/</g,'&lt;')};}},
+{app:'ofi', titulo:'Etapa 6 · Más de 24 h: INVENTARIO y OFICINAS piden actualizar con la pantalla quieta; TÉCNICOS solo avisa',
+ porque:'Etapa 6 (docs/12): una pestaña que lleva más de un día sin recargar trabaja con el código y la memoria de cuando se abrió. En INVENTARIO y '
+       +'OFICINAS, cuando además está QUIETA (sin una ventana abierta, sin nada guardándose ni por guardar, sin escribir), sale una capa propia que '
+       +'pide «🔄 Actualizar ahora»; si alguien está escribiendo, espera, y ese guardado pasa (es la versión vigente). La capa va por debajo del aviso '
+       +'de versión nueva y no lleva la clase de recarga.js. En TÉCNICOS es solo una franja, sin bloquear, para no estorbar su cola sin señal; su '
+       +'botón recarga solo con señal y sin nada a medias. En modo prueba y con ?ignorarVersion no sale nunca. Aquí se usan las funciones puras '
+       +'con una hora de carga simulada (25 h), la capa se pone y se quita a mano, y TÉCNICOS se lee como texto. Nada se escribe.',
+ correr:async W=>{
+   const fallas=[], exige=(c, txt)=>{ if(!c) fallas.push(txt); return !!c; };
+   const marco=nom=>{ const f=[...document.querySelectorAll('#marcos iframe')].find(x=>(x.getAttribute('src')||'').split('?')[0]===nom); try{ return f ? f.contentWindow : null; }catch(e){ return null; } };
+   const bO=()=>(W._escriturasBloqueadas||[]).length, nO0=bO();
+   // OFICINAS (este marco)
+   let o=null;
+   try{ o=E(W, 'const D=86400000, H=3600000, A=Date.now(), c=_caducadaOfi;'
+     +'const bordes=[c(1,1+D)===false, c(1,2+D)===true, c(A-D+1000,A)===false, c(A-25*H,A)===true, c(0,A)===false, c(-5,A)===false, c(NaN,A)===false, c(A,NaN)===false, c(undefined,A)===false, c(A+3*D,A)===false].map(x=>x?1:0).join("");'
+     +'const dec=x=>_decidirCaducadaOfi(Object.assign({modoPrueba:false, ignorarVersion:false, sesion:true, cargaMs:A-25*H, ahoraMs:A, espera:"", yaPuesta:false}, x));'
+     +'const decisiones={capa:dec({}), prueba:dec({modoPrueba:true}), ignorar:dec({ignorarVersion:true}), sinSesion:dec({sesion:false}), aldia:dec({cargaMs:A-23*H}), espera:dec({espera:"x"}), yaPuesta:dec({espera:"x", yaPuesta:true})};'
+     // Quieta = nadie tecleó en los últimos 45 s (otra prueba pudo teclear hace un momento): la marca se pone en 0 y se restaura
+     +'const tq=window._ultimaTeclaApp; let quieta, tecleando, conModal="sin #modal", guardando;'
+     +'try{ window._ultimaTeclaApp=0; quieta=_esperaCaducadaOfi();'
+     +'  const m=document.getElementById("modal"); if(m){ const tenia=m.classList.contains("show"); try{ m.classList.add("show"); conModal=_esperaCaducadaOfi(); } finally { if(!tenia) m.classList.remove("show"); } }'
+     +'  const sp=_saveInProgress; try{ _saveInProgress=true; guardando=_esperaCaducadaOfi(); } finally { _saveInProgress=sp; }'
+     +'  window._ultimaTeclaApp=Date.now(); tecleando=_esperaCaducadaOfi();'
+     +'} finally { window._ultimaTeclaApp=tq; }'
+     +'const prev=_capaCaducadaPuestaOfi(), est0=window._caducadaOfiEstado; let rev, trasRev; try{ rev=_revisarCaducadaOfi({cargaMs:A-25*H, ahoraMs:A}); trasRev=_capaCaducadaPuestaOfi(); } finally { window._caducadaOfiEstado=est0; }'
+     +'let capa=null; try{ _mostrarCapaCaducadaOfi(); const el=document.getElementById("capaCaducadaOfi"); if(el){ const b=el.querySelector("button");'
+     +'  capa={z:parseInt(getComputedStyle(el).zIndex,10), texto:el.textContent.replace(/\\s+/g," "), rol:el.getAttribute("role"), pvRecarga:el.classList.contains("pvRecargaTexto") || !!el.querySelector(".pvRecargaTexto"), boton:b?b.textContent.trim():"", onclick:b?(b.getAttribute("onclick")||""):"", n:document.querySelectorAll("#capaCaducadaOfi").length}; } }'
+     +'finally { _quitarCapaCaducadaOfi(); }'
+     +'const vb=document.getElementById("versionBanner");'
+     +'return {bordes, decisiones, quieta, conModal, guardando, tecleando, dQuieta:dec({espera:quieta}), dModal:dec({espera:conModal}), dGuardando:dec({espera:guardando}), dTecleando:dec({espera:tecleando}), prev, rev, trasRev, capa, quitada:!_capaCaducadaPuestaOfi(),'
+     +'  zVB:vb ? parseInt(getComputedStyle(vb).zIndex,10) : null, vigila:!!window._caducadaOfiVigilando, tmr:!!window._tmrCaducadaOfi};'); }
+   catch(e){ o={error:String((e&&e.message)||e).slice(0,300)}; }
+   const TXT_O='Esta pantalla lleva más de un día abierta. Actualízala para seguir trabajando con los datos al día. (Si pasaron más de 12 horas desde que entraste, te pedirá la clave otra vez.)';
+   if(exige(!!o && !o.error, 'OFICINAS: no se pudo revisar ('+(o&&o.error)+')')){
+     exige(o.bordes==='1111111111', 'OFICINAS: _caducadaOfi no da «más de 24 h» en los bordes (24 h justas no; un milisegundo más sí; sin hora de carga no): '+o.bordes);
+     const d=o.decisiones; exige(d.capa==='capa' && d.prueba==='apagada' && d.ignorar==='apagada' && d.sinSesion==='sin_sesion' && d.aldia==='al_dia' && d.espera==='espera' && d.yaPuesta==='capa', 'OFICINAS: _decidirCaducadaOfi no decide lo acordado: '+JSON.stringify(d));
+     exige(o.quieta==='' && o.dQuieta==='capa', 'OFICINAS: con la carga de hace 25 h y la pantalla quieta, la capa debe salir (la pantalla espera porque: «'+o.quieta+'»)');
+     exige(!!o.conModal && o.conModal!=='sin #modal' && o.dModal==='espera', 'OFICINAS: con una ventana abierta la capa debe esperar ('+o.conModal+')');
+     exige(!!o.guardando && o.dGuardando==='espera', 'OFICINAS: con un guardado en curso la capa debe esperar');
+     exige(!!o.tecleando && o.dTecleando==='espera', 'OFICINAS: con alguien tecleando la capa debe esperar');
+     exige(o.prev===false && o.rev==='apagada' && o.trasRev===false && o.vigila===false && o.tmr===false, 'OFICINAS: en modo prueba la revisión de más de un día debe quedar apagada, sin capa y sin temporizador: '+JSON.stringify({prev:o.prev, rev:o.rev, trasRev:o.trasRev, vigila:o.vigila, tmr:o.tmr}));
+     const c=o.capa||{};
+     exige(!!o.capa && c.n===1 && c.rol==='dialog' && c.texto.indexOf(TXT_O)>=0 && c.boton==='🔄 Actualizar ahora' && c.pvRecarga===false && o.quitada, 'OFICINAS: la capa #capaCaducadaOfi no tiene el texto, el botón o la forma acordados: '+JSON.stringify(c));
+     exige(!!o.capa && c.z<99998 && (o.zVB===null || c.z<o.zVB) && /^if\(window\.PV_RECARGA\)\s*PV_RECARGA\.recargarAhora\(\);\s*else\s*\{/.test(c.onclick) && /new window\.URL\(/.test(c.onclick) && !/(^|[^.\w])new\s+URL\s*\(/.test(c.onclick),
+       'OFICINAS: la capa debe ir por debajo del mantenimiento y del aviso de versión nueva, y su botón recargar conservando los parámetros (también sin recarga.js): '+JSON.stringify({z:c.z, zVB:o.zVB, onclick:c.onclick}));
+   }
+   // INVENTARIO (su marco sigue abierto desde su grupo)
+   const wI=marco('INVENTARIO_PTOVISION.html'); let i=null;
+   if(exige(!!wI, 'INVENTARIO: no hay un marco abierto para mirarlo')){
+     const bI=()=>(wI._escriturasBloqueadas||[]).length, nI0=bI();
+     try{ i=E(wI, 'const D=86400000, H=3600000, A=Date.now(), c=window._caducadaInv;'
+       +'const bordes=[c(1,1+D)===false, c(1,2+D)===true, c(A-D+1000,A)===false, c(A-25*H,A)===true, c(0,A)===false, c(-5,A)===false, c(NaN,A)===false, c(A,NaN)===false, c(undefined,A)===false, c(A+3*D,A)===false].map(x=>x?1:0).join("");'
+       +'const dec=x=>window._decidirCaducidadInv(Object.assign({modoPrueba:false, ignorarVersion:false, cargaMs:A-25*H, ahoraMs:A, motivo:"", mostrada:false}, x));'
+       +'const decisiones={mostrar:dec({}), prueba:dec({modoPrueba:true}), ignorar:dec({ignorarVersion:true}), aldia:dec({cargaMs:A-23*H}), espera:dec({motivo:"una ventana abierta"}), mostrada:dec({mostrada:true})};'
+       +'const quieta=window._motivoNoQuietaInv();'
+       +'const m=document.getElementById("modal"); let conModal="sin #modal"; if(m){ const tenia=m.classList.contains("show"); try{ m.classList.add("show"); conModal=window._motivoNoQuietaInv(); } finally { if(!tenia) m.classList.remove("show"); } }'
+       +'const ev=window._escriturasEnVueloInv; let guardando; try{ window._escriturasEnVueloInv=(ev||0)+1; guardando=window._motivoNoQuietaInv(); } finally { window._escriturasEnVueloInv=ev; }'
+       +'const gd=window._guardadoDiferidoInv; let diferido; try{ window._guardadoDiferidoInv=true; diferido=window._motivoNoQuietaInv(); } finally { window._guardadoDiferidoInv=gd; }'
+       +'const pc=window.__PV_CARGA_MS_PRUEBA, ec=window._estadoCaducidadInv, prev=!!document.getElementById("capaCaducadaInv"); let cargaSim, rev, hay;'
+       +'try{ window.__PV_CARGA_MS_PRUEBA=A-25*H; cargaSim=window._cargaMsInv(); rev=window._revisarCaducidadInv(); hay=!!document.getElementById("capaCaducadaInv"); }'
+       +'finally { if(pc===undefined) delete window.__PV_CARGA_MS_PRUEBA; else window.__PV_CARGA_MS_PRUEBA=pc; window._estadoCaducidadInv=ec; }'
+       +'let capa=null; try{ window._mostrarCapaCaducadaInv(); const el=document.getElementById("capaCaducadaInv"); if(el){ const b=document.getElementById("capaCaducadaInvBtn");'
+       +'  capa={z:parseInt(getComputedStyle(el).zIndex,10), texto:(document.getElementById("capaCaducadaInvTexto")||{}).textContent||"", rol:el.getAttribute("role"), pvRecarga:el.classList.contains("pvRecargaTexto") || !!el.querySelector(".pvRecargaTexto"), boton:b?b.textContent.trim():"", n:document.querySelectorAll("#capaCaducadaInv").length}; } }'
+       +'finally { window._quitarCapaCaducadaInv(); }'
+       +'const vb=document.getElementById("versionBlock");'
+       +'return {bordes, decisiones, quieta, conModal, guardando, diferido, cargaSim, simulada:A-25*H, local:window._esEntornoLocalInv(), rev, hay, prev, capa, quitada:!document.getElementById("capaCaducadaInv"), zVB:vb ? parseInt(getComputedStyle(vb).zIndex,10) : null};'); }
+     catch(e){ i={error:String((e&&e.message)||e).slice(0,300)}; }
+     if(exige(!!i && !i.error, 'INVENTARIO: no se pudo revisar ('+(i&&i.error)+')')){
+       exige(i.bordes==='1111111111', 'INVENTARIO: _caducadaInv no da «más de 24 h» en los bordes: '+i.bordes);
+       const d=i.decisiones; exige(d.mostrar==='mostrar' && d.prueba==='apagada' && d.ignorar==='apagada' && d.aldia==='al día' && d.espera==='esperando: una ventana abierta' && d.mostrada==='mostrada', 'INVENTARIO: _decidirCaducidadInv no decide lo acordado: '+JSON.stringify(d));
+       exige(i.quieta==='', 'INVENTARIO: con la carga de hace 25 h y la pantalla quieta, la capa debe salir (la pantalla espera porque: «'+i.quieta+'»)');
+       exige(!!i.conModal && i.conModal!=='sin #modal', 'INVENTARIO: con una ventana abierta la capa debe esperar');
+       exige(!!i.guardando && !!i.diferido, 'INVENTARIO: con un guardado en curso o por salir la capa debe esperar: '+JSON.stringify({guardando:i.guardando, diferido:i.diferido}));
+       exige(i.prev===false && i.rev==='apagada' && i.hay===false && (i.local ? i.cargaSim===i.simulada : i.cargaSim!==i.simulada), 'INVENTARIO: en modo prueba la revisión de más de un día debe quedar apagada y sin capa (y la hora de carga simulada solo vale en una copia local): '+JSON.stringify({prev:i.prev, rev:i.rev, hay:i.hay, local:i.local}));
+       const c=i.capa||{};
+       exige(!!i.capa && c.n===1 && c.rol==='dialog' && c.texto===TXT_O && c.boton==='🔄 Actualizar ahora' && c.pvRecarga===false && i.quitada, 'INVENTARIO: la capa #capaCaducadaInv no tiene el texto, el botón o la forma acordados: '+JSON.stringify(c));
+       exige(!!i.capa && i.zVB!==null && c.z<i.zVB, 'INVENTARIO: la capa debe ir por debajo de #versionBlock: '+JSON.stringify({z:c.z, zVB:i.zVB}));
+     }
+     exige(bI()-nI0===0, 'INVENTARIO: se intentó escribir ('+(bI()-nI0)+')');
+   }
+   // El código (texto): el guardado que ocurra pasa, la vigilancia arranca solo fuera de prueba, y TÉCNICOS solo avisa
+   const leer=async f=>{ try{ const x=await fetch(f,{cache:'no-store'}); return x.ok ? await x.text() : ''; }catch(e){ return ''; } };
+   const sinCom=t=>t.split('\n').map(l=>l.replace(/\/\/.*$/,'')).join('\n');
+   const fx=(t,n)=>{ const k=t.search(new RegExp('\\n(async\\s+)?function\\s+'+n+'\\s*\\(')); if(k<0) return ''; const j=t.indexOf('\n}', k+1); return sinCom(t.slice(k+1, j<0 ? k+8000 : j)); };
+   const fxT=(t,n)=>{ const k=t.search(new RegExp('\\n(async\\s+)?function\\s+'+n+'\\s*\\(')); if(k<0) return ''; const resto=t.slice(k+1), j=resto.search(/\n(async\s+)?function\s/); return sinCom(j<0 ? resto.slice(0,8000) : resto.slice(0,j)); };
+   const [tO, tI, tT]=(await Promise.all(['OFICINAS_PTOVISION.html','INVENTARIO_PTOVISION.html','TECNICOS_PTOVISION.html'].map(leer))).map(t=>t.replace(/\r/g,''));
+   if(exige(!!tO && !!tI && !!tT, 'No se pudo leer el código de OFICINAS, INVENTARIO o TÉCNICOS')){
+     exige(['_saveReal','_pestanaDesactualizada'].every(n=>{ const c=fx(tO,n); return !!c && !/_caducadaOfi|_capaCaducadaPuestaOfi|_CARGA_MS_OFI|_revisarCaducadaOfi/.test(c); }), 'OFICINAS: la guarda de 24 h no puede frenar _saveReal ni ir en _pestanaDesactualizada (el guardado que ocurra debe pasar; la sincronización y el rastreador no se apagan)');
+     const vig=fx(tO,'_vigilarCaducadaOfi');
+     exige(/if\(MODO_PRUEBA \|\| window\._caducadaOfiVigilando\) return;/.test(vig) && /setInterval\(revisar, 60000\)/.test(vig) && /visibilitychange/.test(vig) && /'focus'/.test(vig) && fx(tO,'enterApp').indexOf('_vigilarCaducadaOfi()')>=0,
+       'OFICINAS: la revisión de más de un día debe arrancar en enterApp (no en modo prueba) y repetirse cada 60 s, al volver a la vista y al enfocar');
+     const esp=fx(tO,'_esperaCaducadaOfi'); exige(['_estaEscribiendo()','_ocupadoRecargaOfi()','_formularioRecargaOfi()','pvCheckCapa','pvBuzonCapa'].every(x=>esp.indexOf(x)>=0), 'OFICINAS: _esperaCaducadaOfi no mira todo lo acordado (escribiendo o ventana abierta, guardado, formulario, «Antes de llamar», buzón)');
+     exige(['_ejecutarSaveInv','_fbSaveCore','_pantallaViejaInv'].every(n=>{ const c=fx(tI,n); return !!c && !/_caducadaInv|_cargaMsInv|capaCaducadaInv|_revisarCaducidadInv/.test(c); }), 'INVENTARIO: la guarda de 24 h no puede frenar el guardado ni la versión vieja (el guardado que ocurra debe pasar)');
+     exige(/if\(!MODO_PRUEBA && !_ignorarVersionInv\(\)\)\{\s*try\{\s*setInterval\(_revisarCaducidadInv, 60000\);\s*document\.addEventListener\('visibilitychange'/.test(sinCom(tI)) && /window\.addEventListener\('focus'/.test(sinCom(tI)),
+       'INVENTARIO: la revisión de más de un día debe quedar apagada en modo prueba y con ?ignorarVersion, y repetirse cada 60 s, al volver a la vista y al enfocar');
+     // TÉCNICOS: la función pura, evaluada aparte, y la franja
+     let cT=null; try{ const f=fx(tT,'_caducadaTec'); cT=f ? new Function('return ('+f+'\n})')() : null; }catch(e){ cT=null; }
+     const D=86400000, A=Date.now();
+     exige(!!cT && cT(1,1+D)===false && cT(1,2+D)===true && cT(A-25*3600000,A)===true && cT(A-23*3600000,A)===false && cT('1',A)===false && cT(NaN,A)===false && cT(A,undefined)===false,
+       'TÉCNICOS: _caducadaTec no da «más de 24 h» en los bordes (24 h justas no; un milisegundo más sí; un dato que no es número, no)');
+     const pinta=fxT(tT,'_pintarCargaViejaTec');
+     exige([/_avisoCargaViejaActivoTec\(\)/, /_bloqueoVersionTec!==true/, /_caducadaTec\(_CARGA_MS_TEC, Date\.now\(\)\)/, /getElementById\('list'\)/, /\['colaFinTec','emergBanner'\]/, /insertBefore\(b, ref\|\|lista\)/].every(x=>x.test(pinta))
+       && !/modal-bg|position:\s*fixed|showToast/.test(pinta), 'TÉCNICOS: el aviso #avisoCargaViejaTec debe ser una franja antes de #list (como #colaFinTec), oculta con el aviso de versión nueva; no una ventana, ni fija arriba, ni un toast');
+     exige(pinta.indexOf('La app lleva más de un día abierta. Cuando termines lo que estás haciendo y tengas señal, toca «Recargar».')>=0 && pinta.indexOf("' Tienes '+n+' por enviar: no se pierden.'")>=0, 'TÉCNICOS: el texto del aviso no es el acordado');
+     exige(/return !MODO_PRUEBA_TEC && !_ignorarVersionTec\(\);/.test(fxT(tT,'_avisoCargaViejaActivoTec')), 'TÉCNICOS: el aviso debe quedar apagado en modo prueba y con ?ignorarVersion');
+     const rec=fxT(tT,'_recargarCargaViejaTec'), mo=fxT(tT,'_motivoEsperaRecargaTec'), iMo=rec.indexOf('_motivoEsperaRecargaTec()'), iRep=rec.indexOf('location.replace(');
+     exige(iMo>=0 && iRep>iMo && /new window\.URL\(/.test(rec) && !/(^|[^.\w])new\s+URL\s*\(/.test(rec) && /navigator\.onLine===false/.test(mo) && /_ocupadoTec\(\)/.test(mo) && /_formularioAbiertoTec\(\)/.test(mo),
+       'TÉCNICOS: «Recargar» solo debe recargar con señal, sin nada guardándose ni enviándose y sin una ventana abierta, conservando los parámetros');
+     exige(fxT(tT,'_formularioAbiertoTec').indexOf('avisoCargaViejaTec')<0 && !/_caducadaTec|_CARGA_MS_TEC/.test(fxT(tT,'_guardaEscrituraTec')), 'TÉCNICOS: la franja no debe frenar la recarga automática ni las escrituras (solo avisa)');
+     const vt=fxT(tT,'_vigilarCargaViejaTec');
+     exige(/setInterval\([\s\S]*?,\s*60000\)/.test(vt) && /visibilitychange/.test(vt) && fxT(tT,'enterApp').indexOf('_vigilarCargaViejaTec()')>=0, 'TÉCNICOS: el aviso debe revisarse cada 60 s y al volver a la vista, desde enterApp');
+   }
+   exige(bO()-nO0===0, 'OFICINAS: se intentó escribir ('+(bO()-nO0)+')');
+   const bien=!fallas.length;
+   return {ok:bien, detalle: bien
+     ? '«Más de 24 h» en los bordes (24 h justas todavía no; un milisegundo más sí; sin hora de carga, no) en INVENTARIO, OFICINAS y TÉCNICOS ✓'
+      +'\nCon la carga simulada de hace 25 h y la pantalla quieta, la capa sale en INVENTARIO y OFICINAS; con una ventana abierta, alguien tecleando o un guardado en curso (o por salir), espera ✓'
+      +'\nLa capa dice «Esta pantalla lleva más de un día abierta…» con «🔄 Actualizar ahora», va por debajo del aviso de versión nueva y sin la clase de recarga.js; en modo prueba no sale ni se programa ✓'
+      +'\nNo frena el guardado (el que ocurra pasa) ni va en _pestanaDesactualizada; se revisa cada 60 s, al volver a la vista y al enfocar ✓'
+      +'\nTÉCNICOS (leído): solo una franja antes de la lista, que «Recargar» respeta la señal, lo que se está guardando o enviando y las ventanas abiertas; no frena escrituras ni la recarga automática ✓'
+     : 'Fallan:\n· '+fallas.join('\n· ').replace(/</g,'&lt;')};}},
 {app:'red', titulo:'Buzón v318: RED tiene el botón Ideas y su pegamento',
  porque:'RED v42 (30 sep 2026). El buzón se abre desde la barra lateral («💡 Ideas»; en el celular la barra pasa a una fila deslizable con esa etiqueta). '
        +'El técnico entra a RED con su cédula y la sesión la conserva (USER.doc): esa cédula nunca puede ir al buzón, porque la colección se lee sin '
@@ -7128,6 +7718,144 @@ const PRUEBAS = [
       +'\nLos marcos de INVENTARIO, OFICINAS y RED siguen en ?prueba=1, con recarga.js quieto en «prueba» ✓'
       +'\nTÉCNICOS (leído): arranca con MODO_PRUEBA_TEC, muestra la franja con una ventana abierta, avisa que lo finalizado quedó en el celular, y devolución, gasto y bandeja no cierran ni escriben con la versión vieja ✓'
       +'\nRED: tiene su documento de versión, no lo anuncia en modo prueba ni desde una copia local (aquí no intentó escribir) y no empieza a guardar con la versión vieja ✓'
+     : 'Fallan:\n· '+fallas.join('\n· ').replace(/</g,'&lt;')};}},
+{app:'red', titulo:'Etapa 6 · Ninguna app late en modo prueba y el latido arranca solo tras iniciar sesión',
+ porque:'Etapa 6 (docs/12). En PRUEBAS.html nadie inicia sesión y las apps se abren con ?prueba=1: un latido que arrancara al cargar la página, o '
+       +'que intentara escribir en modo prueba, sumaría intentos bloqueados (muchas pruebas exigen que no crezcan) y, desde una copia de prueba, '
+       +'escribiría en la base de verdad. Por eso el latido arranca solo después de iniciar sesión (enterApp en INVENTARIO, OFICINAS y TÉCNICOS; '
+       +'_montarAppRed en RED), cada app mira su modo prueba ANTES del set, escribe siempre un set con merge sobre oficinas_sistema/sesiones_vivas '
+       +'(nunca en main ni en inventario/datos, que escuchan todas las pantallas; nunca un oyente, por la cuota) y TÉCNICOS deja pasar el latido aunque '
+       +'la pantalla sea vieja (justo esas hay que ver), pero no en modo prueba. Los marcos abiertos solo se miran (USER, la sede y la pestaña se '
+       +'restauran); TÉCNICOS se lee como texto; pantallas.js corre aparte con un navegador falso. Nada se escribe.',
+ correr:async W=>{
+   const leer=async f=>{ try{ const x=await fetch(f,{cache:'no-store'}); return x.ok ? await x.text() : ''; }catch(e){ return ''; } };
+   const fallas=[]; const exige=(c, txt)=>{ if(!c) fallas.push(txt); return !!c; };
+   const sinCom=t=>t.split('\n').map(l=>l.replace(/\/\/.*$/,'')).join('\n'), cuenta=(t,s)=>t.split(s).length-1;
+   const CED='1117000999', TEL='3101234567', COMPLETO='JUAN CARLOS PEREZ GOMEZ';
+   const resultado=fn=>new Promise(ok=>{ const t=setTimeout(()=>ok('sin respuesta en 8 s'),8000); let p; try{ p=Promise.resolve(fn()); }catch(e){ p=Promise.reject(e); } p.then(()=>{ clearTimeout(t); ok('resolvió'); }, e=>{ clearTimeout(t); ok(String((e&&e.message)||e)); }); });
+   // 1. Las cuatro apps cargan el mismo pantallas.js?v=N, con su comentario y sin copiarlo; la página de firma no lo carga
+   const A=[{k:'INVENTARIO', archivo:'INVENTARIO_PTOVISION.html'}, {k:'OFICINAS', archivo:'OFICINAS_PTOVISION.html'}, {k:'TÉCNICOS', archivo:'TECNICOS_PTOVISION.html'}, {k:'RED', archivo:'RED_PTOVISION.html'}, {k:'FIRMA', archivo:'FIRMA_SST.html'}];
+   const textos=(await Promise.all(A.map(a=>leer(a.archivo)))).map(t=>t.replace(/\r/g,''));
+   const noLeidos=A.filter((a,i)=>!textos[i]).map(a=>a.archivo);
+   if(noLeidos.length) return {ok:false, detalle:'No se pudo leer '+noLeidos.join(', ')+'.'};
+   const RE_TAG=new RegExp('<scr'+'ipt[^>]*\\ssrc="pantallas\\.js\\?v=(\\d+)"[^>]*>','g'), COMENT='<!'+'-- Pantallas abiertas (latido), compartido: editar pantallas.js, no copiarlo aquí -'+'->';
+   const vs=[];
+   A.slice(0,4).forEach((a,i)=>{ const t=textos[i], tags=[...t.matchAll(RE_TAG)]; vs.push(tags.length===1 ? tags[0][1] : '');
+     exige(tags.length===1, a.k+': trae '+tags.length+' etiquetas <script src="pantallas.js?v=N"> (debe ser 1)');
+     const iC=t.indexOf(COMENT); exige(iC>=0 && !!tags[0] && /^\s*$/.test(t.slice(iC+COMENT.length, tags[0].index)), a.k+': falta el comentario «Pantallas abiertas (latido), compartido: editar pantallas.js, no copiarlo aquí» justo antes de la etiqueta');
+     exige(!/global\.PV_PANTALLAS\s*=|var\s+PV_PANTALLAS\s*=|PV_PANTALLAS\s*=\s*\{/.test(t), a.k+': trae una copia del código de pantallas.js (debe cargarlo, no copiarlo)'); });
+   const N=vs[0]; exige(!!N && vs.every(v=>v===N), 'Las cuatro apps no cargan el mismo pantallas.js?v=N: '+A.slice(0,4).map((a,i)=>a.k+' '+(vs[i]||'ninguno')).join(' · '));
+   exige(textos[4].indexOf('pantallas.js')<0, 'FIRMA_SST.html no debe cargar pantallas.js: es la página pública del celular, sin sesión (y su prueba exige como mucho 3 scripts)');
+   const src=N ? (await leer('pantallas.js?v='+N)).replace(/\r/g,'') : '';
+   if(!src || src.indexOf('PV_PANTALLAS')<0) return {ok:false, detalle:'pantallas.js?v='+(N||'?')+' no existe o no trae PV_PANTALLAS.\n· '+fallas.join('\n· ').replace(/</g,'&lt;')};
+   exige(!/\bdb\s*\.\s*(collection|doc)\s*\(|\bfsDB\b|\bfirebase\s*\.|\bDB\s*\.|\bUSER\b|\bTEC\s*\.|\bsetInterval\s*\(/.test(sinCom(src)), 'pantallas.js usa la base, DB, USER, TEC o un setInterval: todo le llega por el adaptador op, con un solo temporizador');
+   exige(!/[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/.test(src), 'pantallas.js trae caracteres invisibles o bidireccionales escritos tal cual (pueden esconder código)');
+   // 2. El arranque: una sola vez y solo con la sesión iniciada
+   const [tI, tO, tT, tR]=textos;
+   const fx=(t,n)=>{ const i=t.search(new RegExp('\\n(async\\s+)?function\\s+'+n+'\\s*\\(')); if(i<0) return ''; const j=t.indexOf('\n}', i+1); return sinCom(t.slice(i+1, j<0 ? i+8000 : j)); };
+   const fT=n=>{ const i=tT.search(new RegExp('\\n(async\\s+)?function\\s+'+n+'\\s*\\(')); if(i<0) return ''; const resto=tT.slice(i+1), j=resto.search(/\n(async\s+)?function\s/); return sinCom(j<0 ? resto.slice(0,8000) : resto.slice(0,j)); };
+   [['INVENTARIO', tI, fx(tI,'enterApp')], ['OFICINAS', tO, fx(tO,'enterApp')], ['TÉCNICOS', tT, fT('enterApp')]].forEach(([k, t, ea])=>{
+     const todo=cuenta(sinCom(t),'PV_PANTALLAS.iniciar('), dentro=cuenta(ea,'PV_PANTALLAS.iniciar(');
+     exige(todo===1 && dentro===1, k+': el latido debe arrancar UNA vez y solo en enterApp, con la sesión iniciada (hay '+todo+'; en enterApp '+dentro+')'); });
+   const dl=fT('doLogin'); exige(dl.indexOf('initFB()')>=0 && dl.indexOf('enterApp()')>dl.indexOf('initFB()') && fT('initFB').indexOf('_instalarGuardasTec();')>=0, 'TÉCNICOS: el latido debe arrancar después de las guardas del modo prueba (_instalarGuardasTec en initFB, antes de enterApp)');
+   const iniT=tT.indexOf('const _ING_TIPOS_TEC='), finT=tT.indexOf('function modalCambiarClave('), tramo=(iniT>=0 && finT>iniT) ? tT.slice(iniT, finT) : '';
+   exige(!!tramo && tramo.indexOf('sesiones_vivas')<0 && tramo.indexOf('PV_PANTALLAS')<0 && tT.indexOf('iniciarEscuchaVersionTec(); iniciarEscuchaMantenimiento();')>=0, 'TÉCNICOS: el latido no puede ir dentro del tramo protegido de «Antes de llamar al ingeniero» ni entre las dos escuchas del arranque');
+   const mon=fx(tR,'_montarAppRed'), latR=fx(tR,'_iniciarLatidoRed'), llamadas=(sinCom(tR).match(/(^|[^\w])_iniciarLatidoRed\(\)\s*;/g)||[]).length;
+   exige(llamadas===1 && mon.indexOf('_iniciarLatidoRed()')>=0 && (mon.indexOf('return')<0 || mon.indexOf('_iniciarLatidoRed()')<mon.indexOf('return')), 'RED: el latido debe arrancar UNA vez, arriba de _montarAppRed (antes del return del técnico)');
+   exige(/\bP\.iniciar\(\{\s*app:'RED',\s*modoPrueba:\s*MODO_PRUEBA\b/.test(latR) && /typeof USER==='undefined' \|\| !USER\) return;/.test(latR) && (sinCom(tR).match(/\bP\.iniciar\(\{\s*app:'RED'/g)||[]).length===1 && cuenta(sinCom(tR),'PV_PANTALLAS.iniciar(')===0,
+     'RED: _iniciarLatidoRed debe arrancar pantallas.js con MODO_PRUEBA y solo con sesión');
+   [tI, tO, tT, tR].forEach((t,i)=>exige(!/setInterval\([^;]*(PV_PANTALLAS|latir|_iniciarLatido|_pantallasOp)/.test(sinCom(t)), A[i].k+': el latido no puede ir en un setInterval suelto (correría sin sesión y en PRUEBAS)'));
+   // 3. Modo prueba ANTES del set, siempre un set con merge sobre oficinas_sistema/sesiones_vivas, sin pasar por el envoltorio
+   const segI=(()=>{ const t=sinCom(tI), i=t.indexOf('window._fbLatidoInv = {'), j=t.indexOf('async leer(', i); return (i<0 || j<0) ? '' : t.slice(i, j); })();
+   exige(tI.indexOf("const _RUTA_LATIDO_INV='oficinas_sistema/sesiones_vivas';")>=0, 'INVENTARIO: el latido no va a oficinas_sistema/sesiones_vivas');
+   [['INVENTARIO', segI, /if\(MODO_PRUEBA\) return Promise\.reject\(/, /setDoc\(doc\(fsDB, _RUTA_LATIDO_INV\), datos, \{merge:true\}\)/],
+    ['OFICINAS', (fx(tO,'_pantallasOpOfi').split('escribir:')[1]||'').split('leer:')[0], /if\(MODO_PRUEBA\) return Promise\.reject\(/, /db\.collection\('oficinas_sistema'\)\.doc\('sesiones_vivas'\)\.set\(datos, \{merge:true\}\)/],
+    ['TÉCNICOS', fT('_latidoEscribirTec'), /if\(MODO_PRUEBA_TEC\) return Promise\.reject\(/, /db\.collection\('oficinas_sistema'\)\.doc\('sesiones_vivas'\)\.set\(datos, \{ merge:true \}\)/],
+    ['RED', fx(tR,'_escribirLatidoRed'), /if\(MODO_PRUEBA\) return Promise\.reject\(/, /db\.collection\('oficinas_sistema'\)\.doc\('sesiones_vivas'\)\.set\(\{ sesiones:t\.sesiones \}, \{merge:true\}\)/]
+   ].forEach(([k, c, reG, reS])=>{ const iG=c.search(reG), iS=c.search(reS);
+     exige(iG>=0 && iS>iG, k+': el latido debe mirar el modo prueba ANTES de escribir, y escribir un set con merge sobre oficinas_sistema/sesiones_vivas');
+     exige(!/_setDoc\(|\.update\(|mergeFields/.test(c), k+': el latido no puede pasar por el envoltorio de escrituras (_setDoc: contaría «en vuelo» y se frenaría por versión), ni usar update o mergeFields'); });
+   [tI, tO, tT, tR].forEach((t,i)=>{ const s=sinCom(t);
+     exige(!/sesiones_vivas'\)\s*\.\s*(update|onSnapshot|delete)\s*\(|(onSnapshot|updateDoc|deleteDoc)\([^)]*(sesiones_vivas|_RUTA_LATIDO_INV)/.test(s), A[i].k+': oficinas_sistema/sesiones_vivas solo se escribe con set merge y se lee con get (sin oyente, por la cuota)');
+     if(i>0) exige(!/\bdb\.doc\(/.test(s), A[i].k+': usa db.doc(…), que el modo prueba no cubre: debe ir por db.collection(…).doc(…)'); });
+   // 4. TÉCNICOS: el latido pasa con la pantalla vieja y no cuenta «en vuelo», pero en modo prueba se bloquea como todo
+   const pr=fT('_protegerRefTec'), gu=fT('_guardaEscrituraTec');
+   exige(pr.indexOf("String(r.path||'')==='oficinas_sistema/sesiones_vivas'")>=0 && /a\[1\]\.merge===true/.test(pr) && /_guardaEscrituraTec\(m, r\.path\|\|r\.id, lat\)/.test(pr) && /lat \? orig\.apply\(r, a\) : _contarEscrituraTec\(/.test(pr),
+     'TÉCNICOS: _protegerRefTec debe dejar pasar el latido (solo un set merge sobre sesiones_vivas) sin el freno de versión vieja y sin contarlo «en vuelo»');
+   exige(/^function _guardaEscrituraTec\(que, ruta, esLatido\)\{\s*if\(MODO_PRUEBA_TEC\)\{\s*_bloquearTec\(que, ruta\);\s*return Promise\.resolve\(\);\s*\}\s*if\(_pantallaViejaTec\(\) && esLatido!==true\)/.test(gu),
+     'TÉCNICOS: en modo prueba el latido debe bloquearse como todo lo demás; solo el freno de versión vieja lo exceptúa');
+   // 5. Nada en main ni en inventario/datos, y sin datos personales (texto)
+   const latI=(()=>{ const t=sinCom(tI), i=t.indexOf('window._fbLatidoInv = {'), j=t.indexOf('window._pantallasOpInv = function', i); return (i<0 || j<0) ? '' : t.slice(i, j+1500); })();
+   const NO_MAIN=/doc\('main'\)|DOC_ID|COLECCION|inventario\/datos|'datos'\)|_setDoc\(|\.update\(/;
+   [['INVENTARIO', latI], ['OFICINAS', fx(tO,'_pantallasOpOfi')+fx(tO,'_pantallasNombreOfi')], ['TÉCNICOS', fT('_latidoEscribirTec')+fT('_latidoLeerTec')+fT('_pantallasOpTec')],
+    ['RED', fx(tR,'_escribirLatidoRed')+fx(tR,'_leerLatidosRed')+fx(tR,'_datosLatidoRed')+fx(tR,'_iniciarLatidoRed')]].forEach(([k, c])=>exige(c.length>200 && !NO_MAIN.test(c), k+': el latido no puede tocar main ni inventario/datos (todas las pantallas los escuchan)'));
+   const opT=fT('_pantallasOpTec'), dR=fx(tR,'_datosLatidoRed');
+   exige(/PV_PANTALLAS\.primerNombre\(String\(TEC\.nombre/.test(opT) && !/TEC\.documento|cedula|telefono/i.test(opT), 'TÉCNICOS: del técnico debe ir SOLO el primer nombre, nunca la cédula ni el nombre completo');
+   exige(/primerNombre\(/.test(dR) && !/u\.doc\b|USER\.doc\b|cedula|telefono/i.test(dR), 'RED: del técnico debe ir solo el primer nombre, nunca su cédula (USER.doc)');
+   // 6. Los marcos abiertos de esta tanda: pantallas.js cargado y quieto (nadie inició sesión), y su escritura rechaza en modo prueba sin intentarlo
+   const esperados={'INVENTARIO_PTOVISION.html':'INVENTARIO','OFICINAS_PTOVISION.html':'OFICINAS','RED_PTOVISION.html':'RED'}, ventanas={};
+   [...document.querySelectorAll('#marcos iframe')].forEach(f=>{ const k=esperados[(f.getAttribute('src')||'').split('?')[0]]; if(k){ try{ ventanas[k]=f.contentWindow; }catch(e){} } });
+   const parche={sesiones:{pzzzzzzzzzzzz:{app:'RED', v:1}}};
+   for(const k of Object.values(esperados)){ const w=ventanas[k];
+     if(!exige(!!w, k+': no hay un marco abierto para mirarlo')) continue;
+     let e=null; try{ e=w.PV_PANTALLAS ? w.PV_PANTALLAS.estado() : null; }catch(x){ e=null; }
+     if(exige(!!e, k+': el marco no tiene PV_PANTALLAS (no cargó pantallas.js)'))
+       exige(e.n===0 && e.iniciado===false && e.clave==='' && /(^\?|&)prueba=1(&|$)/.test(w.location.search), k+': en modo prueba y sin sesión no debe haber latido: '+JSON.stringify(e));
+     const s=w.document.querySelector('script[src^="pantallas.js"]'); exige(!!s && s.getAttribute('src')==='pantallas.js?v='+N, k+': no tiene cargado pantallas.js?v='+N);
+     exige(!w.DB || (!Object.prototype.hasOwnProperty.call(w.DB, 'sesiones') && !Object.prototype.hasOwnProperty.call(w.DB, 'sesiones_vivas')), k+': el latido metió algo en DB (iría a main o a inventario/datos)');
+     const b0=(w._escriturasBloqueadas||[]).length;
+     const rr=await resultado(()=>k==='INVENTARIO' ? w._fbLatidoInv.escribir(parche) : (k==='OFICINAS' ? w._pantallasOpOfi().escribir(parche) : w._escribirLatidoRed(parche)));
+     exige(/modo prueba/i.test(rr) && (w._escriturasBloqueadas||[]).length===b0, k+': en modo prueba el latido debe rechazar ANTES del set, sin sumar intentos bloqueados ('+rr+')');
+   }
+   // 7. Lo que dicen los latidos de OFICINAS y RED (USER, la sede y la pestaña se restauran)
+   if(ventanas.OFICINAS){ let d=null;
+     try{ d=E(ventanas.OFICINAS, 'const u=USER, ss0=sessionStorage.getItem("pv_pestana");'
+       +'try{ const o=(DB.oficinas||[]).find(x=>x && x.id && x.nombre) || {id:"of_prueba_e6", nombre:"OFICINA PRUEBA"}; const op=_pantallasOpOfi();'
+       +'  USER={role:"oficina", id:o.id, nombre:o.nombre, cedula:"'+CED+'", telefono:"'+TEL+'"}; const dO=op.datos();'
+       +'  USER={role:"admin", nombre:"Administrador"}; const dA=op.datos(); USER={role:"sgsst", nombre:"MARIA FERNANDA LOPEZ"}; const dS=op.datos();'
+       +'  return {ofi:String(o.nombre), dO, dA, dS, v:APP_VERSION, mp:op.modoPrueba, app:op.app};'
+       +'} finally { USER=u; if(ss0===null) sessionStorage.removeItem("pv_pestana"); else sessionStorage.setItem("pv_pestana", ss0); }'); }
+     catch(x){ d={error:String((x&&x.message)||x).slice(0,200)}; }
+     const j=JSON.stringify(d||{});
+     exige(!!d && !d.error && d.app==='OFI' && d.mp===true && d.dO.nombre===d.ofi && d.dO.rol==='oficina' && d.dO.v===d.v && typeof d.dO.vieja==='boolean' && d.dA.nombre==='Admin' && d.dS.nombre==='SG-SST'
+       && j.indexOf(CED)<0 && j.indexOf(TEL)<0 && j.indexOf('FERNANDA')<0, 'OFICINAS: el latido debe decir la oficina, «Admin» o «SG-SST», con su rol y su versión, sin datos de la persona: '+j.slice(0,400));
+   }
+   if(ventanas.RED){ let d=null;
+     try{ d=E(ventanas.RED, 'const u=USER, s=SEDE, ss0=sessionStorage.getItem("red_sesion_id");'
+       +'try{ SEDE=null; USER={role:"tecnico", id:"t_prueba_e6", nombre:"'+COMPLETO+'", doc:"'+CED+'", sede:"DONCELLO"}; const dT=_datosLatidoRed();'
+       +'  USER={role:"admin", nombre:"Administrador"}; const dA=_datosLatidoRed(); USER=null; let sin=""; try{ _datosLatidoRed(); }catch(e){ sin=String(e.message); }'
+       +'  return {dT, dA, sin, v:APP_VERSION_RED};'
+       +'} finally { USER=u; SEDE=s; if(ss0===null) sessionStorage.removeItem("red_sesion_id"); else sessionStorage.setItem("red_sesion_id", ss0); }'); }
+     catch(x){ d={error:String((x&&x.message)||x).slice(0,200)}; }
+     const Pw=ventanas.RED.PV_PANTALLAS, eT=(d && !d.error && Pw) ? Pw.entrada(Object.assign({app:'RED'}, d.dT), Date.now()) : null, eA=(d && !d.error && Pw) ? Pw.entrada(Object.assign({app:'RED'}, d.dA), Date.now()) : null;
+     const j=JSON.stringify([d, eT]);
+     exige(!!eT && eT.nombre==='DONCELLO · Juan' && eT.rol==='tecnico' && eT.v===d.v && !!eA && eA.nombre==='Admin' && d.sin==='sin sesión' && j.indexOf(CED)<0 && j.indexOf('CARLOS')<0,
+       'RED: el latido del técnico debe decir la sede y su primer nombre («DONCELLO · Juan»), sin su cédula; sin sesión no late: '+j.slice(0,400));
+   }
+   // 8. pantallas.js aparte: en modo prueba no programa, no lee ni escribe; los tiempos del banco solo valen en una copia local
+   const S=await pantallasAparte(W);
+   if(exige(!!S, 'No se pudo evaluar pantallas.js aparte')){
+     let lect=0, escr=0;
+     const op={app:'RED', modoPrueba:true, entornoLocal:false, datos:()=>({v:44, rol:'admin', nombre:'Admin', sesion:'se_x'}), leer:()=>{ lect++; return Promise.resolve(null); }, escribir:()=>{ escr++; return Promise.resolve(); }};
+     const e1=S.P.iniciar(op), T1=S.T.length, l1=await S.P.latir(); await S.esperar();
+     exige(e1.ultimoError==='modo prueba' && e1.n===0 && e1.iniciado===false && T1===0 && l1===false && lect===0 && escr===0 && S.T.length===0,
+       'pantallas.js en modo prueba debe quedarse quieto (sin temporizador, sin leer ni escribir): '+JSON.stringify({e1, T1, l1, lect, escr}));
+     const S2=await pantallasAparte(W), e2=S2 ? S2.P.iniciar(Object.assign({}, op, {modoPrueba:()=>{ throw new Error('no se sabe'); }})) : null;
+     exige(!!e2 && e2.ultimoError==='modo prueba' && S2.T.length===0, 'Si no se puede saber si es modo prueba, pantallas.js debe tratarlo como prueba');
+     const tiempoCon=async local=>{ const S3=await pantallasAparte(W); if(!S3) return null; S3.g.__PV_LATIDO_PRUEBA={visibleMs:1000, ocultaMs:2000, primeroMs:0};
+       S3.P.iniciar({app:'OFI', modoPrueba:false, entornoLocal:local, datos:()=>({v:320, rol:'admin', nombre:'Admin', sesion:'s'}), leer:()=>Promise.resolve(null), escribir:()=>Promise.resolve()});
+       await S3.turno(); const ms=S3.T.length===1 ? S3.T[0].ms : null; S3.P.detener(); return ms; };
+     const msPub=await tiempoCon(false), msLoc=await tiempoCon(true);
+     exige(msPub>295000 && msPub<=300000 && msLoc>0 && msLoc<=1000, 'Los tiempos del banco de pruebas (__PV_LATIDO_PRUEBA) solo deben valer en una copia local: '+msPub+' / '+msLoc);
+   }
+   const bien=!fallas.length;
+   return {ok:bien, detalle: bien
+     ? 'Las cuatro apps cargan pantallas.js?v='+N+' una sola vez, con su comentario y sin copiarlo; la página de firma no lo carga; pantallas.js no conoce la base, DB, USER ni TEC ✓'
+      +'\nEl latido arranca una sola vez y solo con la sesión iniciada: enterApp en INVENTARIO, OFICINAS y TÉCNICOS (después de sus guardas y fuera del tramo protegido), arriba de _montarAppRed en RED; nunca en un setInterval suelto ✓'
+      +'\nLas cuatro miran su modo prueba ANTES del set y escriben siempre un set con merge sobre oficinas_sistema/sesiones_vivas, sin el envoltorio de escrituras, sin update, sin oyente y sin db.doc; nada en main ni en inventario/datos ✓'
+      +'\nTÉCNICOS deja pasar el latido con la pantalla vieja y sin contarlo «en vuelo», pero en modo prueba lo bloquea; del técnico va solo el primer nombre (también en RED: «DONCELLO · Juan») ✓'
+      +'\nEn los marcos de esta tanda (?prueba=1, sin sesión) ninguna pantalla latió y su escritura rechaza sin intentar nada; OFICINAS dice la oficina, «Admin» o «SG-SST» ✓'
+      +'\npantallas.js en modo prueba no programa, no lee ni escribe (y ante la duda es prueba); los tiempos acelerados del banco solo valen en una copia local ✓'
      : 'Fallan:\n· '+fallas.join('\n· ').replace(/</g,'&lt;')};}},
 {app:'red', titulo:'Nada se escribió durante las pruebas',
  porque:'Las pruebas corren sobre los datos de verdad. Si alguna escribiera, dañaría justo lo que '
