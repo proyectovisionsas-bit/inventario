@@ -166,6 +166,8 @@ Un espacio de más crea otra fila. La bodega pide borrarla cuando queda vacía, 
 3. Seriales: aplicar solo los que el admin **desmarcó** (quitar). No volver a poner los que ya no están.
 4. Revisar el mismo patrón (cierre que captura `m` / `b` / `cu` y aplica valores absolutos) en las demás ventanas que mueven stock: editar artículo, entregar, trasladar, vender, cambio de equipo y retiro en la ficha del cliente, devolución. Escribir una prueba por cada una que se corrija.
 
+> **Adelantado en la Etapa 2 (11 oct 2026):** los pasos 1 y 2 ya están hechos para «Corregir Cantidades» (la revisión adversaria lo pidió para que su lápida no borrara material), y R7 y R7b pasan. Queda el paso 4: las demás ventanas. Ver §11.
+
 ### Etapa 5 — «Un serial, un sitio» al escribir (riesgo medio)
 
 1. En las transacciones que **agregan** seriales a una bodega o cuadrilla (entrega, traslado, devolución, integrar, corrección), verificar **con los datos frescos** que el serial no esté en otro sitio ni en un consumo confirmado.
@@ -699,3 +701,279 @@ Lo que los correctores dejaron sin hacer y sigue siendo cierto, y los dudosos qu
 7. **La 6b** (reglas de Firestore que rechacen versiones viejas) sigue opcional y con Elkin: el latido no la reemplaza, solo deja ver las pantallas.
 
 Resuelto en la revisión: INVENTARIO ya no sigue latiendo después de cerrar sesión (`PV_PANTALLAS.detener()` en su `doLogout`).
+
+## 11. Etapa 2 — lo que se hizo (sin publicar)
+
+Hecho el 10 y 11 oct 2026 sobre lo publicado en `1b8a06b` (OFICINAS v320, INVENTARIO v115, TÉCNICOS v101, RED v44), a pedido de Elkin: «publica etapa 6, apenas termines inicia etapa 2». **No está publicado** y la versión no se subió: al publicar, INVENTARIO pasa a 116 (la línea de siempre). Las pruebas no escribieron nada en la base real.
+
+Las tres partes del §5 (C1, C2 y C3) se hicieron por separado, en ese orden, sobre el mismo archivo. Después, el mismo 11 oct, una revisión adversaria en dos pasadas encontró fallas y se corrigieron (ver «Revisión adversaria», más abajo). Lo que sigue es lo que quedó al final, ya con esos arreglos.
+
+### Qué quedó en cada archivo
+
+| Archivo | Qué cambió |
+|---|---|
+| `INVENTARIO_PTOVISION.html` | Lápidas por fila y «cerrada sin cambios» (C1), decisiones con su efecto, reintentos y «⏳ por subir» (C2), una sola solicitud pendiente por artículo (C3). Tres bloques comentados «Etapa 2 (docs/12, C1/C2/C3)» en el script clásico, después de `_fusion3RegistroInv`, y uno de C2 junto a `_fbSaveCore`. Los arreglos de la revisión llevan el comentario «Revisión del 11 oct 2026» o «Segunda revisión del 11 oct 2026». De paso, la ventana «Corregir Cantidades» ya no trabaja con datos viejos (parte de la Etapa 4: pasan R7 y R7b) |
+| `PRUEBAS.html` | 7 pruebas nuevas (4 de la etapa y 3 de la revisión), el ayudante `e2FotoLS`/`e2RestaurarLS` y 3 pruebas viejas adaptadas (161 en total) |
+| TÉCNICOS, OFICINAS, RED | Sin cambios. No leen `deleteRequests`, `editRequests`, `transfers` ni `inventario/historial`; de `inventario/datos` solo leen `bodegas` y `cuadrillas`. Un campo nuevo de primer nivel en `inventario/datos` no les cambia nada |
+
+### Lápidas por fila (`inventario/datos._tumbasFila`) · C1, prueba R2
+
+**Por qué no en `_tumbas`.** `_tumbaInv` compara solo `col` e `id`: una lápida `{col:'bodegas', id:<bodega>, fila:…}` dentro de `_tumbas` se tomaría por el borrado de la bodega entera, también en las pantallas v112 a v115 que sigan abiertas. Además `_tumbas` se poda a los 15 días y 800 entradas: una pestaña abierta más tiempo resucitaría la fila. Por eso es un campo propio de primer nivel: viaja en el mismo `tx.update` que la fila quitada (borrado y lápida atómicos) y llega en el mismo snapshot que bodegas y cuadrillas.
+
+**Forma:** `{col:'bodegas'|'cuadrillas', id, fila, nom, tipo, en, ult?, por, origen:'aprobacion'|'directo'|'corregir', req, cant, snes, snesN, rep, anulada:null|{motivo, en}}`.
+- `por` es el rol (`USER.role`), nunca un nombre: la base se lee sin autenticación.
+- `cant` y `snes` son la cantidad y los seriales al borrar (en «Corregir», los de antes de corregir); los seriales van normalizados con `_snNormal`, sin rellenos, máximo 60.
+- `ult` solo aparece si se juntaron dos borrados de la misma fila: es la hora del último (ver «Unión»).
+- Ningún campo queda `undefined` ni lleva `serverTimestamp()` (va dentro de un arreglo).
+- `_tumbasFila` no se crea si no hay lápidas en ningún lado, para no provocar escrituras de más.
+
+**Unión** (`_unirTumbasFilaInv`, pura): una por `col|id|fila|nombre|tipo`.
+- `en` es el menor. Los datos (cantidad, seriales, solicitud, origen) son los del borrado más reciente, y su hora queda en `ult`.
+- Una anulación cubre los borrados hasta el suyo, no los que vengan después: si la fila se vuelve a borrar después de anularse, ese borrado nuevo vale. Antes la anulación vieja se lo tragaba por 180 días: la fila no salía y, tras recargar, la solicitud quedaba «aprobada» con el artículo en la bodega.
+- Si varias anulaciones cubren el último borrado, gana la primera por hora.
+- `_crearTumbaFilaInv` pone el borrado nuevo después del `ult` anterior aunque el reloj del equipo vaya atrás.
+- El orden es fijo: unir dos veces da lo mismo, en cualquier orden, y un guardado no reescribe la lista sin motivo (3.008 comprobaciones en `fix2_union_prop.js`).
+
+**Poda** (`_podarTumbasFilaInv`, pura): fuera las de más de 180 días (contados desde el último borrado) y las de registros que ya no existen; tope de 2.000 (las más nuevas). Una colección que no llegó, o llegó vacía, no se poda por existencia: una carga a medias no borra lápidas. La poda de `_tumbas` (15 días / 800) no cambió.
+
+**La regla** (`_aplicarTumbasFilaInv`, pura, devuelve copias): la fila con lápida sale **aunque la otra pantalla le haya cambiado cualquier otro dato** (observaciones, historial, foto, la `categoria` que pone `fixDB`). Eso es R2. Sin lápida, la regla de siempre se queda igual: «una fila quitada en un lado y cambiada en el otro se conserva», que es la que protege lo que una pantalla todavía no subió.
+
+**Excepción: entró material.** Si la fila tiene más cantidad que `cant`, o un serial (normalizado, sin rellenos) que no estaba en `snes`, le entró material mientras se borraba:
+- la fila se conserva y la lápida queda anulada con `motivo:'entró material después del borrado'`;
+- queda una línea en el registro de actividad («El artículo "X" volvió a BODEGA porque le entró material mientras se borraba»), una sola vez por borrado, y un recuadro en la tarjeta 🛡️ Vigilancia (las anuladas de los últimos 30 días);
+- la anulación viaja por la unión: una vez anulada, la lápida no vuelve a quitar la fila aunque después baje el stock (solo un borrado nuevo la vuelve a quitar).
+
+**Contra qué se mide** (`_entroMaterialFilaInv`). Las demás pantallas abiertas tienen la fila con la cantidad de antes del borrado, y una pantalla atrasada (sin señal, o con la pestaña suspendida) puede tener más. Eso no es material que entró. Medirlo contra la lápida anulaba el borrado con un aviso falso, una escritura de más por pantalla y, si esa pantalla había tocado la fila, la devolvía con stock viejo. Por eso:
+- **Lo que viene de la nube** (lo que trae un snapshot), las transacciones y la carga inicial: contra la lápida, como siempre.
+- **La memoria de la pantalla que recibe** (oyente, `_aplicarNubeParcialInv` y guardado), con una lápida que **ya está en la nube** (`_enNubeTFInv`: la que trajo el snapshot tal cual, la recién leída o la de la última bajada, `window._tfNubeInv`): cuenta solo lo que esa pantalla le metió por encima de su base (`window._baseStockInv`, lo último que vio de la nube). Es decir, más cantidad que el mayor entre la lápida y la base, o un serial que no está ni en la lápida ni en la base.
+- **La memoria, con una lápida que solo tiene esta pantalla o el navegador** (la de otra pestaña, la de «Corregir»): contra la lápida. Esa lápida puede ser más vieja que la base, y contra la base el material que entró después no se veía: la fila se quitaba sin aviso (segunda pasada de la revisión).
+- **Al recibir, primero se deciden las anulaciones de las dos pasadas** (la memoria y lo que entra), sin quitar nada, y después se quita. Antes la pasada sobre la memoria podía quitar una fila cuya lápida la otra pasada anulaba; la fusión fina tomaba esa falta como un borrado propio, la fila se perdía y quedaba el aviso de que volvió.
+
+**Cuándo una fila coincide** (`_filaCoincideLapidaInv`): mismo registro y mismo id de fila. Si en ese registro hay más de una fila con ese id (pasa en los datos reales: un grupo de 3 en una bodega y 5 grupos en cuadrillas), además el nombre (mayúsculas, sin tildes, espacios colapsados) y el tipo. Una anulada nunca coincide.
+
+**Dónde se crean:**
+- `approveDelete` aprobada: `origen:'aprobacion'`, `req` = id de la solicitud;
+- `delMat` del admin (borrado directo): `origen:'directo'`;
+- «Corregir Cantidades» de cuadrilla: una por cada fila que quita por quedar en 0 y sin seriales (`origen:'corregir'`). Lleva la cantidad y los seriales que la fila tenía **antes** de corregir (`_antesCorregirTFInv`), no 0: con 0, las demás pantallas abiertas y la nube (hasta que llega el guardado del admin) tenían más y la anulaban con un aviso falso de «le entró material». Una fila que ya estaba en 0 lleva `cant:0` y sin seriales: solo vale mientras siga vacía.
+
+**La ventana «Corregir Cantidades»** (`modalCorregirCantCuad`) ya no corrige objetos viejos (R7 y R7b, de la Etapa 4, pasan ahora):
+- al abrirla guarda una foto de cada fila (id, nombre, tipo, cantidad y seriales);
+- al confirmar trabaja sobre la cuadrilla de AHORA en `DB`. Si la cuadrilla ya no está, se cancela con aviso;
+- cada fila que el admin cambió se busca con `_filaCorrVivaInv`: la misma fila, o la de igual id, nombre y tipo, y solo si conserva la cantidad y los seriales que mostraba la ventana. Si no, se cancela todo: «"X" cambió en la cuadrilla mientras tenías la ventana abierta (entró o salió material). No se corrigió nada. Vuelve a abrir la ventana.»;
+- una fila en 0 que el admin no tocó solo se quita, y solo deja lápida, si en `DB` sigue en 0 y sin seriales;
+- las filas que el admin no tocó no se comparan: si cambian, la corrección de las demás sigue.
+
+**Con ids repetidos sale solo la fila pedida.** `approveDelete` y `delMat` quitaban todas las filas que compartían el id. Ahora quitan solo la que coincide con la lápida. `approveDelete` busca su fila por id y, si el id se repite, por nombre y tipo (`_filaDeSolicitudInv`); si ninguna coincide, se trata como «ya no existe» y no borra a la vecina. Si con ese id queda UNA sola fila y no se llama como dice la solicitud, pregunta antes de borrarla (ver «La fila hermana», en C3). La lápida lleva `rep:true` cuando el id estaba repetido: así, si la vecina queda sola con ese id, la lápida sigue comparando el nombre y no se la lleva.
+
+**Restaurar anula la lápida en el mismo momento** (`motivo:'restaurada'`): «rechazar y restaurar» de `approveDelete` y la fila de origen que `procTrans` vuelve a crear con su id viejo al rechazar una transferencia. Si no, la fila restaurada se iría con la lápida.
+
+**Por dónde pasan, para que la fila nunca vuelva:**
+- **Guardado:** al final de `_fusionarConNubeInv(fd, fh)` (dentro de la transacción y en el modo prueba): une las lápidas de aquí, las recién leídas y las del navegador, poda y quita las filas con lápida de todas las bodegas y cuadrillas, midiendo la memoria contra la base de antes de leer (ver «Contra qué se mide»). Después reabre las ediciones que cerró un borrado anulado (ver C3). `_camposCambiadosInv` escribe `bodegas`/`cuadrillas` y `_tumbasFila` juntos. Lo leído nunca se toca (sus registros se reemplazan por copias). Si Firebase repite la transacción, da lo mismo.
+- **Oyente:** antes de proteger, guarda aparte lo que trajo la nube tal cual (para saber qué lápidas ya están allá) y une las que llegan con las de aquí (si no, el `Object.assign` tiraría las que aún no suben). Después decide las anulaciones de las dos pasadas y quita las filas con lápida de lo de aquí y de lo que llega, también de registros que la pantalla no tocó; después de la fusión fina, otra pasada. La base sigue saliendo de la nube cruda: si la nube todavía tiene la fila, la pantalla queda «tocada» y reenvía el borrado, con el mismo freno de 3 reenvíos en 10 minutos (`_tumbasFilaTrasSnapshotInv`). Nunca en modo prueba ni con una versión vieja.
+- **`_aplicarNubeParcialInv`:** igual, por `_protegerSnapshotInv`.
+- **Carga inicial:** primero la foto de la base y después las lápidas (las de la nube y las del navegador que todavía valen, ver abajo), para que la pantalla sepa que tiene un borrado por subir. Las de la nube quedan también en `window._tfNubeInv`.
+- **Transacciones** (`_fbTransaccionInv`, `_fbTransaccionInvMulti`): lo que se va a escribir en bodegas y cuadrillas sale sin las filas con lápida según lo recién leído (`_cambiosSinFilasConLapidaInv`), en un objeto aparte; `cambios` vuelve intacto y cada escritura sigue llevando el sello de la Etapa 1.
+
+**En el navegador:** cada lápida creada o anulada aquí queda además en `localStorage['inv_tumbas_fila']` (se lee, se une y se escribe: nunca se pisa lo de otra pestaña). Si el guardado falla y la pantalla se recarga, el borrado no se pierde. Pero lo del navegador no manda sobre la nube:
+- sale cuando la nube ya la contiene (con su anulación, si la tiene) o a los **30 días**, igual que las decisiones (antes, 180);
+- **al cargar**, la lápida de una aprobación que solo tiene el navegador vale solo si su solicitud está «aprobada» en la nube, o «pendiente» y este navegador tiene la decisión de aprobarla con su efecto (`_lapidaLSValeInv`). Si otro equipo la rechazó, la cerró o ya no está, sale del navegador sin quitar nada. Antes borraba el artículo igual y lo subía sin aviso, aunque la nube dijera «rechazada». Las de un borrado directo, las de «Corregir» y las anuladas no dependen de una solicitud y valen siempre;
+- **al primer snapshot**, si la regla de «Después de recargar» (C2) da «gana la nube» o «no se puede repetir» para un borrado, su lápida activa que la nube no tiene sale de la memoria y del navegador, y la fila vuelve desde la base, en su mismo sitio, sin dejar la pantalla «tocada» (`_soltarLapidaDeDecisionInv`). Cubre el caso en que la rechazan entre la carga y el primer snapshot;
+- **en `?prueba=1`** las lápidas van en otra clave, `inv_tumbas_fila_prueba`. Antes iban en la de verdad, y la siguiente carga normal de ese navegador borraba de verdad lo que se había «probado».
+
+**Tamaño estimado** (no medido): unas 1,7 lápidas por día, unas 310 en 180 días, unos 23 KB.
+
+### «Cerrada sin cambios» · C1.5
+
+Si al aprobar ya no existe la bodega, el artículo o la venta (`approveDelete` sin bodega o sin artículo, `approveEdit` sin bodega, sin artículo o sin datos, `approveDeleteVenta` sin venta), la solicitud queda con el estado decidido (para no romper filtros ni otras apps), más `resultado:'sin_cambios'`, `decididaMs`, la decisión protegida (`_marcarDecisionInv`) y su línea en el registro (`_cerrarSinCambiosInv`). Antes quedaba «aprobada» sin haber hecho nada y sin protección: un snapshot la podía devolver a pendiente. En pantalla dice «cerrada sin cambios».
+
+### Una decisión no se pierde · C2, prueba R3
+
+**Cada decisión guarda su efecto.** `localStorage['inv_decisiones']` pasa de `{estado, ts}` a `{estado, resultado, ts, carga, efecto}`. `carga` es el id de esta carga de la página (`window._cargaDecInv`). `efecto`:
+- borrar: `{tipo:'borrar', col, id, fila, nom, tipoFila, lapida}`;
+- editar: `{tipo:'editar', bodegaId, materialId, nom, tipoFila, datos, cantAntes}`, con nombre, tipo y cantidad de **antes** de editar;
+- un rechazo que no tocó nada: `{tipo:'ninguno'}`;
+- `null`: lo que no se puede repetir sin riesgo (transferencias, ventas aprobadas, entradas viejas `{estado, ts}`); «rechazar y restaurar» lleva `{tipo:'restaurar'}`, que tampoco se repite.
+
+Se escribe leyendo, uniendo y escribiendo: queda lo de esta pantalla y, del navegador, lo que otra pestaña dejó y esta no soltó. Las solicitudes que se cierran junto con otra (C3) guardan en el efecto sus campos `duplicadaDe` y `cerradaPor`, que vuelven con ellas tras recargar.
+
+**`?prueba=1` no deja nada que la pantalla de verdad ejecute.** Antes, lo decidido en el modo prueba quedaba en `inv_decisiones` como cualquier decisión, y la siguiente carga normal de ese navegador lo tomaba como «de una carga anterior» y lo repetía de verdad (borrar, editar), aunque el modo prueba avisa que nada se guarda. Bastaba con abrir INVENTARIO, sin iniciar sesión. Ahora:
+- en el modo prueba no se cargan las del navegador (son de una pantalla de verdad: PRUEBAS.html comparte el origen), pero se conservan al escribir;
+- lo que se decide en prueba se guarda con `prueba:true` y nunca pisa ni quita una decisión de verdad;
+- la carga normal ignora lo marcado `prueba:true`, y un guardado normal lo quita del navegador después de una hora;
+- las lápidas del modo prueba van en su propia clave (ver «En el navegador», en C1).
+
+**Dentro de la misma carga se reintenta hasta que la nube la tenga.** Mientras haya decisiones de esta carga sin confirmar, o el guardado vaya fallando:
+- después de los 3 reintentos de siempre (3, 6 y 9 s) ya no se rinde: cada 15 s durante 2 minutos y después cada 60 s (`_programarReintentoDecInv`, un solo temporizador);
+- al volver la señal (evento `online`), un intento inmediato, solo si hay algo por subir (si no, no retrasa la recarga automática); sin señal (`navigator.onLine===false`) el turno no intenta y espera;
+- nunca en modo prueba (ni lo intenta: no suma a `_escriturasBloqueadas`), nunca con una versión vieja, y con un error de tamaño no insiste;
+- es otro temporizador: no gasta el freno de reenvíos (`_reenviosInv`);
+- reintentar no duplica nada: la decisión es el estado del registro.
+- Además, lo que `_reimponerDecisionesInv` vuelve a poner sobre un snapshot cuenta como preservado: eso programa el reenvío (antes se ignoraba y, si nadie más escribía, la decisión se quedaba solo en esta pantalla).
+
+**Confirmación:** al terminar bien `_fbSaveCore` (después del commit, nunca en modo prueba), una decisión queda confirmada si lo escrito trae el registro con ese estado o si el registro ya no está (archivado o con lápida); se quita del mapa y se repintan la franja y la pestaña si están a la vista. La confirmación por snapshot (la nube la trae igual) sigue valiendo.
+
+**Después de recargar** (decisión de una carga anterior), al primer snapshot del historial (`_reglaDecisionAnteriorInv`, pura):
+
+| Qué trae la nube | Qué se hace |
+|---|---|
+| ya la decidió (otra pantalla) | gana la nube; la entrada se suelta. Si era un borrado, también sale su lápida y la fila vuelve (ver «En el navegador», en C1): antes se soltaba solo el estado y el artículo se borraba igual |
+| sigue «pendiente» y el efecto se puede repetir: borrar (la lápida), editar (los datos sobre la misma fila), `ninguno`, o un resultado sin efecto («sin cambios», «duplicada», «artículo borrado») | se repiten el efecto y el estado (y `decididaMs` si falta), la entrada pasa a esta carga, queda una línea en el registro («Se volvió a aplicar…») y se reenvía |
+| sigue «pendiente» y no se puede repetir (transferencias, ventas, «restaurar», entradas viejas `{estado, ts}`, o un borrado que ya no se cumple: ver abajo) | **no se impone**: se suelta (un borrado, con su lápida) y la pestaña de Solicitudes o de Transferencias avisa «N decisión(es) de antes no llegaron a la nube: vuelve a decidirlas.» (la bodega solo ve las suyas) |
+| ya no tiene el registro (archivado o borrado) | se suelta: no hay nada que subir |
+
+Una edición solo se repite si la fila existe, coincide por id, nombre y tipo, y conserva la cantidad que tenía al aprobar (`cantAntes`): si cambió, se pide volver a decidirla, con el mismo criterio que el aviso «la cantidad cambió» al aprobar.
+
+Un borrado se repite uniendo la lápida del efecto con las que ya conocen la pantalla y el navegador (`_reaplicarBorrarDecInv`). Si el resultado queda anulado, o la fila sigue porque le entró material, no se anota «Se volvió a aplicar»: se pide volver a decidirlo. Antes, una lápida vieja anulada de la misma fila hacía que la decisión quedara «aprobada» con el artículo en la bodega.
+
+**En pantalla.**
+- Una decisión de esta pantalla que la nube aún no confirma sale «⏳ por subir» en vez de «aprobada», «rechazada» o «aceptada»: en el historial de Solicitudes (borrados y ediciones) y en Transferencias. «Por subir» es solo pantalla: nunca entra al registro (el archivador, el vigilante y las otras pantallas lo tomarían por un estado).
+- La franja `#decisionesPorSubirInv` va arriba del contenido, sin posición fija (abajo están `#syncStatus` y `#mantBanner`) y sin `pvRecargaTexto`, para admin y bodega: «⏳ N decisión(es) por subir — no cierres esta pantalla. Se reintenta sola.» Desaparece al confirmarse y cabe en 375 px.
+- `_ocupadoRecargaInv` no cambió (la prueba de la recarga exige su nombre) y la recarga automática no espera las decisiones: con el efecto guardado, recargar ya no deja una decisión a medias.
+
+### Una sola solicitud pendiente por artículo · C3, prueba R4
+
+**Al crear (bodega).** `delMat` y `modalEditMat` miran si ya hay otra solicitud **pendiente** de la misma clase (borrado o edición) para el mismo `bodegaId` + `materialId` (las de venta no cuentan). Si en la bodega queda al menos una fila con ese id, además el nombre (`_comparaNombreSolInv`; ver «La fila hermana»). Si la hay: «Ya hay una solicitud pendiente para este artículo desde el <fecha>. Espera a que el administrador la decida.» y no se crea otra.
+- Se mira al abrir la ventana **y otra vez dentro del Guardar**, justo antes de agregarla: `closeModal` no limpia el botón, así que la ventana vieja sigue armada, y un snapshot puede traer la de otra pantalla mientras la ventana está abierta.
+- En el Guardar también se mira que el artículo siga en la bodega, y la solicitud se arma con la fila de ahora (`_filaVigenteInv`): la misma fila, o la de igual id, nombre y tipo. Si no está, no se arma y el aviso pide volver a abrir la ventana («…ya no está… No se envió la solicitud»). Antes, si la pedida ya no estaba, tomaba otra fila con el mismo id (la primera, o la única que quedaba) y la solicitud salía con el nombre, la cantidad y los seriales de OTRO artículo; al aprobarla, se borraba ese. En editar, si con la ventana abierta cambiaron los seriales de la fila, también se cancela.
+- Las solicitudes nuevas (borrado, edición y venta) llevan `fechaMs` y un id con 4 caracteres al azar: dos pantallas en el mismo milisegundo no chocan.
+
+**Al guardar** (al final de `_fusionarConNubeInv`, con el historial recién leído; dentro de la transacción y en el modo prueba): una pendiente de aquí que la nube no tiene, cuando la nube **ya trae** otra pendiente del mismo artículo y clase, se cierra: `estado:'rechazada'`, `resultado:'duplicada'`, `duplicadaDe` (la de la nube; si hay varias, la más antigua) y `decididaMs`, con su línea en el registro. Gana siempre la que ya estaba en la nube, aunque la de aquí sea más vieja: así todas las pantallas deciden igual. Si Firebase repite la transacción, primero se deshace lo cerrado en el intento anterior (`window._dupCerradasTxInv`) y se vuelve a decidir contra lo recién leído; si la de la nube ya se decidió, el cierre se deshace. Después del commit se avisa a quien la pidió, con un aviso que no frena la pantalla.
+
+**Al decidir una** (`approveDelete` aprobar o rechazar, también en sus ramas «sin cambios», y `approveEdit`): las demás pendientes de la misma clase y artículo se cierran con el **mismo estado**, `resultado:'duplicada'`, `duplicadaDe` y `decididaMs`, protegidas como cualquier decisión. Aprobar el borrado cierra además las ediciones pendientes de ese artículo: `estado:'rechazada'`, `resultado:'articulo_borrado'` y `cerradaPor` (el id de la solicitud de borrado). El aviso del admin y el registro lo dicen. Una edición cerrada así no se aplicó, y su etiqueta lo dice.
+
+**La edición se reabre si el borrado no se cumplió.** Que el borrado quede se decide después, en el guardado, contra la nube. Si su lápida se anula porque le entró material, el artículo sigue, y las ediciones que ese borrado cerró vuelven a pendiente (`_reabrirEdicionesDeAnuladasInv`, en el guardado, después de fusionar con lo recién leído):
+- no cambia los objetos leídos: pone una copia con `estado:'pendiente'`, `resultado` y `cerradaPor` en blanco y `decididaMs` en `null`;
+- suelta la decisión de esa edición y deja una sola línea en el registro («…vuelve a quedar pendiente: el borrado que la cerró se anuló porque al artículo le entró material»);
+- no se reabre si ya hay otra edición pendiente del mismo artículo, ni si la lápida se anuló porque la fila se restauró (ahí el borrado sí ocurrió).
+
+**La fila hermana** (segunda pasada de la revisión). En los datos reales hay filas distintas que comparten el id. Si la bodega tenía CABLE y CONECTOR con el mismo id, había una solicitud pendiente de CABLE y el admin borró CABLE directo, quedaba una sola fila con ese id y la pendiente de CABLE se tomaba por la de CONECTOR: bloqueaba pedir CONECTOR, cerraba la de CONECTOR como «duplicada» y, al aprobarla, borraba CONECTOR (el aviso solo decía que la cantidad había cambiado). Ahora:
+- dos solicitudes del mismo id son del mismo artículo solo si además tienen el mismo nombre, siempre que en la bodega quede al menos una fila con ese id (`_comparaNombreSolInv`, antes `_idRepetidoEnBodegaInv`, que pedía más de una). Vale al crear, al guardar contra la nube, al decidir y al reabrir ediciones;
+- `approveDelete` y `approveEdit` miran si la fila es la que nombra la solicitud (`_filaEsDeSolicitudInv`: el nombre y, en los borrados, el tipo). Si no, preguntan con los dos nombres: «La solicitud era para "CABLE" y en BOD con ese código solo queda "CONECTOR", con 30 und. ¿Borrar "CONECTOR" COMPLETO?». Puede ser otro artículo o el mismo con otro nombre;
+- si la respuesta es no, la solicitud queda «cerrada sin cambios» y el aviso dice que CONECTOR sigue;
+- si es sí, no se hace la segunda pregunta de la cantidad. El registro y el aviso nombran la fila que de verdad se tocó («la solicitud decía "CABLE"»), y al borrar se cierran también las pendientes de esa fila (borrados como «duplicada», ediciones como «artículo borrado» con `cerradaPor`);
+- al rechazar, si con ese código queda otra fila, el aviso la nombra.
+
+**`decididaMs` en todas las decisiones** (borrados, ediciones, ventas y traslados). `_fechaDeRegistroInv` lo mira primero: el archivador cuenta sus 30 días desde que se decidió, así una solicitud que estuvo mucho tiempo pendiente no se archiva en el mismo guardado en que se decide. De paso se corrigió la vista del archivo histórico, que con una marca numérica mostraba sus 10 primeros dígitos en vez de la fecha.
+
+**En pantalla:** «duplicada», «cerrada sin cambios» y «artículo borrado», con una explicación al pasar el mouse (por ejemplo, que una «duplicada» no cambió nada).
+
+### Qué cambia en los datos
+
+- `inventario/datos`: el campo nuevo `_tumbasFila` (cada lápida puede llevar `ult`).
+- `inventario/historial`, solicitudes: `resultado` (`'sin_cambios'`, `'duplicada'`, `'articulo_borrado'`), `decididaMs`, `duplicadaDe`, y en las ediciones cerradas por un borrado, `cerradaPor`; las nuevas, `fechaMs`. Traslados: `decididaMs`.
+- El navegador: `inv_tumbas_fila` (nuevo; en `?prueba=1`, `inv_tumbas_fila_prueba`) e `inv_decisiones` con la forma nueva (lo decidido en prueba, con `prueba:true`). Las entradas viejas `{estado, ts}` siguen funcionando dentro de la misma carga.
+- Nada guarda nombres de personas: en las lápidas va el rol.
+- `AVISOS_PENDIENTES.gs` cuenta solo `estado==='pendiente'`: una repetida cerrada cambia de estado y deja de contar (pero ver «Pendiente»: lee el documento equivocado).
+
+### Lo que se apartó de la especificación
+
+1. **La lápida lleva tres campos más:** `snesN` (cuántos seriales reales tenía: con más de 60 la lista va recortada y se compara la cantidad), `rep` (el id estaba repetido; ver arriba) y `ult` (la hora del último borrado; ver «Unión»).
+2. **El paso de las lápidas en el guardado va al final de `_fusionarConNubeInv`,** no dentro de `_fbSaveCore`: así queda después de la fusión en los dos caminos (la transacción y el modo prueba) y también cuando una prueba llama la fusión directo. Lo mismo el cierre de repetidas (C3).
+3. **Los rechazos llevan efecto `{tipo:'ninguno'}`, no `null`,** para que tras recargar se repongan con solo el estado. «Rechazar y restaurar» lleva `{tipo:'restaurar'}`, que no se repite (mete material). «Duplicada» y «artículo borrado» se reponen sin efecto, igual que «sin cambios». Una entrada con la forma de la especificación (`efecto:null`) se comporta como dice la especificación.
+4. **Una edición solo se repite tras recargar si la fila conserva su cantidad** (`cantAntes`); sin `cantAntes` se repite. Si el efecto de una edición pasa de 20.000 caracteres (fotos incrustadas), se guarda sin los datos y no se repite.
+5. **Con un error de cuota (`resource-exhausted`) se sigue reintentando cada 60 s,** a 2 lecturas por intento: la especificación solo pide parar con el error de tamaño.
+6. **Al aprobar una edición, las demás ediciones pendientes del artículo quedan «aprobada · duplicada» aunque traigan datos distintos** (como pide la especificación); sus datos no se aplican. El mapa proponía cerrarlas como «rechazada» cuando traen otros datos: decisión de Elkin.
+7. **La rama «sin datos» de `approveEdit` no cierra las demás ediciones:** pueden traer datos válidos.
+8. **Una edición cerrada como «artículo borrado» guarda `cerradaPor`,** el id de la solicitud de borrado que la cerró. La especificación no define ese campo; hace falta para reabrirla si el borrado no se cumple.
+9. **La lápida de «Corregir Cantidades» lleva la cantidad y los seriales de antes de corregir,** no `cant:0` como dice la especificación (salvo si la fila ya estaba en 0).
+10. **En el navegador las lápidas duran 30 días, no 180,** y la de una aprobación solo se aplica si la nube no decidió otra cosa. En la nube siguen siendo 180.
+11. **«Entró material» no siempre se mide contra la lápida:** en la memoria de quien recibe, con una lápida que ya está en la nube, se mide contra su base (ver «Contra qué se mide»).
+
+### Riesgos que quedan
+
+- **Dos pestañas del mismo navegador.** Una pestaña que se abre mientras otra tiene una decisión sin subir la trata como «de antes». Borrar y editar se repiten sin daño; una transferencia o una venta pide «vuelve a decidirla», y si la persona la decide otra vez y la otra pestaña sube la suya, el material entraría dos veces. Antes se perdía. No hay forma de saber si la otra pestaña sigue viva.
+- **La franja aparece alrededor de un segundo en cada decisión,** mientras sale el guardado, aunque todo vaya bien.
+- **Pantallas v112–v115 abiertas** no conocen `_tumbasFila`: su fusión fina todavía puede devolver la fila y escribir una copia vieja de la lista. Las pantallas nuevas la vuelven a unir, quitan la fila y la reenvían. Por eso, al publicar, recargar todas las pantallas de bodega (ver «Pendiente»).
+- Ya existían y no se tocaron: `importData` reasigna `DB` (`window.DB` queda viejo) y traería el `_tumbasFila` del respaldo; el oyente de datos sigue sin repintar por `window.USER`.
+- Lo que la revisión adversaria dejó, a propósito o porque quedó en duda, está en la sección siguiente.
+
+### Revisión adversaria (11 oct 2026)
+
+Antes de publicar se buscaron fallas a propósito, en dos pasadas. Cada hallazgo lo revisaron dos verificadores por separado, con las funciones reales sacadas del archivo y sin red. Las reproducciones quedaron en el scratchpad de la sesión (`rev_c1`, `rev_c2`, `rev_c3`, `rev_l3`, `rev_l4`, `verif_*`, `fix2_*.js`).
+
+**Primera pasada: 19 hallazgos.** 10 confirmados (los dos verificadores dijeron que sí), 3 dudosos (uno sí y uno no) y 6 refutados. Los 10 confirmados se corrigieron; algunos eran la misma falla vista desde dos lados:
+
+| Falla | Arreglo (arriba) |
+|---|---|
+| Con la lápida de «Corregir» (cant 0), o con una pantalla atrasada, las demás pantallas anulaban la lápida con un aviso falso de «entró material» y una escritura de más cada una; si habían tocado la fila, la devolvían (3 hallazgos, uno grave) | «Contra qué se mide» y la lápida de «Corregir» con lo de antes |
+| Una lápida del navegador borraba el artículo aunque otro equipo hubiera rechazado la solicitud, también tras recargar (2) | «En el navegador»: `_lapidaLSValeInv`, `_soltarLapidaDeDecisionInv`, 30 días |
+| Lo decidido en `?prueba=1` se ejecutaba de verdad en la siguiente carga normal del mismo navegador (grave) | Clave aparte y `prueba:true` (C2) |
+| Volver a borrar una fila cuya lápida se anuló: el borrado nuevo nacía anulado (2) | La unión con `ult` |
+| El Guardar de una ventana vieja, con ids repetidos, armaba la solicitud sobre otro artículo | `_filaVigenteInv` estricta (C3) |
+| Aprobar un borrado cerraba las ediciones aunque después el borrado se anulara | `cerradaPor` y la reapertura (C3) |
+
+Los 6 refutados no cambiaron nada: material que entra después de bajar y volver a subir, el tamaño con 2.000 lápidas (dos veces), repetidas que se reponen tras recargar, lo cerrado sin aplicar que el archivo muestra «aprobada», y la prueba adaptada del registro.
+
+**Dudosos de la primera pasada:**
+- **La fila hermana:** se corrigió en la segunda pasada (ver C3).
+- **Una venta eliminada vuelve** si llega un snapshot del historial antes del primer guardado (la venta no tiene lápida hasta la fusión) y el material devuelto queda contado dos veces. Se dejó: ya pasaba igual en la v115 y la Etapa 2 no toca las ventas. Arreglo posible, en otra etapa: dejar la lápida de la venta en el acto y que el oyente quite de lo que entra lo que tiene lápida propia.
+- **«Rechazar y restaurar»** (y rechazar un traslado) deja la anulación de la lápida en el navegador; si la pantalla se recarga antes de guardar, la anulación sube aunque la restauración no se repita. Se dejó: no mueve material y no se encontró un caso con daño concreto.
+
+**Segunda pasada** (sobre lo ya corregido): **5 hallazgos, 2 confirmados y 3 dudosos.**
+- Confirmados y corregidos:
+  - «Corregir» con la ventana abierta: si entraba material antes de confirmar, la lápida armada con los datos de la ventana borraba la fila con lo que entró, también seriales, sin aviso. Ahora la ventana trabaja sobre `DB` (ver C1).
+  - Una lápida que dejó otra pestaña del mismo navegador, armada con datos atrasados, se medía contra la base y borraba la fila con el material que entró; en el oyente, además, la otra pasada la anulaba y quedaba un aviso falso de que volvió. Ahora la base vale solo con lápidas de la nube, y las dos pasadas deciden antes de quitar.
+- Dudosos, sin corregir (en «Pendiente»):
+  - Una pantalla atrasada mete material a una fila cuya lápida tiene más cantidad que su base: no se detecta y lo que metió se pierde. Igual que antes de los arreglos.
+  - Tras recargar, las ediciones se vuelven a cerrar como «artículo borrado» aunque el borrado que las cerró no se repita (la nube lo rechazó): el artículo sigue y la edición queda cerrada.
+  - La reapertura puede revivir una edición después de que el admin ya decidió a mano otra edición del mismo artículo.
+
+**Lo que se dejó a propósito:**
+- Una lápida que solo tienen esta pantalla o el navegador se mide contra la lápida. Si una pestaña atrasada del mismo navegador tiene más, la anula con un aviso de que volvió y conserva la fila: es el lado que no pierde material.
+- Una pantalla atrasada que de verdad le metió material a la fila la conserva con toda su cantidad: puede contar dos veces lo que se entregó mientras tanto.
+- Si se vuelve a borrar desde un equipo con el reloj atrasado que no conoce la lápida anterior, la anulación vieja cubre el borrado nuevo y la fila se conserva.
+- Con varias filas con el mismo id, `approveEdit` sigue aplicando a la primera (Etapa 3), pero pregunta si no se llama como la solicitud. Al rechazar un borrado cuya fila ya no está pero queda la hermana, no se ofrece restaurar.
+- Después de cambiarle el nombre a un artículo, la bodega puede pedir otra solicitud con el nombre nuevo aunque haya una pendiente con el viejo. No se pierde nada: al aprobar la vieja se pregunta.
+- «Corregir» no compara las filas que el admin no tocó. Si se prefiere cancelar ante cualquier cambio en la cuadrilla, es una línea.
+- En `?prueba=1` la franja «N decisión(es) por subir» no se quita: la prueba R3 la exige dentro del marco de prueba.
+
+### Pruebas
+
+**`PRUEBAS.html`: 161 pruebas** (42 de INVENTARIO, 86 de OFICINAS, 32 de RED y 1 de Firma). Las siete nuevas van en el grupo de INVENTARIO, al final; las tres de la revisión (5 a 7), justo después de la 4:
+
+| # | Prueba | Qué comprueba |
+|---|---|---|
+| 1 | Una fila cuyo borrado aprobó el admin no vuelve, aunque esta pantalla la haya cambiado (R2) | Las funciones puras con datos inventados (la regla, ids repetidos y `rep`, material o serial que entra, la anulada que no vuelve a quitar, la unión, la poda, que no mutan); por el oyente y por el guardado, también si la transacción se repite; `_tumbas` nunca recibe lápidas de fila; `approveDelete` con ids repetidos, `delMat` del admin, la transacción sin la fila y «rechazar y restaurar»; por texto, dónde se crean y por dónde pasan |
+| 2 | Aprobar cuando ya no existe el artículo deja «cerrada sin cambios» | Las seis ramas: estado, `sin_cambios`, `decididaMs` (y el archivador), la decisión protegida, el registro, los avisos, ninguna lápida; decidir otra vez no hace nada |
+| 3 | Una decisión que la nube no confirmó se ve «por subir», se reintenta y, tras recargar, no queda a medias (R3) | El mapa nuevo y leer-unir-escribir; «⏳ por subir» y la franja; en modo prueba el reintento ni se programa y el evento `online` no guarda; 15 s / 60 s; lo repuesto cuenta como preservado; tras recargar, borrar y editar se repiten, la edición con la cantidad cambiada no, la transferencia y la entrada vieja no se imponen y avisan, gana la nube; por texto, el reintento y la confirmación tras el commit |
+| 4 | Una sola solicitud pendiente por artículo (R4) | Con `USER` de bodega y de admin y las ventanas sustituidas: el segundo `delMat` bloqueado al abrir, en el Guardar viejo, con un snapshot y con el artículo que desaparece; lo que no bloquea; lo mismo en editar; la regla del guardado (gana la nube, repetible, se deshace); al decidir se cierran las demás |
+| 5 | Las demás pantallas no deshacen un borrado: «Corregir», una pantalla atrasada y volver a borrar (revisión del 11 oct) · 12 comprobaciones | La ventana REAL de «Corregir» deja la lápida con la cantidad de antes; otra pantalla, haya tocado la fila o no, no la anula, no registra «volvió» y no reenvía; una pantalla atrasada (10 contra 7) no anula ni por el oyente ni al guardar, y con 13 o un serial nuevo sí; volver a borrar vale (también al guardar contra otra pantalla, con el reloj atrasado y tras recargar), y si después entró material se pide volver a decidir; la unión con `ult`; la anulación se anota una vez; la lápida que solo tiene el navegador, contra la lápida; las dos pasadas deciden igual; «Corregir» sobre la cuadrilla de ahora, se cancela si la fila cambió, y una fila en 0 que recibió material se queda |
+| 6 | Lo que quedó en el navegador no manda sobre la nube: una solicitud rechazada en otro equipo y lo decidido en `?prueba=1` · 7 | La lápida cuya solicitud otro equipo rechazó no borra al cargar (también con sesión de bodega) y sale del navegador; si la rechazan entre la carga y el primer snapshot, la fila vuelve a su sitio sin quedar «tocada»; los 30 días; en `?prueba=1` las lápidas van solo a `inv_tumbas_fila_prueba` y las decisiones con `prueba:true`, sin pisar una de verdad; por texto, el filtro de la carga normal |
+| 7 | Cada solicitud sobre su propia fila: ids repetidos, la fila hermana y la edición cerrada por un borrado que no se cumplió · 7 | El Guardar de una ventana vieja (borrar y editar) con ids repetidos no arma la solicitud y avisa; los seriales cambiados cancelan; la edición cerrada lleva `cerradaPor` y vuelve a pendiente si la lápida se anula por material (copia, suelta la decisión, una línea), y no si hay otra pendiente o la fila se restauró; la fila hermana: pedir CONECTOR no se bloquea ni se cierra como duplicada, aprobar el borrado y la edición de CABLE pregunta con los dos nombres, «no» deja «sin cambios» y «sí» hace una sola pregunta, nombra a CONECTOR y cierra sus pendientes |
+
+- Todas usan ids inventados que empiezan por `E2P`, sustituyen `alert`, `confirm`, `_fbSave`, las ventanas y los repintados, y lo devuelven todo en un `finally`: `DB` (también `_tumbasFila` y `_tumbas`), `USER`, las decisiones (`_decisionesMiasInv`, `_soltadasDecInv`, `_decisionesNoLlegaronInv`), `_dupCerradasTxInv`, `_tfAnotadasInv`, la franja y la caja de la ventana de prueba; las tres de la revisión, además, `_reabiertasTFInv`, `_tfNubeInv`, `_baseStockInv`, `_idsRemotosInv`, `_modoPruebaInv` y `TempLists`. El ayudante `e2RestaurarLS` deja el navegador como estaba (`inv_decisiones`, `inv_tumbas_fila`, `inv_tumbas_fila_prueba`, `pv_equipo_id`, `inv_sesion_id`): quita solo lo de la prueba y, si nadie más escribió mientras tanto, deja el texto exacto de antes. Si una prueba quitó una lápida ajena (al podar), la devuelve. Exigen que `_escriturasBloqueadas` no crezca.
+- **Pruebas viejas adaptadas** (cambiaban de significado con el diseño nuevo):
+  - «Una decisión tomada no se deshace sola»: sigue exigiendo lo de siempre dentro de la misma carga (al instante, a los 10 min y a los 3 días, y se suelta al confirmarse) y ahora, además, la regla de recargar: un rechazo se repone, una entrada vieja `{estado, ts}` ya no se impone y se pide volver a decidirla. Antes, los «3 días» valían también tras recargar. Ahora devuelve el navegador y el registro.
+  - «Una aprobación no se deshace sola al llegar un snapshot»: llama `_fusionarConNubeInv` con bodegas inventadas, que poda en memoria las lápidas de las bodegas reales (y deja `_tumbas` podado): ahora devuelve `_tumbasFila` y `_tumbas`. Si no, la prueba «un guardado ya no reescribe todo el documento» los mostraría en ámbar.
+  - «Etapa 1 · Cada entrada del registro dice quién…»: exigía que solo `logMsg` hiciera `logs.unshift(`. C1 y C2 agregan dos entradas sin `save()`, porque corren dentro del guardado o del oyente (la lápida anulada porque entró material y la decisión repetida tras recargar), las dos hechas con `_entradaLogInv`. Ahora se permiten esas; una entrada armada a mano sigue fallando (se comprobó con una copia dañada).
+
+**Corrido el 11 oct 2026, con el archivo final** (después de las dos correcciones), sobre la base SIMULADA del banco, sin servidor (Playwright sirve los archivos del repo desde el disco), con el arnés de la Etapa 6:
+- `PRUEBAS.html` completo (INVENTARIO, OFICINAS y RED; Firma no se abre): 160 corridas de 161, **159 bien**. Falla solo «Rastreador v314: la ficha de una factura REAL de WispHub», que necesita WispHub de verdad, igual que en la Etapa 6 y que antes de la revisión.
+- Ninguna escritura en la base simulada, ningún error de JavaScript, el navegador vacío al terminar (`inv_decisiones`, `inv_tumbas_fila` e `inv_tumbas_fila_prueba` en null). Intentos bloqueados: INVENTARIO 0, RED 0 y OFICINAS 5, los mismos de antes (pruebas anteriores).
+- Con lápidas y decisiones ajenas sembradas antes en el navegador (de bodega y de cuadrilla, de verdad y de prueba), las 7 de la Etapa 2 pasan y lo sembrado queda idéntico, byte a byte. Esa corrida encontró un punto frágil de la prueba 5 (medía «la nube va atrás» con todas las lápidas del navegador): ahora cuenta solo las suyas.
+- Con una comparación del marco antes y después de cada prueba (`DB`, `USER`, las decisiones, las funciones sustituidas, la franja, la base, el navegador), las cuatro primeras y la de las decisiones lo dejan **igual**.
+- **Copias dañadas:** 18 copias de INVENTARIO, cada una sin un arreglo; las 18 fallan en alguna de las cuatro primeras (o en la de las decisiones): sin la excepción del material, sin el paso del guardado, sin el del oyente, borrar por id solo, sin `rep`, la lápida también en `_tumbas`, restaurar sin anular, «sin cambios» sin protección o sin `decididaMs`, decisiones de antes impuestas sin más, lo repuesto sin contar como preservado, el reintento en modo prueba, sin «por subir», la edición sin `cantAntes`, el Guardar sin volver a mirar, sin el cierre al guardar, sin el cierre al decidir y la regla «gana la más vieja» en vez de «gana la de la nube». La primera corrida dejó pasar «la lápida también en `_tumbas`»: la prueba 1 lo miraba solo al guardar y ahora también después de aprobar y borrar.
+- **Las tres de la revisión, contra copias de antes:** con la copia de antes de los arreglos fallan las tres. Ahí no fallan solo tres comprobaciones, y es por diseño: dos cubren fallas que metió el primer arreglo (la lápida que solo tiene el navegador y las dos pasadas) y la otra es una salvaguarda de la reapertura, que antes no existía. Con la copia de antes de la segunda corrección fallan las 4 comprobaciones de esa corrección (lápidas y «Corregir») y las 3 de la fila hermana. Además, 26 mutantes del archivo final: se detectan 25; el que queda es equivalente (quita una guarda que la siguiente repite).
+- `node .claude/validar.mjs` sobre INVENTARIO y PRUEBAS: sintaxis correcta. Los dos en CRLF, sin LF sueltos. `APP_VERSION_INV` sigue en 115.
+
+**Lo que corrieron las partes C1, C2 y C3** (en el scratchpad de la sesión, con las funciones reales sacadas del archivo, sin red, antes de la revisión): C1 49/49 funciones puras, 18/18 con dos pantallas y la nube compartida, 5/5 sin escrituras de más; C2 51/51 y 17/17 de flujo, y 18/18 en el banco (R3b recargando la pantalla del admin, R3b de transferencia, R3c con `setOffline`, `?prueba=1`); C3 62/62 y 3/3 en el banco (R4b dos pantallas a la vez, R4c, R4d).
+
+**Reproducciones de la revisión** (scratchpad, funciones reales, sin red): todas dan ahora el resultado correcto, sin anulaciones falsas en ninguna pantalla. Las de la segunda corrección (`rev_l4/hermana2.js`, 18 comprobaciones; `corregir_real.js`, 9, con la ventana real; `dos_pasadas.js`, 4) fallan con la copia de antes. `fix2_union_prop.js`: 3.008 comprobaciones de la unión.
+
+**El banco** (`_PRUEBAS_SIMULADAS_2026-10-09/trabajo`, base simulada y compartida, las apps reales en Chromium; salidas en `etapa2_resultados/`):
+- `inv/etapa2.js` con el archivo final: **25 pasan, 0 fallan** (330 s). Son los 15 de la etapa y 10 de la revisión: «Corregir» con otra pantalla abierta (F1); la pantalla atrasada y las dos pasadas (F2); la lápida de una solicitud que otro equipo rechazó, también en la carrera con el primer snapshot (F3); `?prueba=1` y después la app normal en el mismo navegador (F4); volver a borrar, con y sin recarga (F5, F5b); reabrir la edición (F6); la ventana vieja con ids repetidos (F7); la fila hermana (F8) y la ventana de «Corregir» (F9).
+- Contraprueba: con la copia de antes de los arreglos (`--antes`) los 10 nuevos fallan. Con la de antes de la segunda corrección fallan 3, justo F2 (las dos pasadas), F8 y F9.
+- El banco ganó opciones: `--antes` y `--html=RUTA` (sirven otra copia de INVENTARIO), una pantalla con `?prueba=1`, y responder «no» a un diálogo.
+- `inv/revision_oct.js` con el archivo final: **10 pasan, 1 falla:** R5, de la Etapa 3, la esperada. R7 y R7b pasan ahora, por la ventana de «Corregir».
+- **Corrida completa con el archivo final** (11 oct, 3:28 a 3:48 a. m.): `pantallas_unit` 216/216, `recarga_unit` 167/167, `revision_oct` 10 bien y 1 mal (R5, de la Etapa 3), `repro` 21/21, `escenarios2` 20/20, `etapa1` 16/16, `etapa6` 13/13 y `etapa2` 25/25. Salidas en el scratchpad de la sesión (`etapa2/banco_final/`).
+
+**`PRUEBAS.html` en el navegador contra la base real** (`?prueba=1`, 11 oct, 3:30 a. m., con el archivo final): **159 bien y 2 por revisar**, las dos «Estado real» de siempre (36 seriales en dos sitios; servicios de proveedores sin costo). La de la ficha real de WispHub pasa aquí. Después se miró la nube por REST (solo lectura): `inventario/datos`, `inventario/historial`, `oficinas_sistema/main` y `logs_auditoria` conservan su última escritura de la tarde del 10 oct, de pantallas reales. La única escritura de la madrugada en `sesiones_vivas` es el latido de una pantalla real de OFICINAS v320 abierta desde el 10 oct (oculta, cada 15 min), no de las pruebas.
+
+### Pendiente
+
+1. **Etapa 3: los botones ✏️ y ✕ de cada fila pasan solo el id.** Con ids repetidos, `delMat` y `modalEditMat` toman la primera fila con ese id, y `approveEdit` también aplica a la primera (desde la revisión, pregunta si no se llama como la solicitud). Por eso la comparación por nombre de las solicitudes repetidas (`_mismoArticuloSolInv`) solo distinguirá filas vecinas cuando cada botón tome su propia fila. Las lápidas ya distinguen por nombre y tipo.
+2. **`AVISOS_PENDIENTES.gs` lee las solicitudes del documento equivocado:** las busca en `inventario/datos` y viven en `inventario/historial`. Sin corregir.
+3. **Al publicar:** subir INVENTARIO a 116 con el formato de siempre y **recargar todas las pantallas de bodega** (las v112–v115 no conocen las lápidas por fila). Después, comprobar en la nube real que una aprobación deja `_tumbasFila` en `inventario/datos` junto con la fila quitada, en la misma escritura, y que una decisión hecha sin señal sube sola al volver.
+4. **Decidir con Elkin** el punto 6 de «Lo que se apartó de la especificación» (ediciones repetidas con datos distintos).
+5. **Decidir con Elkin los dudosos que quedaron** (ver «Revisión adversaria»): los 3 de la segunda pasada (la pantalla atrasada contra una lápida con más cantidad, las ediciones que se vuelven a cerrar tras recargar y la reapertura después de otra decisión a mano) y la venta que vuelve con un snapshot, que ya pasaba en la v115.
+6. **Etapa 4:** de las ventanas con datos viejos solo se arregló «Corregir Cantidades». Editar, entregar, trasladar, vender y devolver no se revisaron.

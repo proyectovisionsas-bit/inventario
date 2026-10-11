@@ -168,6 +168,47 @@ async function pantallasAparte(W, Fecha){
   return S;
 }
 
+/* Etapa 2 (docs/12): las pruebas que deciden solicitudes en el marco de INVENTARIO escriben en el navegador:
+   inv_decisiones e inv_tumbas_fila (y logMsg crea pv_equipo_id e inv_sesion_id si faltan). Es el mismo navegador
+   del INVENTARIO de verdad (mismo origen). e2FotoLS toma lo de antes; e2RestaurarLS quita SOLO lo de la prueba
+   (sus ids inventados empiezan por E2P) y, si nadie más escribió mientras tanto, deja el texto exacto de antes:
+   nunca pisa lo que otra pestaña haya dejado ahí. Desde la revisión del 11 oct 2026, en ?prueba=1 las lápidas van
+   en inv_tumbas_fila_prueba: se trata igual. Si la prueba quitó una lápida que no era suya (al podar, por ejemplo),
+   vuelve: queda lo de antes más lo que otra pestaña haya agregado. */
+function e2FotoLS(W){
+  const o={ses:null};
+  ['inv_decisiones','inv_tumbas_fila','inv_tumbas_fila_prueba','pv_equipo_id'].forEach(k=>{ try{ o[k]=W.localStorage.getItem(k); }catch(e){ o[k]=null; } });
+  try{ o.ses=W.sessionStorage.getItem('inv_sesion_id'); }catch(e){}
+  return o;
+}
+function e2RestaurarLS(W, f){
+  const leer=t=>{ try{ return t==null ? null : JSON.parse(t); }catch(e){ return undefined; } };
+  const canon=x=>JSON.stringify(x, (k,v)=>(v && typeof v==='object' && !Array.isArray(v)) ? Object.keys(v).sort().reduce((o,kk)=>{ o[kk]=v[kk]; return o; }, {}) : v);
+  const deE2=s=>String(s==null?'':s).indexOf('E2P')===0;
+  const poner=(k,v)=>{ if(v===null || v===undefined) W.localStorage.removeItem(k); else W.localStorage.setItem(k, v); };
+  try{
+    const ahora=W.localStorage.getItem('inv_decisiones');
+    if(ahora!==f.inv_decisiones){
+      const cur=leer(ahora), o={};
+      if(cur && typeof cur==='object' && !Array.isArray(cur)) Object.keys(cur).forEach(k=>{ if(!deE2(k.split('│')[1])) o[k]=cur[k]; });
+      if(canon(o)===canon(leer(f.inv_decisiones)||{})) poner('inv_decisiones', f.inv_decisiones);
+      else poner('inv_decisiones', Object.keys(o).length ? JSON.stringify(o) : null);
+    }
+  }catch(e){}
+  ['inv_tumbas_fila','inv_tumbas_fila_prueba'].forEach(k=>{ try{
+    const ahora=W.localStorage.getItem(k);
+    if(ahora!==f[k]){
+      const cur=leer(ahora), l=(Array.isArray(cur)?cur:[]).filter(t=>!(t && deE2(t.id)));
+      const antes=leer(f[k]), ol=Array.isArray(antes) ? antes : [];
+      const lista=x=>(Array.isArray(x)?x:[]).map(canon).sort().join('\n');
+      if(lista(l)===lista(ol)) poner(k, f[k]);
+      else { const ya=new Set(ol.map(canon)), todo=ol.concat(l.filter(t=>!ya.has(canon(t)))); poner(k, todo.length ? JSON.stringify(todo) : null); }
+    }
+  }catch(e){} });
+  try{ if(W.localStorage.getItem('pv_equipo_id')!==f.pv_equipo_id) poner('pv_equipo_id', f.pv_equipo_id); }catch(e){}
+  try{ if(W.sessionStorage.getItem('inv_sesion_id')!==f.ses){ if(f.ses===null) W.sessionStorage.removeItem('inv_sesion_id'); else W.sessionStorage.setItem('inv_sesion_id', f.ses); } }catch(e){}
+}
+
 const PRUEBAS = [
 
 // ─────────────────────────────── INVENTARIO ───────────────────────────────
@@ -303,9 +344,14 @@ const PRUEBAS = [
 
 {app:'inv', titulo:'Una decisión tomada no se deshace sola',
  porque:'El snapshot de Firebase reemplaza la lista con lo que hay en la nube. Si el guardado aún '
-       +'no había llegado, la solicitud aprobada volvía a salir como pendiente.',
- correr:W=>{ const r=E(W, 'const id="PRUEBA_"+Date.now(), k="editRequests│"+id;'
-   +'const respaldo=new Map(window._decisionesMiasInv);'
+       +'no había llegado, la solicitud aprobada volvía a salir como pendiente. Desde la Etapa 2 (docs/12, §2.4) '
+       +'eso vale dentro de la misma carga de la página, sin plazo. Tras RECARGAR, la decisión vuelve solo si su '
+       +'efecto se puede repetir sin riesgo (un rechazo, un borrado, una edición); una entrada vieja {estado, ts} '
+       +'ya no se impone sola: se pide volver a decidirla (antes volvía el estado sin el efecto).',
+ correr:W=>{ const fLS=e2FotoLS(W); let r;
+   try{ r=E(W, 'const id="E2P_PRUEBA_"+Date.now(), k="editRequests│"+id;'
+   +'const respaldo=new Map(window._decisionesMiasInv), sol0=new Map(window._soltadasDecInv||[]), tNL=("_decisionesNoLlegaronInv" in window), gNL=window._decisionesNoLlegaronInv, gL=DB.logs;'
+   +'try{'
    +'window._marcarDecisionInv("editRequests", id, "aprobada");'
    +'const probar=edad=>{ const d=window._decisionesMiasInv.get(k); if(d) d.ts=Date.now()-edad;'
    +'  const e={editRequests:[{id, estado:"pendiente"}]};'
@@ -314,15 +360,30 @@ const PRUEBAS = [
    +'const e={editRequests:[{id, estado:"aprobada"}]};'
    +'window._reimponerDecisionesInv(e, ["editRequests"]);'
    +'const soltada=!window._decisionesMiasInv.has(k);'
-   +'window._decisionesMiasInv.clear(); respaldo.forEach((v,kk)=>window._decisionesMiasInv.set(kk,v));'
-   +'return {alInstante, a10min, a3dias, soltada};');
+   // Etapa 2 (§2.4): decisiones de una carga ANTERIOR (la pantalla se recargó antes de que subieran)
+   +'DB.logs=[]; const idR=id+"_R", idV=id+"_V";'
+   +'const pon=(kk,d)=>window._decisionesMiasInv.set(kk, Object.assign({ts:Date.now()-3*86400000, carga:"cg_e2p_anterior"}, d));'
+   +'pon("editRequests│"+idR, {estado:"rechazada", resultado:"", efecto:{tipo:"ninguno"}}); pon("editRequests│"+idV, {estado:"aprobada"});'
+   +'const e2={editRequests:[{id:idR, estado:"pendiente"}, {id:idV, estado:"pendiente"}]};'
+   +'window._reimponerDecisionesInv(e2, ["editRequests"]);'
+   +'const trasRecargar={rechazo:e2.editRequests[0].estado, vieja:e2.editRequests[1].estado,'
+   +'  avisa:(window._decisionesNoLlegaronInv||[]).some(x=>x.id===idV), suelta:!window._decisionesMiasInv.has("editRequests│"+idV)};'
+   +'return {alInstante, a10min, a3dias, soltada, trasRecargar};'
+   +'} finally { window._decisionesMiasInv.clear(); respaldo.forEach((v,kk)=>window._decisionesMiasInv.set(kk,v));'
+   +'  if(window._soltadasDecInv instanceof Map){ window._soltadasDecInv.clear(); sol0.forEach((v,kk)=>window._soltadasDecInv.set(kk,v)); }'
+   +'  if(tNL) window._decisionesNoLlegaronInv=gNL; else delete window._decisionesNoLlegaronInv; DB.logs=gL;'
+   +'  try{ window._franjaDecisionesInv(); }catch(eF){} }');
+   } finally { e2RestaurarLS(W, fLS); }
+   const t=r.trasRecargar||{};
    const bien = r.alInstante==='aprobada' && r.a10min==='aprobada'
-             && r.a3dias==='aprobada' && r.soltada;
+             && r.a3dias==='aprobada' && r.soltada
+             && t.rechazo==='rechazada' && t.vieja==='pendiente' && t.avisa===true && t.suelta===true;
    return {ok:bien, detalle: bien
-     ? 'Se sostiene al instante, a los 10 minutos y a los 3 días; y se suelta sola cuando la nube\n'
+     ? 'En la misma carga se sostiene al instante, a los 10 minutos y a los 3 días; y se suelta sola cuando la nube\n'
       +'ya la trae aprobada.'
+      +'\nTras recargar: un rechazo se repone; una entrada vieja sin efecto que repetir ya no se impone y se pide volver a decidirla ✓'
      : 'al instante: '+r.alInstante+' · a 10 min: '+r.a10min+' · a 3 días: '+r.a3dias
-       +' · se suelta al confirmar: '+r.soltada};}},
+       +' · se suelta al confirmar: '+r.soltada+' · tras recargar: '+JSON.stringify(t)};}},
 
 {app:'inv', titulo:'Un serial no puede estar en dos sitios',
  porque:'Un serial identifica UN aparato. Repetido, el mismo equipo queda contado dos veces y el '
@@ -380,6 +441,9 @@ const PRUEBAS = [
        +'eso bodega volvía a pedir lo mismo media hora después.',
  correr:W=>{ const r=E(W, 'const gB=DB.bodegas, gBase=window._baseStockInv,'
    +' gFoto=window._idsRemotosInv, gRe=window._reenvioInvProgramado;'
+   // Etapa 2: _fusionarConNubeInv poda (en memoria) las lápidas por fila de las bodegas reales, que no están en estas
+   // inventadas, y deja _tumbas podado a 15 días (o lo crea): se devuelven las dos
+   +'const tTF=("_tumbasFila" in DB), gTF=DB._tumbasFila, tT=("_tumbas" in DB), gT=DB._tumbas;'
    +'try{'
    +'  const bod={id:"BOD", nombre:"Prueba", materiales:[{id:"M1", nombre:"ONU", cantidad:0, snes:[]}]};'
    +'  const nube={bodegas:[JSON.parse(JSON.stringify(bod))]};'
@@ -410,7 +474,8 @@ const PRUEBAS = [
    +'  const cambioAjeno=DB.bodegas[0].materiales[0].cantidad;'
    +'  return {tocoAlPrincipio, conservo, tocoDespues, trasFusionar, cambioAjeno};'
    +'} finally { DB.bodegas=gB; window._baseStockInv=gBase;'
-   +'  window._idsRemotosInv=gFoto; window._reenvioInvProgramado=gRe; }');
+   +'  window._idsRemotosInv=gFoto; window._reenvioInvProgramado=gRe; if(tTF) DB._tumbasFila=gTF; else delete DB._tumbasFila;'
+   +'  if(tT) DB._tumbas=gT; else delete DB._tumbas; }');
    const bien = r.tocoAlPrincipio===true && r.conservo===1 && r.tocoDespues===true
              && r.trasFusionar===1 && r.cambioAjeno===7;
    return {ok:bien, detalle: bien
@@ -5020,13 +5085,16 @@ const PRUEBAS = [
    +'} finally { USER=gU; DB.logs=gL; window._fbSave=gS;'
    +'  if(ss0===null) sessionStorage.removeItem("inv_sesion_id"); else sessionStorage.setItem("inv_sesion_id", ss0);'
    +'  if(ls0===null) localStorage.removeItem("pv_equipo_id"); else localStorage.setItem("pv_equipo_id", ls0); }');
-   // Lectura del texto: nadie más agrega al registro (la importación de Excel hacía unshift sin usuario y recortaba a 60)
+   // Lectura del texto: nadie más agrega al registro entradas sueltas (la importación de Excel hacía unshift sin usuario y recortaba a 60).
+   // Etapa 2: dos sitios agregan sin save(), porque corren dentro del guardado o del oyente (la lápida anulada porque entró material y
+   // la decisión repetida tras recargar); los dos con una entrada completa de _entradaLogInv. Eso se permite; una entrada armada a mano, no.
    const leer=async f=>{ try{ const x=await fetch(f,{cache:'no-store'}); return x.ok ? await x.text() : ''; }catch(e){ return ''; } };
    const inv=(await leer('INVENTARIO_PTOVISION.html')).replace(/\r/g,'');
    const sinCom=t=>t.split('\n').map(l=>l.replace(/\/\/.*$/,'')).join('\n');
    const iL=inv.indexOf('\nfunction logMsg('), jL=iL<0 ? -1 : inv.indexOf('\n}', iL+1), cL=iL<0 ? '' : sinCom(inv.slice(iL, jL));
    const usos=[...inv.matchAll(/logs\.unshift\(/g)].map(m=>m.index);
-   const soloLogMsg=iL>=0 && usos.length===1 && usos[0]>iL && usos[0]<jL;
+   const enLogMsg=u=>u>iL && u<jL, completa=u=>/^logs\.unshift\(\s*_entradaLogInv\(/.test(inv.slice(u, u+60));
+   const soloLogMsg=iL>=0 && usos.filter(enLogMsg).length===1 && usos.every(u=>enLogMsg(u) || completa(u));
    const porNombre=iL>=0 && cL.indexOf('window.USER')<0 && /typeof USER/.test(cL);
    const T=r.todas||[], p=r.p||{}, p2=r.p2||{}, reId=/^lg_[a-z0-9]+_[a-z0-9]{6}$/, CAMPOS='app,equipo,fecha,fechaMs,hora,id,msg,rol,sesion,t,usuario,version';
    const C=[
@@ -5044,7 +5112,7 @@ const PRUEBAS = [
      ['cada entrada pide guardar (el guardado estaba sustituido)', r.guardados===209],
      ['_entradaLogInv arma la entrada completa', p.usuario==='BOD X' && p.rol==='bodega' && p.app==='INV' && p.version===113 && p.sesion==='se_aaaaaaaaaa' && p.equipo==='eq_bbbbbbbbbb'
         && p.fechaMs===1790000000000 && p.t===r.iso && reId.test(p.id||'') && p.msg==='hola' && p2.usuario==='Bodega' && p2.version===null && p2.sesion==='' && p2.equipo===''],
-     ['nadie más agrega al registro: solo logMsg hace unshift (texto)', soloLogMsg],
+     ['nadie más agrega entradas sueltas al registro: logMsg, o una entrada completa de _entradaLogInv (texto)', soloLogMsg],
      ['logMsg usa USER por su nombre, no window.USER (texto)', porNombre],
      ['ninguna escritura llegó al envoltorio', bloq()-n0===0]
    ];
@@ -5052,7 +5120,7 @@ const PRUEBAS = [
    return {ok:!mal.length, detalle: !mal.length
      ? 'Una bodega queda con su nombre ('+r.bodega+'), el administrador como «Admin» y sin sesión como «Sistema» ✓'
       +'\nCada entrada trae id único, app INV, v'+r.ver+', la pestaña y el navegador (iguales en todas) y la fecha también en número; sin campos vacíos ni cédula ✓'
-      +'\nCon 205 entradas quedan las 200 más nuevas ✓ · Solo logMsg agrega al registro (la importación de Excel también pasa por él) ✓'
+      +'\nCon 205 entradas quedan las 200 más nuevas ✓ · Solo logMsg agrega al registro (la importación de Excel también pasa por él), salvo dos entradas completas de _entradaLogInv de la Etapa 2 ✓'
       +'\nNada se escribió (el guardado estaba sustituido) y todo quedó como estaba ✓'
      : 'Fallan: '+mal.join(', ')+'\n'+JSON.stringify(r).slice(0,1500).replace(/</g,'&lt;')};}},
 {app:'inv', titulo:'Etapa 1 · Dos pantallas que registran a la vez no pierden entradas',
@@ -5695,6 +5763,891 @@ const PRUEBAS = [
       +'\nLa tarjeta solo la ve el administrador, va aparte de la 🛡️ en INVENTARIO y entre el mantenimiento y el buzón en OFICINAS; solo el botón lee: una lectura del documento y una de versiones por apertura, y quita las de más de 24 h con un set merge de solo borrados (en modo prueba no); sin respuesta de la nube, a los 30 s lo dice ✓'
       +'\nUna entrada con un en del año 2100 no deja ciego el panel: las 5 que laten siguen vivas, su fila dice «hora imposible», el panel la quita en el mismo set merge (en modo prueba no) y con el reloj de quien lee días atrasado no quita nada ✓'
      : 'Fallan: '+mal.join(', ')+'\n'+JSON.stringify({res:{total:res.total, viejas:res.viejas, sinLatido:res.sinLatido, abiertas24:res.abiertas24}, resF:{total:resF.total, vivas:resF.vivas, sinLatido:resF.sinLatido, enMasNuevo:resF.enMasNuevo}, futBien, futPropia, futAtras, futura, ancho, panel, tarj:tarj?{a:tarj.a.slice(0,200), b:tarj.b, c:tarj.c}:null, errT, errP}).slice(0,2200).replace(/</g,'&lt;')};}},
+{app:'inv', titulo:'Etapa 2 · Una fila cuyo borrado aprobó el admin no vuelve, aunque esta pantalla la haya cambiado (R2)',
+ porque:'Revisión del 9 oct 2026 (R2): el admin aprobaba borrar un artículo y, si otra pantalla había cambiado esa fila (una observación, una '
+       +'línea del historial, la «categoria» que pone fixDB), la fusión fina la devolvía: «una fila quitada en un lado y cambiada en el otro se '
+       +'conserva». Ahora el borrado deja una lápida POR FILA en inventario/datos._tumbasFila (no en _tumbas, donde se tomaría por el borrado de '
+       +'la bodega entera) y esa fila no vuelve, ni por el oyente ni por el guardado. Excepción: si le entró material mientras se borraba, se '
+       +'conserva y la lápida queda anulada. Con ids repetidos sale solo la fila pedida, y restaurarla anula su lápida. Datos inventados (ids '
+       +'E2P…); todo se devuelve al terminar, también las lápidas y las decisiones del navegador, y nada se escribe.',
+ correr:async W=>{
+   const bloq=()=>(W._escriturasBloqueadas||[]).length, n0=bloq(), fLS=e2FotoLS(W);
+   let r=null, err='';
+   try{ r=E(W,
+     'const cp=o=>JSON.parse(JSON.stringify(o)), T=Date.now(), B="E2P_BOD_"+T;'
+   +'const idsF=x=>((x&&x.materiales)||[]).map(m=>m.id+":"+m.tipo).join(), nomF=x=>((x&&x.materiales)||[]).map(m=>m.nombre+"/"+m.tipo).join();'
+   +'const fila=(i,nom,tipo,cant,snes)=>({id:i, nombre:nom, tipo, cantidad:cant, unidad:"Und", snes:snes||[], categoria:"equipo"});'
+   +'const bod=()=>({id:B, nombre:"BODEGA E2", materiales:[fila("M1","ONU HG8145","nuevo",10,["HWTC1234ABCD","N/A"]), fila("M2","CABLE DROP","nuevo",1000), fila("M3","TV BOX TV98 PRO","usado",0)]});'
+   // Funciones puras: la regla, ids repetidos, material que entra, la unión y la poda
+   +'const L3=_nuevaTumbaFilaInv("bodegas", bod(), bod().materiales[2], "aprobacion", "E2P_D1", false, T, "admin");'
+   +'const reg=bod(); reg.materiales[2].observaciones="revisado aquí"; reg.materiales[2].historial=[{tipo:"ajuste", cantidad:0}]; const sReg=JSON.stringify(reg), sL3=JSON.stringify(L3);'
+   +'const a1=_aplicarTumbasFilaInv("bodegas", reg, [L3], T);'
+   +'const pura={ quedan:idsF(a1.registro), quitadas:a1.quitadas, anular:a1.anular.length, noMuta:JSON.stringify(reg)===sReg && JSON.stringify(L3)===sL3 && a1.registro!==reg && a1.registro.materiales!==reg.materiales,'
+   +'  forma:Object.keys(L3).sort().join(), vacios:Object.keys(L3).filter(k=>L3[k]===undefined).length,'
+   +'  L3:[L3.col, L3.id===B, L3.fila, L3.nom, L3.tipo, L3.en===T, L3.por, L3.origen, L3.req, L3.cant, L3.anulada].join("|"),'
+   +'  sinLapida:_aplicarTumbasFilaInv("bodegas", reg, [], T).quitadas,'
+   +'  otras:_aplicarTumbasFilaInv("bodegas", reg, [Object.assign({}, L3, {col:"cuadrillas"}), Object.assign({}, L3, {id:"E2P_OTRA_"+T})], T).quitadas };'
+   +'const rep={id:B, materiales:[fila("MX","ONU A","nuevo",1), fila("MX","ONU B","nuevo",1), fila("MX","ONU A","usado",1), fila("M9","OTRO","nuevo",1)]};'
+   +'const LX=_nuevaTumbaFilaInv("bodegas", rep, rep.materiales[1], "aprobacion", "", false, T, "admin"), LXd=Object.assign({}, LX, {nom:"  onú   b ", tipo:"NUEVO"});'
+   +'const par={id:B, materiales:[fila("P","ONU A","nuevo",1), fila("P","ONU B","nuevo",1)]}, LP=_nuevaTumbaFilaInv("bodegas", par, par.materiales[1], "aprobacion", "", false, T, "admin");'
+   +'const repetidos={ quedan:nomF(_aplicarTumbasFilaInv("bodegas", rep, [LXd], T).registro), coincide:rep.materiales.map(f=>_filaCoincideLapidaInv(f, LX, rep)).join(), rep:LX.rep,'
+   +'  sola:LP.rep===true && _aplicarTumbasFilaInv("bodegas", {id:B, materiales:[fila("P","ONU A","nuevo",1)]}, [LP], T).quitadas===0 };'
+   +'const conStock=bod(); conStock.materiales[2].cantidad=3; const aS=_aplicarTumbasFilaInv("bodegas", conStock, [L3], T+5), an=aS.anular[0]||{};'
+   +'const LM1=_nuevaTumbaFilaInv("bodegas", bod(), bod().materiales[0], "aprobacion", "", false, T, "admin");'
+   +'const mismoSn=bod(); mismoSn.materiales[0].snes=["hwtc-1234abcd","SN"]; const nuevoSn=bod(); nuevoSn.materiales[0].snes=["HWTC1234ABCD","ZTEG0000ABCD"];'
+   +'const aN=_aplicarTumbasFilaInv("bodegas", nuevoSn, [LM1], T), vuelve=_unirTumbasFilaInv([L3], [an]), bajo=bod();'
+   +'const material={ queda:idsF(aS.registro), quitadas:aS.quitadas, motivo:(an.anulada||{}).motivo||"", en:(an.anulada||{}).en===T+5, snes:LM1.snes.join(), snesN:LM1.snesN,'
+   +'  mismoSerial:_aplicarTumbasFilaInv("bodegas", mismoSn, [LM1], T).quitadas, serialNuevo:aN.quitadas+"/"+aN.anular.length,'
+   +'  anuladaGana:vuelve.length===1 && !!vuelve[0].anulada, noVuelveAQuitar:_aplicarTumbasFilaInv("bodegas", bajo, vuelve, T).quitadas===0 && _filaCoincideLapidaInv(bajo.materiales[2], vuelve[0], bajo)===false };'
+   +'const Lt=Object.assign({}, L3, {en:T-5000}), sA=JSON.stringify([L3, LX, Lt, an]), U1=_unirTumbasFilaInv([L3, LX], [Lt, an]), U2=_unirTumbasFilaInv([Lt, an], [LX, L3]), u3=U1.find(l=>l.fila==="M3")||{};'
+   +'const union={ n:U1.length, en:u3.en===T-5000, anulada:!!u3.anulada, orden:JSON.stringify(U1)===JSON.stringify(U2), idem:JSON.stringify(_unirTumbasFilaInv(U1, U1))===JSON.stringify(U1), noMuta:JSON.stringify([L3, LX, Lt, an])===sA };'
+   +'const D=86400000, viejas=[Object.assign({}, L3, {fila:"V179", en:T-179*D}), Object.assign({}, L3, {fila:"V181", en:T-181*D}), Object.assign({}, L3, {id:"E2P_NO_EXISTE", fila:"V1"})];'
+   +'const muchas=[]; for(let i=0;i<2005;i++) muchas.push(Object.assign({}, L3, {fila:"F"+i, en:T-(2005-i)*1000})); const p3=_podarTumbasFilaInv(muchas, null, T);'
+   +'const poda={ dias:_podarTumbasFilaInv(viejas, {bodegas:[{id:B}], cuadrillas:[]}, T).map(l=>l.fila).join(), sinLista:_podarTumbasFilaInv(viejas, {bodegas:[], cuadrillas:[]}, T).map(l=>l.fila).join(),'
+   +'  tope:p3.length+"|"+p3[0].fila+"|"+p3[p3.length-1].fila };'
+   // Lo que se toca de la memoria, para devolverlo
+   +'const COLS=["bodegas","cuadrillas","recuperados","consumosPendientes","instalaciones","equiposDanados","equiposPendientesTecnico"], H={}; COLS.forEach(k=>{ H[k]=[k in DB, DB[k]]; });'
+   +'const gDR=DB.deleteRequests, gER=DB.editRequests, gL=DB.logs, tTF=("_tumbasFila" in DB), gTF=DB._tumbasFila, tT=("_tumbas" in DB), gT=DB._tumbas;'
+   +'const gBase=window._baseStockInv, gFoto=window._idsRemotosInv, gRe=window._reenvioInvProgramado, gRs=window._reenviosInv, gAt=window._enVueloAtascadosInv;'
+   +'const gS=window._fbSave, gA=window.alert, gCf=window.confirm, gRD=window.renderDeleteReq, gRT=window.renderTab, gU=USER;'
+   +'const dec0=new Map(window._decisionesMiasInv), sol0=new Map(window._soltadasDecInv||[]), tfa0=new Set(_tfAnotadasInv);'
+   +'let guardados=0; const alertas=[];'
+   +'try{'
+   +'  window._fbSave=function(){ guardados++; }; window.alert=function(m){ alertas.push(String(m)); }; window.confirm=function(){ return true; };'
+   +'  window.renderDeleteReq=function(){}; window.renderTab=function(){};'
+   +'  USER={role:"admin"}; DB._tumbas=[]; DB._tumbasFila=[]; DB.cuadrillas=[]; DB.logs=[]; window._reenvioInvProgramado=true; window._reenviosInv=[];'
+   +'  const nube=bod(), base=()=>{ window._baseStockInv={}; window._guardarBaseStockInv({bodegas:[cp(nube)]}); window._idsRemotosInv={d:{},h:{}}; };'
+   +'  const sinM3=()=>({bodegas:[{id:B, nombre:"BODEGA E2", materiales:cp(nube.materiales.slice(0,2))}], _tumbasFila:[cp(L3)]});'
+   +'  const deB=()=>(DB._tumbasFila||[]).filter(l=>l.id===B);'
+   // A) Por el oyente: la nube ya no tiene M3 y trae su lápida; aquí M2 y M3 se cambiaron sin guardar
+   +'  DB.bodegas=[bod()]; base(); DB.bodegas[0].materiales[1].observaciones="cambio aquí"; DB.bodegas[0].materiales[2].observaciones="revisado aquí";'
+   +'  const entA=sinM3(); window._protegerSnapshotInv(entA, ["bodegas"], {}, []);'
+   +'  const oyente={ ent:idsF(entA.bodegas[0]), m2:(entA.bodegas[0].materiales.find(m=>m.id==="M2")||{}).observaciones||"", aqui:idsF(DB.bodegas[0]),'
+   +'    lapidas:deB().map(l=>l.fila).join(), enEnt:(entA._tumbasFila||[]).filter(l=>l.id===B).length };'
+   // B) Sin lápida, la regla de siempre: la fila que se cambió aquí se conserva
+   +'  DB._tumbasFila=[]; DB.bodegas=[bod()]; base(); DB.bodegas[0].materiales[2].observaciones="revisado aquí";'
+   +'  const entB=sinM3(); delete entB._tumbasFila; window._protegerSnapshotInv(entB, ["bodegas"], {}, []); const sinLapidaOyente=idsF(entB.bodegas[0]);'
+   // C) Por el guardado (_fusionarConNubeInv: dentro de la transacción y en el modo prueba), también si la transacción se repite
+   +'  DB._tumbasFila=[]; DB.bodegas=[bod()]; base(); DB.bodegas[0].materiales[1].observaciones="cambio aquí"; DB.bodegas[0].materiales[2].observaciones="revisado aquí";'
+   +'  const fd=sinM3(), sFd=JSON.stringify(fd); window._fusionarConNubeInv(fd, null); const g1=idsF(DB.bodegas[0]); window._fusionarConNubeInv(cp(fd), null);'
+   +'  const guardado={ aqui:g1, repite:idsF(DB.bodegas[0]), m2:(DB.bodegas[0].materiales.find(m=>m.id==="M2")||{}).observaciones||"", lapidas:deB().map(l=>l.fila).join(),'
+   +'    fdIntacto:JSON.stringify(fd)===sFd, tumbasConFila:(DB._tumbas||[]).filter(t=>t && ("fila" in t)).length };'
+   // D) Le entraron 4 unidades aquí mientras el admin la borraba allá: se conserva y la lápida queda anulada
+   +'  DB._tumbasFila=[]; DB.logs=[]; DB.bodegas=[bod()]; base(); DB.bodegas[0].materiales[2].cantidad=4;'
+   +'  window._fusionarConNubeInv(sinM3(), null); const tf=deB().find(l=>l.fila==="M3")||{};'
+   +'  const entro={ aqui:idsF(DB.bodegas[0]), cant:(DB.bodegas[0].materiales.find(m=>m.id==="M3")||{}).cantidad, motivo:(tf.anulada||{}).motivo||"", log:(DB.logs[0]||{}).msg||"",'
+   +'    ls:_leerTumbasFilaLSInv().some(l=>l.id===B && l.fila==="M3" && !!l.anulada), vigilancia:_lapidasAnuladasMaterialInv(30).some(l=>l.id===B) };'
+   // E) approveDelete con ids repetidos: sale SOLO la fila pedida, con su lápida (cantidad y seriales de ahora) y su efecto
+   +'  DB._tumbasFila=[]; DB.logs=[];'
+   +'  const bR={id:B, nombre:"BODEGA E2", materiales:[fila("MX","ONU A","nuevo",2), fila("MX","ONU B","nuevo",3,["ZTEG0000BEEF"]), fila("MX","ONU A","usado",1), fila("M9","OTRO","nuevo",1)]};'
+   +'  DB.bodegas=[bR]; DB.editRequests=[]; const D1="E2P_D1_"+T, D2="E2P_D2_"+T;'
+   +'  DB.deleteRequests=[{id:D1, bodegaId:B, bodegaNombre:"BODEGA E2", materialId:"MX", materialNombre:"ONU B", tipo:"nuevo", cantidad:3, unidad:"Und", obs:"prueba", fecha:new Date(T).toISOString(), fechaMs:T, estado:"pendiente"}];'
+   +'  approveDelete(D1, "aprobada");'
+   +'  const lap=deB().find(l=>l.fila==="MX")||{}, ef=(window._decisionesMiasInv.get("deleteRequests│"+D1)||{}).efecto||{};'
+   +'  const aprobar={ quedan:nomF(bR), estado:DB.deleteRequests[0].estado, lap:[lap.nom, lap.tipo, lap.origen, lap.req===D1, lap.por, lap.cant, (lap.snes||[]).join(), lap.rep, lap.anulada].join("|"),'
+   +'    ls:_leerTumbasFilaLSInv().some(l=>l.id===B && l.req===D1), efecto:[ef.tipo, ef.col, ef.id===B, ef.fila, ef.nom, ef.tipoFila, !!ef.lapida].join("|"),'
+   +'    kardexVecina:((bR.materiales[0]||{}).historial||[]).length, alertas:alertas.length };'
+   // F) delMat del admin (origen «directo»), y lo que una transacción va a escribir sale sin las filas con lápida
+   +'  delMat(B, "M9"); const lapD=deB().find(l=>l.fila==="M9")||{};'
+   +'  const cambios={bodegas:[{id:B, nombre:"BODEGA E2", materiales:[fila("MX","ONU A","nuevo",2), fila("MX","ONU B","nuevo",3), fila("M9","OTRO","nuevo",1)]}], otro:1}, sCam=JSON.stringify(cambios);'
+   +'  const sc=window._cambiosSinFilasConLapidaInv(cambios, {bodegas:cp(cambios.bodegas), _tumbasFila:[]});'
+   +'  const directo={ quedan:nomF(bR), origen:lapD.origen, req:lapD.req, tx:nomF(sc.bodegas[0]), lleva:Array.isArray(sc._tumbasFila) && sc._tumbasFila.some(l=>l.id===B && l.fila==="M9"),'
+   +'    intacto:JSON.stringify(cambios)===sCam && sc!==cambios && sc.otro===1, tumbasConFila:(DB._tumbas||[]).filter(t=>t && ("fila" in t)).length };'
+   // G) «Rechazar y restaurar» devuelve la fila con el MISMO id: su lápida se anula en el mismo momento
+   +'  DB.deleteRequests=DB.deleteRequests.concat([{id:D2, bodegaId:B, bodegaNombre:"BODEGA E2", materialId:"M9", materialNombre:"OTRO", tipo:"nuevo", cantidad:1, unidad:"Und", snes:[], obs:"prueba", fecha:new Date(T).toISOString(), fechaMs:T, estado:"pendiente"}]);'
+   +'  approveDelete(D2, "rechazada");'
+   +'  const lapR=deB().find(l=>l.fila==="M9")||{}, sc2=window._cambiosSinFilasConLapidaInv({bodegas:[cp(bR)]}, {bodegas:[cp(bR)], _tumbasFila:[]});'
+   +'  const restaurar={ vuelve:bR.materiales.some(m=>m.id==="M9"), motivo:(lapR.anulada||{}).motivo||"", tx:nomF(sc2.bodegas[0]), efecto:((window._decisionesMiasInv.get("deleteRequests│"+D2)||{}).efecto||{}).tipo||"" };'
+   +'  return {pura, repetidos, material, union, poda, oyente, sinLapidaOyente, guardado, entro, aprobar, directo, restaurar, guardados};'
+   +'} finally {'
+   +'  COLS.forEach(k=>{ if(H[k][0]) DB[k]=H[k][1]; else delete DB[k]; });'
+   +'  DB.deleteRequests=gDR; DB.editRequests=gER; DB.logs=gL; if(tTF) DB._tumbasFila=gTF; else delete DB._tumbasFila; if(tT) DB._tumbas=gT; else delete DB._tumbas;'
+   +'  window._baseStockInv=gBase; window._idsRemotosInv=gFoto; window._reenvioInvProgramado=gRe; window._reenviosInv=gRs; window._enVueloAtascadosInv=gAt;'
+   +'  window._fbSave=gS; window.alert=gA; window.confirm=gCf; window.renderDeleteReq=gRD; window.renderTab=gRT; USER=gU;'
+   +'  window._decisionesMiasInv.clear(); dec0.forEach((v,k)=>window._decisionesMiasInv.set(k,v));'
+   +'  if(window._soltadasDecInv instanceof Map){ window._soltadasDecInv.clear(); sol0.forEach((v,k)=>window._soltadasDecInv.set(k,v)); }'
+   +'  [..._tfAnotadasInv].forEach(k=>{ if(!tfa0.has(k)) _tfAnotadasInv.delete(k); });'
+   +'  try{ window._franjaDecisionesInv(); }catch(e){}'
+   +'}');
+   }catch(e){ err=String((e&&e.message)||e); } finally { e2RestaurarLS(W, fLS); }
+   if(!r) return {ok:false, detalle:'La prueba no terminó: '+err.replace(/</g,'&lt;')};
+   const leer=async f=>{ try{ const x=await fetch(f,{cache:'no-store'}); return x.ok ? await x.text() : ''; }catch(e){ return ''; } };
+   const inv=(await leer('INVENTARIO_PTOVISION.html')).replace(/\r/g,''), tiene=s=>inv.indexOf(s)>=0;
+   const textos=tiene("_crearTumbaFilaInv('bodegas', b, mActual, 'aprobacion', req.id)") && tiene("_crearTumbaFilaInv('bodegas', _bDel, m, 'directo', '')")
+     && tiene("_crearTumbaFilaInv('cuadrillas', cu, m, 'corregir', '', true)") && tiene("_anularTumbasFilaInv('bodegas', ori, m, 'restaurada')")
+     && tiene('window._cambiosSinFilasConLapidaInv(cambios, data)') && tiene('window._cambiosSinFilasConLapidaInv(r.datos, datos)')
+     && tiene('window._unirTumbasFilaEnEntranteInv(entrante)') && tiene('window._tumbasFilaAlCargarInv()') && tiene('window._tumbasFilaAlFusionarInv(frescoDatos)');
+   const p=r.pura, rp=r.repetidos, m=r.material, u=r.union, po=r.poda, o=r.oyente, g=r.guardado, en=r.entro, a=r.aprobar, d=r.directo, rs=r.restaurar;
+   const C=[
+     ['la lápida tiene la forma acordada, sin campos vacíos y con el rol (no un nombre)', p.forma==='anulada,cant,col,en,fila,id,nom,origen,por,rep,req,snes,snesN,tipo' && p.vacios===0
+        && p.L3==='bodegas|true|M3|TV BOX TV98 PRO|usado|true|admin|aprobacion|E2P_D1|0|'],
+     ['una fila con lápida sale aunque aquí le cambiaran la observación y el historial; las demás se quedan', p.quedan==='M1:nuevo,M2:nuevo' && p.quitadas===1 && p.anular===0],
+     ['no cambia lo que recibe: devuelve copias', p.noMuta===true],
+     ['sin lápida no sale nada; la de una cuadrilla o la de otra bodega con el mismo id de fila no la tocan', p.sinLapida===0 && p.otras===0],
+     ['ids repetidos: sale solo la de igual nombre y tipo (sin tildes, mayúsculas ni espacios de más)', rp.quedan==='ONU A/nuevo,ONU A/usado,OTRO/nuevo' && rp.coincide==='false,true,false,false' && rp.rep===true],
+     ['la vecina que quedó sola con ese id tampoco se va: la lápida recuerda que el id estaba repetido', rp.sola===true],
+     ['le entró material: la fila se conserva y la lápida queda anulada', m.queda==='M1:nuevo,M2:nuevo,M3:usado' && m.quitadas===0 && m.motivo==='entró material después del borrado' && m.en===true],
+     ['un serial nuevo también la anula; el mismo serial escrito distinto o un relleno no', m.snes==='485754431234ABCD' && m.snesN===1 && m.mismoSerial===1 && m.serialNuevo==='0/1'],
+     ['una lápida anulada no vuelve a quitar la fila aunque después baje el stock (la anulación viaja por la unión)', m.anuladaGana===true && m.noVuelveAQuitar===true],
+     ['la unión: una por fila, la hora menor, la anulación gana, el mismo orden en los dos sentidos y unir dos veces da lo mismo', u.n===2 && u.en && u.anulada && u.orden && u.idem && u.noMuta],
+     ['la poda: 179 días se queda y 181 se va, salen las de registros que ya no existen (una lista vacía no poda) y tope de 2.000', po.dias==='V179' && po.sinLista==='V179,V1' && po.tope==='2000|F5|F2004'],
+     ['por el oyente (_protegerSnapshotInv): la fila no vuelve, el cambio de M2 hecho aquí se conserva y la lápida queda en los dos lados', o.ent==='M1:nuevo,M2:nuevo' && o.aqui==='M1:nuevo,M2:nuevo' && o.m2==='cambio aquí' && o.lapidas==='M3' && o.enEnt===1],
+     ['sin lápida sigue la regla de siempre: la fila cambiada aquí se conserva', r.sinLapidaOyente==='M1:nuevo,M2:nuevo,M3:usado'],
+     ['por el guardado (_fusionarConNubeInv): igual, también si la transacción se repite, y lo leído no se toca', g.aqui==='M1:nuevo,M2:nuevo' && g.repite==='M1:nuevo,M2:nuevo' && g.m2==='cambio aquí' && g.lapidas==='M3' && g.fdIntacto===true],
+     ['_tumbas no recibe lápidas de fila (ahí borrarían la bodega entera): ni al guardar ni al aprobar o borrar', g.tumbasConFila===0 && d.tumbasConFila===0],
+     ['al guardar, si le entró material: se conserva, la lápida queda anulada y sale en el registro, en el navegador y en la 🛡️ Vigilancia', en.aqui==='M1:nuevo,M2:nuevo,M3:usado' && en.cant===4
+        && en.motivo==='entró material después del borrado' && /volvió a BODEGA E2 porque le entró material/.test(en.log) && en.ls===true && en.vigilancia===true],
+     ['approveDelete con ids repetidos: sale SOLO la fila pedida, con su lápida (cantidad y seriales de ahora), en el navegador y con su efecto', a.quedan==='ONU A/nuevo,ONU A/usado,OTRO/nuevo' && a.estado==='aprobada'
+        && a.lap==='ONU B|nuevo|aprobacion|true|admin|3|5A5445470000BEEF|true|' && a.ls===true && a.efecto==='borrar|bodegas|true|MX|ONU B|nuevo|true' && a.kardexVecina===0 && a.alertas===1],
+     ['delMat del admin deja lápida «directo»; lo que va a escribir una transacción sale sin las filas con lápida (sin tocar lo que recibe)', d.quedan==='ONU A/nuevo,ONU A/usado' && d.origen==='directo' && d.req===''
+        && d.tx==='ONU A/nuevo' && d.lleva===true && d.intacto===true],
+     ['«rechazar y restaurar» devuelve la fila con su id y anula su lápida en el mismo momento', rs.vuelve===true && rs.motivo==='restaurada' && rs.tx==='ONU A/nuevo,ONU A/usado,OTRO/nuevo' && rs.efecto==='restaurar'],
+     ['las lápidas se crean donde dice el diseño y pasan por las transacciones, el oyente, la carga y el guardado (texto)', textos],
+     ['ninguna escritura llegó al envoltorio', bloq()-n0===0]
+   ];
+   const mal=C.filter(c=>c[1]!==true).map(c=>c[0]);
+   return {ok:!mal.length, detalle: !mal.length
+     ? 'Con una lápida, la fila borrada no vuelve aunque esta pantalla le cambiara la observación: ni por el oyente ni por el guardado (también si la transacción se repite); el cambio de otra fila sí se conserva ✓'
+      +'\nSin lápida sigue la regla de siempre; la lápida de otra bodega o de una cuadrilla no toca nada, y _tumbas no recibe lápidas de fila ✓'
+      +'\nCon ids repetidos sale solo la de igual nombre y tipo, también en approveDelete; la vecina que queda sola no se va ✓'
+      +'\nSi le entró material (cantidad o un serial nuevo), se conserva y la lápida queda anulada para siempre, con su registro, el navegador y la 🛡️ Vigilancia ✓'
+      +'\nUnión estable (una por fila, hora menor, anulación gana), poda a 180 días y 2.000; delMat deja «directo», las transacciones no escriben la fila y restaurar anula la lápida ✓'
+      +'\nNada se escribió y todo quedó como estaba ✓'
+     : 'Fallan: '+mal.join(', ')+'\n'+JSON.stringify(r).slice(0,2500).replace(/</g,'&lt;')};}},
+{app:'inv', titulo:'Etapa 2 · Aprobar cuando ya no existe el artículo deja «cerrada sin cambios»',
+ porque:'Revisión del 9 oct 2026 (C1.5): si al aprobar ya no existía la bodega, el artículo o la venta, la solicitud quedaba «aprobada» sin '
+       +'haber hecho nada, y esa decisión no se protegía: un snapshot podía devolverla a pendiente. Ahora queda con el estado decidido (para no '
+       +'romper filtros) más resultado «sin_cambios», la hora de la decisión (decididaMs, que usa el archivador), protegida como cualquier '
+       +'decisión y en el registro; en pantalla, «cerrada sin cambios». Datos inventados; el guardado y los avisos están sustituidos.',
+ correr:async W=>{
+   const bloq=()=>(W._escriturasBloqueadas||[]).length, n0=bloq(), fLS=e2FotoLS(W);
+   let r=null, err='';
+   try{ r=E(W,
+     'const T=Date.now(), B="E2P_BOD_"+T;'
+   +'const gB=DB.bodegas, gDR=DB.deleteRequests, gER=DB.editRequests, gV=DB.ventas, gL=DB.logs, tTF=("_tumbasFila" in DB), gTF=DB._tumbasFila;'
+   +'const gS=window._fbSave, gA=window.alert, gCf=window.confirm, gRD=window.renderDeleteReq, gU=USER, dec0=new Map(window._decisionesMiasInv), sol0=new Map(window._soltadasDecInv||[]);'
+   +'let guardados=0, confirmas=0; const alertas=[];'
+   +'try{'
+   +'  window._fbSave=function(){ guardados++; }; window.alert=function(m){ alertas.push(String(m)); }; window.confirm=function(){ confirmas++; return true; }; window.renderDeleteReq=function(){};'
+   +'  USER={role:"admin"}; DB.logs=[]; DB._tumbasFila=[]; DB.ventas=[];'
+   +'  const bod={id:B, nombre:"BODEGA E2", materiales:[{id:"M1", nombre:"ONU", tipo:"nuevo", cantidad:2, unidad:"Und", snes:[]}]}, sBod=JSON.stringify(bod); DB.bodegas=[bod];'
+   +'  const sol=(i,x)=>Object.assign({id:"E2P_"+i+"_"+T, bodegaId:B, bodegaNombre:"BODEGA E2", materialId:"M1", materialNombre:"ONU", tipo:"nuevo", cantidad:2, unidad:"Und", fecha:new Date(T).toISOString(), fechaMs:T, estado:"pendiente", obs:"x", cambios:[], motivo:"x"}, x||{});'
+   +'  const dB=sol("D1",{bodegaId:"E2P_NO_EXISTE", bodegaNombre:"BODEGA BORRADA"}), dA=sol("D2",{materialId:"E2P_NO_ESTA", materialNombre:"YA NO ESTÁ"});'
+   +'  const dV={id:"E2P_D3_"+T, tipo:"venta", ventaId:"E2P_VENTA_"+T, bodegaId:B, bodegaNombre:"BODEGA E2", materialNombre:"VENTA BORRADA", cantidad:1, total:1000, fecha:new Date(T).toISOString(), fechaMs:T, estado:"pendiente", obs:"x"};'
+   +'  const eB=sol("E1",{bodegaId:"E2P_NO_EXISTE", bodegaNombre:"BODEGA BORRADA", datos:{cantidad:1}}), eA=sol("E2",{materialId:"E2P_NO_ESTA", materialNombre:"YA NO ESTÁ", datos:{cantidad:1}}), eD=sol("E3",{});'
+   +'  DB.deleteRequests=[dB, dA, dV]; DB.editRequests=[eB, eA, eD];'
+   +'  approveDelete(dB.id, "aprobada"); approveDelete(dA.id, "aprobada"); approveDeleteVenta(dV.id, "aprobada");'
+   +'  approveEdit(eB.id, "aprobada"); approveEdit(eA.id, "aprobada"); approveEdit(eD.id, "aprobada");'
+   +'  const todas=[dB, dA, dV, eB, eA, eD], cols=["deleteRequests","deleteRequests","deleteRequests","editRequests","editRequests","editRequests"];'
+   +'  const res={ estados:todas.map(x=>x.estado+"/"+x.resultado).join(), decididas:todas.every(x=>typeof x.decididaMs==="number" && x.decididaMs>=T),'
+   +'    archivador:todas.every(x=>_fechaDeRegistroInv(x)===x.decididaMs),'
+   +'    protegidas:todas.map((x,i)=>{ const d=window._decisionesMiasInv.get(cols[i]+"│"+x.id); return d ? d.estado+"/"+d.resultado+"/"+(d.carga===window._cargaDecInv) : "sin marca"; }).join(),'
+   +'    logs:DB.logs.filter(e=>String(e.msg).indexOf("cerrada sin cambios")>=0).length, alertas:alertas.slice(),'
+   +'    bodegaIgual:JSON.stringify(DB.bodegas[0])===sBod && DB.bodegas.length===1, lapidas:(DB._tumbasFila||[]).length, confirmas,'
+   +'    porSubir:_etiquetaEstadoSolInv(dB, "deleteRequests"), etiqueta:_etiquetaEstadoSolInv(dB),'
+   +'    etiquetas:[{estado:"rechazada", resultado:"duplicada"}, {estado:"rechazada", resultado:"articulo_borrado"}, {estado:"aprobada"}].map(x=>_etiquetaEstadoSolInv(x).replace(/<[^>]+>/g,"")).join("|") };'
+   // Decidir otra vez una ya cerrada no hace nada
+   +'  const antes=JSON.stringify(todas); approveDelete(dB.id, "rechazada"); approveEdit(eB.id, "rechazada"); approveDeleteVenta(dV.id, "rechazada");'
+   +'  res.repetir=JSON.stringify(todas)===antes && alertas.length===6; res.guardados=guardados;'
+   +'  return res;'
+   +'} finally {'
+   +'  DB.bodegas=gB; DB.deleteRequests=gDR; DB.editRequests=gER; DB.ventas=gV; DB.logs=gL; if(tTF) DB._tumbasFila=gTF; else delete DB._tumbasFila;'
+   +'  window._fbSave=gS; window.alert=gA; window.confirm=gCf; window.renderDeleteReq=gRD; USER=gU;'
+   +'  window._decisionesMiasInv.clear(); dec0.forEach((v,k)=>window._decisionesMiasInv.set(k,v));'
+   +'  if(window._soltadasDecInv instanceof Map){ window._soltadasDecInv.clear(); sol0.forEach((v,k)=>window._soltadasDecInv.set(k,v)); }'
+   +'  try{ window._franjaDecisionesInv(); }catch(e){}'
+   +'}');
+   }catch(e){ err=String((e&&e.message)||e); } finally { e2RestaurarLS(W, fLS); }
+   if(!r) return {ok:false, detalle:'La prueba no terminó: '+err.replace(/</g,'&lt;')};
+   const seis=t=>Array(6).fill(t).join();
+   const avisos=r.alertas.length===6 && [/La bodega "BODEGA BORRADA" ya no existe/, /ya NO está en BODEGA E2/, /Esa venta ya no existe/, /La bodega "BODEGA BORRADA" ya no existe/, /ya no está en BODEGA E2/, /no trae los datos/]
+     .every((re,i)=>re.test(r.alertas[i]||''));
+   const C=[
+     ['las seis ramas «no existe» (borrar sin bodega o sin artículo, la venta, editar sin bodega, sin artículo o sin datos) quedan con el estado decidido y «sin_cambios»', r.estados===seis('aprobada/sin_cambios')],
+     ['llevan la hora de la decisión, y el archivador cuenta desde ahí', r.decididas===true && r.archivador===true],
+     ['quedan protegidas como decisión de esta pantalla: un snapshot ya no las devuelve a pendiente', r.protegidas===seis('aprobada/sin_cambios/true')],
+     ['quedan en el registro de actividad, cada una con su aviso', r.logs===6 && avisos],
+     ['no se tocó la bodega, no se pidió confirmar nada y no se dejó ninguna lápida', r.bodegaIgual===true && r.confirmas===0 && r.lapidas===0],
+     ['en pantalla dicen «cerrada sin cambios» («⏳ por subir» mientras la nube no las tiene); también existen «duplicada» y «artículo borrado»', /cerrada sin cambios/.test(r.etiqueta) && /⏳ por subir/.test(r.porSubir)
+        && r.etiquetas==='duplicada|artículo borrado|aprobada'],
+     ['decidir otra vez una ya cerrada no hace nada', r.repetir===true],
+     ['ninguna escritura llegó al envoltorio', bloq()-n0===0]
+   ];
+   const mal=C.filter(c=>c[1]!==true).map(c=>c[0]);
+   return {ok:!mal.length, detalle: !mal.length
+     ? 'Aprobar sin bodega, sin artículo, sin venta o sin datos deja «aprobada» con resultado «sin_cambios», la hora de la decisión, la decisión protegida y su línea en el registro ✓'
+      +'\nNo se tocó ninguna bodega ni se dejó lápida; en pantalla, «cerrada sin cambios» (y «⏳ por subir» hasta que la nube la tenga) ✓'
+      +'\nDecidirla otra vez no hace nada. Nada se escribió y todo quedó como estaba ✓'
+     : 'Fallan: '+mal.join(', ')+'\n'+JSON.stringify(r).slice(0,2000).replace(/</g,'&lt;')};}},
+{app:'inv', titulo:'Etapa 2 · Una decisión que la nube no confirmó se ve «por subir», se reintenta y, tras recargar, no queda a medias (R3)',
+ porque:'Revisión del 9 oct 2026 (R3): el admin aprobaba, el guardado fallaba (sin señal) y, tras 3 reintentos, la app se rendía; si la '
+       +'pantalla se recargaba, la decisión volvía solo con el estado: la nube terminaba con «aprobada» y el artículo seguía en la bodega. Ahora '
+       +'cada decisión guarda su efecto (borrar: la lápida; editar: los datos) y la carga en que se tomó; mientras la nube no la confirma se ve '
+       +'«⏳ por subir», con una franja arriba, y se sigue reintentando (cada 15 s los primeros 2 min, luego cada 60 s, y al volver la señal), '
+       +'nunca en modo prueba. Tras recargar, lo que se puede repetir sin riesgo se repite; una transferencia, una venta o una entrada vieja NO '
+       +'se impone sola y se pide volver a decidirla; si la nube ya la decidió, gana la nube. Datos inventados; nada se escribe.',
+ correr:async W=>{
+   const bloq=()=>(W._escriturasBloqueadas||[]).length, n0=bloq(), fLS=e2FotoLS(W);
+   let r=null, err='';
+   try{ r=E(W,
+     'const cp=o=>JSON.parse(JSON.stringify(o)), T=Date.now(), B="E2P_BOD_"+T, K=(c,i)=>c+"│"+i, id=s=>"E2P_"+s+"_"+T, VIEJA="cg_e2p_anterior", M=window._decisionesMiasInv;'
+   +'const gDR=DB.deleteRequests, gER=DB.editRequests, gTr=DB.transfers, gB=DB.bodegas, gL=DB.logs, tTF=("_tumbasFila" in DB), gTF=DB._tumbasFila;'
+   +'const gBase=window._baseStockInv, gRe=window._reenvioInvProgramado, gAt=window._enVueloAtascadosInv, gS=window._fbSave, gA=window.alert, gRT=window.renderTab, gU=USER;'
+   +'const dec0=new Map(M), sol0=new Map(window._soltadasDecInv||[]), tNL=("_decisionesNoLlegaronInv" in window), gNL=window._decisionesNoLlegaronInv;'
+   +'let guardados=0;'
+   +'try{'
+   +'  window._fbSave=function(){ guardados++; }; window.alert=function(){}; window.renderTab=function(){};'
+   +'  USER={role:"admin"}; DB.logs=[]; DB._tumbasFila=[]; M.clear(); window._decisionesNoLlegaronInv=[];'
+   // 1) El mapa nuevo y leer-unir-escribir: lo que otra pestaña dejó en el navegador se queda
+   +'  try{ const g=JSON.parse(localStorage.getItem("inv_decisiones")||"{}"); g[K("transfers", id("OTRA_PESTANA"))]={estado:"aceptada", ts:T}; localStorage.setItem("inv_decisiones", JSON.stringify(g)); }catch(e){}'
+   +'  window._marcarDecisionInv("deleteRequests", id("D0"), "aprobada", "", {tipo:"borrar", col:"bodegas", id:B, fila:"M3", nom:"TV BOX", tipoFila:"usado", vacio:undefined});'
+   +'  const d0=M.get(K("deleteRequests", id("D0")))||{}; let ls={}; try{ ls=JSON.parse(localStorage.getItem("inv_decisiones")||"{}"); }catch(e){}'
+   +'  const mapa={ llaves:Object.keys(d0).sort().join(), estado:d0.estado, resultado:d0.resultado, ts:typeof d0.ts==="number", carga:!!d0.carga && d0.carga===window._cargaDecInv,'
+   +'    efecto:JSON.stringify(d0.efecto)===JSON.stringify({tipo:"borrar", col:"bodegas", id:B, fila:"M3", nom:"TV BOX", tipoFila:"usado"}), enLS:!!ls[K("deleteRequests", id("D0"))], otra:!!ls[K("transfers", id("OTRA_PESTANA"))] };'
+   // 2) «⏳ por subir» en la lista y la franja arriba del contenido
+   +'  const rD0={id:id("D0"), estado:"aprobada", bodegaId:B, bodegaNombre:"BODEGA E2", materialId:"M3", materialNombre:"TV BOX", fecha:new Date(T).toISOString()};'
+   +'  const n=window._franjaDecisionesInv(), fr=document.getElementById("decisionesPorSubirInv"), mc=document.getElementById("main-content");'
+   +'  DB.deleteRequests=[cp(rD0)]; DB.editRequests=[]; const div=document.createElement("div"); renderDeleteReq(div);'
+   +'  const pantalla={ etq:_etiquetaEstadoSolInv(rD0, "deleteRequests"), otroEstado:_etiquetaEstadoSolInv(Object.assign({}, rD0, {estado:"rechazada"}), "deleteRequests"), sinCol:_etiquetaEstadoSolInv(rD0),'
+   +'    lista:div.innerHTML.indexOf("⏳ por subir")>=0, n, franja:fr ? fr.textContent : "", antes:!!(fr && mc && fr.nextElementSibling===mc),'
+   +'    estilo:fr ? [fr.style.position||"", fr.style.maxWidth, fr.style.boxSizing, fr.style.overflowWrap].join("|") : "", texto2:_textoDecisionesPorSubirInv(2) };'
+   // 3) En modo prueba el reintento ni se programa, y volver la señal no guarda nada
+   +'  const g0=guardados, b0=(window._escriturasBloqueadas||[]).length, prog=window._programarReintentoDecInv("prueba");'
+   +'  window.dispatchEvent(new Event("online"));'
+   +'  const reint={ prog, espera:[0, 119999, 120000, 3600000].map(x=>window._esperaReintentoDecInv(x)).join(), guardo:guardados-g0, bloq:(window._escriturasBloqueadas||[]).length-b0,'
+   +'    confirmar:window._confirmarDecisionesTrasGuardarInv({deleteRequests:[cp(rD0)]}), sigue:M.has(K("deleteRequests", id("D0"))) };'
+   // 4) Un snapshot que la trae pendiente: se repone y cuenta como preservado (eso programa el reenvío); cuando la trae igual, se suelta
+   +'  window._reenvioInvProgramado=true; window._baseStockInv={};'
+   +'  DB.deleteRequests=[cp(rD0)]; const e1={deleteRequests:[Object.assign(cp(rD0), {estado:"pendiente"})]}; const p1=window._protegerSnapshotInv(e1, ["deleteRequests"], {}, []);'
+   +'  const e2={deleteRequests:[cp(rD0)]}; const p2=window._protegerSnapshotInv(e2, ["deleteRequests"], {}, []);'
+   +'  const misma={ repuesta:e1.deleteRequests[0].estado, p1, p2, soltada:!M.has(K("deleteRequests", id("D0"))), franja:window._franjaDecisionesInv(), sinFranja:!document.getElementById("decisionesPorSubirInv") };'
+   // 5) Después de RECARGAR (decisiones de una carga anterior), al primer snapshot del historial
+   +'  const bod={id:B, nombre:"BODEGA E2", materiales:[{id:"M1", nombre:"ONU", tipo:"nuevo", cantidad:2, unidad:"Und", snes:[]}, {id:"M2", nombre:"CABLE", tipo:"nuevo", cantidad:10, unidad:"m", snes:[], observaciones:""},'
+   +'    {id:"M3", nombre:"TV BOX", tipo:"usado", cantidad:0, unidad:"Und", snes:[]}, {id:"M4", nombre:"CONECTOR", tipo:"nuevo", cantidad:50, unidad:"Und", snes:[]}]};'
+   +'  DB.bodegas=[bod]; const m2Antes=bod.materiales[1], matsAntes=bod.materiales, ts=T-3*86400000;'
+   +'  const pon=(c,i,d)=>M.set(K(c, id(i)), Object.assign({ts, carga:VIEJA, resultado:""}, d));'
+   +'  pon("deleteRequests","DB",{estado:"aprobada", efecto:{tipo:"borrar", col:"bodegas", id:B, fila:"M3", nom:"TV BOX", tipoFila:"usado"}});'
+   +'  pon("editRequests","EE",{estado:"aprobada", efecto:{tipo:"editar", bodegaId:B, materialId:"M2", nom:"CABLE", tipoFila:"nuevo", datos:{cantidad:7, observaciones:"editado"}, cantAntes:10}});'
+   +'  pon("editRequests","EC",{estado:"aprobada", efecto:{tipo:"editar", bodegaId:B, materialId:"M4", nom:"CONECTOR", tipoFila:"nuevo", datos:{cantidad:40}, cantAntes:60}});'
+   +'  pon("editRequests","ER",{estado:"rechazada", efecto:{tipo:"ninguno"}});'
+   +'  pon("transfers","TR",{estado:"aceptada", efecto:null});'
+   +'  M.set(K("deleteRequests", id("DV")), {estado:"aprobada", ts});'
+   +'  pon("deleteRequests","DN",{estado:"aprobada", efecto:{tipo:"borrar", col:"bodegas", id:B, fila:"M1", nom:"ONU", tipoFila:"nuevo"}});'
+   +'  pon("deleteRequests","DX",{estado:"aprobada", efecto:{tipo:"ninguno"}});'
+   +'  pon("deleteRequests","DS",{estado:"aprobada", resultado:"sin_cambios", efecto:null});'
+   +'  const sol=(i,e,x)=>Object.assign({id:id(i), estado:e, bodegaId:B, bodegaNombre:"BODEGA E2", fecha:new Date(ts).toISOString(), cambios:[], motivo:"prueba", obs:"prueba"}, x);'
+   +'  const ent={ deleteRequests:[sol("DB","pendiente",{materialId:"M3", materialNombre:"TV BOX"}), sol("DV","pendiente",{materialId:"M4", materialNombre:"CONECTOR"}),'
+   +'      sol("DN","rechazada",{materialId:"M1", materialNombre:"ONU"}), sol("DS","pendiente",{materialId:"E2P_YA_NO", materialNombre:"YA NO"})],'
+   +'    editRequests:[sol("EE","pendiente",{materialId:"M2", materialNombre:"CABLE"}), sol("EC","pendiente",{materialId:"M4", materialNombre:"CONECTOR"}), sol("ER","pendiente",{materialId:"M1", materialNombre:"ONU"})],'
+   +'    transfers:[{id:id("TR"), estado:"pendiente", oriId:B, oriName:"BODEGA E2", desId:"E2P_DES", desName:"BODEGA DESTINO", fecha:"9/10/2026", mats:[{nom:"ONU", cant:1, unidad:"Und", snes:[]}]}] };'
+   +'  const nRep=window._reimponerDecisionesInv(ent, ["deleteRequests","editRequests","transfers"]);'
+   +'  const est=(c,i)=>((ent[c]||[]).find(x=>x.id===id(i))||{}).estado, suelta=(c,i)=>!M.has(K(c, id(i))), m2=bod.materiales.find(f=>f.id==="M2")||{};'
+   +'  const tras={ n:nRep,'
+   +'    borrar:[est("deleteRequests","DB"), ent.deleteRequests[0].decididaMs===ts, bod.materiales.some(f=>f.id==="M3"), (DB._tumbasFila||[]).some(l=>l.id===B && l.fila==="M3" && !l.anulada),'
+   +'      _leerTumbasFilaLSInv().some(l=>l.id===B && l.fila==="M3"), (M.get(K("deleteRequests", id("DB")))||{}).carga===window._cargaDecInv].join("|"),'
+   +'    editar:[est("editRequests","EE"), m2.cantidad, m2.observaciones, m2!==m2Antes && bod.materiales!==matsAntes && m2Antes.cantidad===10].join("|"), kardex:((m2.historial||[])[0]||{}).detalle||"",'
+   +'    cantCambio:[est("editRequests","EC"), (bod.materiales.find(f=>f.id==="M4")||{}).cantidad, suelta("editRequests","EC")].join("|"),'
+   +'    rechazo:est("editRequests","ER"), transfer:[est("transfers","TR"), suelta("transfers","TR")].join("|"), vieja:[est("deleteRequests","DV"), suelta("deleteRequests","DV")].join("|"),'
+   +'    nube:[est("deleteRequests","DN"), suelta("deleteRequests","DN"), bod.materiales.some(f=>f.id==="M1")].join("|"), archivada:suelta("deleteRequests","DX"),'
+   +'    sinCambios:est("deleteRequests","DS")+"/"+(ent.deleteRequests[3].resultado||""),'
+   +'    noLlegaron:(window._decisionesNoLlegaronInv||[]).map(x=>x.col+":"+String(x.id).split("_"+T).join("")).sort().join(),'
+   +'    logs:DB.logs.filter(e=>String(e.msg).indexOf("no había llegado a la nube antes de recargar")>=0).length, franja:window._franjaDecisionesInv() };'
+   // 6) En pantalla: «vuelve a decidirlas» en Solicitudes y en Transferencias, y «⏳ por subir» en lo que se repitió
+   +'  DB.deleteRequests=ent.deleteRequests; DB.editRequests=ent.editRequests; DB.transfers=ent.transfers;'
+   +'  const dS=document.createElement("div"), dT=document.createElement("div"); renderDeleteReq(dS); renderTransfer(dT);'
+   +'  const avisos={ sol:_avisoDecisionesNoLlegaronInv(["editRequests","deleteRequests"]).replace(/<[^>]+>/g," "), tr:_avisoDecisionesNoLlegaronInv(["transfers"]).replace(/<[^>]+>/g," "),'
+   +'    enSol:dS.innerHTML.indexOf("avisoDecisionesNoLlegaronInv")>=0, enTr:dT.innerHTML.indexOf("avisoDecisionesNoLlegaronInv")>=0, porSubir:dS.innerHTML.split("⏳ por subir").length-1,'
+   +'    soloPantalla:JSON.stringify([DB.deleteRequests, DB.editRequests, DB.transfers]).indexOf("por subir")<0 };'
+   +'  return {mapa, pantalla, reint, misma, tras, avisos, guardados};'
+   +'} finally {'
+   +'  DB.deleteRequests=gDR; DB.editRequests=gER; DB.transfers=gTr; DB.bodegas=gB; DB.logs=gL; if(tTF) DB._tumbasFila=gTF; else delete DB._tumbasFila;'
+   +'  window._baseStockInv=gBase; window._reenvioInvProgramado=gRe; window._enVueloAtascadosInv=gAt; window._fbSave=gS; window.alert=gA; window.renderTab=gRT; USER=gU;'
+   +'  M.clear(); dec0.forEach((v,k)=>M.set(k,v)); if(window._soltadasDecInv instanceof Map){ window._soltadasDecInv.clear(); sol0.forEach((v,k)=>window._soltadasDecInv.set(k,v)); }'
+   +'  if(tNL) window._decisionesNoLlegaronInv=gNL; else delete window._decisionesNoLlegaronInv;'
+   +'  try{ window._franjaDecisionesInv(); }catch(e){}'
+   +'}');
+   }catch(e){ err=String((e&&e.message)||e); } finally { e2RestaurarLS(W, fLS); }
+   if(!r) return {ok:false, detalle:'La prueba no terminó: '+err.replace(/</g,'&lt;')};
+   await new Promise(res=>setTimeout(res, 300));   // por si algo quedó en cola tras el evento «online»
+   const leer=async f=>{ try{ const x=await fetch(f,{cache:'no-store'}); return x.ok ? await x.text() : ''; }catch(e){ return ''; } };
+   const inv=(await leer('INVENTARIO_PTOVISION.html')).replace(/\r/g,'');
+   const sinCom=t=>t.split('\n').map(l=>l.replace(/\/\/.*$/,'')).join('\n');
+   const fx=n=>{ const i=inv.indexOf('\nfunction '+n+'('); if(i<0) return ''; const j=inv.indexOf('\n}', i+1); return sinCom(inv.slice(i+1, j<0 ? i+4000 : j)); };
+   const iS=inv.indexOf('async function _fbSaveCore('), fsc=iS<0 ? '' : sinCom(inv.slice(iS, inv.indexOf('\n}', iS)));
+   const iT=fsc.indexOf('_runTransaction('), iConf=fsc.indexOf('window._confirmarDecisionesTrasGuardarInv(historial)'), iCli=fsc.indexOf('await saveClienteChunks(clientes)');
+   const textos=/if\(!MODO_PRUEBA\)\{\s*try\{\s*window\.addEventListener\('online',\s*_alVolverRedDecInv\)/.test(inv)
+     && /^function _programarReintentoDecInv\(motivo\)\{\s*if\(MODO_PRUEBA\) return 'prueba';\s*if\(_pantallaViejaInv\(\)\) return 'vieja';/.test(fx('_programarReintentoDecInv'))
+     && fx('_tickReintentoDecInv').indexOf('MODO_PRUEBA || _pantallaViejaInv()')>=0 && fx('_alVolverRedDecInv').indexOf('MODO_PRUEBA || _pantallaViejaInv()')>=0
+     && iT>=0 && iConf>iT && iCli>iConf && fsc.indexOf("_programarReintentoDecInv('fallo')")>=0 && fsc.indexOf("_programarReintentoDecInv('exito')")>=0;
+   const mp=r.mapa, pa=r.pantalla, rt=r.reint, ms=r.misma, tr=r.tras, av=r.avisos;
+   const C=[
+     ['cada decisión guarda {estado, resultado, ts, carga, efecto}, sin campos vacíos', mp.llaves==='carga,efecto,estado,resultado,ts' && mp.estado==='aprobada' && mp.resultado==='' && mp.ts && mp.carga && mp.efecto],
+     ['en el navegador se lee, se une y se escribe: lo que dejó otra pestaña se queda', mp.enLS===true && mp.otra===true],
+     ['«⏳ por subir» en la lista mientras la nube no la confirma (solo con el mismo estado y solo en pantalla)', /⏳ por subir/.test(pa.etq) && !/por subir/.test(pa.otroEstado) && !/por subir/.test(pa.sinCol) && pa.lista===true],
+     ['la franja va arriba del contenido, sin posición fija, cabe en el ancho y dice cuántas', pa.n===1 && pa.franja==='⏳ 1 decisión(es) por subir — no cierres esta pantalla. Se reintenta sola.' && pa.antes===true
+        && pa.estilo==='|100%|border-box|anywhere' && pa.texto2==='2 decisión(es) por subir — no cierres esta pantalla. Se reintenta sola.'],
+     ['en modo prueba el reintento ni se programa, volver la señal no guarda y la confirmación tras guardar no corre', rt.prog==='prueba' && rt.guardo===0 && rt.bloq===0 && rt.confirmar===0 && rt.sigue===true],
+     ['los reintentos: cada 15 s los primeros 2 min y después cada 60 s', rt.espera==='15000,15000,60000,60000'],
+     ['un snapshot que la trae pendiente: se repone y cuenta como preservado (programa el reenvío); cuando la trae igual se suelta y la franja se va', ms.repuesta==='aprobada' && ms.p1===1 && ms.p2===0
+        && ms.soltada===true && ms.franja===0 && ms.sinFranja===true],
+     ['tras recargar, un borrado aprobado se repite: el estado, decididaMs, la fila sale y queda su lápida (también en el navegador)', tr.borrar==='aprobada|true|false|true|true|true'],
+     ['tras recargar, una edición aprobada se repite sobre la misma fila (una copia nueva, con su kardex)', tr.editar==='aprobada|7|editado|true' && /se volvió a aplicar al recargar/.test(tr.kardex)],
+     ['si la cantidad cambió desde que se aprobó, la edición no se repite: se pide volver a decidirla', tr.cantCambio==='pendiente|50|true'],
+     ['un rechazo y una «cerrada sin cambios» se reponen con solo el estado', tr.rechazo==='rechazada' && tr.sinCambios==='aprobada/sin_cambios'],
+     ['una transferencia y una entrada vieja {estado, ts} NO se imponen: quedan pendientes y se avisa', tr.transfer==='pendiente|true' && tr.vieja==='pendiente|true'
+        && tr.noLlegaron==='deleteRequests:E2P_DV,editRequests:E2P_EC,transfers:E2P_TR'],
+     ['si la nube ya la decidió (otra pantalla) gana la nube y el material no se toca; si la nube ya no la tiene, se suelta', tr.nube==='rechazada|true|true' && tr.archivada===true],
+     ['lo repetido queda en el registro y vuelve a «por subir» (4 decisiones)', tr.n===4 && tr.logs===4 && tr.franja===4],
+     ['el aviso «vuelve a decidirlas» sale en Solicitudes (2) y en Transferencias (1)', /2 decisión\(es\) de antes no llegaron a la nube: vuelve a decidirlas\./.test(av.sol)
+        && /1 decisión\(es\) de antes no llegaron a la nube: vuelve a decidirlas\./.test(av.tr) && av.enSol===true && av.enTr===true],
+     ['en la lista, lo repetido sale «⏳ por subir»; «por subir» nunca entra a los registros', av.porSubir===4 && av.soloPantalla===true],
+     ['texto: «online» y los reintentos apagados en modo prueba y con versión vieja; se confirma después del commit; un guardado fallido sigue reintentando', textos],
+     ['ninguna escritura llegó al envoltorio', bloq()-n0===0]
+   ];
+   const mal=C.filter(c=>c[1]!==true).map(c=>c[0]);
+   return {ok:!mal.length, detalle: !mal.length
+     ? 'Cada decisión guarda estado, resultado, hora, carga y efecto, y el navegador conserva lo de otra pestaña ✓'
+      +'\nMientras la nube no la tiene: «⏳ por subir» en la lista y la franja arriba; un snapshot que la trae pendiente la repone y programa el reenvío; cuando la trae igual, se suelta ✓'
+      +'\nEn modo prueba no se reintenta ni guarda al volver la señal; fuera de él, cada 15 s los primeros 2 min y luego cada 60 s ✓'
+      +'\nTras recargar: el borrado y la edición se repiten (la edición solo si la cantidad no cambió), el rechazo y «sin cambios» se reponen; la transferencia y la entrada vieja NO se imponen y se pide volver a decidirlas; si la nube ya decidió, gana la nube ✓'
+      +'\nNada se escribió y todo quedó como estaba ✓'
+     : 'Fallan: '+mal.join(', ')+'\n'+JSON.stringify(r).slice(0,2500).replace(/</g,'&lt;')};}},
+{app:'inv', titulo:'Etapa 2 · Una sola solicitud pendiente por artículo (R4)',
+ porque:'Revisión del 9 oct 2026 (R4): la bodega podía pedir dos veces borrar (o editar) el mismo artículo, desde la misma pantalla o desde dos '
+       +'a la vez, y al admin le llegaban solicitudes repetidas. Ahora se mira al abrir la ventana y otra vez al dar Guardar (la ventana vieja '
+       +'sigue armada y un snapshot puede traer la de otra pantalla); al guardar, contra lo recién leído, la de aquí que la nube no tiene se '
+       +'cierra «duplicada» si la nube ya trae otra (gana siempre la de la nube); y al decidir una, el admin cierra las demás del mismo artículo. '
+       +'Con USER de bodega y de admin temporales y las ventanas sustituidas. Datos inventados; nada se escribe.',
+ correr:async W=>{
+   const bloq=()=>(W._escriturasBloqueadas||[]).length, n0=bloq(), fLS=e2FotoLS(W);
+   let r=null, err='';
+   try{ r=E(W,
+     'const cp=o=>JSON.parse(JSON.stringify(o)), T=Date.now(), B="E2P_BOD_"+T, B2="E2P_BOD2_"+T, id=s=>"E2P_"+s+"_"+T, sinT=s=>String(s==null?"":s).split("_"+T).join("");'
+   +'const gB=DB.bodegas, gDR=DB.deleteRequests, gER=DB.editRequests, gL=DB.logs, tTF=("_tumbasFila" in DB), gTF=DB._tumbasFila, tT=("_tumbas" in DB), gT=DB._tumbas;'
+   +'const HH=["entregas","ventas","transfers","cuartos"], H={}; HH.forEach(k=>{ H[k]=[k in DB, DB[k]]; });'
+   +'const gBase=window._baseStockInv, gFoto=window._idsRemotosInv, gS=window._fbSave, gA=window.alert, gCf=window.confirm, gOM=window.openModal, gCM=window.closeModal, gRT=window.renderTab, gRD=window.renderDeleteReq, gU=USER;'
+   +'const tFE=("editFotosEliminar" in TempLists), gFE=TempLists.editFotosEliminar, tFN=("editFotosNuevas" in TempLists), gFN=TempLists.editFotosNuevas, tFP=("_fotosNuevasPend" in window), gFP=window._fotosNuevasPend;'
+   +'const dec0=new Map(window._decisionesMiasInv), sol0=new Map(window._soltadasDecInv||[]), dup0=new Map(window._dupCerradasTxInv||[]), tfa0=new Set(_tfAnotadasInv);'
+   +'const caja=document.createElement("div"); caja.id="e2pModalPrueba"; caja.style.display="none"; document.body.insertBefore(caja, document.body.firstChild);'
+   +'let guardados=0; const alertas=[], modales=[];'
+   +'try{'
+   +'  window._fbSave=function(){ guardados++; }; window.alert=function(m){ alertas.push(String(m)); }; window.confirm=function(){ return true; };'
+   +'  window.openModal=function(t,h,cb){ caja.innerHTML=h; modales.push({t:String(t), cb}); }; window.closeModal=function(){}; window.renderTab=function(){}; window.renderDeleteReq=function(){};'
+   +'  const fila=(i,nom,cant)=>({id:i, nombre:nom, tipo:"nuevo", cantidad:cant, unidad:"Und", snes:[], stockMin:0, categoria:"material", observaciones:"", fotos:[], historial:[]});'
+   +'  const bod={id:B, nombre:"BODEGA E2", materiales:[fila("M1","ONU",5), fila("M2","CABLE",100), fila("M3","CONECTOR",30)]}, m3=bod.materiales[2];'
+   +'  DB.bodegas=[bod, {id:B2, nombre:"OTRA BODEGA", materiales:[fila("M1","ONU",1)]}]; DB.deleteRequests=[]; DB.editRequests=[]; DB.logs=[]; DB._tumbasFila=[];'
+   +'  USER={role:"bodega", id:B, nombre:"BODEGA E2"}; const val=(i,v)=>{ const el=document.getElementById(i); if(el) el.value=v; return !!el; };'
+   // A) Borrar: la primera se crea; la segunda se bloquea al abrir; y el Guardar de la ventana vieja tampoco crea otra
+   +'  delMat(B, "M1"); const abrio=modales.length===1 && val("delObs", "ya no sirve"); modales[0].cb(); const n1=DB.deleteRequests.length, d1=DB.deleteRequests[0]||{};'
+   +'  const nA=alertas.length; delMat(B, "M1"); const otraVez={ modales:modales.length, aviso:alertas[nA]||"" };'
+   +'  const nB=alertas.length; modales[0].cb(); const botonViejo={ n:DB.deleteRequests.length, aviso:alertas[nB]||"" };'
+   +'  const borrar={ abrio, n1, fechaMs:typeof d1.fechaMs==="number" && d1.fechaMs>=T, id:String(d1.id||""), estado:d1.estado, mat:d1.materialId, otraVez, botonViejo };'
+   // B) Un snapshot trae la de otra pantalla con la ventana abierta
+   +'  delMat(B, "M2"); const k2=modales.length-1; val("delObs", "dañado");'
+   +'  DB.deleteRequests=DB.deleteRequests.concat([{id:id("OTRA"), bodegaId:B, bodegaNombre:"BODEGA E2", materialId:"M2", materialNombre:"CABLE", tipo:"nuevo", fecha:new Date(T-60000).toISOString(), fechaMs:T-60000, estado:"pendiente"}]);'
+   +'  const nC=alertas.length; modales[k2].cb(); const snap={ abrio:k2===1, deM2:DB.deleteRequests.filter(x=>x.materialId==="M2").length, aviso:alertas[nC]||"" };'
+   // C) El artículo desaparece con la ventana abierta
+   +'  delMat(B, "M3"); const k3=modales.length-1; val("delObs", "x"); bod.materiales=bod.materiales.filter(m=>m.id!=="M3");'
+   +'  const nD=alertas.length; modales[k3].cb(); const sinArt={ ninguna:!DB.deleteRequests.some(x=>x.materialId==="M3"), aviso:alertas[nD]||"" }; bod.materiales=bod.materiales.concat([m3]);'
+   // D) No bloquean: una de venta, una de otra bodega, una ya decidida, ni una de la otra clase (edición)
+   +'  DB.deleteRequests=[{id:id("V"), tipo:"venta", bodegaId:B, ventaId:"x", materialNombre:"ONU", estado:"pendiente", fechaMs:T}, {id:id("OB"), bodegaId:B2, materialId:"M1", materialNombre:"ONU", estado:"pendiente", fechaMs:T},'
+   +'    {id:id("DEC"), bodegaId:B, materialId:"M1", materialNombre:"ONU", estado:"aprobada", fechaMs:T}];'
+   +'  DB.editRequests=[{id:id("ED"), bodegaId:B, materialId:"M1", materialNombre:"ONU", estado:"pendiente", fechaMs:T, cambios:[], motivo:"x", datos:{cantidad:4}}];'
+   +'  const nM=modales.length; delMat(B, "M1"); const noBloquean={ libre:_solicitudPendienteDeInv("deleteRequests", B, "M1", bod.materiales[0])===null, abre:modales.length===nM+1 };'
+   // E) Editar: lo mismo al abrir y al Guardar, y el artículo tiene que seguir en la bodega
+   +'  const nE=alertas.length, nM2=modales.length; modalEditMat(B, "M1"); const edAbrir={ abre:modales.length!==nM2, aviso:alertas[nE]||"" };'
+   +'  DB.editRequests=[]; modalEditMat(B, "M2"); const kE=modales.length-1, edAbrio=kE===nM2; val("emCant", "90"); val("emMotivo", "conteo"); modales[kE].cb(); const e1=DB.editRequests[0]||{};'
+   +'  const nF=alertas.length; modales[kE].cb(); const edBoton={ n:DB.editRequests.length, aviso:alertas[nF]||"" };'
+   +'  modalEditMat(B, "M3"); const kE3=modales.length-1; val("emCant", "1"); val("emMotivo", "x"); bod.materiales=bod.materiales.filter(m=>m.id!=="M3"); const nG=alertas.length; modales[kE3].cb();'
+   +'  const editar={ edAbrir, edAbrio, n:DB.editRequests.length, fechaMs:typeof e1.fechaMs==="number", cant:(e1.datos||{}).cantidad, edBoton, sinArt:!DB.editRequests.some(x=>x.materialId==="M3"), avisoSinArt:alertas[nG]||"" };'
+   +'  bod.materiales=bod.materiales.concat([m3]);'
+   // F) Al guardar, contra lo recién leído (_fusionarConNubeInv, dentro de la transacción y en el modo prueba)
+   +'  window._idsRemotosInv={d:{},h:{}}; window._baseStockInv={}; DB._tumbas=[]; window._dupCerradasTxInv.clear(); DB.logs=[];'
+   +'  const loc={id:id("LOC"), bodegaId:B, bodegaNombre:"BODEGA E2", materialId:"M1", materialNombre:"ONU", tipo:"nuevo", fecha:new Date(T-3600000).toISOString(), fechaMs:T-3600000, estado:"pendiente", obs:"aquí"};'
+   +'  const loc2=Object.assign({}, loc, {id:id("LOC2"), materialId:"M2", materialNombre:"CABLE"}), nub=Object.assign({}, loc, {id:id("NUB"), fecha:new Date(T).toISOString(), fechaMs:T, obs:"allá"});'
+   +'  DB.deleteRequests=[loc, loc2]; DB.editRequests=[];'
+   +'  const fh={deleteRequests:[cp(nub)], editRequests:[{id:id("EDN"), bodegaId:B, materialId:"M2", materialNombre:"CABLE", estado:"pendiente", fechaMs:T}]}, sFh=JSON.stringify(fh);'
+   +'  const cerr=()=>[loc.estado, loc.resultado||"", sinT(loc.duplicadaDe), typeof loc.decididaMs==="number", DB.logs.filter(e=>String(e.msg).indexOf("cerrada como repetida")>=0).length,'
+   +'    window._dupCerradasTxInv.has("deleteRequests│"+loc.id), loc2.estado].join("|");'
+   +'  window._fusionarConNubeInv(null, fh); const g1=cerr(), entra=DB.deleteRequests.some(x=>x.id===nub.id && x.estado==="pendiente"), intacto=JSON.stringify(fh)===sFh;'
+   +'  window._fusionarConNubeInv(null, cp(fh)); const g2=cerr();'
+   +'  const fh3=cp(fh); fh3.deleteRequests[0].estado="aprobada"; window._fusionarConNubeInv(null, fh3); const g3=cerr();'
+   +'  const guardar={ g1, g2, g3, entra, intacto, pura:sinT(JSON.stringify(_duplicadasContraNubeInv([loc], [nub]))) };'
+   // G) Al decidir una, el admin cierra las demás del mismo artículo
+   +'  USER={role:"admin"}; window._dupCerradasTxInv.clear(); DB.logs=[]; DB._tumbasFila=[];'
+   +'  const s=(i,mat,x)=>{ const f=bod.materiales.find(m=>m.id===mat)||{}; return Object.assign({id:id(i), bodegaId:B, bodegaNombre:"BODEGA E2", materialId:mat, materialNombre:f.nombre, tipo:"nuevo", cantidad:f.cantidad, unidad:"Und",'
+   +'    fecha:new Date(T).toISOString(), fechaMs:T, estado:"pendiente", obs:"x", cambios:[], motivo:"x"}, x||{}); };'
+   +'  const A1=s("A1","M1"), A2=s("A2","M1",{fechaMs:T+1}), R1=s("R1","M2"), R2=s("R2","M2",{fechaMs:T+1}), EA=s("EA","M1",{datos:{cantidad:4}}), EB=s("EB","M2",{datos:{observaciones:"nueva"}}), EC=s("EC","M2",{fechaMs:T+1, datos:{observaciones:"otra"}});'
+   +'  DB.deleteRequests=[A1, A2, R1, R2]; DB.editRequests=[EA, EB, EC];'
+   +'  const nH=alertas.length; approveDelete(A1.id, "aprobada"); const avisoA=alertas[nH]||""; approveDelete(R1.id, "rechazada"); approveEdit(EB.id, "aprobada");'
+   +'  const est=x=>[x.estado, x.resultado||"", sinT(x.duplicadaDe)].join("/"), marca=(c,x)=>{ const d=window._decisionesMiasInv.get(c+"│"+x.id)||{}; return d.estado+"/"+d.resultado; };'
+   +'  const decidir={ estados:[A1,A2,R1,R2,EA,EB,EC].map(est).join(), ms:[A1,A2,R1,R2,EA,EB,EC].every(x=>typeof x.decididaMs==="number"), m1:bod.materiales.some(m=>m.id==="M1"),'
+   +'    m2:(bod.materiales.find(m=>m.id==="M2")||{}).observaciones, marcas:[marca("deleteRequests",A2), marca("editRequests",EA), marca("deleteRequests",R2), marca("editRequests",EC)].join(), avisoA,'
+   +'    logs:DB.logs.filter(e=>String(e.msg).indexOf("Admin cerró")===0).length, etiquetas:[A2,EA].map(x=>_etiquetaEstadoSolInv(x).replace(/<[^>]+>/g,"")).join("|") };'
+   +'  return {borrar, snap, sinArt, noBloquean, editar, guardar, decidir, guardados};'
+   +'} finally {'
+   +'  caja.remove(); DB.bodegas=gB; DB.deleteRequests=gDR; DB.editRequests=gER; DB.logs=gL; HH.forEach(k=>{ if(H[k][0]) DB[k]=H[k][1]; else delete DB[k]; });'
+   +'  if(tTF) DB._tumbasFila=gTF; else delete DB._tumbasFila; if(tT) DB._tumbas=gT; else delete DB._tumbas;'
+   +'  window._baseStockInv=gBase; window._idsRemotosInv=gFoto; window._fbSave=gS; window.alert=gA; window.confirm=gCf; window.openModal=gOM; window.closeModal=gCM; window.renderTab=gRT; window.renderDeleteReq=gRD; USER=gU;'
+   +'  if(tFE) TempLists.editFotosEliminar=gFE; else delete TempLists.editFotosEliminar; if(tFN) TempLists.editFotosNuevas=gFN; else delete TempLists.editFotosNuevas;'
+   +'  if(tFP) window._fotosNuevasPend=gFP; else delete window._fotosNuevasPend;'
+   +'  window._decisionesMiasInv.clear(); dec0.forEach((v,k)=>window._decisionesMiasInv.set(k,v)); if(window._soltadasDecInv instanceof Map){ window._soltadasDecInv.clear(); sol0.forEach((v,k)=>window._soltadasDecInv.set(k,v)); }'
+   +'  if(window._dupCerradasTxInv instanceof Map){ window._dupCerradasTxInv.clear(); dup0.forEach((v,k)=>window._dupCerradasTxInv.set(k,v)); }'
+   +'  [..._tfAnotadasInv].forEach(k=>{ if(!tfa0.has(k)) _tfAnotadasInv.delete(k); });'
+   +'  try{ window._franjaDecisionesInv(); }catch(e){}'
+   +'}');
+   }catch(e){ err=String((e&&e.message)||e); } finally { e2RestaurarLS(W, fLS); }
+   if(!r) return {ok:false, detalle:'La prueba no terminó: '+err.replace(/</g,'&lt;')};
+   const leer=async f=>{ try{ const x=await fetch(f,{cache:'no-store'}); return x.ok ? await x.text() : ''; }catch(e){ return ''; } };
+   const inv=(await leer('INVENTARIO_PTOVISION.html')).replace(/\r/g,''), tiene=s=>inv.indexOf(s)>=0;
+   const iF=inv.indexOf('window._fusionarConNubeInv = function('), fcn=iF<0 ? '' : inv.slice(iF, inv.indexOf('\n    };', iF));
+   const iS=inv.indexOf('async function _fbSaveCore('), fsc=iS<0 ? '' : inv.slice(iS, inv.indexOf('\n}', iS));
+   const textos=fcn.indexOf('window._cerrarDuplicadasAlGuardarInv(frescoHist)')>=0 && fsc.indexOf('window._duplicadasTrasGuardarInv(historial)')>fsc.indexOf('_runTransaction(')
+     && tiene("_solicitudPendienteDeInv('deleteRequests', bId, mId, mHoy)") && tiene("_solicitudPendienteDeInv('editRequests', bId, mId, mHoy)");
+   const ya=s=>/^Ya hay una solicitud pendiente para este artículo desde el .+\. Espera a que el administrador la decida\.$/.test(s||'');
+   const b=r.borrar, sn=r.snap, sa=r.sinArt, nb=r.noBloquean, e=r.editar, g=r.guardar, d=r.decidir;
+   const C=[
+     ['la primera solicitud de borrado se crea, con fechaMs y un id con sufijo al azar', b.abrio===true && b.n1===1 && b.fechaMs===true && /^\d{13}[a-z0-9]{4}$/.test(b.id) && b.estado==='pendiente' && b.mat==='M1'],
+     ['la segunda se bloquea al abrir, con el aviso y la fecha de la que ya está', b.otraVez.modales===1 && ya(b.otraVez.aviso)],
+     ['el Guardar de la ventana vieja (closeModal no lo desarma) tampoco crea otra', b.botonViejo.n===1 && ya(b.botonViejo.aviso)],
+     ['si un snapshot trae la de otra pantalla con la ventana abierta, el Guardar no crea otra', sn.abrio===true && sn.deM2===1 && ya(sn.aviso)],
+     ['si el artículo desaparece con la ventana abierta, no se envía y se avisa', sa.ninguna===true && /ya no está en la bodega/.test(sa.aviso)],
+     ['no bloquean una de venta, una de otra bodega, una ya decidida ni una de la otra clase (edición)', nb.libre===true && nb.abre===true],
+     ['editar: se bloquea al abrir y en el Guardar, la nueva lleva fechaMs y el artículo tiene que seguir en la bodega', e.edAbrir.abre===false && ya(e.edAbrir.aviso) && e.edAbrio===true && e.n===1 && e.fechaMs===true
+        && e.cant===90 && e.edBoton.n===1 && ya(e.edBoton.aviso) && e.sinArt===true && /ya no está en BODEGA E2/.test(e.avisoSinArt)],
+     ['al guardar, la de aquí que la nube no tiene se cierra «duplicada» de la de la nube aunque sea más vieja; la de otro artículo no; lo leído no se toca', g.g1==='rechazada|duplicada|E2P_NUB|true|1|true|pendiente'
+        && g.entra===true && g.intacto===true && g.pura==='[{"id":"E2P_LOC","duplicadaDe":"E2P_NUB"}]'],
+     ['si la transacción se repite da lo mismo (sin repetir la línea del registro); si la de la nube ya se decidió, el cierre se deshace', g.g2===g.g1 && g.g3==='pendiente|||false|0|false|pendiente'],
+     ['al decidir una, las demás del mismo artículo quedan con el mismo estado y «duplicada»; aprobar el borrado cierra sus ediciones («artículo borrado»)',
+        d.estados==='aprobada//,aprobada/duplicada/E2P_A1,rechazada//,rechazada/duplicada/E2P_R1,rechazada/articulo_borrado/,aprobada//,aprobada/duplicada/E2P_EB' && d.ms===true && d.m1===false && d.m2==='nueva'],
+     ['las cerradas quedan protegidas como decisión, en el registro y en el aviso del admin', d.marcas==='aprobada/duplicada,rechazada/articulo_borrado,rechazada/duplicada,aprobada/duplicada' && d.logs===4
+        && /Se cerraron también 1 solicitud\(es\) repetida\(s\)/.test(d.avisoA) && /Se cerraron 1 solicitud\(es\) de edición/.test(d.avisoA)],
+     ['en pantalla: «duplicada» y «artículo borrado»', d.etiquetas==='duplicada|artículo borrado'],
+     ['texto: el Guardar vuelve a mirar, el cierre al guardar corre en la fusión con lo recién leído y el aviso después del commit', textos],
+     ['ninguna escritura llegó al envoltorio', bloq()-n0===0]
+   ];
+   const mal=C.filter(c=>c[1]!==true).map(c=>c[0]);
+   return {ok:!mal.length, detalle: !mal.length
+     ? 'La bodega pide borrar una vez; la segunda se bloquea al abrir y en el Guardar de la ventana vieja, también si la otra llegó por un snapshot o si el artículo ya no está ✓'
+      +'\nNo bloquean las de venta, las de otra bodega, las ya decididas ni las de la otra clase; editar se comporta igual ✓'
+      +'\nAl guardar gana la que ya estaba en la nube: la de aquí queda «rechazada · duplicada»; repetir la transacción da lo mismo y, si la de la nube ya se decidió, se deshace ✓'
+      +'\nAl decidir una, las demás del artículo se cierran con el mismo estado («duplicada»), y aprobar el borrado cierra sus ediciones («artículo borrado») ✓'
+      +'\nNada se escribió y todo quedó como estaba ✓'
+     : 'Fallan: '+mal.join(', ')+'\n'+JSON.stringify(r).slice(0,2500).replace(/</g,'&lt;')};}},
+{app:'inv', titulo:'Etapa 2 · Las demás pantallas no deshacen un borrado: «Corregir», una pantalla atrasada y volver a borrar (revisión del 11 oct)',
+ porque:'Revisión adversaria del 11 oct 2026 de la Etapa 2. «Corregir Cantidades» dejaba una lápida con cantidad 0, y cualquier otra pantalla '
+       +'abierta (que aún tenía la fila con su cantidad de antes) la anulaba con el aviso falso «volvió… porque le entró material», reenviaba y, '
+       +'si había tocado la fila, la devolvía. Lo mismo hacía una pantalla atrasada (sin señal) que tenía más de lo que vio el admin al borrar. '
+       +'Ahora, en la memoria de quien recibe, «entró material» se mide contra lo que esa pantalla vio de la nube (su base), solo con las lápidas '
+       +'que ya están en la nube; las que solo tiene esta pantalla o el navegador, contra la lápida; y si una de las dos pasadas (memoria y lo '
+       +'que entra) anula, la fila no sale en ninguna. La ventana de Corregir corrige la cuadrilla de AHORA y se cancela si la fila cambió con '
+       +'la ventana abierta. Volver a borrar una fila cuya lápida se anuló vale (antes la anulación vieja se lo tragaba 180 días), también tras '
+       +'recargar. Datos inventados (ids E2P…); nada se escribe y todo se devuelve al terminar.',
+ correr:async W=>{
+   const bloq=()=>(W._escriturasBloqueadas||[]).length, n0=bloq(), fLS=e2FotoLS(W);
+   let r=null, err='';
+   try{ r=E(W,
+     'const cp=o=>JSON.parse(JSON.stringify(o)), T=Date.now(), D=86400000, id=s=>"E2P_"+s+"_"+T, M=window._decisionesMiasInv;'
+   +'const COLS=["bodegas","cuadrillas","recuperados","consumosPendientes","instalaciones","equiposDanados","equiposPendientesTecnico","entregas","ventas","transfers","cuartos","deleteRequests","editRequests","logs","_tumbasFila","_tumbas"], H={}; COLS.forEach(k=>{ H[k]=[k in DB, DB[k]]; });'
+   +'const PW=["_baseStockInv","_idsRemotosInv","_reenvioInvProgramado","_reenviosInv","_enVueloAtascadosInv","_tfNubeInv","_tumbasFilaNubeAtrasN","_decisionesNoLlegaronInv"], P0={}; PW.forEach(k=>{ P0[k]=[k in window, window[k]]; });'
+   +'const gS=window._fbSave, gA=window.alert, gCf=window.confirm, gOM=window.openModal, gCM=window.closeModal, gRT=window.renderTab, gRD=window.renderDeleteReq, gU=USER;'
+   +'const dec0=new Map(M), sol0=new Map(window._soltadasDecInv||[]), tfa0=new Set(_tfAnotadasInv);'
+   +'const caja=document.createElement("div"); caja.id="e2pModalPrueba"; caja.style.display="none"; document.body.insertBefore(caja, document.body.firstChild);'
+   +'let guardados=0, confirmas=0; const alertas=[], modales=[];'
+   +'try{'
+   +'  window._fbSave=function(){ guardados++; }; window.alert=function(m){ alertas.push(String(m)); }; window.confirm=function(){ confirmas++; return true; };'
+   +'  window.openModal=function(t,h,cb){ caja.innerHTML=h; modales.push({t:String(t), cb}); }; window.closeModal=function(){}; window.renderTab=function(){}; window.renderDeleteReq=function(){};'
+   +'  window._reenvioInvProgramado=true; window._reenviosInv=[];'
+   +'  const fila=(i,nom,cant,snes,x)=>Object.assign({id:i, nombre:nom, tipo:"nuevo", cantidad:cant, unidad:"Und", snes:snes||[], categoria:"material", observaciones:""}, x||{});'
+   +'  const val=(i,v)=>{ const el=document.getElementById(i); if(el) el.value=v; return !!el; };'
+   +'  const kTF=(typeof _claveTFLSInv==="function") ? _claveTFLSInv() : "inv_tumbas_fila";'
+   +'  const leerLS=()=>{ try{ const x=JSON.parse(localStorage.getItem(kTF)||"[]"); return Array.isArray(x) ? x : []; }catch(e){ return []; } };'
+   +'  const limpiarLS=()=>{ const l=leerLS().filter(t=>!(t && String(t.id).indexOf("E2P_")===0)); if(l.length) localStorage.setItem(kTF, JSON.stringify(l)); else localStorage.removeItem(kTF); };'
+   +'  const olvidar=()=>{ [..._tfAnotadasInv].forEach(k=>{ if(!tfa0.has(k)) _tfAnotadasInv.delete(k); }); };'
+   +'  const volvio=()=>(DB.logs||[]).filter(e=>String(e.msg).indexOf("porque le entró material")>=0).length;'
+   +'  const deR=rid=>(DB._tumbasFila||[]).filter(l=>l && l.id===rid);'
+   +'  const lapTxt=l=>l ? [l.fila, l.origen, l.cant, l.anulada ? "anulada" : "activa"].join(":") : "ninguna";'
+   +'  const ids=reg=>((reg && reg.materiales)||[]).map(m=>m.id+"="+m.cantidad).sort().join();'
+   // Esta pantalla («la otra»): su base es lo último que vio de la nube y su memoria, lo que tiene ahora
+   +'  const pantalla=(col, base, mem)=>{ olvidar(); limpiarLS(); DB.bodegas=[]; DB.cuadrillas=[]; DB[col]=[cp(mem)]; DB._tumbasFila=[]; DB._tumbas=[]; DB.logs=[];'
+   +'    window._baseStockInv={}; const o={}; o[col]=[cp(base)]; window._guardarBaseStockInv(o); window._idsRemotosInv={d:{},h:{}}; window._tfNubeInv=[]; };'
+   // Llega el snapshot de inventario/datos, en el mismo orden que el oyente; atras>0 es lo que programaría el reenvío (se mide
+   // solo con las lápidas de la prueba: las que otra pestaña dejó en el navegador también se reenviarían, y con razón)
+   +'  const llega=(col, reg, tf)=>{ const ent={bodegas:[], cuadrillas:[], _tumbasFila:cp(tf||[])}; ent[col]=[cp(reg)];'
+   +'    const tfN=ent._tumbasFila.slice(), crudo=cp({bodegas:ent.bodegas, cuadrillas:ent.cuadrillas});'
+   +'    window._unirTumbasFilaEnEntranteInv(ent); const pres=window._protegerSnapshotInv(ent, ["bodegas","cuadrillas"], {}, []);'
+   +'    DB.bodegas=ent.bodegas; DB.cuadrillas=ent.cuadrillas; DB._tumbasFila=ent._tumbasFila;'
+   +'    const todas=DB._tumbasFila; let atras=-1; DB._tumbasFila=(todas||[]).filter(l=>l && String(l.id).indexOf("E2P_")===0);'
+   +'    try{ atras=window._tumbasFilaNubeAtrasInv(tfN, crudo); } finally { DB._tumbasFila=todas; }'
+   +'    return {pres, atras}; };'
+   // 1) «Corregir Cantidades» con la ventana de verdad: x1 de 3 a 0
+   +'  USER={role:"admin"}; const C1=id("CUA1"), nubeC={id:C1, nombre:"CUADRILLA E2", tecnicos:[], materiales:[fila("x1","CONECTOR SC",3), fila("x2","CABLE DROP",50)]};'
+   +'  pantalla("cuadrillas", nubeC, nubeC); let nM=modales.length; modalCorregirCantCuad(C1); let v=modales.length>nM ? modales[modales.length-1] : null;'
+   +'  const abrioC=!!v && val("corr_0","0"); if(v) v.cb(); const lapC=deR(C1).find(l=>l.fila==="x1")||null;'
+   +'  const corregir={ abrio:abrioC, queda:ids(DB.cuadrillas[0]), lap:lapTxt(lapC), pregunto:confirmas };'
+   // Otra pantalla abierta (vio x1 con 3) recibe la nube con esa lápida; y otra que además le había cambiado la observación a x1
+   +'  const sinX1={id:C1, nombre:"CUADRILLA E2", tecnicos:[], materiales:[cp(nubeC.materiales[1])]}, tfC=lapC ? [lapC] : [];'
+   +'  pantalla("cuadrillas", nubeC, nubeC); const o1=llega("cuadrillas", sinX1, tfC);'
+   +'  const otra={ queda:ids(DB.cuadrillas[0]), lap:lapTxt(deR(C1)[0]), volvio:volvio(), pres:o1.pres, atras:o1.atras };'
+   +'  const tocada=cp(nubeC); tocada.materiales[0].observaciones="revisar"; pantalla("cuadrillas", nubeC, tocada); const o2=llega("cuadrillas", sinX1, tfC);'
+   +'  const otraToco={ queda:ids(DB.cuadrillas[0]), lap:lapTxt(deR(C1)[0]), volvio:volvio(), atras:o2.atras };'
+   // 2) Pantalla atrasada: vio la ONU con 10; en otra pantalla el admin entregó 3 y borró viendo 7 (su lápida dice 7)
+   +'  const B2=id("BOD2"), nubeY={id:B2, nombre:"BODEGA E2", materiales:[fila("Y","ONU",10,["ZTEG0000A001"]), fila("Z","CABLE",100)]};'
+   +'  const lapY=_nuevaTumbaFilaInv("bodegas", nubeY, Object.assign(cp(nubeY.materiales[0]), {cantidad:7}), "aprobacion", id("D2"), false, T-60000, "admin");'
+   +'  const sinY={id:B2, nombre:"BODEGA E2", materiales:[cp(nubeY.materiales[1])]}, conY=x=>{ const g=cp(nubeY); Object.assign(g.materiales[0], x); return g; };'
+   +'  pantalla("bodegas", nubeY, nubeY); const a1=llega("bodegas", sinY, [lapY]);'
+   +'  const at1={ queda:ids(DB.bodegas[0]), lap:lapTxt(deR(B2)[0]), volvio:volvio(), pres:a1.pres, atras:a1.atras };'
+   +'  pantalla("bodegas", nubeY, conY({observaciones:"revisar caja"})); const a2=llega("bodegas", sinY, [lapY]);'
+   +'  const at2={ queda:ids(DB.bodegas[0]), lap:lapTxt(deR(B2)[0]), volvio:volvio(), atras:a2.atras };'
+   // La misma pantalla atrasada, con la ONU tocada, guarda sin haber recibido el snapshot (el guardado lee la nube)
+   +'  pantalla("bodegas", nubeY, conY({observaciones:"revisar caja"})); window._fusionarConNubeInv({bodegas:[cp(sinY)], cuadrillas:[], _tumbasFila:[cp(lapY)]}, null);'
+   +'  const at2g={ queda:ids(DB.bodegas[0]), lap:lapTxt(deR(B2)[0]), volvio:volvio() };'
+   // Pero si ESA pantalla de verdad le metió material (más que la lápida y que su base, o un serial nuevo), sí anula
+   +'  pantalla("bodegas", nubeY, conY({cantidad:13})); llega("bodegas", sinY, [lapY]); const at3={ queda:ids(DB.bodegas[0]), lap:lapTxt(deR(B2)[0]), volvio:volvio() };'
+   +'  pantalla("bodegas", nubeY, conY({snes:["ZTEG0000A001","ZTEG0000A002"]})); llega("bodegas", sinY, [lapY]); const at4={ queda:ids(DB.bodegas[0]), lap:lapTxt(deR(B2)[0]), volvio:volvio() };'
+   +'  const atrasada={at1, at2, at2g, at3, at4};'
+   // Segunda revisión: una lápida que solo tiene el navegador (otra pestaña la armó viendo 4) se mide contra la lápida, no contra la base
+   +'  const B3=id("BOD3"), n3={id:B3, nombre:"BODEGA E2", materiales:[fila("TV","TV BOX",7), fila("Z","CABLE",100)]};'
+   +'  const lap3=_nuevaTumbaFilaInv("bodegas", n3, Object.assign(cp(n3.materiales[0]), {cantidad:4}), "directo", "", false, T-60000, "admin");'
+   +'  pantalla("bodegas", n3, n3); localStorage.setItem(kTF, JSON.stringify(leerLS().concat([lap3]))); llega("bodegas", n3, []);'
+   +'  const soloAqui={ queda:ids(DB.bodegas[0]), lap:lapTxt(deR(B3)[0]), volvio:volvio() };'
+   // Y al guardar (ahí no hay pasada sobre lo que entra que la salve): la nube trae TV BOX 7 y no tiene esa lápida
+   +'  pantalla("bodegas", n3, n3); localStorage.setItem(kTF, JSON.stringify(leerLS().concat([lap3]))); window._fusionarConNubeInv({bodegas:[cp(n3)], cuadrillas:[], _tumbasFila:[]}, null);'
+   +'  soloAqui.guardar=[ids(DB.bodegas[0]), lapTxt(deR(B3)[0]), volvio()].join("/");'
+   // Segunda revisión: la nube trae a la vez la lápida (4) y la fila con 7; esta pantalla tiene 7 en memoria y en su base
+   +'  const B4=id("BOD4"), n4={id:B4, nombre:"BODEGA E2", materiales:[fila("TV","TV BOX",7), fila("Z","CABLE",100)]};'
+   +'  const lap4=_nuevaTumbaFilaInv("bodegas", n4, Object.assign(cp(n4.materiales[0]), {cantidad:4}), "aprobacion", id("D4"), false, T-60000, "admin");'
+   +'  pantalla("bodegas", n4, n4); llega("bodegas", n4, [lap4]); const dosPasadas={ queda:ids(DB.bodegas[0]), lap:lapTxt(deR(B4)[0]), volvio:volvio() };'
+   // Segunda revisión (Etapa 4, R7): la ventana de Corregir y un snapshot en medio (objetos nuevos en DB)
+   +'  const nC=cid=>({id:cid, nombre:"CUADRILLA E2", tecnicos:[], materiales:[fila("x1","CONECTOR SC",3), fila("y1","ONU",0)]});'
+   +'  const abrirC=cid=>{ pantalla("cuadrillas", nC(cid), nC(cid)); const n=modales.length; modalCorregirCantCuad(cid); return modales.length>n ? modales[modales.length-1] : {cb:function(){}}; };'
+   +'  const C5=id("CUA5"); v=abrirC(C5); DB.cuadrillas=[nC(C5)]; let nA=alertas.length, nCf=confirmas; val("corr_0","2"); v.cb();'
+   +'  const vivo={ queda:ids(DB.cuadrillas[0]), lap:deR(C5).map(lapTxt).join(), pregunto:confirmas-nCf, avisos:alertas.length-nA };'
+   +'  const C6=id("CUA6"); v=abrirC(C6); const n6=nC(C6); n6.materiales[0].cantidad=7; DB.cuadrillas=[n6]; nA=alertas.length; nCf=confirmas; val("corr_0","0"); v.cb();'
+   +'  const cambio={ queda:ids(DB.cuadrillas[0]), lap:deR(C6).length, pregunto:confirmas-nCf, aviso:alertas.slice(nA).join(" | ") };'
+   +'  const C7=id("CUA7"); v=abrirC(C7); const n7=nC(C7); n7.materiales[1].cantidad=5; DB.cuadrillas=[n7]; val("corr_0","2"); v.cb();'
+   +'  const ceroNoTocada={ queda:ids(DB.cuadrillas[0]), lap:deR(C7).length };'
+   // 3) Volver a borrar una fila cuya lápida se anuló hace 5 días (le entró material): la bodega pide otra vez y el admin aprueba
+   +'  const B5=id("BOD5"), D5a=id("D5A"), D5=id("D5"), n5={id:B5, nombre:"BODEGA E2", materiales:[fila("M1","CABLE",10), fila("M3","TV BOX",3)]};'
+   +'  const L1=Object.assign(_nuevaTumbaFilaInv("bodegas", n5, Object.assign(cp(n5.materiales[1]), {cantidad:2}), "aprobacion", D5a, false, T-5*D, "admin"), {anulada:{motivo:"entró material después del borrado", en:T-5*D+1000}});'
+   +'  const s5={id:D5, bodegaId:B5, bodegaNombre:"BODEGA E2", materialId:"M3", materialNombre:"TV BOX", tipo:"nuevo", cantidad:3, unidad:"Und", obs:"otra vez", fecha:new Date(T).toISOString(), fechaMs:T, estado:"pendiente"};'
+   +'  const carga5=()=>{ DB.cuadrillas=[]; DB.bodegas=[cp(n5)]; DB._tumbasFila=[cp(L1)]; DB._tumbas=[]; DB.logs=[]; DB.deleteRequests=[cp(s5)]; DB.editRequests=[];'
+   +'    window._baseStockInv={}; window._guardarBaseStockInv({bodegas:[cp(n5)], deleteRequests:[cp(s5)]}); window._idsRemotosInv={d:{},h:{}}; window._tfNubeInv=[cp(L1)]; };'
+   +'  olvidar(); limpiarLS(); USER={role:"admin"}; carga5(); approveDelete(D5, "aprobada"); const l5=deR(B5).find(l=>l.fila==="M3")||null;'
+   +'  const reborrar={ queda:ids(DB.bodegas[0]), lap:lapTxt(l5), ult:!!(l5 && l5.en===L1.en && typeof l5.ult==="number" && l5.ult>=T), req:!!(l5 && l5.req===D5) };'
+   // Al guardar, otra pantalla ya le había cambiado la observación a TV BOX en la nube
+   +'  window._fusionarConNubeInv({bodegas:[{id:B5, nombre:"BODEGA E2", materiales:[cp(n5.materiales[0]), Object.assign(cp(n5.materiales[1]), {observaciones:"revisada allá"})]}], cuadrillas:[], _tumbasFila:[cp(L1)]}, null);'
+   +'  const guardar5={ queda:ids(DB.bodegas[0]), lap:lapTxt(deR(B5).find(l=>l.fila==="M3")) };'
+   // Y tras RECARGAR sin que el guardado subiera: la nube trae la lápida vieja anulada y la solicitud pendiente
+   +'  const k5="deleteRequests│"+D5, d5=M.get(k5); if(d5) M.set(k5, Object.assign({}, d5, {carga:"cg_e2p_anterior"}));'
+   +'  carga5(); window._tumbasFilaAlCargarInv(); const alCargar=ids(DB.bodegas[0]);'
+   +'  const e5={deleteRequests:[cp(s5)]}; window._reimponerDecisionesInv(e5, ["deleteRequests"]);'
+   +'  const recargar={ alCargar, queda:ids(DB.bodegas[0]), estado:e5.deleteRequests[0].estado, lap:lapTxt(deR(B5).find(l=>l.fila==="M3")),'
+   +'    log:(DB.logs||[]).filter(e=>String(e.msg).indexOf("Se volvió a aplicar el borrado aprobado")===0).length };'
+   // Pero si después de ese borrado le entró material (la nube trae 8), al recargar no se repite: queda pendiente y se pide volver a decidirla
+   +'  const d5b=M.get(k5); if(d5b) M.set(k5, Object.assign({}, d5b, {carga:"cg_e2p_anterior"})); olvidar();'
+   +'  carga5(); DB.bodegas[0].materiales[1].cantidad=8; window._guardarBaseStockInv({bodegas:cp(DB.bodegas)}); window._tumbasFilaAlCargarInv();'
+   +'  const e5b={deleteRequests:[cp(s5)]}; window._reimponerDecisionesInv(e5b, ["deleteRequests"]);'
+   +'  recargar.entro=[ids(DB.bodegas[0]), e5b.deleteRequests[0].estado, (window._decisionesNoLlegaronInv||[]).some(x=>x.id===D5), !M.has(k5),'
+   +'    (DB.logs||[]).filter(e=>String(e.msg).indexOf("Se volvió a aplicar el borrado aprobado")===0).length].join("/");'
+   // Aunque el reloj de este equipo vaya atrás del borrado anterior (que se anuló), el borrado nuevo queda después y vale
+   +'  const B5r=id("BOD5R"), D5r=id("D5R"), n5r={id:B5r, nombre:"BODEGA E2", materiales:[fila("M1","CABLE",10), fila("M3","TV BOX",3)]};'
+   +'  const L1r=Object.assign(_nuevaTumbaFilaInv("bodegas", n5r, n5r.materiales[1], "aprobacion", id("D5RA"), false, T+60000, "admin"), {anulada:{motivo:"entró material después del borrado", en:T+61000}});'
+   +'  olvidar(); DB.bodegas=[cp(n5r)]; DB._tumbasFila=[cp(L1r)]; DB.logs=[]; DB.deleteRequests=[Object.assign(cp(s5), {id:D5r, bodegaId:B5r})]; approveDelete(D5r, "aprobada");'
+   +'  const l5r=deR(B5r).find(l=>l.fila==="M3")||null; reborrar.reloj=[ids(DB.bodegas[0]), lapTxt(l5r), !!(l5r && l5r.ult>T+60000)].join("/");'
+   // La unión con «ult» (pura) y la anulación de un borrado nuevo, que se anota aparte
+   +'  const L2b=Object.assign({}, L1, {en:T, anulada:null, cant:3, req:D5}), sU=JSON.stringify([L1, L2b]);'
+   +'  const U1=_unirTumbasFilaInv([L1], [L2b]), U2=_unirTumbasFilaInv([L2b], [L1]), u1=U1[0]||{};'
+   +'  const L2an=Object.assign({}, L2b, {anulada:{motivo:"restaurada", en:T+5}}), U3=_unirTumbasFilaInv(U1, [L2an]), U4=_unirTumbasFilaInv([L2an, L1], [L2b]);'
+   +'  const union={ n:U1.length, datos:[u1.en===L1.en, u1.ult===T, u1.cant, u1.req===D5, !u1.anulada].join("|"), orden:JSON.stringify(U1)===JSON.stringify(U2),'
+   +'    idem:JSON.stringify(_unirTumbasFilaInv(U1, U1))===JSON.stringify(U1), despues:!!(U3[0]||{}).anulada && JSON.stringify(U3)===JSON.stringify(U4), noMuta:JSON.stringify([L1, L2b])===sU };'
+   +'  olvidar(); DB.logs=[]; const an2=Object.assign({}, u1, {anulada:{motivo:"entró material después del borrado", en:T+10}});'
+   +'  const anotar=[_registrarAnulacionesFilaInv([L1]), _registrarAnulacionesFilaInv([an2]), _registrarAnulacionesFilaInv([an2])].join();'
+   +'  return {corregir, otra, otraToco, atrasada, soloAqui, dosPasadas, vivo, cambio, ceroNoTocada, reborrar, guardar5, recargar, union, anotar, guardados};'
+   +'} finally {'
+   +'  caja.remove(); COLS.forEach(k=>{ if(H[k][0]) DB[k]=H[k][1]; else delete DB[k]; }); PW.forEach(k=>{ if(P0[k][0]) window[k]=P0[k][1]; else delete window[k]; });'
+   +'  window._fbSave=gS; window.alert=gA; window.confirm=gCf; window.openModal=gOM; window.closeModal=gCM; window.renderTab=gRT; window.renderDeleteReq=gRD; USER=gU;'
+   +'  M.clear(); dec0.forEach((v,k)=>M.set(k,v)); if(window._soltadasDecInv instanceof Map){ window._soltadasDecInv.clear(); sol0.forEach((v,k)=>window._soltadasDecInv.set(k,v)); }'
+   +'  [..._tfAnotadasInv].forEach(k=>{ if(!tfa0.has(k)) _tfAnotadasInv.delete(k); });'
+   +'  try{ window._franjaDecisionesInv(); }catch(e){}'
+   +'}');
+   }catch(e){ err=String((e&&e.message)||e); } finally { e2RestaurarLS(W, fLS); }
+   if(!r) return {ok:false, detalle:'La prueba no terminó: '+err.replace(/</g,'&lt;')};
+   const c=r.corregir, o=r.otra, ot=r.otraToco, a=r.atrasada, s=r.soloAqui, dp=r.dosPasadas, vv=r.vivo, cb=r.cambio, cn=r.ceroNoTocada, rb=r.reborrar, g5=r.guardar5, rc=r.recargar, u=r.union;
+   const C=[
+     ['«Corregir Cantidades» (la ventana de verdad): la fila sale y su lápida guarda la cantidad de ANTES de corregir (3), no 0', c.abrio===true && c.queda==='x2=50' && c.lap==='x1:corregir:3:activa' && c.pregunto===1],
+     ['otra pantalla abierta (vio la fila con 3) recibe esa lápida: no la anula, no dice «volvió», no reenvía y la fila no vuelve; tampoco si le había cambiado la observación',
+        o.queda==='x2=50' && o.lap==='x1:corregir:3:activa' && o.volvio===0 && o.pres===0 && o.atras===0
+        && ot.queda==='x2=50' && ot.lap==='x1:corregir:3:activa' && ot.volvio===0 && ot.atras===0],
+     ['pantalla atrasada (10 en memoria, el admin borró viendo 7): no anula, no registra, no reenvía y la fila no vuelve, aunque la hubiera tocado, tampoco al guardar sin haber recibido el snapshot; si de verdad metió material (13, o un serial nuevo), sí anula y se queda',
+        a.at1.queda==='Z=100' && a.at1.lap==='Y:aprobacion:7:activa' && a.at1.volvio===0 && a.at1.pres===0 && a.at1.atras===0
+        && a.at2.queda==='Z=100' && a.at2.lap==='Y:aprobacion:7:activa' && a.at2.volvio===0 && a.at2.atras===0
+        && a.at2g.queda==='Z=100' && a.at2g.lap==='Y:aprobacion:7:activa' && a.at2g.volvio===0
+        && a.at3.queda==='Y=13,Z=100' && a.at3.lap==='Y:aprobacion:7:anulada' && a.at3.volvio===1
+        && a.at4.queda==='Y=10,Z=100' && a.at4.lap==='Y:aprobacion:7:anulada' && a.at4.volvio===1],
+     ['segunda revisión: una lápida que solo tiene el navegador (otra pestaña la armó viendo 4) se mide contra la lápida, al recibir y al guardar: la fila con 7 se queda y la lápida queda anulada',
+        s.queda==='TV=7,Z=100' && s.lap==='TV:directo:4:anulada' && s.volvio===1 && s.guardar==='TV=7,Z=100/TV:directo:4:anulada/1'],
+     ['segunda revisión: si la nube trae a la vez la lápida (4) y la fila con 7, las dos pasadas deciden igual: la fila se queda y el aviso sale una vez',
+        dp.queda==='TV=7,Z=100' && dp.lap==='TV:aprobacion:4:anulada' && dp.volvio===1],
+     ['segunda revisión: la ventana de Corregir corrige la cuadrilla de AHORA aunque un snapshot la haya reemplazado con la ventana abierta',
+        vv.queda==='x1=2' && vv.lap==='y1:corregir:0:activa' && vv.pregunto===1 && vv.avisos===0],
+     ['segunda revisión: si con la ventana abierta entró material a la fila corregida, no corrige, no pregunta y avisa; una fila en 0 sin tocar que recibió material se queda, sin lápida',
+        cb.queda==='x1=7,y1=0' && cb.lap===0 && cb.pregunto===0 && /cambió en la cuadrilla "CUADRILLA E2" mientras tenías la ventana abierta/.test(cb.aviso)
+        && cn.queda==='x1=2,y1=5' && cn.lap===0],
+     ['volver a borrar una fila cuya lápida se anuló: el borrado nuevo vale (lápida activa con los datos del último borrado), también al guardar contra otra pantalla que la tocó y aunque el reloj de este equipo vaya atrás',
+        rb.queda==='M1=10' && rb.lap==='M3:aprobacion:3:activa' && rb.ult===true && rb.req===true && g5.queda==='M1=10' && g5.lap==='M3:aprobacion:3:activa'
+        && rb.reloj==='M1=10/M3:aprobacion:3:activa/true'],
+     ['y tras recargar sin que subiera: la fila sale al cargar, la decisión se repite («aprobada») y queda en el registro; pero si después de ese borrado le entró material, no se repite: queda pendiente y se pide volver a decidirla',
+        rc.alCargar==='M1=10' && rc.queda==='M1=10' && rc.estado==='aprobada' && rc.lap==='M3:aprobacion:3:activa' && rc.log===1 && rc.entro==='M1=10,M3=8/pendiente/true/true/0'],
+     ['la unión con «ult»: una lápida en la hora menor con los datos del último borrado; no depende del orden, unir dos veces da lo mismo, una anulación posterior sí lo cubre y no cambia lo que recibe',
+        u.n===1 && u.datos==='true|true|3|true|true' && u.orden===true && u.idem===true && u.despues===true && u.noMuta===true],
+     ['la anulación de un borrado nuevo de la misma fila se anota aparte, una sola vez', r.anotar==='1,1,0'],
+     ['ninguna escritura llegó al envoltorio', bloq()-n0===0]
+   ];
+   const mal=C.filter(x=>x[1]!==true).map(x=>x[0]);
+   return {ok:!mal.length, detalle: !mal.length
+     ? '«Corregir» deja la lápida con la cantidad de antes: las otras pantallas no la anulan ni dicen «volvió» ni reenvían, y la fila no vuelve aunque la hubieran tocado ✓'
+      +'\nUna pantalla atrasada tampoco; si de verdad metió material (cantidad o serial), sí anula ✓'
+      +'\nSegunda revisión: una lápida que la nube aún no tiene se mide contra la lápida; las dos pasadas deciden igual; la ventana de Corregir trabaja sobre la cuadrilla de ahora y se cancela si la fila cambió ✓'
+      +'\nVolver a borrar después de anular vale, al guardar y tras recargar; la unión con «ult» es estable y la anulación nueva se anota una vez ✓'
+      +'\nNada se escribió y todo quedó como estaba ✓'
+     : 'Fallan: '+mal.join(', ')+'\n'+JSON.stringify(r).slice(0,2500).replace(/</g,'&lt;')};}},
+{app:'inv', titulo:'Etapa 2 · Lo que quedó en el navegador no manda sobre la nube: una solicitud rechazada en otro equipo y lo decidido en ?prueba=1',
+ porque:'Revisión adversaria del 11 oct 2026. Una lápida que quedó en el navegador (el guardado no subió) borraba el artículo al recargar aunque '
+       +'otro equipo hubiera RECHAZADO esa solicitud, y lo subía sin aviso. Ahora, al cargar, la lápida de una aprobación vale solo si su '
+       +'solicitud sigue aprobada en la nube, o pendiente con la decisión de este navegador; y si el primer snapshot la trae rechazada, gana la '
+       +'nube: la lápida sale y la fila vuelve en su sitio, sin subir nada. Además, lo decidido en ?prueba=1 se ejecutaba de verdad en la '
+       +'siguiente carga normal del mismo navegador: ahora sus lápidas van en inv_tumbas_fila_prueba y sus decisiones van marcadas prueba:true '
+       +'(la carga normal las ignora y nunca pisan una decisión de verdad). Datos inventados (ids E2P…); nada se escribe y el navegador queda '
+       +'como estaba.',
+ correr:async W=>{
+   const bloq=()=>(W._escriturasBloqueadas||[]).length, n0=bloq(), fLS=e2FotoLS(W);
+   let r=null, err='';
+   try{ r=E(W,
+     'const cp=o=>JSON.parse(JSON.stringify(o)), T=Date.now(), id=s=>"E2P_"+s+"_"+T, M=window._decisionesMiasInv, K=i=>"deleteRequests│"+i;'
+   +'const COLS=["bodegas","cuadrillas","recuperados","consumosPendientes","instalaciones","equiposDanados","equiposPendientesTecnico","entregas","ventas","transfers","cuartos","deleteRequests","editRequests","logs","_tumbasFila","_tumbas"], H={}; COLS.forEach(k=>{ H[k]=[k in DB, DB[k]]; });'
+   +'const PW=["_baseStockInv","_idsRemotosInv","_reenvioInvProgramado","_reenviosInv","_enVueloAtascadosInv","_tfNubeInv","_decisionesNoLlegaronInv","_modoPruebaInv"], P0={}; PW.forEach(k=>{ P0[k]=[k in window, window[k]]; });'
+   +'const gS=window._fbSave, gA=window.alert, gCf=window.confirm, gRT=window.renderTab, gRD=window.renderDeleteReq, gU=USER;'
+   +'const dec0=new Map(M), sol0=new Map(window._soltadasDecInv||[]), tfa0=new Set(_tfAnotadasInv);'
+   +'let guardados=0; const alertas=[];'
+   +'try{'
+   +'  window._fbSave=function(){ guardados++; }; window.alert=function(m){ alertas.push(String(m)); }; window.confirm=function(){ return true; }; window.renderTab=function(){}; window.renderDeleteReq=function(){};'
+   +'  window._reenvioInvProgramado=true; window._reenviosInv=[];'
+   +'  const fila=(i,nom,cant)=>({id:i, nombre:nom, tipo:"nuevo", cantidad:cant, unidad:"Und", snes:[], categoria:"material", observaciones:""});'
+   +'  const kTF=(typeof _claveTFLSInv==="function") ? _claveTFLSInv() : "inv_tumbas_fila";'
+   +'  const leerLS=()=>{ try{ const x=JSON.parse(localStorage.getItem(kTF)||"[]"); return Array.isArray(x) ? x : []; }catch(e){ return []; } };'
+   +'  const limpiarLS=()=>{ const l=leerLS().filter(t=>!(t && String(t.id).indexOf("E2P_")===0)); if(l.length) localStorage.setItem(kTF, JSON.stringify(l)); else localStorage.removeItem(kTF); };'
+   +'  const olvidar=()=>{ [..._tfAnotadasInv].forEach(k=>{ if(!tfa0.has(k)) _tfAnotadasInv.delete(k); }); };'
+   +'  const idsO=reg=>((reg && reg.materiales)||[]).map(m=>m.id+"="+m.cantidad).join();'
+   +'  const nube=b=>({id:b, nombre:"BODEGA E2", materiales:[fila("M1","ONU",2), fila("M2","CABLE",10), fila("M3","TV BOX",4)]});'
+   +'  const sol=(i,b,est)=>({id:i, bodegaId:b, bodegaNombre:"BODEGA E2", materialId:"M3", materialNombre:"TV BOX", tipo:"nuevo", cantidad:4, unidad:"Und", obs:"no sirve", fecha:new Date(T-7200000).toISOString(), fechaMs:T-7200000, estado:est});'
+   // En el PC-A el admin aprobó borrar TV BOX (4 und): la lápida quedó en el navegador, el guardado no subió y la pestaña se cerró
+   +'  const dejar=(b,d)=>{ const n=nube(b), L=_nuevaTumbaFilaInv("bodegas", n, n.materiales[2], "aprobacion", d, false, T-3600000, "admin");'
+   +'    olvidar(); limpiarLS(); localStorage.setItem(kTF, JSON.stringify(leerLS().concat([L])));'
+   +'    M.set(K(d), {estado:"aprobada", resultado:"", ts:T-3600000, carga:"cg_e2p_anterior", efecto:{tipo:"borrar", col:"bodegas", id:b, fila:"M3", nom:"TV BOX", tipoFila:"nuevo", lapida:L}}); };'
+   // La carga de la página: la nube (la bodega con TV BOX y la solicitud con su estado), la base y luego las lápidas
+   +'  const cargar=(b,d,est)=>{ DB.cuadrillas=[]; DB.bodegas=[nube(b)]; DB._tumbasFila=[]; DB._tumbas=[]; DB.logs=[]; DB.deleteRequests=[sol(d,b,est)]; DB.editRequests=[];'
+   +'    window._baseStockInv={}; window._guardarBaseStockInv({bodegas:[nube(b)], deleteRequests:[sol(d,b,est)]}); window._idsRemotosInv={d:{},h:{}}; window._tumbasFilaAlCargarInv(); return idsO(DB.bodegas[0]); };'
+   // atras: lo que programaría el reenvío, solo con las lápidas de la prueba (las de otra pestaña en el navegador no cuentan aquí)
+   +'  const atrasPropio=b=>{ const todas=DB._tumbasFila; DB._tumbasFila=(todas||[]).filter(l=>l && String(l.id).indexOf("E2P_")===0);'
+   +'    try{ return window._tumbasFilaNubeAtrasInv([], {bodegas:[nube(b)], cuadrillas:[]}); } finally { DB._tumbasFila=todas; } };'
+   +'  const despues=(b,d,ent)=>({ tras:idsO(DB.bodegas[0]), ls:leerLS().filter(t=>t && t.req===d).length, activa:(DB._tumbasFila||[]).filter(l=>l && !l.anulada && l.req===d).length,'
+   +'    atras:atrasPropio(b), toco:window._sesionTocoInv("bodegas", DB.bodegas[0]), estado:ent.deleteRequests[0].estado, suelta:!M.has(K(d)) });'
+   // a) Otro equipo ya la RECHAZÓ cuando se vuelve a abrir INVENTARIO en el PC-A (aunque sea con sesión de bodega)
+   +'  const B1=id("BOD1"), D1=id("D1"); USER={role:"bodega", id:B1, nombre:"BODEGA E2"}; dejar(B1, D1); const alCargar1=cargar(B1, D1, "rechazada");'
+   +'  const e1={deleteRequests:[sol(D1, B1, "rechazada")]}; window._reimponerDecisionesInv(e1, ["deleteRequests"]); const rechazada=Object.assign({alCargar:alCargar1}, despues(B1, D1, e1));'
+   // b) Al cargar seguía pendiente (la lápida vale y quita la fila) y el primer snapshot del historial la trae rechazada
+   +'  const B2=id("BOD2"), D2=id("D2"); USER={role:"admin"}; dejar(B2, D2); const alCargar2=cargar(B2, D2, "pendiente");'
+   +'  const e2={deleteRequests:[sol(D2, B2, "rechazada")]}; window._reimponerDecisionesInv(e2, ["deleteRequests"]); const entreMedio=Object.assign({alCargar:alCargar2}, despues(B2, D2, e2));'
+   // c) Una lápida que este navegador guarda hace más de 30 días sin subir ya no se aplica sola (antes valía 180 días); una de 29 días sí
+   +'  const B3=id("BOD3"), n3=nube(B3), Lv=_nuevaTumbaFilaInv("bodegas", n3, n3.materiales[2], "directo", "", false, T-31*86400000, "admin"), Lj=_nuevaTumbaFilaInv("bodegas", n3, n3.materiales[0], "directo", "", false, T-29*86400000, "admin");'
+   +'  olvidar(); limpiarLS(); localStorage.setItem(kTF, JSON.stringify(leerLS().concat([Lv, Lj]))); const vieja=cargar(B3, id("D3"), "pendiente");'
+   // d) En este marco (?prueba=1) el admin aprueba dos borrados; para D4 ya había en el navegador una decisión DE VERDAD de otra pestaña
+   +'  const B4=id("BOD4"), D4=id("D4"), D5=id("D5"), n4={id:B4, nombre:"BODEGA E2", materiales:[fila("M1","ONU",2), fila("M3","TV BOX",4)]};'
+   +'  let g={}; try{ g=JSON.parse(localStorage.getItem("inv_decisiones")||"{}")||{}; }catch(e){ g={}; }'
+   +'  g[K(D4)]={estado:"rechazada", resultado:"", ts:T-1000, carga:"cg_e2p_real", efecto:{tipo:"ninguno"}}; localStorage.setItem("inv_decisiones", JSON.stringify(g));'
+   +'  const realAntes=localStorage.getItem("inv_tumbas_fila");'
+   +'  olvidar(); limpiarLS(); DB.cuadrillas=[]; DB.bodegas=[cp(n4)]; DB._tumbasFila=[]; DB._tumbas=[]; DB.logs=[]; DB.editRequests=[];'
+   +'  DB.deleteRequests=[sol(D4, B4, "pendiente"), Object.assign(sol(D5, B4, "pendiente"), {materialId:"M1", materialNombre:"ONU", cantidad:2})];'
+   +'  approveDelete(D4, "aprobada"); approveDelete(D5, "aprobada");'
+   +'  let g2={}; try{ g2=JSON.parse(localStorage.getItem("inv_decisiones")||"{}")||{}; }catch(e){ g2={}; }'
+   +'  const deB4=k=>{ try{ const x=JSON.parse(localStorage.getItem(k)||"[]"); return (Array.isArray(x)?x:[]).filter(t=>t && t.id===B4).length; }catch(e){ return -1; } };'
+   // Lo que leería la carga normal de este navegador (el modo prueba apagado solo para leer)
+   +'  const t0=("_modoPruebaInv" in window), m0=window._modoPruebaInv; let normal=-1;'
+   +'  try{ window._modoPruebaInv=false; normal=_leerTumbasFilaLSInv().filter(t=>t && t.id===B4).length; } finally { if(t0) window._modoPruebaInv=m0; else delete window._modoPruebaInv; }'
+   +'  const rv=g2[K(D4)]||{}, pv=g2[K(D5)]||{};'
+   +'  const modoPrueba={ clave:kTF, real:[rv.estado, rv.prueba===true, rv.carga].join("|"), prueba:[pv.estado, pv.prueba===true].join("|"), lsReal:deB4("inv_tumbas_fila"), lsPrueba:deB4("inv_tumbas_fila_prueba"),'
+   +'    normal, realIgual:localStorage.getItem("inv_tumbas_fila")===realAntes, quedan:DB.bodegas[0].materiales.length };'
+   +'  return {rechazada, entreMedio, vieja, modoPrueba, guardados};'
+   +'} finally {'
+   +'  COLS.forEach(k=>{ if(H[k][0]) DB[k]=H[k][1]; else delete DB[k]; }); PW.forEach(k=>{ if(P0[k][0]) window[k]=P0[k][1]; else delete window[k]; });'
+   +'  window._fbSave=gS; window.alert=gA; window.confirm=gCf; window.renderTab=gRT; window.renderDeleteReq=gRD; USER=gU;'
+   +'  M.clear(); dec0.forEach((v,k)=>M.set(k,v)); if(window._soltadasDecInv instanceof Map){ window._soltadasDecInv.clear(); sol0.forEach((v,k)=>window._soltadasDecInv.set(k,v)); }'
+   +'  [..._tfAnotadasInv].forEach(k=>{ if(!tfa0.has(k)) _tfAnotadasInv.delete(k); });'
+   +'  try{ window._franjaDecisionesInv(); }catch(e){}'
+   +'}');
+   }catch(e){ err=String((e&&e.message)||e); } finally { e2RestaurarLS(W, fLS); }
+   if(!r) return {ok:false, detalle:'La prueba no terminó: '+err.replace(/</g,'&lt;')};
+   const leer=async f=>{ try{ const x=await fetch(f,{cache:'no-store'}); return x.ok ? await x.text() : ''; }catch(e){ return ''; } };
+   const inv=(await leer('INVENTARIO_PTOVISION.html')).replace(/\r/g,''), tiene=s=>inv.indexOf(s)>=0;
+   const textos=tiene('v.prueba!==true && !(Date.now()') && tiene('window._modoPruebaInv = !!MODO_PRUEBA') && tiene("_TF_LS_INV+'_prueba'");
+   const ra=r.rechazada, em=r.entreMedio, mp=r.modoPrueba;
+   const C=[
+     ['al recargar, la lápida que quedó en el navegador para una solicitud que otro equipo RECHAZÓ no borra la fila (aunque abra una bodega), sale del navegador y no se sube nada',
+        ra.alCargar==='M1=2,M2=10,M3=4' && ra.tras==='M1=2,M2=10,M3=4' && ra.ls===0 && ra.activa===0 && ra.atras===0 && ra.toco===false && ra.estado==='rechazada' && ra.suelta===true],
+     ['si al cargar seguía pendiente (la lápida vale y quita la fila) y el primer snapshot la trae rechazada: gana la nube, la fila vuelve en su sitio, la lápida sale de aquí y del navegador y no se sube nada',
+        em.alCargar==='M1=2,M2=10' && em.tras==='M1=2,M2=10,M3=4' && em.ls===0 && em.activa===0 && em.atras===0 && em.toco===false && em.estado==='rechazada' && em.suelta===true],
+     ['una lápida que el navegador guarda hace más de 30 días sin subir ya no se aplica sola; una de 29 días sí', r.vieja==='M2=10,M3=4'],
+     ['en ?prueba=1 las lápidas van en inv_tumbas_fila_prueba: la clave de verdad no cambia y lo que leería la carga normal no trae nada',
+        mp.clave==='inv_tumbas_fila_prueba' && mp.lsReal===0 && mp.lsPrueba===2 && mp.normal===0 && mp.realIgual===true && mp.quedan===0],
+     ['en ?prueba=1 las decisiones van marcadas prueba:true y no pisan una decisión de verdad que ya estaba en el navegador',
+        mp.prueba==='aprobada|true' && mp.real==='rechazada|false|cg_e2p_real'],
+     ['texto: la carga normal ignora las decisiones prueba:true y el módulo publica el modo prueba para la clave de las lápidas', textos],
+     ['ninguna escritura llegó al envoltorio', bloq()-n0===0]
+   ];
+   const mal=C.filter(x=>x[1]!==true).map(x=>x[0]);
+   return {ok:!mal.length, detalle: !mal.length
+     ? 'Una lápida del navegador cuya solicitud la nube rechazó no borra nada al recargar y sale del navegador; si la rechazan entre la carga y el primer snapshot, la fila vuelve en su sitio y no se sube nada ✓'
+      +'\nEn el navegador una lápida sin subir vale 30 días, no 180 ✓'
+      +'\nEn ?prueba=1 las lápidas van en su propia clave y las decisiones marcadas prueba:true: la pantalla de verdad del mismo navegador no hereda nada, y una decisión de verdad no se pisa ✓'
+      +'\nNada se escribió y el navegador quedó como estaba ✓'
+     : 'Fallan: '+mal.join(', ')+'\n'+JSON.stringify(r).slice(0,2500).replace(/</g,'&lt;')};}},
+{app:'inv', titulo:'Etapa 2 · Cada solicitud sobre su propia fila: ids repetidos, la fila hermana y la edición cerrada por un borrado que no se cumplió',
+ porque:'Revisión adversaria del 11 oct 2026. Con ids repetidos en una bodega, el Guardar de una ventana vieja de 🗑️ o ✏️ armaba la solicitud '
+       +'sobre OTRA fila con el mismo id (con el nombre, la cantidad y los seriales de otro artículo); ahora se cancela con aviso. Aprobar un '
+       +'borrado cerraba las ediciones del artículo («artículo borrado») antes de saber si el borrado quedaba: si su lápida se anula porque '
+       +'entró material, vuelven a pendiente (cerradaPor), salvo que ya haya otra pendiente o que la fila se haya restaurado. Y la fila hermana '
+       +'(segunda revisión): CABLE y CONECTOR con el mismo id, una pendiente de CABLE y el admin borra CABLE directo; pedir CONECTOR ya no se '
+       +'bloquea ni se cierra como duplicada de la de CABLE, y aprobar la de CABLE pregunta con los dos nombres (si no, «cerrada sin cambios»). '
+       +'Con USER de bodega y de admin temporales y las ventanas sustituidas. Datos inventados (ids E2P…); nada se escribe.',
+ correr:async W=>{
+   const bloq=()=>(W._escriturasBloqueadas||[]).length, n0=bloq(), fLS=e2FotoLS(W);
+   let r=null, err='';
+   try{ r=E(W,
+     'const cp=o=>JSON.parse(JSON.stringify(o)), T=Date.now(), id=s=>"E2P_"+s+"_"+T, sinT=s=>String(s==null?"":s).split("_"+T).join(""), M=window._decisionesMiasInv;'
+   +'const COLS=["bodegas","cuadrillas","recuperados","consumosPendientes","instalaciones","equiposDanados","equiposPendientesTecnico","entregas","ventas","transfers","cuartos","deleteRequests","editRequests","logs","_tumbasFila","_tumbas"], H={}; COLS.forEach(k=>{ H[k]=[k in DB, DB[k]]; });'
+   +'const PW=["_baseStockInv","_idsRemotosInv","_reenvioInvProgramado","_reenviosInv","_enVueloAtascadosInv","_tfNubeInv","_decisionesNoLlegaronInv","_fotosNuevasPend"], P0={}; PW.forEach(k=>{ P0[k]=[k in window, window[k]]; });'
+   +'const gS=window._fbSave, gA=window.alert, gCf=window.confirm, gOM=window.openModal, gCM=window.closeModal, gRT=window.renderTab, gRD=window.renderDeleteReq, gU=USER;'
+   +'const tFE=("editFotosEliminar" in TempLists), gFE=TempLists.editFotosEliminar, tFN=("editFotosNuevas" in TempLists), gFN=TempLists.editFotosNuevas;'
+   +'const dec0=new Map(M), sol0=new Map(window._soltadasDecInv||[]), dup0=new Map(window._dupCerradasTxInv||[]), tfa0=new Set(_tfAnotadasInv), re0=(typeof _reabiertasTFInv!=="undefined") ? new Set(_reabiertasTFInv) : null;'
+   +'const caja=document.createElement("div"); caja.id="e2pModalPrueba"; caja.style.display="none"; document.body.insertBefore(caja, document.body.firstChild);'
+   +'let guardados=0, respuesta=true; const alertas=[], modales=[], preguntas=[];'
+   +'try{'
+   +'  window._fbSave=function(){ guardados++; }; window.alert=function(m){ alertas.push(String(m)); }; window.confirm=function(m){ preguntas.push(String(m)); return respuesta; };'
+   +'  window.openModal=function(t,h,cb){ caja.innerHTML=h; modales.push({t:String(t), cb}); }; window.closeModal=function(){}; window.renderTab=function(){}; window.renderDeleteReq=function(){};'
+   +'  window._reenvioInvProgramado=true; window._reenviosInv=[];'
+   +'  const fila=(i,nom,cant,snes)=>({id:i, nombre:nom, tipo:"nuevo", cantidad:cant, unidad:"Und", snes:snes||[], stockMin:0, categoria:"material", observaciones:"", fotos:[], historial:[]});'
+   +'  const val=(i,v)=>{ const el=document.getElementById(i); if(el) el.value=v; return !!el; };'
+   +'  const kTF=(typeof _claveTFLSInv==="function") ? _claveTFLSInv() : "inv_tumbas_fila";'
+   +'  const limpiarLS=()=>{ let x=[]; try{ x=JSON.parse(localStorage.getItem(kTF)||"[]"); }catch(e){ x=[]; } const l=(Array.isArray(x)?x:[]).filter(t=>!(t && String(t.id).indexOf("E2P_")===0)); if(l.length) localStorage.setItem(kTF, JSON.stringify(l)); else localStorage.removeItem(kTF); };'
+   +'  const olvidar=()=>{ [..._tfAnotadasInv].forEach(k=>{ if(!tfa0.has(k)) _tfAnotadasInv.delete(k); }); };'
+   +'  const deR=rid=>(DB._tumbasFila||[]).filter(l=>l && l.id===rid);'
+   +'  const lapTxt=l=>l ? [l.fila, l.origen, l.cant, l.anulada ? "anulada" : "activa"].join(":") : "ninguna";'
+   +'  const ids=reg=>((reg && reg.materiales)||[]).map(m=>m.id+"="+m.cantidad).sort().join();'
+   +'  const limpio=()=>{ olvidar(); limpiarLS(); window._dupCerradasTxInv.clear(); DB.cuadrillas=[]; DB._tumbasFila=[]; DB._tumbas=[]; DB.logs=[]; window._idsRemotosInv={d:{},h:{}}; window._baseStockInv={}; window._tfNubeInv=[]; respuesta=true; };'
+   // 1) ids repetidos (bodega): la ventana se abrió y, antes del Guardar, un snapshot cambió las filas (objetos nuevos)
+   +'  const B7=id("BOD7"), f7=()=>[fila("X","CABLE",50), fila("X","CONECTOR",30,["ZTEG0000C001","ZTEG0000C002"]), fila("X","ONU",4)], b7={id:B7, nombre:"BODEGA E2", materiales:f7()};'
+   +'  limpio(); USER={role:"bodega", id:B7, nombre:"BODEGA E2"}; DB.bodegas=[b7]; DB.deleteRequests=[]; DB.editRequests=[];'
+   +'  const intento=(abrir, llenar, snap)=>{ const n=modales.length; abrir(); const v=modales.length>n ? modales[modales.length-1] : null; if(v) llenar(); snap(); const nA=alertas.length; if(v) v.cb();'
+   +'    return {abrio:!!v, borrar:DB.deleteRequests.length, editar:DB.editRequests.length, aviso:alertas.slice(nA).join(" | ")}; };'
+   +'  const del3=intento(()=>delMat(B7, "X"), ()=>val("delObs", "rota"), ()=>{ b7.materiales=f7().slice(1); });'
+   +'  b7.materiales=f7().slice(0,2); const del2=intento(()=>delMat(B7, "X"), ()=>val("delObs", "rota"), ()=>{ b7.materiales=[f7()[1]]; });'
+   +'  b7.materiales=f7(); const ed3=intento(()=>modalEditMat(B7, "X"), ()=>{ val("emCant", "40"); val("emMotivo", "conteo"); }, ()=>{ b7.materiales=f7().slice(1); });'
+   // ✏️ sobre CONECTOR (aquí es la primera fila con ese id) y otra pantalla le cambió los seriales con la ventana abierta
+   +'  const f7b=()=>[fila("X","CONECTOR",30,["ZTEG0000C001","ZTEG0000C002"]), fila("X","CABLE",50)];'
+   +'  b7.materiales=f7b(); const edSn=intento(()=>modalEditMat(B7, "X"), ()=>{ val("emCant", "29"); val("emMotivo", "conteo"); }, ()=>{ const n=f7b(); n[0].snes=["ZTEG0000C001","ZTEG0000C003"]; b7.materiales=n; });'
+   +'  const repetidos={del3, del2, ed3, edSn};'
+   // 2) La edición cerrada por un borrado: ONU 5, borrado D y edición E pendientes; el admin aprueba el borrado
+   +'  const B6=id("BOD6"), n6={id:B6, nombre:"BODEGA E2", materiales:[fila("O","ONU",5), fila("Z","CABLE",100)]}, n6b={id:B6, nombre:"BODEGA E2", materiales:[fila("O","ONU",8), fila("Z","CABLE",100)]};'
+   +'  const sD6=i=>({id:i, bodegaId:B6, bodegaNombre:"BODEGA E2", materialId:"O", materialNombre:"ONU", tipo:"nuevo", cantidad:5, unidad:"Und", obs:"x", fecha:new Date(T-60000).toISOString(), fechaMs:T-60000, estado:"pendiente"});'
+   +'  const sE6=(i,ms)=>({id:i, tipo:"edicion", bodegaId:B6, bodegaNombre:"BODEGA E2", materialId:"O", materialNombre:"ONU", cambios:["SNs agregados: ZTEG0000B001"], motivo:"corregir seriales", datosAntes:{nombre:"ONU", cantidad:5},'
+   +'    datos:{nombre:"ONU", cantidad:5, snes:["ZTEG0000B001"]}, fecha:new Date(ms).toISOString(), fechaMs:ms, estado:"pendiente"});'
+   +'  const prep6=(d,e)=>{ limpio(); USER={role:"admin"}; DB.bodegas=[cp(n6)]; DB.deleteRequests=[sD6(d)]; DB.editRequests=[sE6(e, T-50000)];'
+   +'    window._guardarBaseStockInv({bodegas:[cp(n6)], deleteRequests:[sD6(d)], editRequests:[sE6(e, T-50000)]}); approveDelete(d, "aprobada"); };'
+   +'  const D6a=id("D6A"), E6a=id("E6A"); prep6(D6a, E6a); const c6=DB.editRequests.find(x=>x.id===E6a)||{}, cerrada=[c6.estado, c6.resultado||"", sinT(c6.cerradaPor)].join("/");'
+   // Al guardar, la nube ya tenía la ONU con 8 (le entró material desde otra pantalla): la lápida se anula y la edición vuelve a pendiente
+   +'  const fh6={deleteRequests:[sD6(D6a)], editRequests:[sE6(E6a, T-50000)]}, sFh6=JSON.stringify(fh6);'
+   +'  window._fusionarConNubeInv({bodegas:[cp(n6b)], cuadrillas:[], _tumbasFila:[]}, fh6); const r6=DB.editRequests.find(x=>x.id===E6a)||{};'
+   +'  const reabre={ cerrada, ahora:[r6.estado, r6.resultado||"", r6.cerradaPor||""].join("/"), onu:ids(DB.bodegas[0]), lap:lapTxt(deR(B6)[0]), suelta:!M.has("editRequests│"+E6a),'
+   +'    log:(DB.logs||[]).filter(e=>String(e.msg).indexOf("vuelve a quedar pendiente")>=0).length, leido:JSON.stringify(fh6)===sFh6, copia:r6!==c6 };'
+   // No se reabre si ya hay otra edición pendiente del mismo artículo, ni si la fila se restauró (ese borrado sí ocurrió)
+   +'  const D6b=id("D6B"), E6b=id("E6B"), E6c=id("E6C"); prep6(D6b, E6b); DB.editRequests.push(sE6(E6c, T-1000));'
+   +'  window._fusionarConNubeInv({bodegas:[cp(n6b)], cuadrillas:[], _tumbasFila:[]}, null);'
+   +'  const otraPend=[(DB.editRequests.find(x=>x.id===E6b)||{}).estado, (DB.editRequests.find(x=>x.id===E6c)||{}).estado, lapTxt(deR(B6)[0])].join("/");'
+   +'  const D6d=id("D6D"), E6d=id("E6D"); prep6(D6d, E6d); const bR=DB.bodegas[0]; bR.materiales=bR.materiales.concat([fila("O","ONU",5)]); _anularTumbasFilaInv("bodegas", bR, bR.materiales[bR.materiales.length-1], "restaurada");'
+   +'  window._fusionarConNubeInv({bodegas:[cp(n6)], cuadrillas:[], _tumbasFila:[]}, null); const rD=DB.editRequests.find(x=>x.id===E6d)||{};'
+   +'  const restaurada=[rD.estado, rD.resultado||"", lapTxt(deR(B6)[0])].join("/");'
+   // 3) La fila hermana: CABLE y CONECTOR con el mismo id; pendientes de CABLE (borrar y editar); el admin borra CABLE directo
+   +'  const sA=(b,i,nom,cant,ms)=>({id:i, bodegaId:b, bodegaNombre:"BODEGA E2", materialId:"X", materialNombre:nom, tipo:"nuevo", cantidad:cant, unidad:"Und", obs:"rota", fecha:new Date(ms).toISOString(), fechaMs:ms, estado:"pendiente"});'
+   +'  const sE=(b,i,nom,ms)=>({id:i, tipo:"edicion", bodegaId:b, bodegaNombre:"BODEGA E2", materialId:"X", materialNombre:nom, cambios:["cantidad: 50 a 40"], motivo:"conteo", datosAntes:{nombre:nom, cantidad:50},'
+   +'    datos:{nombre:nom, cantidad:40, tipo:"nuevo", unidad:"Und"}, fecha:new Date(ms).toISOString(), fechaMs:ms, estado:"pendiente"});'
+   +'  const prep8=(b, dels, eds)=>{ limpio(); const bb={id:b, nombre:"BODEGA E2", materiales:[fila("X","CABLE",50), fila("X","CONECTOR",30), fila("Y","ONU",4)]};'
+   +'    DB.bodegas=[bb]; DB.deleteRequests=dels; DB.editRequests=eds; USER={role:"admin"}; delMat(b, "X"); return bb; };'
+   +'  const B8=id("BOD8"), A1=id("A1"), E1=id("E1"), b8=prep8(B8, [sA(B8, A1, "CABLE", 50, T-3600000)], [sE(B8, E1, "CABLE", T-3500000)]);'
+   +'  const trasBorrar=b8.materiales.map(m=>m.nombre).join();'
+   // La bodega pide borrar CONECTOR: la pendiente de CABLE no la bloquea
+   +'  USER={role:"bodega", id:B8, nombre:"BODEGA E2"}; let n=modales.length, nA=alertas.length; delMat(B8, "X"); const v8=modales.length>n ? modales[modales.length-1] : null; if(v8){ val("delObs", "no sirve"); v8.cb(); }'
+   +'  const sc=DB.deleteRequests.find(x=>x.materialNombre==="CONECTOR")||null;'
+   +'  const pedir={ abrio:!!v8, creada:!!sc, bloqueo:alertas.slice(nA).some(a=>a.indexOf("Ya hay una solicitud pendiente")>=0) };'
+   // Al guardar contra una nube que trae solo las de CABLE, la de CONECTOR no se cierra como duplicada
+   +'  window._fusionarConNubeInv(null, {deleteRequests:[sA(B8, A1, "CABLE", 50, T-3600000)], editRequests:[sE(B8, E1, "CABLE", T-3500000)]});'
+   +'  pedir.trasGuardar=sc ? [sc.estado, sc.resultado||""].join("/") : "no se creó";'
+   +'  pedir.laDeConector=(_solicitudPendienteDeInv("deleteRequests", B8, "X", b8.materiales.find(m=>m.nombre==="CONECTOR"))||{}).materialNombre||"";'
+   // El admin aprueba la de CABLE: pregunta con los dos nombres y dice que NO; lo mismo con la edición de CABLE
+   +'  USER={role:"admin"}; respuesta=false; let nP=preguntas.length; nA=alertas.length; approveDelete(A1, "aprobada"); const a1=DB.deleteRequests.find(x=>x.id===A1)||{};'
+   +'  const aprobarNo={ pregunta:preguntas.slice(nP).join(" | "), a1:[a1.estado, a1.resultado||""].join("/"), filas:b8.materiales.map(m=>m.nombre+"="+m.cantidad).join(), conector:sc ? sc.estado : "",'
+   +'    aviso:alertas.slice(nA).join(" | "), lap:deR(B8).filter(l=>!l.anulada && l.nom==="CONECTOR").length };'
+   +'  nP=preguntas.length; approveEdit(E1, "aprobada"); const e1=DB.editRequests.find(x=>x.id===E1)||{}, fc=b8.materiales.find(m=>m.id==="X")||{};'
+   +'  const editarNo={ pregunta:preguntas.slice(nP).join(" | "), e1:[e1.estado, e1.resultado||""].join("/"), fila:fc.nombre+"="+fc.cantidad };'
+   // Con «sí»: se borra CONECTOR y se cierran sus pendientes (otra de borrar y una de editar)
+   +'  const B9=id("BOD9"), A9=id("A9"), A9b=id("A9B"), E9=id("E9");'
+   +'  const b9=prep8(B9, [sA(B9, A9, "CABLE", 50, T-3600000), sA(B9, A9b, "CONECTOR", 30, T-3000000)], [sE(B9, E9, "CONECTOR", T-2000000)]);'
+   +'  respuesta=true; nP=preguntas.length; nA=alertas.length; approveDelete(A9, "aprobada"); const a9b=DB.deleteRequests.find(x=>x.id===A9b)||{}, e9=DB.editRequests.find(x=>x.id===E9)||{};'
+   +'  const aprobarSi={ preguntas:preguntas.length-nP, filas:b9.materiales.map(m=>m.nombre).join(), aviso:alertas.slice(nA).join(" | "),'
+   +'    log:(DB.logs||[]).map(e=>String(e.msg)).filter(m=>m.indexOf("aprobó eliminación de")>=0).join(" | "), a9b:[a9b.estado, a9b.resultado||"", sinT(a9b.duplicadaDe)].join("/"), e9:[e9.estado, e9.resultado||"", sinT(e9.cerradaPor)].join("/") };'
+   +'  return {repetidos, reabre, otraPend, restaurada, trasBorrar, pedir, aprobarNo, editarNo, aprobarSi, guardados};'
+   +'} finally {'
+   +'  caja.remove(); COLS.forEach(k=>{ if(H[k][0]) DB[k]=H[k][1]; else delete DB[k]; }); PW.forEach(k=>{ if(P0[k][0]) window[k]=P0[k][1]; else delete window[k]; });'
+   +'  window._fbSave=gS; window.alert=gA; window.confirm=gCf; window.openModal=gOM; window.closeModal=gCM; window.renderTab=gRT; window.renderDeleteReq=gRD; USER=gU;'
+   +'  if(tFE) TempLists.editFotosEliminar=gFE; else delete TempLists.editFotosEliminar; if(tFN) TempLists.editFotosNuevas=gFN; else delete TempLists.editFotosNuevas;'
+   +'  M.clear(); dec0.forEach((v,k)=>M.set(k,v)); if(window._soltadasDecInv instanceof Map){ window._soltadasDecInv.clear(); sol0.forEach((v,k)=>window._soltadasDecInv.set(k,v)); }'
+   +'  if(window._dupCerradasTxInv instanceof Map){ window._dupCerradasTxInv.clear(); dup0.forEach((v,k)=>window._dupCerradasTxInv.set(k,v)); }'
+   +'  [..._tfAnotadasInv].forEach(k=>{ if(!tfa0.has(k)) _tfAnotadasInv.delete(k); }); if(re0) [..._reabiertasTFInv].forEach(k=>{ if(!re0.has(k)) _reabiertasTFInv.delete(k); });'
+   +'  try{ window._franjaDecisionesInv(); }catch(e){}'
+   +'}');
+   }catch(e){ err=String((e&&e.message)||e); } finally { e2RestaurarLS(W, fLS); }
+   if(!r) return {ok:false, detalle:'La prueba no terminó: '+err.replace(/</g,'&lt;')};
+   const rp=r.repetidos, rb=r.reabre, pd=r.pedir, an=r.aprobarNo, en=r.editarNo, si=r.aprobarSi, otraVez=s=>/Vuelve a abrir la ventana/.test(s||'');
+   const dosNombres=s=>/era para "CABLE"/.test(s||'') && /solo queda "CONECTOR"/.test(s||'');
+   const C=[
+     ['ids repetidos: si la fila de la ventana de 🗑️ ya no está, el Guardar no arma la solicitud sobre otra fila con ese id (con tres filas, o con la única que queda) y avisa',
+        rp.del3.abrio===true && rp.del3.borrar===0 && /ya no está en la bodega/.test(rp.del3.aviso) && otraVez(rp.del3.aviso)
+        && rp.del2.abrio===true && rp.del2.borrar===0 && otraVez(rp.del2.aviso)],
+     ['lo mismo en la ventana de ✏️; y si otra pantalla le cambió los seriales a esa fila con la ventana abierta, se cancela con aviso',
+        rp.ed3.abrio===true && rp.ed3.editar===0 && /ya no está en BODEGA E2/.test(rp.ed3.aviso) && otraVez(rp.ed3.aviso)
+        && rp.edSn.abrio===true && rp.edSn.editar===0 && /Los seriales de "CONECTOR" cambiaron/.test(rp.edSn.aviso)],
+     ['la edición cerrada como «artículo borrado» lleva cerradaPor; si la lápida de ese borrado se anula porque entró material, vuelve a pendiente (una copia, sin tocar lo leído), se suelta su decisión y queda en el registro',
+        rb.cerrada==='rechazada/articulo_borrado/E2P_D6A' && rb.ahora==='pendiente//' && rb.onu==='O=8,Z=100' && rb.lap==='O:aprobacion:5:anulada'
+        && rb.suelta===true && rb.log===1 && rb.leido===true && rb.copia===true],
+     ['no se reabre si ya hay otra edición pendiente del mismo artículo, ni si la fila se restauró',
+        r.otraPend==='rechazada/pendiente/O:aprobacion:5:anulada' && r.restaurada==='rechazada/articulo_borrado/O:aprobacion:5:anulada'],
+     ['la fila hermana: con una pendiente de CABLE y CABLE ya borrado, la bodega puede pedir borrar CONECTOR y al guardar no queda «duplicada» de la de CABLE',
+        r.trasBorrar==='CONECTOR,ONU' && pd.abrio===true && pd.creada===true && pd.bloqueo===false && pd.trasGuardar==='pendiente/' && pd.laDeConector==='CONECTOR'],
+     ['aprobar la de CABLE pregunta con los dos nombres; si se dice que no, queda «cerrada sin cambios» y CONECTOR sigue (y su solicitud también); con la edición de CABLE pasa igual',
+        dosNombres(an.pregunta) && an.a1==='aprobada/sin_cambios' && an.filas==='CONECTOR=30,ONU=4' && an.conector==='pendiente' && an.lap===0 && /"CONECTOR" sigue en BODEGA E2/.test(an.aviso)
+        && dosNombres(en.pregunta) && en.e1==='aprobada/sin_cambios' && en.fila==='CONECTOR=30'],
+     ['si se dice que sí: una sola pregunta, se borra CONECTOR, el aviso y el registro lo nombran («la solicitud decía CABLE») y sus pendientes se cierran',
+        si.preguntas===1 && si.filas==='ONU' && /"CONECTOR" eliminado de BODEGA E2/.test(si.aviso) && /decía "CABLE"/.test(si.aviso)
+        && /aprobó eliminación de "CONECTOR"/.test(si.log) && /decía "CABLE"/.test(si.log) && si.a9b==='aprobada/duplicada/E2P_A9' && si.e9==='rechazada/articulo_borrado/E2P_A9'],
+     ['ninguna escritura llegó al envoltorio', bloq()-n0===0]
+   ];
+   const mal=C.filter(x=>x[1]!==true).map(x=>x[0]);
+   return {ok:!mal.length, detalle: !mal.length
+     ? 'Con ids repetidos, el Guardar de una ventana vieja de 🗑️ o ✏️ no arma la solicitud sobre otra fila: se cancela y pide volver a abrir; si cambiaron los seriales, también ✓'
+      +'\nLa edición cerrada por un borrado cuya lápida se anuló (entró material) vuelve a pendiente; no si ya hay otra pendiente ni si la fila se restauró ✓'
+      +'\nLa fila hermana: pedir CONECTOR no lo bloquea ni lo cierra la pendiente de CABLE; aprobar la de CABLE pregunta con los dos nombres (no → sin cambios; sí → se borra CONECTOR y se dice) ✓'
+      +'\nNada se escribió y todo quedó como estaba ✓'
+     : 'Fallan: '+mal.join(', ')+'\n'+JSON.stringify(r).slice(0,2500).replace(/</g,'&lt;')};}},
 {app:'ofi', titulo:'Un comprobante bloqueado por duplicado se puede subir escribiendo por qué no es el mismo, y queda marcado para el administrador',
  porque:'Pedido de Elkin del 15/9/2026: cuando la app dice que un comprobante está repetido, poder subirlo igual con un comentario '
        +'que explique por qué no es el mismo. Antes solo había un aviso y no se podía seguir. El motivo es obligatorio, queda en el '
