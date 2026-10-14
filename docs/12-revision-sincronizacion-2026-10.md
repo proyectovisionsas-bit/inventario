@@ -153,6 +153,8 @@ Un espacio de más crea otra fila. La bodega pide borrarla cuando queda vacía, 
    - al aceptar, suma cantidades y seriales en una fila (conserva su `id`), archiva las demás en `archivo_…` y deja rastro en la bitácora.
 3. **Filas en 0 y sin seriales:** en la vista de bodega se ocultan por defecto (casilla «ver vacías»), en vez de que la bodega tenga que pedir borrarlas.
 
+> **Hecha el 13 oct 2026, sin publicar** (INVENTARIO sigue en 116 y TÉCNICOS en 101; al publicar, 117 y 102 juntos). Además de los tres puntos, cada botón y cada lista actúan sobre su propia fila (el «Pendiente» 1 de la Etapa 2) y TÉCNICOS devuelve de la fila que escogió el técnico. R5 pasa. Lo que quedó, lo que se apartó del plan y lo que falta decidir con Elkin: ver §12.
+
 ### Etapa 4 — Ventanas con datos viejos (riesgo medio) · pruebas R7, R7b
 
 **Causa C5:**
@@ -702,7 +704,7 @@ Lo que los correctores dejaron sin hacer y sigue siendo cierto, y los dudosos qu
 
 Resuelto en la revisión: INVENTARIO ya no sigue latiendo después de cerrar sesión (`PV_PANTALLAS.detener()` en su `doLogout`).
 
-## 11. Etapa 2 — lo que se hizo (sin publicar)
+## 11. Etapa 2 — lo que se hizo (publicada el 11 oct 2026)
 
 Hecho el 10 y 11 oct 2026 sobre lo publicado en `1b8a06b` (OFICINAS v320, INVENTARIO v115, TÉCNICOS v101, RED v44), a pedido de Elkin: «publica etapa 6, apenas termines inicia etapa 2». **No está publicado** y la versión no se subió: al publicar, INVENTARIO pasa a 116 (la línea de siempre). Las pruebas no escribieron nada en la base real.
 
@@ -971,9 +973,382 @@ Los 6 refutados no cambiaron nada: material que entra después de bajar y volver
 
 ### Pendiente
 
-1. **Etapa 3: los botones ✏️ y ✕ de cada fila pasan solo el id.** Con ids repetidos, `delMat` y `modalEditMat` toman la primera fila con ese id, y `approveEdit` también aplica a la primera (desde la revisión, pregunta si no se llama como la solicitud). Por eso la comparación por nombre de las solicitudes repetidas (`_mismoArticuloSolInv`) solo distinguirá filas vecinas cuando cada botón tome su propia fila. Las lápidas ya distinguen por nombre y tipo.
+1. **Etapa 3: los botones ✏️ y ✕ de cada fila pasan solo el id.** Con ids repetidos, `delMat` y `modalEditMat` toman la primera fila con ese id, y `approveEdit` también aplica a la primera (desde la revisión, pregunta si no se llama como la solicitud). Por eso la comparación por nombre de las solicitudes repetidas (`_mismoArticuloSolInv`) solo distinguirá filas vecinas cuando cada botón tome su propia fila. Las lápidas ya distinguen por nombre y tipo. **Resuelto en la Etapa 3** (sin publicar): cada botón pasa la llave de su fila y `approveEdit` aplica a la fila de la solicitud. Ver §12, «La llave de cada fila».
 2. **`AVISOS_PENDIENTES.gs` lee las solicitudes del documento equivocado:** las busca en `inventario/datos` y viven en `inventario/historial`. Sin corregir.
-3. **Al publicar:** subir INVENTARIO a 116 con el formato de siempre y **recargar todas las pantallas de bodega** (las v112–v115 no conocen las lápidas por fila). Después, comprobar en la nube real que una aprobación deja `_tumbasFila` en `inventario/datos` junto con la fila quitada, en la misma escritura, y que una decisión hecha sin señal sube sola al volver.
+3. **Publicada el 11 oct 2026** (Elkin: «Publica y después continua con la etapa 3»; commit `ac4fc2f`, INVENTARIO 116). Respaldo en `_RESPALDO_2026-10-11_antes_de_publicar`. Mantenimiento solo de INVENTARIO de 11:15 a 11:32; push 11:16, Pages con el archivo nuevo desde las 11:17 (huellas iguales a las del disco, dos veces), versión anunciada 11:31, prueba de humo en `?prueba=1` sin errores. Al publicar no había pantallas de bodega abiertas; solo un celular del admin con la v115, en reposo, que se recarga solo al despertar. **Falta:** comprobar en la nube real, con la primera aprobación de verdad, que deja `_tumbasFila` en `inventario/datos` junto con la fila quitada, en la misma escritura, y que una decisión hecha sin señal sube sola al volver.
 4. **Decidir con Elkin** el punto 6 de «Lo que se apartó de la especificación» (ediciones repetidas con datos distintos).
 5. **Decidir con Elkin los dudosos que quedaron** (ver «Revisión adversaria»): los 3 de la segunda pasada (la pantalla atrasada contra una lápida con más cantidad, las ediciones que se vuelven a cerrar tras recargar y la reapertura después de otra decisión a mano) y la venta que vuelve con un snapshot, que ya pasaba en la v115.
 6. **Etapa 4:** de las ventanas con datos viejos solo se arregló «Corregir Cantidades». Editar, entregar, trasladar, vender y devolver no se revisaron.
+
+## 12. Etapa 3 — lo que se hizo (publicada el 13 oct 2026)
+
+Especificada el 11 oct 2026 y construida y revisada el 13 oct, sobre lo publicado en `ac4fc2f` (INVENTARIO v116, TÉCNICOS v101, OFICINAS v320, RED v44), a pedido de Elkin: «Publica y después continua con la etapa 3». **No está publicada** y las versiones no se subieron: al publicar, INVENTARIO pasa a 117 y TÉCNICOS a 102, **juntos**. Las pruebas no escribieron nada en la base real.
+
+Elkin todavía no respondió las decisiones que se le mostraron el 11 oct: se construyó lo recomendado (ver «Decisiones de Elkin pendientes»).
+
+**Cómo se hizo.** Primero se midieron los datos reales (solo lectura) y se escribió una especificación, que revisó una crítica adversaria. Después, unas piezas comunes (C0) y cuatro partes, cada una en su copia del archivo: C1 la clave del artículo, C2 cada botón y cada lista sobre su fila, C3 «🧩 Unificar» y C4 «Ver vacías». Se juntaron sin ningún conflicto: cada función tenía un solo dueño. Después vinieron dos revisiones adversarias y sus arreglos (ver «Revisión adversaria»). Lo que sigue es lo que quedó al final, ya con esos arreglos.
+
+**Lo que dijeron los datos (11 oct, solo lectura):**
+- Ningún par de filas se diferencia solo por espacios, mayúsculas o tildes (187 nombres, 187 claves). R5 era un riesgo, todavía no un daño.
+- Los repetidos de verdad: 4 grupos con el nombre idéntico en EL PAUJIL y DONCELLO (3 los creó «📦 + Material», que nunca comparaba) y 20 grupos que solo cambian el prefijo ONT, ONU o sin prefijo (el Catálogo ya agrupa la mayoría).
+- 6 ids de fila repetidos en 23 filas de artículos distintos (LA MONTAÑITA y 4 cuadrillas). Por eso, en LA MONTAÑITA, entregar «grampas plásticas» sacaba conectores.
+- 85 filas en 0 y sin seriales (48 en bodegas y 37 en cuadrillas). EL PAUJIL tiene 27 de 70.
+- 11 cuadrillas tienen el mismo equipo como nuevo y como usado: ahí fallaba la devolución de TÉCNICOS.
+- 53 recuperados pendientes: 27 entran a su fila exacta y unos 26 crearían una fila nueva. Entre ellos, 10 u 11 «srv-profile_200» en DONCELLO, que vienen de fichas de clientes mal cargadas.
+
+### Qué quedó en cada archivo
+
+| Archivo | Qué cambió |
+|---|---|
+| `INVENTARIO_PTOVISION.html` (de 14.540 a 16.089 líneas) | La clave del artículo en todos los sitios que buscan o crean una fila por nombre (C1); cada botón, lista, solicitud, serial y la fusión fina sobre su propia fila (C2); «🧩 Unificar artículos repetidos» y el 🧹 (C3); «Ver vacías» en Bodegas (C4). Las piezas comunes van en el bloque «Etapa 3 (docs/12, C0)», justo después de `_fusion3RegistroInv`. Debajo, un bloque por parte, cada uno con su ancla «Etapa 3 · Cn: funciones nuevas (debajo)». Las funciones de siempre que cambiaron llevan el comentario «Etapa 3 (Cn)»; los arreglos de las revisiones, «Revisión de la Etapa 3» o «Segunda revisión de la Etapa 3» |
+| `TECNICOS_PTOVISION.html` (4.205 líneas) | Solo la devolución de material (C2-T): `_filaDevolucionTec` (nueva), `_confirmarDevolverMaterial`, `_onMatSelChange` y `_agregarMaterial`. Los consumos no cambian |
+| `PRUEBAS.html` (10.693 líneas) | 10 pruebas nuevas en el grupo de INVENTARIO (171 en total) y una prueba vieja adaptada: la del panel de la Etapa 6 |
+| Banco (`_PRUEBAS_SIMULADAS_2026-10-09/trabajo`) | `inv/etapa3.js`, nuevo: 39 escenarios y las opciones `--v116`, `--html=`, `--tec=` y `--reloj=`. `inv/unit_v112.js` extrae además `_nomFilaInv` e `_idsRepetidosF3` |
+| OFICINAS, RED | Sin cambios. De `inventario/datos` solo leen `bodegas` (id, nombre, clave): no buscan ni crean filas de artículo |
+
+### La clave de un artículo · prueba R5
+
+`_claveArticuloInv(nombre, tipo)` es el nombre en mayúsculas, sin tildes y sin espacios de más (`_nomFilaInv`), más el tipo. **Solo sirve para comparar.** El nombre se guarda como se escribió, igual que `_snNormal` con los seriales.
+- Nunca cruza el tipo: nuevo y usado nunca se juntan.
+- ONT, ONU y sin prefijo no se juntan solos («ONT X» no es «ONU X»). Eso lo decide una persona, con el Catálogo y 🧩.
+- Un espacio que falta («CONTROL TVBOX» y «CONTROL TV BOX») tampoco se junta solo. El interruptor `_CLAVE_SIN_ESPACIOS_INV` está en `false` (decisión 1 de Elkin, pendiente). Mientras tanto, `_claveSueltaInv` (el nombre sin ningún espacio) solo sirve para **proponer**: sale como «parecido» en la ventana de Recuperados y como grupo sin marcar en 🧩.
+- Unidades (`_unidadClaveInv`, `_unidadCompatibleInv`): «Und», «unidad», «UND.», «u»… son la misma. Metros y bolsas no se juntan con unidades.
+
+**¿A qué fila entra algo que llega por nombre?** Lo decide `_filaParaEntrarInv(reg, nombre, tipo, unidad)`, pura. Devuelve `{fila, por:'exacto'|'clave'|null, cercanas}`:
+1. nombre y tipo exactos, lo de siempre. Con una sola fila así no mira la unidad, porque TÉCNICOS manda siempre «unidad» en retiros y recogidas. Con varias, primero la de unidad compatible (revisión: «CABLE DROP» en m y en Und);
+2. la clave, con unidad compatible;
+3. si no hay: ninguna fila. `cercanas` (mismo tipo, unidad compatible y la misma clave sin espacios o la misma referencia del Catálogo) solo sirve para preguntar.
+- Nunca entra material a una fila vaciada por 🧩: va a su destino vivo (`_destinoUnificadaInv`, que sigue la cadena hasta 5 pasos y no cruza el tipo). Si no hay destino vivo, es como si no hubiera fila.
+
+**Dónde se usa.** Antes cada sitio comparaba `m.nombre===N && m.tipo===T`, o en minúsculas:
+- `integrarRecuperado` (ver abajo). Su aviso v82 de la cuadrilla compara con `_nomClaveInv`;
+- `saveEntregaLogic`, para la fila de destino en la cuadrilla. La fila nueva lleva un id que no choca y la `categoria` de la fila de origen. Es la «mejora menor» de la Etapa 7: `fixDB` ya no marca la cuadrilla como tocada;
+- `modalDevolverMat` (sobre la bodega que capturó la ventana, no una fresca: eso es de la Etapa 4), `procTrans` al aceptar (ya no busca por `it.id`, que es el id de una fila de otra bodega) y al rechazar, `modalTraslado`, `deleteCliente` y `modalRetiroParcial` (a bodega y a cuadrilla);
+- `saveBodegaImport`: exacto, o la clave con unidad compatible. Un «cable» en m ya no se suma a un «CABLE» en Und: se crea aparte;
+- `_devolverVentaABodega`, con el tipo de la venta: antes un «usado» volvía a la fila «nuevo». Una venta vieja sin tipo sigue la regla de antes, pero nunca entra a una vaciada;
+- «📦 + Material» (`_existenteAlAgregarInv`), el hallazgo «Artículo duplicado en la bodega» de la 🩺 Auditoría, los grupos de 🧩 y las listas temporales (`_claveListaInv`).
+
+**Ids nuevos.** `_idFilaInv(reg)` da 13 cifras de la hora más 6 letras o cifras al azar (19 caracteres) y nunca repite un id del registro. Antes la entrega usaba `Date.now()+random*100`: al crear 5 filas juntas chocaban más o menos 1 de cada 10 veces.
+
+**`_normNom`** tenía `/s+/`: cambiaba cada «s» por un espacio. Ahora es `/\s+/`. Solo la usa `_veredictoSN`.
+
+**TÉCNICOS no cambia en los consumos.** `_nomTec` y `_filasDeItemTec` ya ignoran mayúsculas y espacios de más, igual que `_normConsumo`. Una prueba gemela lo asegura.
+
+### Integrar un recuperado y «¿A qué artículo entra?»
+
+- **El ✅ pasa también el id** del recuperado: `integrarRecuperado(idx, rid)`, con el segundo parámetro opcional. La posición es la de la lista general, el oyente no repinta Recuperados y el archivador saca del principio los integrados viejos: la posición se corría y el ✅ de X integraba otro, hasta de otra bodega. Si `rid` no coincide con esa posición, se busca por id. Si ya no está: «Ese recuperado ya no está en la lista (se integró en otra pantalla o se archivó). Te muestro la lista de ahora.». Con un solo argumento, como siempre.
+- **Con fila** (exacta o por la clave): se integra ahí, en el acto y sin preguntar. Es el camino de R5: «TV BOX  TV98 PRO» entra a «TV BOX TV98 PRO». Si los nombres no son iguales, el registro dice `Integrado "X" en "Y"`.
+- **Sin fila** (decisión 5): ya no se crea la fila sola. Primero se lee el Catálogo y se vuelve a mirar (`_integrarRecuperadoSinFilaInv`): si la bodega entró directo a Recuperados, `CATALOGO` seguía vacío y no había «parecidos». Después sale la ventana `_preguntarDestinoRecuperadoInv`: «"X" (usado, 1 und, con seriales) no coincide con ningún artículo de BODEGA. Escoge a cuál entra o créalo como artículo nuevo.». La lista trae primero los parecidos, después las demás filas del mismo tipo y de unidad compatible, y al final «➕ Crear "X" como artículo nuevo». Nunca filas del otro tipo.
+- **Al Guardar** se vuelve a buscar el recuperado por id (si ya se integró en otra pantalla, se avisa) y la fila elegida por su llave. Si la fila cambió: «"Y" cambió mientras tenías la ventana abierta. No se integró nada. Vuelve a intentarlo.».
+- **«Crear» también se vuelve a mirar** (revisión). Si mientras tanto otra pantalla creó esa fila, se pregunta: «Mientras tenías la ventana abierta apareció "Y"… ¿Integrar "X" ahí en vez de crear otro artículo igual?». Si la respuesta es no, no se integra nada.
+- La entrada en sí está en `_integrarRecuperadoEnInv(r, b, fila)`: los seriales que ya están en otro sitio (aviso v99), sumar o crear, el kardex, el registro y el guardado. Cancelar la ventana no mueve ningún serial.
+- En `?prueba=1` funciona igual, en memoria y sin escribir.
+
+### «📦 + Material» con un nombre que ya existe · decisión 6
+
+Antes de crear la fila se mira si el artículo ya existe (`_existenteAlAgregarInv`), aunque esté vacío y escondido:
+- **Con unidad compatible:** «Ya existe "Y" (usado, 0 und, vacía y oculta) en BODEGA. ¿Sumar estas 5 und ahí, como 📥 Reabastecer, en vez de crear otro artículo igual?».
+  - Sí → `_sumarAlAgregarInv`: seriales revisados, fotos, kardex y lote con el nombre de Y. El stock mínimo, la categoría y las observaciones de Y no cambian; si se escribió otro valor, el aviso lo dice.
+  - No → «¿Crear de todas formas otro "X" separado? Quedarían dos filas con el mismo nombre.». Si también dice que no, no se hace nada y la ventana sigue abierta.
+- **En otra unidad** no se ofrece sumar: «Ya existe "Y" pero en m. ¿Crear "X" en Und como otro artículo?».
+- La fila nueva lleva `_idFilaInv`.
+
+### La llave de cada fila (el «Pendiente» 1 de la Etapa 2)
+
+Los botones de la fila pasaban solo la bodega y el id. Con ids repetidos, cada función tomaba la **primera** fila con ese id. Ahora:
+- **La fila pinta su llave** en el `<tr>` (`_attrsLlaveFilaInv`): `data-fila`, `data-nom`, `data-tipo`, `data-pos` y, solo si el id se repite, `data-rep="1"`. Todo escapado: un nombre con comillas o `<` no rompe nada.
+- **Cada botón la pasa** como tercer argumento, `_llaveFilaInv(this)`: ✏️ `modalEditMat`, 📥 `modalRestock`, ➕ SN `modalAddSN`, 📋 `modalHistorial` y ✕ `delMat`. Sirve también en la vista por referencia.
+- **`_filaDeLlaveInv(reg, id, llave)` la resuelve.** Id único: esa fila, aunque otra pantalla la haya renombrado. Id repetido: la de igual nombre y tipo; entre gemelas idénticas, la de la posición. Si no hay ninguna, `undefined`, y no se toca la vecina. Sin llave (las llamadas viejas, las pruebas y el banco), la primera con ese id, como siempre.
+- **`rep`** (revisión). La llave dice si el id estaba repetido cuando se tomó (`_idRepetidoFilaInv`). Si ahora queda **una sola** fila con ese id, solo vale si tiene el mismo nombre y tipo. Antes, si la fila escogida se quitaba al llegar a 0 y quedaba sola la hermana (otro artículo con el mismo código), se descontaba la hermana sin aviso.
+- **Si la fila ya no está:** «⚠️ Ese artículo cambió en la bodega mientras mirabas la lista (otra pantalla lo modificó o lo borró). Te muestro la lista de ahora.», y no se toca nada. Antes la función fallaba con `m` sin definir.
+
+**Función por función:**
+- `delMat`: lo de la Etapa 2 (lápida «directo» del admin, una sola solicitud por artículo), sobre la fila correcta. La solicitud de la bodega sale con el nombre, la cantidad, el tipo y los seriales de esa fila.
+- `modalEditMat`: el admin aplica sobre la fila de **ahora** (`_filaVigenteInv`), no sobre el objeto de cuando abrió la ventana: con un snapshot de por medio, el cambio se perdía. Si con la ventana abierta entró o salió material: «"X" cambió mientras tenías la ventana abierta (entró o salió material). No se guardó nada. Vuelve a abrir la ventana.». Las fotos que se suben después van a la fila de ese momento. La solicitud de edición de la bodega lleva un campo nuevo, `materialTipo`.
+- `modalRestock` y `modalAddSN`: en el Guardar, la fila de ahora.
+- `modalHistorial`: el kardex de la fila del botón. Las entregas y los traslados, solo de esa bodega y, si el id se repite, solo los de ese artículo. Antes el 📋 de CONECTOR mostraba las entregas de CABLE.
+- `registrarMovimiento(bId, mId, tipo, cant, detalle, fila)`: el 6.º argumento, opcional, es la fila tocada. El kardex va a ella y no a la primera con ese id.
+- **Una fila vaciada por 🧩** lleva la etiqueta «🧩 Unificado en "P" el dd/mm/aaaa» y solo 📋 (más ✕ para el admin). ✏️, 📥 y ➕ SN dicen «Este artículo se unificó en "P".» y piden hacerlo en "P" («Edita "P".», «Reabastece "P".», «Agrega los seriales a "P".»), también si 🧩 la unificó con la ventana abierta (revisión). Si le volvió a entrar material, la etiqueta dice «🧩 Unificado en "P", pero le entraron N después: el administrador lo pasa a "P" con 🧩». Si entró un serial sin cantidad, dice «1 serial(es) (sin cantidad)» (revisión: antes decía «le entraron 0»).
+
+**Solicitudes.**
+- `_filaDeSolicitudInv`: el tipo que se compara es `materialTipo` si viene; si no, `req.tipo`, salvo que diga `'edicion'` o `'venta'`. Eso es la clase de solicitud: en las ediciones nunca coincidía y la búsqueda caía a «solo nombre». **D4:** con varias filas con ese id y una solicitud que trae el tipo, nunca se toma la del otro tipo por el nombre solo. No hay fila y la solicitud se cierra sin cambios.
+- `approveEdit` aplica a la fila de la solicitud, no a la primera. Si hay varias con ese código y ninguna se llama así: «cerrada sin cambios» y «Con ese código hay N artículos en BODEGA y ninguno se llama "X" (tipo): no se tocó nada.». Si es una vaciada: «"X" se unificó en "P" el …: pide la edición sobre "P".».
+- `approveDelete` anota el kardex en la fila que se borra. «Rechazar y restaurar» devuelve la fila con su id solo si ninguna fila de la bodega lo usa; si lo usa una hermana, con un id nuevo y sin anular lápidas. Borrar una vaciada se permite, y el aviso lo dice.
+
+### Listas que eligen un artículo y guardan después
+
+- **Por id** (entrega `#eMat`, traslado `#tMat`, cambio de equipo `#cbMat` y `#cbMatCuad`): cada opción lleva la llave de su fila. Las cajas de seriales (`showESNBox`, `showTransferSNBox`, `window._loadCbSNs`) muestran los de **esa** fila, y el Guardar descuenta de ella. `sendTransLogic` y la transacción de `saveEntregaLogic` resuelven cada renglón una sola vez, y validan y descuentan sobre la misma fila.
+- **Por posición** (venta `#vMat`, equipo a cliente `#aeMat`, dotación `#dMat`, instalación `#iMat`): `_filaElegidaInv(reg, idx, llave)` toma la fila de esa posición si sigue siendo la de la llave; si no, la de la llave; si tampoco está, ninguna.
+- **Antes de descontar nada** (lo que recomendaba la especificación), cada renglón se compara con su fila (`_problemasElegidasInv`). Si una fila ya no está, no alcanza el stock o un serial marcado ya no está en ella, no se descuenta **nada**: «❌ No se guardó …: el stock cambió mientras la preparabas. • … No se descontó nada. Cierra, vuelve a abrir y ármala de nuevo.». Antes un serial que no estaba se ignoraba y la cantidad bajaba igual (la fila quedaba descuadrada); en equipo a cliente se omitía cada equipo por separado.
+- Las listas temporales agrupan por id más la clave del artículo (`_claveListaInv`). Por id solo, dos artículos con el mismo código se sumaban en un renglón.
+- **Cada renglón guarda su llave** (`id`, `nom`, `tipo`, `pos`) y, desde la revisión, `rep`: `addEItem`, `addTransItem`, `addDotItem`, `addIItem` y `confirmSnInst`, `addAeItem`. Así `rep` viaja en entregas, traslados, instalaciones y dotaciones. Solo lo lee INVENTARIO. Un traslado pendiente de antes no lo trae y se comporta como antes.
+- La instalación sigue quitando después las filas en 0: eso es de la Etapa 4.
+
+### Seriales entre filas hermanas
+
+- `_dondeEstaSN(sn, excepto)`: si `excepto` es una fila (objeto), deja fuera solo esa; si es un texto, todas las de ese id, como siempre. `_revisarSNs(lista, m)` pasa la fila: un serial que ya estaba en la hermana ahora sí sale ocupado.
+- `_sacarSNDeDondeEste` saca el serial de la fila de ese id **que lo tiene**. Antes, de la primera con ese id: si estaba en la hermana, no salía y quedaba en dos sitios.
+
+### La fusión fina con ids repetidos
+
+`_idsRepetidosF3(...listas)` junta los ids que se repiten en cualquiera de las tres listas: la base, esta pantalla y la nube. `_fusionF3Lista` se los pasa a `_indiceF3(lista, rep)`, que a esos ids les agrega nombre y tipo en la llave. Así cada hermana se empareja consigo misma aunque otra pantalla haya quitado una fila de antes.
+- Arregla el artículo que quedaba duplicado (CONECTOR 7 y 6) y el cambio que caía en el vecino (GRAPA de 4 a 2). La cuadrilla #3 de EL PAUJIL tenía esa forma.
+- Con ids únicos no cambia nada.
+- Borde conocido: si aquí se renombra una hermana mientras la nube le cambia otro campo a esa misma, queda dos veces.
+
+### La devolución de TÉCNICOS 102 (C2-T)
+
+Hasta la v101, la transacción buscaba la fila por nombre y unidad, y si no, solo por nombre. Con el mismo equipo nuevo y usado en la cuadrilla, devolver el nuevo podía descontar del usado, o decir «ya no están a tu nombre». Ahora decide `_filaDevolucionTec(mats, mat)`, pura:
+1. por el id de la fila escogida. Si hay una sola fila con ese id, del mismo tipo y de unidad compatible, esa, aunque la bodega la haya renombrado. Si hay varias, la de igual nombre y tipo;
+2. si no, igual nombre, tipo y unidad;
+3. si no, igual nombre y tipo.
+
+**Nunca la del otro tipo.**
+- **Revisión:** `_confirmarDevolverMaterial` anota `mat.idRepetido`: si el id se repetía en la cuadrilla que se vio al abrir la ventana. Si se repetía, la única fila de la nube con ese id solo vale si tiene el mismo nombre. Si no, era la hermana (VERDES en vez de AZULES) y sale «Ya no tienes "X" (tipo) asignado. Actualiza la pantalla.», como en la v101. La unidad se compara por familias (Und = unidad = vacío; m = mts = metros), para no tomar metros por unidades.
+- El recuperado y el dañado llevan el nombre y la unidad de la fila de la nube, no los de la pantalla: con un nombre viejo, la bodega no encontraría la fila al integrar.
+- `_onMatSelChange` y `_agregarMaterial` miran «ya agregado» y «seriales ya usados» por nombre **y tipo**: antes sumaban nuevo y usado.
+- No se tocan `_aplicarFinalizacionTec`, la cola, `_reservasTec`, `_disponiblesTec`, `_nomTec`, `_filasDeItemTec` ni el modo prueba. Un celular con la v101 sigue como hoy hasta que actualice.
+
+### 🧩 Unificar artículos repetidos (solo el administrador)
+
+**Dónde está.** El botón «🧩 Unificar artículos repetidos (N)» va en la cabecera de 🩺 Auditoría; N son los grupos que la ventana trae marcados. También se abre con «👁️ Ver» en la 🛡️ Vigilancia. La ventana es `modalUnificarInv`. El hallazgo «Artículo duplicado en la bodega» de la Auditoría usa la clave, salta las vaciadas y termina «Conviene unificarlas con 🧩 (arriba).». Con m contra Und dice que se revise con ✏️, porque 🧩 no junta unidades distintas.
+
+**Qué propone** (`_gruposUnificablesInv`, pura). Dentro de cada bodega o cuadrilla, del mismo tipo y de unidad compatible, nunca con filas vaciadas:
+1. la misma clave → «se escriben igual», marcado. En cuadrillas, sin marcar (decisión 7 de la tabla de «Decisiones de Elkin pendientes»);
+2. la misma referencia del Catálogo → sin marcar;
+3. solo cambia un espacio → sin marcar;
+4. una vaciada que volvió a tener material y tiene destino vivo → marcado, con la que queda fija en el destino.
+
+La que queda es, por defecto, la de más cantidad; si empatan, la de más seriales; si siguen empatadas, la primera. Se puede escoger otra.
+
+**La ventana.** Por grupo: motivo, tipo y unidad; una tabla con la que queda, el nombre exacto (los espacios de más se ven como `·`), cantidad, seriales, mínimo, categoría, observación y el final del código; la línea «Queda "P" con N und y M serial(es)». Avisos: cantidad distinta de los seriales, un serial en dos filas (queda una vez), Und y unidad, categoría distinta, mínimo distinto (queda el mayor), observaciones distintas («puede ser otra variante»). Los bloqueos salen en rojo y el grupo no se puede marcar. Al abrir se guarda una foto de cada fila. En `?prueba=1` la vista previa funciona, pero no se unifica nada. Cabe en 375 px.
+
+**Lo que bloquea un grupo** (`_bloqueosGrupoInv`, pura). Se mira en la vista previa y otra vez dentro de la transacción, con lo recién leído:
+- una solicitud de borrado o edición pendiente de una de sus filas;
+- un traslado pendiente con una de sus filas en la bodega de origen;
+- en cuadrillas, un consumo pendiente sin serial con el nombre de una absorbida (la confirmación de la v112 busca por nombre y encontraría la vaciada en 0);
+- una fila que comparte su código con otra fila del mismo sitio;
+- tipos distintos, unidades incompatibles, una cantidad que no es un número o es negativa, o una fila ya vaciada como la que queda.
+
+Los recuperados pendientes no bloquean: al integrar, siguen la marca hasta la que quedó.
+
+**Vaciar y apuntar** (`_planUnificarInv`, pura). Unificar **mueve** material; un borrado no. Con la lápida de la Etapa 2, una pantalla atrasada que le metió material a la fila absorbida la devolvería con todo lo que tenía, y eso ya estaba sumado en la que queda: contado dos veces. Por eso:
+- la que queda (P) recibe la suma, la unión de los seriales (por `_snNormal`), las fotos, el stock mínimo mayor, una línea de kardex «🧩 Unificada: entró N …» y `unificadas:[{op, fila, nom, tipo, cant, snesN, en}]` (las de menos de 30 días);
+- cada absorbida (A), tenga material o ya esté vacía, **no sale**. Queda en su lugar, en 0, sin seriales ni fotos, con `stockMin:0` (si no, saldría para siempre como «stock bajo») y con la marca `unificadaEn:{op, fila, nom, tipo, en, por:'admin'}`;
+- **unificar no deja lápidas.** Las vaciadas se quitan después con el 🧹 (abajo);
+- si una absorbida con el mismo nombre exacto iba antes que P, P pasa a ese lugar. TÉCNICOS v101 toma la primera fila con ese nombre al devolver.
+
+**La repetición en las demás pantallas** (`_reaplicarUnificacionesInv`, pura). Corre al principio de `_fusion3RegistroInv`, sin cambiar su firma, así que cubre el guardado y el oyente. Por cada entrada de `P.unificadas` de la nube que la base de esta pantalla todavía no tiene, repite la unificación sobre su base y su memoria. La fusión fina da entonces P = nube + (memoria − base): lo que una pantalla atrasada metió en A entra a P, y lo que sacó de A sale de P, seriales incluidos. Sin marcas en la nube devuelve lo mismo que recibió, y nunca cambia lo que recibe.
+- **D2** (el hueco del §6.2 de la especificación): si A está en la base y ya **no** en la memoria (esta pantalla la quitó al dejarla en 0: devolución, instalación o «Corregir»), cuenta como vacía. Antes la repetición no corría y ese material quedaba contado dos veces en P.
+- **Segunda revisión:** P y A se buscan con `rep` cuando su id se repite en cualquiera de los tres lados (`_llavesUnifInv`). Antes, si en la memoria quedaba una sola fila con el código de A y era la hermana, se tomaba por A: la hermana quedaba vaciada y su material pasaba a P (P en 15 en vez de 5). Cuándo se repite lo decide una sola función, `_unifRepetibleInv`.
+- **Las lápidas de A en el oyente** (revisión). `_tfSaltarPorUnificarInv` deja fuera, solo en la pasada sobre la memoria, la lápida de una absorbida que la nube lista en `P.unificadas` y que esta pantalla todavía no vio. Antes, esa pasada medía el material que la pantalla atrasada le había metido a A y anulaba la lápida con un aviso falso de «volvió…» (el guardado no lo hacía). Segunda revisión: solo la lápida de **esa** fila (código, nombre y tipo; no la de una hermana con el mismo código, que sí debe aplicarse), y solo si la repetición de verdad va a correr: lo dice `_unifRepetibleInv`, y la P de la memoria no puede tener una lápida viva.
+
+**Unificar** (`unificarMarcadosInv`, que llama a `_unificarMarcadosCoreInv`):
+1. **Se niega antes de nada** (`_unifNoSePuedeInv`) si no es el admin, en modo prueba, con una versión vieja, sin la conexión lista, sin internet o con otra unificación en curso.
+2. **Pantallas abiertas.** Lee el panel de la Etapa 6 (`PV_PANTALLAS.leerPanel`), solo desde este botón. **D3:** con una llamada normal; antes iba con `.call` para que no la contara la prueba de la Etapa 6, que ahora se adaptó. Se niega si no pudo leer el panel, si trae `versionesError` o (**D1**) si no trae la versión publicada de INVENTARIO: sin ella ninguna pantalla sale «vieja». El aviso: «…no se pudo leer la versión publicada del inventario. Inténtalo de nuevo.».
+   - **Regla de «vieja»:** una INVENTARIO es vieja si el panel la marca, o si su versión es menor que la mayor entre la publicada y la de esta pantalla. Así también cubre un anuncio de versión que no llegó a la nube.
+   - Si hay alguna vieja **con latido**, se niega y las nombra por versión, equipo y dispositivo, sin nombres de personas: «⛔ Hay N pantalla(s) de Inventario con versión vieja abiertas…». Las que no laten solo se avisan al final.
+3. **Archivo primero** (regla 5 de CLAUDE.md): una entrada por grupo en `inventario/archivo_unificaciones_<año>`: `{id:op, en, fechaMs, por:'admin', col, registroId, registroNombre, tipo, unidad, queda, absorbidas, resultado, estado:'preparada'}`. Las filas van completas, salvo las fotos, que van como `fotosN`. Se escribe y se **relee**. Si no están todas: «❌ No se pudo guardar el archivo: no se unificó nada.».
+4. **Una sola transacción** para todos los grupos (`_fbTransaccionInvMulti`), sobre lo recién leído. Cada fila tiene que seguir como en la foto de la ventana (`_filaCorrVivaInv`); los bloqueos se miran otra vez y el plan se arma de nuevo. Si algo cambió: «"X" cambió mientras tenías la ventana abierta (entró o salió material). No se unificó nada. Vuelve a abrir la ventana.».
+5. **Después del commit:** la memoria (`_aplicarNubeParcialInv`), un `logMsg` por grupo («🧩 Unificado en BODEGA X: "P" (usado) recibió N und y M serial(es) de "A" → quedó con T und y S seriales.») y el archivo en «hecha». Si la transacción falla, el archivo queda «cancelada» con su motivo, y la base, como estaba.
+- **La reposición del archivo** (revisión). El archivo se reescribe entero, así que otra pantalla que unificaba al mismo tiempo podía pisar la entrada después de la relectura. Ahora `_marcarArchivoUnifInv` recibe las entradas y, si falta alguna, la vuelve a agregar ya con su estado. El aviso final lo dice. Queda un hueco más chico: dos pantallas que marcan «hecha» exactamente a la vez todavía pueden pisarse.
+
+**🧹 Quitar las vaciadas** (`quitarVaciadasUnificadasInv`, botón «🧹 Quitar N filas ya unificadas» en la misma ventana):
+- solo las que llevan más de 7 días vaciadas, en 0 y sin seriales, y sin una solicitud de borrado o edición pendiente (esas se saltan y se avisa: se quitan cuando se decida);
+- antes relee el archivo **del año de su marca** (una unificación del 28 de diciembre se quita en enero) y exige la entrada de esa `op` con esa fila, en cualquier estado;
+- en la transacción, cada una tiene que seguir en 0, sin seriales y con la misma `op`. Sale con la lápida `origen:'unificar'` (`cant:0`, más `op` y `aFila`). A las que quedaron se les podan las `unificadas` de más de 30 días;
+- una solicitud que llegó después de abrir la ventana la frena la transacción, y el aviso la nombra (revisión);
+- si después le entra material a una fila ya quitada, la lápida se anula y la fila vuelve solo con lo nuevo. El aviso dice «…porque le entró material después de unificarse».
+- **D5 — los puentes** (dudoso 1 de la primera pasada). El 🧹 solo quita una vaciada de la **misma clave** que la fila que quedó (`_vaciadaQuitableInv`): la clave de su marca y, si el destino sigue vivo, también la del destino (el admin pudo renombrarlo después). Esas las sigue encontrando `_filaParaEntrarInv` por la clave.
+  - Las de un grupo por Catálogo o por un espacio («ONU X» → «EG8145») no se quitan **nunca**. Sin ellas, nada lleva el nombre viejo a la que quedó, y los sitios que no preguntan (devolución, traslado, retiro, venta borrada…) crearían la fila otra vez. Se quedan en 0, escondidas y con su marca.
+  - La ventana, la pregunta y el aviso final dicen cuántas se dejan y por qué (`_textoPuentesUnifInv`): «Se dejan N fila(s) en 0 como puente para su nombre viejo…».
+  - La transacción lo vuelve a mirar sobre lo recién leído: si en la nube ya es puente (renombraron la que quedó), no se quita.
+
+**🛡️ Vigilancia** (`_cajaUnificacionesVigInv`): «🧩 N unificación(es) en los últimos 30 días · M fila(s) vaciadas por quitar», sin contar los puentes, con «👁️ Ver». En ámbar, las vaciadas que volvieron a tener material («pásalas con 🧩») y las que ya no tienen destino («revisa a mano»). `verArchivoHistoricoInv` muestra «🧩 Unificaciones · año» de los tres últimos años.
+
+### «Ver vacías» y la lectura del Catálogo
+
+- En 🏭 Bodegas, con la casilla «Ver vacías (N)» apagada (lo de siempre al entrar), no se pintan las filas que `_filaOcultableInv` da por escondibles: en 0, sin seriales reales y sin stock mínimo (ni el de la fila ni el de su referencia del Catálogo), o vaciadas por 🧩. Las negativas, las de 0 con seriales, las de stock mínimo y las vaciadas que volvieron a tener material se ven siempre. Con el filtro «Stock: En cero» se ven aunque la casilla esté apagada.
+- **Solo cambia lo que se muestra.** El total «uds» de cada bodega, el Excel, la Auditoría, el chequeo, el Dashboard, los reportes, la búsqueda global, Garantía, los selectores, las cuadrillas y el «Inventario global» siguen con todas las filas.
+- Debajo de la tabla: «🙈 k artículo(s) vacío(s) oculto(s).», o «Sin artículos con stock (k vacío(s) oculto(s)).» en lugar de la tabla. Con una búsqueda: «🙈 k artículo(s) en 0 coinciden con la búsqueda: marca «Ver vacías» para verlos.». Si no, buscar un artículo en 0 daba «Nada coincide aquí» y la bodega lo creaba otra vez.
+- La preferencia es de cada bodega (y del admin) en su navegador: `localStorage['inv_ver_vacias:admin']` o `['inv_ver_vacias:bod_<id>']`. Nunca va a la base. Si el navegador no deja guardar, la casilla funciona igual en esa pestaña. «✕ Limpiar» no la toca.
+- **La lectura del Catálogo** es un extra de C4, no estaba en la especificación. En la vista clásica nadie leía el Catálogo y, sin él, se escondía una fila en 0 cuyo mínimo está solo en su referencia. `_catalogoParaVaciasInv` lo lee una vez (solo lectura) y repinta si Bodegas sigue en pantalla. De paso, el filtro «⚠️ Bajo mínimo» de esa vista ve el mínimo de la referencia. Revisión: una sola lectura por sesión (`_catVaciasLeidoInv`); sin ese freno, si la condición cambiara, la pestaña se colgaba repintando. Si la lectura falla, el Catálogo queda vacío y no se vuelve a pedir (ver «Riesgos que quedan»).
+
+### Qué cambia en los datos y quién se entera
+
+| Dónde | Qué | ¿Lo lee otra app? |
+|---|---|---|
+| filas de `bodegas` y `cuadrillas` | `unificadaEn` en las vaciadas (con `stockMin:0`) y `unificadas` en la que queda; las filas nuevas, con ids de 19 caracteres; `categoria` en las filas que crea la entrega | TÉCNICOS solo lee cuadrillas: ignora los campos nuevos, sus transacciones los conservan (reescriben el arreglo fresco) y no ve las vaciadas (filtra `cantidad>0`). OFICINAS y RED no leen filas |
+| `inventario/datos._tumbasFila` | lápidas `origen:'unificar'` con `op` y `aFila`, solo las del 🧹 | solo INVENTARIO. Una pantalla v116 las trata como cualquier lápida |
+| renglones de entregas, traslados, instalaciones y dotaciones | `pos` y `rep` | solo INVENTARIO |
+| `inventario/historial.editRequests` | `materialTipo` en las nuevas | solo INVENTARIO. `AVISOS_PENDIENTES.gs` cuenta pendientes: no cambia |
+| `inventario/archivo_unificaciones_<año>` | documento nuevo, con el mismo formato que los `archivo_*` | nadie más |
+| navegador | `inv_ver_vacias:admin` o `inv_ver_vacias:bod_<id>` | — |
+
+- Nada guarda nombres de personas: `por:'admin'`, y el kardex dice `usuario:'Admin'`, como siempre.
+- Tamaño: unificar casi no cambia `inventario/datos`; las vaciadas quedan en 0 con su marca.
+
+### Lo que se apartó de la especificación
+
+1. **D2.** El §6.2 decía «si falta alguna de las cuatro filas, no se repite». Ahora una A que falta en la memoria cuenta como vacía. C3 lo había propuesto; se decidió hacerlo antes de la revisión.
+2. **D1 y la regla de «vieja».** El §6.6 pedía negarse con un error o con `versionesError`. Ahora también sin la versión publicada de INVENTARIO, y «vieja» se compara además con la versión de esta pantalla.
+3. **D3.** `leerPanel` se llama de forma normal, y la prueba de la Etapa 6 se adaptó (ver «Pruebas»). C3 lo había llamado con `.call` para que esa prueba no lo contara.
+4. **D4.** `_filaDeSolicitudInv` ya no cae a «solo nombre» cuando la solicitud trae el tipo. El §5.3 lo dejaba como estaba.
+5. **D5.** El §6.7 quitaba todas las vaciadas de más de 7 días. Ahora solo las de la misma clave; las demás quedan como puente. Dos cosas no se ajustaron: el mensaje de 🧩 sigue diciendo «(k ya estaban vacías: quedan escondidas y se quitan con 🧹 a los 7 días)», que no vale para un grupo por Catálogo o por un espacio; y la 🛡️ ya no cuenta los puentes entre las «vaciadas por quitar».
+6. **`rep` en la llave.** La C0 decía «id único → esa fila, aunque la hayan renombrado». Si la llave se tomó con el id repetido, ahora tienen que coincidir también el nombre y el tipo.
+7. **La unidad entre filas exactas.** El paso 1 de `_filaParaEntrarInv` no miraba la unidad. Con dos filas exactas, ahora prefiere la de unidad compatible.
+8. **«Crear» se vuelve a mirar al Guardar** en «¿A qué artículo entra?».
+9. **TÉCNICOS.** La fila única por id tiene que ser, además del mismo tipo, de la misma familia de unidad y, con `idRepetido`, del mismo nombre.
+10. **El archivo.** `_marcarArchivoUnifInv` repone la entrada que otra pantalla pisó. La especificación solo pedía un `console.warn` si fallaba.
+11. **El extra de C4:** `_catalogoParaVaciasInv` (ver «Ver vacías»). Si no se quiere, se quita una línea en `_listadoBodegasHTML` y la función.
+12. **El banco.** En U7 los «8 días» se logran echando atrás la marca y moviendo su entrada al archivo de ese año, no moviendo el reloj de la pantalla. En U9, la INVENTARIO v115 es un latido inyectado en `sesiones_vivas`. La parte de la v116 de U6 va dentro de U6.
+
+### Decisiones de Elkin pendientes
+
+El 11 oct se le mostraron 9 decisiones. No ha respondido. Se construyó lo recomendado, y cada una se cambia en una línea o una casilla:
+
+| # | Lo que se le preguntó | Lo construido por defecto |
+|---|---|---|
+| 1 | ¿«CONTROL TVBOX» y «CONTROL TV BOX» son el mismo artículo? Se recomendó que sí | **No por defecto**: la app pregunta. La ventana de Recuperados los pone primero como «parecido» y 🧩 los propone sin marcar («solo cambia un espacio»). Si Elkin dice que sí: `_CLAVE_SIN_ESPACIOS_INV=true` |
+| 2 | ONT, ONU o sin prefijo: que la app no los junte sola | Así: salen como «parecidos» y en 🧩 sin marcar |
+| 3 | «Und» y «unidad» son la misma unidad; metros y bolsas nunca se juntan con unidades | Así (`_UNIDADES_UND_INV`). Un nombre exacto entra a su fila aunque diga otra unidad, porque TÉCNICOS manda siempre «unidad» |
+| 4 | Nuevo y usado nunca se juntan, y lo que devuelve un técnico entra como usado | Así |
+| 5 | Una devolución con un nombre raro («srv-profile_200»): la bodega escoge a qué artículo va | Así: la ventana «¿A qué artículo entra?» |
+| 6 | «📦 + Material» con un nombre que ya existe pregunta «¿sumar ahí?» | Así |
+| 7 | 🧩 solo para el administrador: suma, archiva, no borra; empezar por las bodegas | Así. En cuadrillas, los grupos salen sin marcar |
+| 8 | Filas vacías escondidas solo en Bodegas, con «Ver vacías» | Así |
+| 9 | Esta etapa cambia también TÉCNICOS; los técnicos tendrán que actualizar | Así: TÉCNICOS 102 junto con INVENTARIO 117 |
+
+- Los demás puntos del §11 de la especificación no se le preguntaron aparte y se construyeron como se recomendaba: no cambiar el código de los 17 artículos que comparten código con otro; cancelar todo y avisar si una lista cambió entre escoger y guardar; un botón de una fila que cambió avisa y no hace nada; y una vaciada que vuelve a tener material se muestra y 🧩 la propone.
+- **Sigue sin respuesta la de la Etapa 2:** si de dos solicitudes de editar el mismo artículo con datos distintos se aprueba una, hoy la otra queda «aprobada · duplicada». Se le recomendó «rechazada». No se cambió (§11, «Pendiente» 4).
+
+### Riesgos que quedan
+
+- **Una pantalla v116 abierta** con cambios sin guardar en una absorbida: lo que le **metió** queda en A, se ve y 🧩 lo propone otra vez (caso 4); lo que le **sacó** se cuenta dos veces. Por eso 🧩 se niega con pantallas viejas que laten, y se usa fuera de horario.
+- **Cuadrillas:** `renderCuads` y «Corregir Cantidades» no cambiaron. Una vaciada se ve en 👷 como una fila más en 0, sin la etiqueta, y «Corregir» deja subirle la cantidad (termina en el caso 4).
+- **Un consumo hecho sin señal** antes de unificar una cuadrilla, que llega después con el nombre de una absorbida y sin serial: la bodega lo verá «no alcanza» y quedará pendiente. No se pierde ni se cuenta dos veces. Por eso, en cuadrillas, los grupos salen sin marcar y hay que avisar antes a los técnicos.
+- **Ya pasaba:** dos pantallas que crean a la vez la misma fila nueva dejan dos filas (se arregla con 🧩); dos pantallas que integran el mismo recuperado a la vez lo suman dos veces.
+- **Un Catálogo que no se pudo leer** esconde, hasta recargar, las filas en 0 cuyo mínimo está solo en su referencia (dudoso 3 de la primera pasada). Hoy no afecta a ninguna fila: ninguna referencia tiene mínimo. En la v116 la vista por referencia ya perdía ese aviso igual.
+- **«Los dos quedaron igual»:** si dos pantallas sacan la misma cantidad de la misma fila, la fusión cuenta una sola salida (dudoso 5). Ya pasaba desde la v112; la etapa no lo empeora.
+- **Si la nube renombra P** después de unificar y el id de P se repite, la búsqueda con `rep` no la encuentra y la repetición no corre. La fusión sigue entonces como antes de la Etapa 3.
+- **Las dudas abiertas del §12 de la especificación** siguen como estaban:
+  - un retiro de TÉCNICOS dice siempre «unidad»: si su nombre solo coincide por la clave con una fila en metros, sale la ventana (hoy no hay ningún caso);
+  - un Excel de bodega sin unidad toma «Und» y ya no se suma a una fila en m;
+  - las ventas no guardan el id de la fila, y devolverlas busca por nombre;
+  - TÉCNICOS 102 con una fila que se vació con la ventana abierta responde «Solo tienes 0…». No pierde nada;
+  - la Auditoría («Material contado DOS veces», «dañado que sigue a nombre del técnico») no sigue `unificadaEn`;
+  - la búsqueda global muestra las vaciadas con su nombre viejo.
+- Lo que la revisión adversaria dejó, a propósito o porque quedó en duda, está en la sección siguiente.
+
+### Revisión adversaria (13 oct 2026)
+
+Antes de mostrarla se buscaron fallas a propósito, en dos pasadas. Cada hallazgo lo revisaron dos escépticos por separado, con las funciones reales sacadas del archivo y con el banco. Las reproducciones quedaron en el scratchpad de la sesión (`etapa3/rev`, `rev2`, `fix_rev`, `fix_hermana`, `d5_res`, `verif_*`). Las copias de antes de cada pasada: `etapa3/pre_rev` y `etapa3/pre_rev2`.
+
+**Primera pasada: 22 hallazgos**, con seis lentes: la clave, las filas, 🧩, la pantalla, las etapas anteriores y las pruebas. **16 confirmados** (los dos escépticos dijeron que sí), **6 dudosos** (uno sí y uno no) y **0 refutados**. Los 16 se corrigieron, cada uno con su prueba. Algunos eran la misma falla vista desde dos lados:
+
+| Falla | Arreglo (arriba) |
+|---|---|
+| Cuando la fila escogida se quitaba y su hermana quedaba sola con el código, los botones, las listas (instalación, dotación, equipo a cliente, cambio de equipo), `_filaDeLlaveInv` y `_filaElegidaInv` actuaban sobre la hermana (3 hallazgos) | `rep` en la llave y en los renglones (ver «La llave de cada fila») |
+| TÉCNICOS 102 devolvía de la hermana; la v101 se negaba (2) | `idRepetido` y la familia de unidad (C2-T) |
+| «¿A qué artículo entra?» con «crear» no volvía a mirar al Guardar y dejaba dos filas | «Crear» también se vuelve a mirar |
+| Con dos filas del mismo nombre en unidades distintas, lo que llegaba entraba a la primera | El paso 1 prefiere la de unidad compatible |
+| ➕ SN y ✏️ del admin no miraban en el Guardar si 🧩 había vaciado la fila: el material entraba a la vaciada | Los dos lo miran |
+| 🧩 no se negaba si la versión publicada no llegaba o estaba atrasada (U9 y el anuncio fallido) | D1 y la regla de «vieja» |
+| El archivo de unificaciones se reescribe entero: dos unificaciones a la vez perdían la entrada de una | La reposición en `_marcarArchivoUnifInv` |
+| Una vaciada quitada con otra lápida («Corregir», ✕, una aprobación) daba un aviso falso de «volvió» en el oyente | `_tfSaltarPorUnificarInv` |
+| La etiqueta de una vaciada en 0 con un serial decía «le entraron 0» | La etiqueta cuenta los seriales |
+| La prueba «primero el archivo…» y U7 fallaban solas del 1 al 8 de enero | Cada entrada se siembra en el archivo del año de su marca (PRUEBAS); `envejecer8` y `--reloj` (banco) |
+| El panel inventado de la prueba de 🧩 no tenía la versión publicada: no veía U9 | La prueba usa el `leerPanel` de verdad, sobre una copia aparte de `pantallas.js` |
+| Ninguna prueba cubría que el 🧹 se frenara por una solicitud que llegó después | El aviso la nombra; prueba y RV-FREN |
+| La lectura del Catálogo en la vista clásica no tenía prueba, y sin freno la pestaña se colgaba | `_catVaciasLeidoInv`; prueba y RV-CAT |
+
+Junto con eso se hicieron los cuatro puntos decididos antes de la revisión, que venían de la construcción: D1 (U9 fallaba en el banco), D2 (el hueco que señaló C3), D3 (el `.call` de C3) y D4 (la búsqueda «solo nombre» que señaló C2).
+
+**Dudosos de la primera pasada:**
+1. **Después del 🧹, lo que llegaba con el nombre de una absorbida** de un grupo por Catálogo o por un espacio volvía a crear la fila: la unificación se deshacía sola. Se decidió y se hizo **D5**, los puentes.
+2. **El hueco del §6.2, del lado de la que queda:** si una pantalla atrasada deja P en 0 y la quita (instalación, devolución, «Corregir»), la repetición no corre y la fusión conserva la P de la nube, con la suma. Sin corregir: es el problema general de quitar filas en 0 sin lápida (la regla «quitada en un lado y cambiada en el otro se conserva»), y ya pasaba igual en la v116 con cualquier cambio de la nube sobre esa fila. Pasa a la Etapa 4.
+3. **Un Catálogo que no se pudo leer:** ver «Riesgos que quedan».
+4. **🧩 con una INVENTARIO v116 viva** si la versión publicada sigue en 116 (la 117 no la anunció). Lo cubre la regla de «vieja»: una INVENTARIO menor que esta pantalla cuenta como vieja.
+5. **«Los dos quedaron igual»:** ver «Riesgos que quedan». Ya pasaba desde la v112 (commit `c46c128`).
+6. **La prueba de la Etapa 6 no ve una lectura del panel hecha con un alias.** Con D3 la prueba exige además quién llama a `_unificarMarcadosCoreInv`. El alias sigue sin verse, igual que en lo publicado.
+
+**Segunda pasada** (solo sobre los arreglos de la primera y D5): **6 hallazgos, 4 confirmados, 2 dudosos y 0 refutados.** Los 4 confirmados se corrigieron:
+
+| Falla | Arreglo |
+|---|---|
+| `_tfSaltarPorUnificarInv` saltaba la lápida solo por el código: también la de la hermana que tuvo ese código. El oyente anulaba su borrado aprobado con un falso «volvió…» | El salto lleva el código, el nombre y el tipo de la absorbida |
+| La lápida de A se saltaba aunque la repetición no fuera a correr (a la memoria le faltaba P): anulación falsa, y A volvía con material que ya estaba en P | Salta solo si `_unifRepetibleInv` dice que la repetición corre y la P de la memoria no tiene una lápida viva |
+| D2 buscaba A y P por id sin `rep`: si el código de A lo tenía una hermana, la vaciaba dentro de P (P en 15 en vez de 5) | `_llavesUnifInv`, con los ids repetidos de los tres lados |
+| `PRUEBAS.html` quedaba en rojo: la comprobación del hallazgo 11 esperaba lo de antes de D5, y D5 no tenía ninguna prueba | El escenario del hallazgo 11 usa vaciadas de la misma clave; una comprobación nueva de D5 en PRUEBAS y el escenario SR-D5 en el banco |
+
+**Dudosos de la segunda pasada:**
+- **D5 en cadena — corregido.** «ONU X» se unificó por Catálogo en «EG8145», y después «EG8145» se unificó en «eg8145» (la misma clave). El 🧹 quitaba «EG8145», porque es de la misma clave, y el puente «ONU X» quedaba sin destino: lo que llegara como «ONU X» volvía a crear la fila. Ahora `_vaciadaQuitableInv` no deja quitar una vaciada por la que pasa otra (`_vaciadasQuePasanPorInv`, el mismo camino que `_destinoUnificadaInv`): es un eslabón vivo. La transacción del 🧹 lo vuelve a mirar sobre lo leído, y el aviso y la ventana lo explican aparte («Se dejan N fila(s) en 0 porque otra fila unificada pasa por cada una…»). Si toda la cadena es de la misma clave, el primer 🧹 quita solo la primera y el segundo la siguiente. Prueba en `PRUEBAS.html` (dentro de «primero el archivo…») y escenario SR-CADENA en el banco; los dos fallan con la copia de antes (`etapa3/pre_cadena`).
+- **D5 en cuadrillas, sin corregir.** Instalar, devolver o «Corregir» quitan las filas en 0 de la cuadrilla, también los puentes. La siguiente entrega con el nombre viejo vuelve a crear la fila. Es la poda de filas en 0 de la Etapa 4.
+
+### Pruebas
+
+**`PRUEBAS.html`: 171 pruebas** (52 de INVENTARIO, 86 de OFICINAS, 32 de RED y 1 de Firma). Las 10 nuevas van en el grupo de INVENTARIO, después de las de la Etapa 2:
+
+| # | Prueba | Qué comprueba |
+|---|---|---|
+| 1 | Un nombre con otro espaciado, mayúsculas o tildes entra a su fila; otro tipo u otra unidad no (R5) | `_claveArticuloInv`, `_claveSueltaInv`, `_unidadCompatibleInv`; `_filaParaEntrarInv` (exacto primero, la clave, nunca otro tipo, una vaciada va a su destino también en cadena, `cercanas`); `_normNom`; `_idFilaInv` (10.000 seguidos sin repetir y un choque forzado); la gemela de los consumos de TÉCNICOS, leída como texto. Revisión: dos filas exactas en m y en Und |
+| 2 | Lo que llega por nombre entra a su fila en todos los caminos, y la fila nueva lleva un código que no choca | `integrarRecuperado` (por la clave sin preguntar; la ventana; escoger, crear, cancelar; ya integrado; `rid` con la lista corrida), `procTrans`, `_devolverVentaABodega`, `saveBodegaImport`, «📦 + Material», `saveEntregaLogic` con una transacción falsa; `modalRetiroParcial` y `modalDevolverMat` corridos. Revisión: «crear» con la fila aparecida; `rep` al rechazar un traslado y en la entrega |
+| 3 | Cada botón actúa sobre SU fila aunque comparta el código con otras (pendiente 1 de la Etapa 2) | La llave y su escape; los cinco botones de la 2.ª hermana, con un clic real; ✕, ✏️, 📥, ➕ SN y 📋 sobre la fila correcta; `approveEdit` y `approveDelete`; seriales entre hermanas. Revisión: con solo la hermana, los cinco botones avisan y nada cambia; ➕ SN y ✏️ sobre una fila unificada con la ventana abierta; la etiqueta con un serial; D4 |
+| 4 | Lo que se escoge en una lista es lo que se descuenta | Entrega y traslado de la 2.ª hermana; venta, dotación, instalación y equipo a cliente con un snapshot que corre la lista; un serial que ya no está → nada; cambio de equipo. Revisión: los renglones guardan `rep`, y no se descuenta nada si quedó sola la hermana |
+| 5 | La fusión con códigos repetidos ya no duplica un artículo ni le pasa el cambio al vecino | Los casos A a E del mapa de la fusión; con ids únicos, igual que antes |
+| 6 | TÉCNICOS (leído como texto): devolver material toma la fila elegida, nunca la del otro tipo | `_filaDevolucionTec`, extraída y corrida. Revisión: `idRepetido` (VERDES y AZULES), la familia de unidad, y `_confirmarDevolverMaterial` corrido con la hermana sola en la nube: no escribe y avisa |
+| 7 | 🧩 Unificar: la que queda suma cantidades y seriales; las demás se vacían y apuntan a ella, y nada se cuenta dos veces | Grupos, bloqueos, el plan (`stockMin` 0, ninguna lápida, P adelante), `_destinoUnificadaInv`, ningún «stock bajo» de una vaciada, la repetición (metió, sacó, sin tocar, A ya quitada, no cambia lo que recibe), la lápida «unificar». Revisión: D2 (P = 8 + (5 − 8) = 5) y el oyente real con una pantalla atrasada (17, sin anulación ni «volvió») |
+| 8 | 🧩 Segunda revisión: la hermana que comparte el código no se toca, y el oyente da lo mismo que el guardado | Los tres hallazgos de la segunda pasada, por el oyente (`_unirTumbasFilaEnEntranteInv` y `_protegerSnapshotInv`) y por el guardado (`_fusionarConNubeInv`), y `_tfSaltarPorUnificarInv` y `_reaplicarUnificacionesInv` por separado: P=8 con el borrado de la hermana sin anular; 5 conectores sin anular la lápida de «Corregir»; P=5 (antes 15) |
+| 9 | 🧩 Unificar: primero el archivo, después la transacción; si algo cambió o hay algo pendiente no se unifica nada | El orden (preparada → relectura → transacción → hecha), el fallo de cada paso, un bloqueo que aparece después, el modo prueba, el registro y la 🛡️, el 🧹. Revisión: el `leerPanel` de verdad, D1, D3, la pantalla anterior con el anuncio atrasado, el archivo pisado (al marcar «hecha» y «cancelada»), el hallazgo 11 y D5 (el puente no se quita; después del 🧹, «ONU VIEJA Q» sigue entrando a ONT Q y no se crea ninguna fila) |
+| 10 | «Ver vacías»: las filas en 0 sin seriales se esconden solo en la pantalla de Bodegas | `_filaOcultableInv`; la casilla; «En cero»; el mínimo de la fila o de su referencia; la búsqueda; la preferencia por bodega; los totales iguales. Revisión: una sola lectura del Catálogo por sesión |
+
+- Todas usan ids inventados que empiezan por `E3P`. Sustituyen `alert`, `confirm`, las ventanas, `_fbSave`, las transacciones y el archivo, y lo devuelven todo en un `finally`, también el navegador (con `e2FotoLS` y `e2RestaurarLS`) y la clave `inv_ver_vacias:*`. Exigen que `_escriturasBloqueadas` no crezca.
+- **Prueba vieja adaptada:** «Etapa 6 · El panel marca las pantallas viejas…» contaba `leerPanel(` y exigía que solo estuviera en `verPantallasInv`. Con D3 también lo lee `_unificarMarcadosCoreInv`. Ahora acepta las dos, y exige que a `_unificarMarcadosCoreInv` solo la llame `unificarMarcadosInv`, y a esta solo su botón. La intención sigue: el panel solo lo lee un botón, nunca al pintar.
+- La prueba del celular (375 px) recorre Bodegas y Auditoría: la casilla, el botón y la ventana caben.
+
+**Corrido el 13 oct 2026, con el archivo final**, sobre la base SIMULADA del banco, sin servidor, con el arnés de la Etapa 2 (`correr_e2.js`):
+- `PRUEBAS.html` completo (INVENTARIO, OFICINAS y RED; Firma no se abre): 170 corridas de 171, **169 bien**. Falla solo «Rastreador v314: la ficha de una factura REAL de WispHub», que necesita WispHub de verdad, como en las etapas anteriores. 0 errores de página, 0 escrituras en la base simulada y el navegador limpio. El grupo de INVENTARIO: 52 de 52.
+- **Contrapruebas:** con INVENTARIO y TÉCNICOS de antes de la primera revisión (`pre_rev`), el grupo da 43 de 51: fallan las 8 pruebas «Etapa 3 ·» que ganaron comprobaciones en esa revisión (todas menos la de la fusión), cada una solo en sus comprobaciones nuevas. Con la copia de antes de la segunda (`pre_rev2`) falla solo la prueba nueva de la segunda revisión (sus 6 comprobaciones). Sin D5 falla solo la comprobación de D5. Cuatro copias con un arreglo quitado cada una (los tres de la segunda pasada y el aviso del hallazgo 11) fallan cada una en su comprobación.
+- **Con el reloj movido** (en la primera revisión), «primero el archivo…» pasa el 1, 2, 3, 4, 5, 7, 8, 9, 15 y 20 de enero de 2027, el 31 de diciembre de 2026 y el 1 de marzo de 2027. Las demás pruebas «Etapa 3 ·» y la del panel de la Etapa 6 pasan el 2, el 5 y el 8 de enero.
+
+**El banco** (`inv/etapa3.js`, base simulada y compartida, las apps reales en Chromium; TÉCNICOS solo se abre ahí):
+
+| Grupo | Escenarios |
+|---|---|
+| R5 y las filas | R5b, R5c, R5d, E3-1 a E3-4 y E3-T |
+| 🧩 Unificar | U1 a U11 |
+| «Ver vacías» | V1 y V2 |
+| Primera revisión | RV-REP, RV-CREAR, RV-UNID, RV-VAC, RV-U9b, RV-ARCH, RV-VOLVIO, RV-D2, RV-D4, RV-ETIQ, RV-FREN, RV-CAT y RV-TEC |
+| Segunda revisión | SR-D5, SR-HERM, SR-SINP, SR-D2H y SR-CADENA |
+
+- Con el archivo final: **39 pasan, 0 fallan** (220 s, 0 errores de JavaScript). SR-CADENA falla con `pre_cadena` (13 comprobaciones).
+- **Contrapruebas:** con `--v116` (lo publicado) fallan los 21 primeros, cada uno por lo esperado. Con `pre_rev` fallan los 13 RV y U9. Con `pre_rev2` fallan SR-HERM, SR-SINP y SR-D2H (10 comprobaciones). SR-D5 pasa con `pre_rev2` porque esa copia ya tenía D5; falla con una copia sin D5 y con `pre_rev` (13 comprobaciones cada una).
+- **`--reloj=AAAA-MM-DD`** mueve el reloj de Node, de la nube simulada y de las pantallas, en hora de Colombia. Con él se vio que U7, RV-ARCH y RV-FREN fallaban solos del 1 al 8 de enero: la marca envejecida caía en el año anterior, pero su entrada seguía en el archivo del año en curso. Ahora `envejecer8` lleva la entrada al archivo del año de la marca. Los tres pasan el 2, 5 y 8 de enero, el 8 de enero a las 23:30, el 9 de enero y el 15 de marzo de 2027. U* y RV* con el 5 de enero: 24 de 24.
+- **Las demás suites:** con el archivo final, `etapa2` 25/25 y `revision_oct` **11/11**: R5 pasa por primera vez, y R6 sigue informativa (ahora sale la ventana y, sin respuesta, no se integra nada). `pantallas_unit` 216/216, `recarga_unit` 167/167, `etapa1` 16/16 y `etapa6` 13/13 en la segunda pasada, antes de sus arreglos, que solo actúan cuando la nube trae unificaciones. `repro` 21/21, `escenarios2` 20/20 y `unit_v112` 50/50 en la construcción y en la primera revisión.
+
+**Comprobaciones propias** (scratchpad, funciones reales sacadas del archivo, sin red): `d5_res/d5_unit.js` 12/12 y `d5_res/c1/e5_d5.js`; `fix_rev/unit.js` 29/29; `verif_rev2fix/salto_unit.js` 7/7 y `d2_hermana.js` 6/6; `fix_hermana/prueba.js` 16/16, para TÉCNICOS. Las reproducciones de los revisores de la segunda pasada dan lo mismo que la copia que arregló el revisor.
+
+**Validación:** `node .claude/validar.mjs` da sintaxis correcta en INVENTARIO (4 bloques), TÉCNICOS (2) y PRUEBAS (1). Los tres en CRLF, sin LF ni CR sueltos. `APP_VERSION_INV` sigue en 116 y `APP_VERSION_TEC` en 101.
+
+**Corrida final, 13 oct 2026 (5:10 a 5:42 p. m.), con el archivo final** (ya con el arreglo de la cadena):
+- **El banco completo**, en orden: `pantallas_unit` 216/216, `recarga_unit` 167/167, `unit_v112` 50/50, `revision_oct` **11/11** (R5 pasa), `repro` 21/21, `escenarios2` 20/20, `etapa1` 16/16, `etapa6` 13/13, `etapa2` 25/25 y `etapa3` **39/39**. Contraprueba: `etapa3 --v116` (lo publicado) **0 de 39**. Salidas en el scratchpad de la sesión (`etapa3/banco_final2/`).
+- **`PRUEBAS.html` en el navegador contra la base real** (`?prueba=1`): **169 bien y 2 por revisar**, las dos «Estado real» de siempre (36 seriales en dos sitios; servicios de proveedores sin costo). La de la ficha real de WispHub pasa aquí. Después se miró la nube por REST (solo lectura): las escrituras de esa tarde en `inventario/datos` son de una bodega con la v116 publicada, y las de `main` y `logs_auditoria`, de una oficina con OFICINAS v320 enlazando comprobantes. Ninguna de las pruebas. En `inventario/datos` todavía no hay `_tumbasFila`: desde que se publicó la v116 nadie ha aprobado un borrado (sigue pendiente la comprobación de la §11).
+
+### Pendiente
+
+1. **Hecho el 13 oct 2026 (ver «Corrida final» abajo):** la corrida completa del banco con el archivo final, y `PRUEBAS.html` en el navegador contra la base real en `?prueba=1`.
+2. **Decidir con Elkin:** las 9 decisiones y la de la Etapa 2 (ver «Decisiones de Elkin pendientes»).
+3. **Etapa 4:**
+   - quitar filas en 0 sin lápida (`modalDevolverMat`, `saveInstLogic`, «Corregir Cantidades»). Deja abierto el hueco del lado de la que queda: si una pantalla atrasada la quita, la fusión conserva la de la nube con la suma. SR-SINP solo exige que no se cuente dos veces y deja el valor exacto como información. También se lleva los puentes de D5 en las cuadrillas;
+   - `modalDevolverMat` captura la fila al abrir la ventana y tiene un `return alert` dentro del `forEach`;
+   - en cuadrillas, la etiqueta 🧩 y que «Corregir» no le suba la cantidad a una vaciada (duda 3 de la especificación).
+4. **Etapa 5:** seriales comparados letra por letra al escribir. En TÉCNICOS, `snesF.includes(sn)` de la devolución. En INVENTARIO, los `includes` al sumar seriales en `procTrans`, `_integrarRecuperadoEnInv` y `_devolverVentaABodega`.
+5. **Las fichas de clientes con equipos mal cargados** («srv-profile_200» ×400, «CONECTORES MECANICO» ×1.401): cada retiro de esos clientes manda a la bodega un «equipo» que no existe. Limpiarlas en otra tarea. Mientras tanto, que DONCELLO revise los 10 u 11 «srv-profile_200» pendientes antes de integrarlos (ahora la ventana pregunta a qué artículo van).
+6. **El archivo de unificaciones:** dos pantallas que marcan «hecha» exactamente a la vez todavía pueden pisarse. El arreglo completo es una transacción sobre `archivo_unificaciones_<año>`.
+7. **Detalles:** el mensaje de 🧩 «…se quitan con 🧹 a los 7 días» no vale para los puentes. En el banco, la clave del archivo se calcula una sola vez: una corrida que cruce la medianoche del 31 de diciembre fallaría en falso en U1, U4 y U9.
+8. **Al publicar** (cuando Elkin diga «publica»):
+   - INVENTARIO 117 y TÉCNICOS 102 **juntos**, fuera de horario, con el respaldo de datos de la Etapa 1 antes;
+   - recargar todas las pantallas de bodega: una v116 no tiene la fusión nueva ni la repetición;
+   - los técnicos verán «actualizar». Hasta que actualicen, su devolución sigue como en la v101;
+   - **🧩 se usa después**, cuando «📺 Pantallas abiertas» no muestre ninguna INVENTARIO menor a 117, caso por caso con Elkin y empezando por las bodegas. Antes, revisar con las bodegas los tres Patch Cord de DONCELLO (las observaciones dicen colores distintos: mejor cambiarles el nombre que juntarlos), los módulos SFP «…243SI» y «…243S» de FLORENCIA, y la OLT de FLORENCIA, cuyas dos filas tienen los mismos 2 equipos;
+   - probar un caso real: integrar un recuperado escrito con otro espaciado, tocar un botón de una fila con el código repetido y que un técnico devuelva un equipo que tiene como nuevo y como usado.
