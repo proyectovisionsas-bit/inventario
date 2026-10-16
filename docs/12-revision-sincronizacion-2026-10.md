@@ -170,6 +170,8 @@ Un espacio de más crea otra fila. La bodega pide borrarla cuando queda vacía, 
 
 > **Adelantado en la Etapa 2 (11 oct 2026):** los pasos 1 y 2 ya están hechos para «Corregir Cantidades» (la revisión adversaria lo pidió para que su lápida no borrara material), y R7 y R7b pasan. Queda el paso 4: las demás ventanas. Ver §11.
 
+> **Hecha el 15 oct 2026, sin publicar** (INVENTARIO sigue en 117; al publicar, 118 solo: TÉCNICOS no cambia). El paso 4 se hizo en todas las ventanas que mueven stock o escriben en una cuadrilla, un técnico o un cliente. Además, las filas en 0 de las cuadrillas ya no se quitan y ↩️ Devolver va en un solo paso contra la nube. Lo que quedó, lo que se apartó del plan y lo que falta decidir con Elkin: ver §13.
+
 ### Etapa 5 — «Un serial, un sitio» al escribir (riesgo medio)
 
 1. En las transacciones que **agregan** seriales a una bodega o cuadrilla (entrega, traslado, devolución, integrar, corrección), verificar **con los datos frescos** que el serial no esté en otro sitio ni en un consumo confirmado.
@@ -978,7 +980,7 @@ Los 6 refutados no cambiaron nada: material que entra después de bajar y volver
 3. **Publicada el 11 oct 2026** (Elkin: «Publica y después continua con la etapa 3»; commit `ac4fc2f`, INVENTARIO 116). Respaldo en `_RESPALDO_2026-10-11_antes_de_publicar`. Mantenimiento solo de INVENTARIO de 11:15 a 11:32; push 11:16, Pages con el archivo nuevo desde las 11:17 (huellas iguales a las del disco, dos veces), versión anunciada 11:31, prueba de humo en `?prueba=1` sin errores. Al publicar no había pantallas de bodega abiertas; solo un celular del admin con la v115, en reposo, que se recarga solo al despertar. **Falta:** comprobar en la nube real, con la primera aprobación de verdad, que deja `_tumbasFila` en `inventario/datos` junto con la fila quitada, en la misma escritura, y que una decisión hecha sin señal sube sola al volver.
 4. **Decidir con Elkin** el punto 6 de «Lo que se apartó de la especificación» (ediciones repetidas con datos distintos).
 5. **Decidir con Elkin los dudosos que quedaron** (ver «Revisión adversaria»): los 3 de la segunda pasada (la pantalla atrasada contra una lápida con más cantidad, las ediciones que se vuelven a cerrar tras recargar y la reapertura después de otra decisión a mano) y la venta que vuelve con un snapshot, que ya pasaba en la v115.
-6. **Etapa 4:** de las ventanas con datos viejos solo se arregló «Corregir Cantidades». Editar, entregar, trasladar, vender y devolver no se revisaron.
+6. **Etapa 4:** de las ventanas con datos viejos solo se arregló «Corregir Cantidades». Editar, entregar, trasladar, vender y devolver no se revisaron. *(Resuelto en la Etapa 4: ver §13.)*
 
 ## 12. Etapa 3 — lo que se hizo (publicada el 13 oct 2026)
 
@@ -1342,13 +1344,438 @@ Junto con eso se hicieron los cuatro puntos decididos antes de la revisión, que
    - quitar filas en 0 sin lápida (`modalDevolverMat`, `saveInstLogic`, «Corregir Cantidades»). Deja abierto el hueco del lado de la que queda: si una pantalla atrasada la quita, la fusión conserva la de la nube con la suma. SR-SINP solo exige que no se cuente dos veces y deja el valor exacto como información. También se lleva los puentes de D5 en las cuadrillas;
    - `modalDevolverMat` captura la fila al abrir la ventana y tiene un `return alert` dentro del `forEach`;
    - en cuadrillas, la etiqueta 🧩 y que «Corregir» no le suba la cantidad a una vaciada (duda 3 de la especificación).
+   - **Resuelto en la Etapa 4** (sin publicar), los tres puntos: las filas en 0 de las cuadrillas ya no se quitan, tampoco los puentes, y W6 exige el valor exacto (1); ↩️ Devolver trabaja sobre lo recién leído, todo o nada, sin el `return alert` dentro del `forEach`; en 👷 Cuadrillas y en «Corregir» una vaciada lleva su etiqueta 🧩, y «Corregir» no deja cambiarla. Ver §13.
 4. **Etapa 5:** seriales comparados letra por letra al escribir. En TÉCNICOS, `snesF.includes(sn)` de la devolución. En INVENTARIO, los `includes` al sumar seriales en `procTrans`, `_integrarRecuperadoEnInv` y `_devolverVentaABodega`.
 5. **Las fichas de clientes con equipos mal cargados** («srv-profile_200» ×400, «CONECTORES MECANICO» ×1.401): cada retiro de esos clientes manda a la bodega un «equipo» que no existe. Limpiarlas en otra tarea. Mientras tanto, que DONCELLO revise los 10 u 11 «srv-profile_200» pendientes antes de integrarlos (ahora la ventana pregunta a qué artículo van).
 6. **El archivo de unificaciones:** dos pantallas que marcan «hecha» exactamente a la vez todavía pueden pisarse. El arreglo completo es una transacción sobre `archivo_unificaciones_<año>`.
 7. **Detalles:** el mensaje de 🧩 «…se quitan con 🧹 a los 7 días» no vale para los puentes. En el banco, la clave del archivo se calcula una sola vez: una corrida que cruce la medianoche del 31 de diciembre fallaría en falso en U1, U4 y U9.
-8. **Al publicar** (cuando Elkin diga «publica»):
+8. **Publicada el 13 oct 2026** (Elkin: «me parece bien asi como lo manejaste, publica»: aprobó las 9 decisiones tal como se construyeron, y la de la Etapa 2 queda como está, «aprobada · duplicada»). Commit `fc8ce5c`, INVENTARIO 117 y TÉCNICOS 102. Respaldo en `_RESPALDO_2026-10-13_antes_de_publicar`. Mantenimiento solo de INVENTARIO y TÉCNICOS de 7:25 a 7:28 p. m.; push 7:27, Pages con los dos archivos nuevos a las 7:28 (huellas iguales a las del disco, dos veces), versiones anunciadas 7:28, prueba de humo de INVENTARIO en `?prueba=1` sin errores (TÉCNICOS no se abre en el navegador: se comprobó por su huella y su versión publicada). Al publicar no había técnicos ni bodegas conectados; solo una OFICINAS y una INVENTARIO 116 de admin, ocultas, que se recargan solas al volver. Lo que se planeó para este paso:
    - INVENTARIO 117 y TÉCNICOS 102 **juntos**, fuera de horario, con el respaldo de datos de la Etapa 1 antes;
    - recargar todas las pantallas de bodega: una v116 no tiene la fusión nueva ni la repetición;
    - los técnicos verán «actualizar». Hasta que actualicen, su devolución sigue como en la v101;
    - **🧩 se usa después**, cuando «📺 Pantallas abiertas» no muestre ninguna INVENTARIO menor a 117, caso por caso con Elkin y empezando por las bodegas. Antes, revisar con las bodegas los tres Patch Cord de DONCELLO (las observaciones dicen colores distintos: mejor cambiarles el nombre que juntarlos), los módulos SFP «…243SI» y «…243S» de FLORENCIA, y la OLT de FLORENCIA, cuyas dos filas tienen los mismos 2 equipos;
    - probar un caso real: integrar un recuperado escrito con otro espaciado, tocar un botón de una fila con el código repetido y que un técnico devuelva un equipo que tiene como nuevo y como usado.
+
+## 13. Etapa 4 — lo que se hizo (publicada el 16 oct 2026)
+
+Especificada, construida y revisada el 14 y 15 oct 2026, sobre lo publicado en `fc8ce5c` (OFICINAS v320, INVENTARIO v117, TÉCNICOS v102, RED v44), a pedido de Elkin: «continuemos». **No está publicada** y la versión no se subió: al publicar, INVENTARIO pasa a 118, **solo**. TÉCNICOS, OFICINAS y RED no cambian. Las pruebas no escribieron nada en la base real: solo se leyó, con GET y sin copiar datos personales.
+
+Elkin todavía no respondió las 15 decisiones de la especificación: se construyó lo recomendado (ver «Decisiones de Elkin pendientes»).
+
+**Cómo se hizo.** Primero se midieron los datos reales (solo lectura) y se armaron cuatro mapas: las ventanas, las podas de filas en 0, las pruebas y el cruce con las otras apps. Con eso se escribió una especificación, que revisó una crítica adversaria (H1 a H16). Después vinieron las piezas comunes (C0) y cinco partes en paralelo, cada una en su copia: C1 ↩️ Devolver, C2 las filas en 0 y 👷 Cuadrillas, C3 la ficha del cliente, C4 cuadrilla, técnico y dotación, y C5 herramientas y solicitudes. Se juntaron sin ningún conflicto: cada función tenía un solo dueño. Al final, dos revisiones adversarias y sus arreglos (ver «Revisión adversaria»). Lo que sigue es lo que quedó, ya con esos arreglos. La especificación, los mapas y las copias de cada paso están en el scratchpad de la sesión (`etapa4/`).
+
+**Lo que dijeron los datos (14 oct, solo lectura; la base del 13 oct):**
+- `inventario/datos` pesa 512,5 KB, el 50 % de 1 MiB. No hay `_tumbasFila` ni filas vaciadas por 🧩: 🧩 todavía no se usa.
+- El 13 oct hubo 30 escrituras en `inventario/datos` en 6,8 h (17 de INVENTARIO y 13 de TÉCNICOS). Cada una pone objetos nuevos en `DB` en todas las pantallas. Una ventana abierta 2 minutos recibe un cambio de otra pantalla 1 de cada 3 veces en la hora pico, y 1 de cada 7 en promedio.
+- Las 6 cuadrillas tienen 126 filas: 37 en 0 sin seriales y 1 en 0 con serial («TV BOX  TL618», CUADRILLA A CARTAGENA DEL CHAIRA). La siguiente devolución o instalación desde INVENTARIO en esa cuadrilla la habría borrado con su serial.
+- Sin podar, las cuadrillas sumarían de 16 a 26 filas en 0 al mes (2–3 KB), con techo: una fila en 0 se reutiliza cuando el artículo vuelve.
+- 38 clientes usaron ➕ Equipos y 9 tienen traslado. 8 clientes tienen dos equipos con el mismo nombre y tipo: un equipo no se puede buscar solo por su nombre. No hay ventas abiertas.
+
+### Qué quedó en cada archivo
+
+| Archivo | Qué cambió |
+|---|---|
+| `INVENTARIO_PTOVISION.html` (de 16.089 a 16.928 líneas) | La regla de la etapa en todas las ventanas que mueven stock o escriben en una cuadrilla, un técnico o un cliente: ↩️ Devolver en una transacción (C1); las filas en 0 que se quedan y «Ver vacías» en 👷 Cuadrillas y en «Corregir» (C2); la ficha del cliente (C3); cuadrilla, técnico y dotación (C4); 🔧, aprobar una edición, ✏️ del admin, ventas y traslados (C5). Las piezas comunes van en el bloque «Etapa 4 (docs/12, C0)», justo antes del de «Etapa 2 (docs/12, C1)». Debajo, un bloque por parte, cada uno con su ancla «Etapa 4 · Cn: funciones nuevas (debajo)». Las funciones de siempre que cambiaron llevan el comentario «Etapa 4 (Cn)»; los arreglos de las revisiones, «Revisión de la Etapa 4» o «Revisión 2 de la Etapa 4». También se puso al día el comentario de 🧩 de la Etapa 3 (su cabecera y la del 🧹): las cuadrillas ya no pierden sus puentes |
+| `PRUEBAS.html` (de 10.693 a 12.278 líneas) | 7 pruebas nuevas en el grupo de INVENTARIO (178 en total) y 5 viejas adaptadas |
+| Banco (`_PRUEBAS_SIMULADAS_2026-10-09/trabajo`) | `inv/etapa4.js`, nuevo (2.405 líneas): 70 escenarios, con `--v117`, `--html=`, `--tec=`, `--reloj=` y los grupos `'W*'`, `'RV*'` y `'R2*'`. `inv/etapa2.js`: `inv117()` y F1 rehecha. `inv/etapa3.js`: `inv117()`, la opción `sinPantallas`, la espera `listadoQuieto` y 8 escenarios adaptados |
+| TÉCNICOS, OFICINAS, RED | Sin cambios. TÉCNICOS ya dejaba las filas en 0 y las escondía (filtra `cantidad>0`). OFICINAS y RED solo leen `inventario/*`: las bodegas por id y nombre, y OFICINAS los bloques de clientes para mostrarlos |
+
+### La regla de la etapa y las piezas comunes (C0)
+
+Cada escritura en `inventario/datos` o en un bloque de clientes pone **objetos nuevos** en `DB`, venga de otra bodega, del admin o del celular de un técnico, aunque haya tocado otra cuadrilla: el oyente hace `Object.assign` con copias, y los clientes entran con `DB.clientes = all`. Una ventana que guardó al abrirse la cuadrilla, la fila, el técnico o el cliente escribía después sobre objetos sueltos: lo escrito se perdía sin aviso, o quedaba a medias (el stock se movía y el cliente no).
+
+La regla, en todas las ventanas:
+1. **Llaves, no referencias.** Al abrir se guardan ids, la llave de la fila de la Etapa 3 (con `rep`), la huella de un equipo o de un elemento de dotación, y lo que la ventana muestra.
+2. **Lo de ahora.** Al guardar, todo se busca por su llave en la `DB` de ahora, o en lo recién leído dentro de una transacción.
+3. **Cambios, no valores de antes.** Se aplica lo que la persona tocó, o la diferencia, no los valores que se vieron al abrir.
+4. **Todo o nada.** Si lo que mostraba la ventana ya no está o cambió, no se guarda nada y se avisa en español. Primero se valida todo, después se escribe.
+
+Además, **ninguna operación quita filas por quedar en 0** (ver «Las filas en 0 que se quedan»).
+
+C0 son dos funciones y las anclas. `_msgVentanaViejaInv(que, porque)` arma el aviso de siempre: «⚠️ X cambió mientras tenías la ventana abierta (porque). No se guardó nada. Vuelve a abrir la ventana para trabajar con lo de ahora.». `_avisoVentanaViejaInv(que, porque, tab)` cierra la ventana, repinta la pestaña y avisa, sin tocar datos. Las cinco anclas van en INVENTARIO, en PRUEBAS y en el banco.
+
+### ↩️ Devolver material de cuadrilla (C1)
+
+**Antes**, la ventana guardaba al abrirse la cuadrilla, sus filas y la bodega, y descontaba y sumaba sobre esos objetos. Con cualquier escritura de otra pantalla de por medio (basta el consumo de un técnico) no se movía nada, pero el registro decía «Devolución: N uds» y el kardex anotaba una entrada que no ocurrió. Si solo una de las dos partes seguía viva, el material quedaba contado dos veces. Además:
+- el aviso de los seriales iba dentro del `forEach`: devolvía los demás renglones y cerraba; al repetir, el cable salía dos veces;
+- una cantidad mayor que la disponible se saltaba callada;
+- dos pantallas podían devolver el mismo serial, y quedaba dos veces en la bodega;
+- quitaba todas las filas en 0 de la cuadrilla, también una con serial y los puentes de 🧩.
+
+**Ahora** (`modalDevolverMat`):
+- **Al abrir, la foto:** la llave de cada fila (`_llaveDeFilaInv`), lo que se ve y la bodega de la cuadrilla. Si la cuadrilla ya no está, aviso y la lista de ahora. Todo va escapado con `_catEsc`, y una vaciada que volvió a tener material lleva su etiqueta 🧩. Los ids de los campos (`dev_<idx>`, `.devSN_<idx>`) y `updateDevSNs` no cambian.
+- **Al Guardar, primero lo escrito contra la foto**, sin tocar nada. Una cantidad no válida, mayor que lo disponible o con los seriales marcados que no cuadran sale en **un solo** aviso («⚠️ No se devolvió nada. Corrige esto y vuelve a guardar: …»), y la ventana sigue abierta.
+- **Sin señal no se devuelve:** «📴 Sin internet no se puede devolver material: se guarda en un solo paso contra la nube…», con la ventana abierta. Antes parecía guardar y a veces se perdía.
+- **Una transacción** (`_fbTransaccionInv`, como la Entrega) relee la nube. `_planDevolucionInv(datos, pedido)` valida **todo** sobre lo recién leído: la cuadrilla, su bodega, cada fila por su llave (`_filaElegidaInv`, con `rep`), las cantidades sumadas por fila y cada serial. Si algo no está o no alcanza, no devuelve nada: «❌ No se devolvió nada: la cuadrilla cambió mientras tenías la ventana abierta. • …». Si todo cuadra, baja la cuadrilla y sube la bodega en la fila que da `_filaParaEntrarInv` (con el nombre de la fila de ahora, como TÉCNICOS 102) o en una fila nueva. El kardex se escribe dentro de la misma transacción (`_lineaKardexInv`, el formato de `registrarMovimiento`). La transacción escribe solo `bodegas` y `cuadrillas`.
+- **Después del commit,** la memoria se pone al día con `_aplicarNubeParcialInv`, como un snapshot: no pisa lo que la pantalla tenga sin guardar. Recién ahí va el registro («Devolución: N uds de "cuadrilla" → "bodega"»). Si el registro fallara, la ventana se cierra igual: otro Guardar devolvería dos veces.
+- **Un doble clic** mientras corre la transacción no hace nada (`window._devolviendoInv`, dentro de `try…finally`).
+- **Un aviso de más, no pedido:** si la ventana no mostró seriales en una fila y ahora tiene, «"X": ahora tiene seriales en la cuadrilla (otra pantalla los agregó): hay que marcar cuáles devuelves.».
+- Una fila que 🧩 unificó con la ventana abierta: «"X": Este artículo se unificó en "P". Devuélvelo desde "P".», y nada (duda 1 de la especificación).
+- `_errorNubeTxtInv(e)` pasa a español el error de la nube: modo prueba, sin conexión, el choque con otra pantalla. Si no, el mensaje tal cual.
+
+**La respuesta perdida: el devId (primera revisión).** Si el commit entra y la respuesta se pierde, Firestore repite la transacción, o la persona vuelve a pulsar Guardar. Antes el cable salía dos veces, o un serial decía «ya no está» y el aviso «No se devolvió nada» cuando sí se había devuelto. Ahora:
+- cada ventana crea un `devId` al abrirse (`dev` + la hora en base 36 + 4 letras o cifras al azar), el mismo en todos sus Guardar;
+- cada línea de kardex de la devolución lleva `ref: devId`;
+- si la bodega recién leída ya tiene una línea con ese `ref` (`_devolucionYaEnBodegaInv`), `_planDevolucionInv` da `yaHecha` y la transacción no escribe nada. La memoria toma lo leído y queda un solo registro;
+- con un error del que no se sabe si el commit llegó (`_errorNubeInciertoInv`), ya no sale «No se devolvió nada» sino «⚠️ No se pudo confirmar si la devolución quedó guardada… vuelve a pulsar Guardar cuando haya señal. Si ya había quedado guardada, no se devuelve dos veces.», con la ventana abierta;
+- la marca vive en el kardex, que guarda 50 líneas por fila. Cubre el reintento en el acto y el siguiente Guardar de la misma ventana, no una repetición días después. La forma de las cuadrillas no cambia.
+
+Lo que dice cada aviso después de un «no se pudo confirmar» se afinó en la segunda revisión (ver «Segunda revisión»).
+
+### Las filas en 0 que se quedan (C2)
+
+**Por qué la opción a.** Hasta la v117, tres sitios quitaban **todas** las filas en 0 de la cuadrilla, no solo las que tocaban: ↩️ Devolver, la instalación (`saveInstLogic`) y «Corregir Cantidades», esta con lápida `'corregir'`. Si una operación bajaba una fila a 0 y la quitaba en el mismo paso, y otra pantalla le había cambiado algo a esa fila, la regla de la fusión («quitada en un lado y cambiada en el otro se conserva») dejaba la fila de la nube **con la cantidad de antes**: lo devuelto o instalado volvía a la cuadrilla. Medido con las funciones reales (mapa de podas):
+
+| Caso | Correcto | v117 | (b) quitar con lápida | (a) dejar en 0 |
+|---|---|---|---|---|
+| Saco 2 de una fila que tenía 2; en la nube entró 1 | 1 | 3 | 3 | 1 |
+| Igual, pero la nube solo cambió la categoría | 0 | 2 | 0 | 0 |
+| «Corregir» 5 → 0; entran 2 antes del guardado | 2 | 7 | 7 y «volvió…» | 2 |
+| Instalé las 2; una pantalla atrasada tocó la fila y guarda después | 0 | 2 (lo instalado vuelve) | depende | 0 |
+| SR-SINP: una pantalla atrasada instala los 3 de P y usa 1 de A; en la nube 🧩 dejó P en 5 | 1 | 5 | 5 | 1 |
+
+Con la fila en 0, la fusión fina hace `max(0, nube + (aquí − base))` y el número sale exacto en todos los casos. Ya lo hacían TÉCNICOS (que las esconde) y la confirmación de consumos. La opción (b) no sirve: la lápida se anula cuando entra material (regla de la Etapa 2), queda la fila de la nube como hoy y sale un aviso falso «volvió…».
+
+Efectos:
+- Los puentes y eslabones de 🧩 (D5) ya no se pierden en las cuadrillas: solo los quita el 🧹 de la Etapa 3, con sus reglas. Era el dudoso «D5 en cuadrillas» de la Etapa 3.
+- Se cierra el hueco del lado de la que queda (dudoso 2 de la Etapa 3): con P en 0 en la memoria, `_unifRepetibleInv` la encuentra, la repetición corre y la fusión da lo exacto (W6 exige 1). D2 se queda, porque una pantalla v117 sigue podando hasta recargarse.
+- Los códigos de las filas ya no cambian con cada entrega: la fila en 0 se reutiliza cuando vuelve el artículo.
+- Costo: 2–3 KB al mes en `inventario/datos`, con techo.
+
+**Qué cambió:**
+- `saveInstLogic` ya no filtra `cantidad > 0`.
+- «Corregir Cantidades» (`modalCorregirCantCuad`) ya no quita filas ni deja lápidas `'corregir'`. Las que ya existen, o las que suba una pantalla v117, siguen valiendo; `_antesCorregirTFInv` se queda (Etapa 2). El pie de la ventana dice: «Un artículo que dejes en **0** se queda en la lista en 0 (se esconde con «Ver vacías»)…».
+- ↩️ Devolver no quita nada (arriba).
+
+**«Corregir» y las vaciadas.** Una fila vaciada por 🧩 sale con su etiqueta y con sus casillas deshabilitadas. Si se le fuerza un valor, o si 🧩 la vació con la ventana abierta: «⚠️ "X": Este artículo se unificó en "P". Corrige "P". No se corrigió nada.», y nada. Antes «Corregir» dejaba subirle la cantidad (el riesgo «Cuadrillas» de la Etapa 3). Una fila escondida o unificada que el admin no tocó ya no pasa por la validación de la ventana (ver «Lo que se apartó…»).
+
+**«Ver vacías» en 👷 Cuadrillas y en «Corregir».** Es la decisión 2, y cambia la decisión 8 de la Etapa 3, que las escondía solo en Bodegas:
+- La cabecera de 👷 lleva la casilla «Ver vacías (N)». Apagada (lo de siempre al entrar), no se pintan las filas que `_filaOcultableInv` da por escondibles: en 0 y sin seriales reales, o vaciadas por 🧩 en 0. Debajo de cada tabla va la nota de Bodegas («🙈 k artículo(s) vacío(s) oculto(s).»), o «Sin artículos con stock (k vacío(s) oculto(s)).» en lugar de la tabla.
+- Las negativas, las de 0 con seriales y las vaciadas que volvieron a tener material se ven siempre. El total «uds» suma todas.
+- La preferencia es de cada bodega (y del admin), con su propia clave: `localStorage['inv_ver_vacias_cuad:admin']` o `['inv_ver_vacias_cuad:bod_<id>']`. Nunca va a la base. Si el navegador no deja guardar, vale para esa pestaña. Al cambiarla, la cuadrilla que se estaba mirando sigue abierta.
+- En «Corregir», las mismas filas se esconden según la preferencia de 👷. La casilla «Ver vacías (k)» de la ventana las muestra y esconde sin repintar ni guardar. Los ids `corr_<idx>` siguen siendo la posición.
+- De paso, 👷 escapa los nombres, tipos, unidades y seriales (antes iban sin escapar, y la base se escribe desde internet), y cada nombre lleva su etiqueta 🧩.
+- Funciones nuevas: `_claveVerVaciasCuadInv`, `_verVaciasCuadInv`, `_alternarVerVaciasCuadInv`, `_tablaMaterialCuadInv` y `_corrVerVaciasInv`.
+
+**TL618.** La fila en 0 con serial se queda y se ve siempre, porque tiene un serial. La 🩺 Auditoría la sigue mostrando, y corregirla es de la Etapa 5. Ojo: mientras siga así, «Corregir» de **cualquier** otra fila de esa cuadrilla avisa «deja como máximo 0 serial(es) marcados o sube la cantidad», porque la validación de siempre mira todas las filas visibles. El admin tiene que resolverla primero: subirla a 1 o desmarcar el serial (dudoso 1 de la primera revisión).
+
+### La ficha del cliente: el cliente de AHORA (C3)
+
+Las seis ventanas (➕ Equipos, 🚚 Traslado, 🔄 Cambio de equipo, ↩️ Retiro parcial, 🔴 Retiro del cliente y ✏️ Editar) guardaban al abrirse el cliente, y el equipo por su posición. Los clientes no tienen fusión: el bloque que cambia entra entero. Con un bloque nuevo de por medio, el equipo salía del stock y no llegaba al cliente, o entraba a la bodega y seguía en el cliente (contado dos veces). El retiro del cliente lo metía dos veces.
+
+**La huella.** Los equipos no tienen id. `_huellaEqCliInv(eq)` es el nombre (la clave), el tipo, la cantidad y los seriales ordenados. `_clienteVivoInv(id)` da el cliente de ahora (sin id, ninguno). `_eqClienteVivoInv(cl, pos, huella)` da el equipo de esa posición si tiene la huella; si no, el primero con ella.
+
+**Ventana por ventana.** En todas, primero se resuelven el cliente y el equipo de ahora y se valida todo, también la bodega o la cuadrilla de destino (antes daba `TypeError` si ya no estaba). Después se escribe. Si algo no cuadra, nada:
+- **↩️ Retiro parcial y 🔄 Cambio de equipo:** si ese equipo cambió, «⚠️ "X" en la ficha de "Y" cambió mientras tenías la ventana abierta (otra pantalla lo movió). No se guardó nada…». El retiro quita el equipo por objeto (`splice(indexOf(eqV))`), ya no por la posición de cuando se abrió. En el cambio, tampoco se anota `equiposDanados`.
+- **➕ Equipos:** como solo agrega, se anota en el cliente de ahora aunque sus equipos hayan cambiado.
+- **🚚 Traslado:** si se marcó algún «📦 Se retira» y los equipos activos cambiaron, aviso y nada. Sin retiros se aplica igual. La cuadrilla instaladora solo se escribe si se cambió en la ventana.
+- **🔴 Retiro del cliente:** «⚠️ Ese cliente ya lo retiraron en otra pantalla. No se hizo nada.». Si sus equipos activos cambiaron, aviso y nada: nunca dos ONU en la bodega.
+- **✏️ Editar cliente:** se escribe solo cada campo que cambió en la ventana (la foto es `TempLists.cliAbrir`). Los equipos: si no se tocaron, quedan los de ahora (una ONU que otra pantalla retiró no vuelve); si se tocaron y además cambiaron en otro lado, aviso y nada. **Cambio visible:** un cliente sin fecha de instalación ya no queda con la fecha de hoy si no se toca ese campo.
+- Un cliente que ya no está: «⚠️ Ese cliente ya no está (otra pantalla lo retiró). No se guardó nada.», sin `TypeError`.
+- El nombre del cliente solo va en los avisos de pantalla, nunca a un campo nuevo.
+
+**Los botones de una lista vieja.** Cada fila de «Equipos Activos» lleva su huella (`data-eqh`), y 🔄 y ↩️ la pasan como tercer argumento (`_huellaEqDeBotonInv(this)`). El botón de un equipo que ya no está avisa «⚠️ Ese equipo cambió en la ficha del cliente… Te muestro la lista de ahora.». El de uno que cambió de posición abre **ese** equipo; antes abría otro, o nada. Con dos argumentos, como siempre.
+
+**Los gemelos (primera revisión).** Dos equipos sin serial con el mismo nombre, tipo y cantidad tienen la misma huella. ↩️ o 🔄 sobre uno que otra pantalla ya retiró actuaba sobre el otro: entraba dos veces a la bodega y el cliente quedaba sin él. Ahora la ventana cuenta al abrir cuántos tienen esa huella (`_cuantosHuellaCliInv`), y `_eqClienteVivoInv` recibe ese número como 4.º argumento: si al guardar hay menos, aviso y nada, aunque la posición coincida. Con un botón de una lista vieja, `_huellaEqDeBotonInv` anota cuántas filas de esa lista tenían la huella (`window._botonEqInv`), y `_nHuellaBotonInv` lo toma una sola vez, solo para esa huella y solo durante 2 s. Límite: si otra pantalla movió el **otro** gemelo, esta también avisa, porque no hay forma de saber cuál se movió.
+
+**Confirmar un consumo** (`_confirmarConsumoElegidos`; no se tocan `_planConsumoInv`, `_aplicarUnidadesInv` ni `_partirItemsInv`):
+- **W22, la ficha de ahora.** La ficha se buscaba antes de la transacción y se anotaba después, sobre ese objeto. Si en ese segundo llegaba el bloque de clientes, el material no quedaba en la ficha, pero el consumo ya decía `materialAplicadoCliente:true` y «🔄 Sincronizar material con clientes» no lo repetía. Ahora, después del commit, la ficha se vuelve a buscar y se anota en ella. Si el cliente se retiró mientras tanto: «⚠️ El cliente "X" se retiró del inventario mientras se confirmaba: el material no quedó anotado en su ficha.», y el registro ya no dice «anotado en ficha» cuando no se anotó. Queda un hueco justo después del commit (ver «Pendiente»).
+- **W25, el serial escogido.** Si la bodega escogió un serial en `.ccEscoger` y, con la ventana abierta, otra pantalla lo movió, antes se confirmaba igual: el consumo decía que el equipo quedó instalado y el serial seguía en otro sitio. Ahora una guarda dentro de la transacción, antes de `_aplicarUnidadesInv`, lo mira sobre lo recién leído: «Mientras revisabas, la cuadrilla cambió… • El serial S que escogiste ya no está en la cuadrilla. Vuelve a abrir el consumo.». No se confirma nada y el consumo sigue pendiente.
+
+### Cuadrilla, técnico y dotación (C4)
+
+✏️ Editar cuadrilla, ✏️ Editar técnico, 📦 Directo y 🗑️ de la dotación guardaban al abrirse la cuadrilla y el técnico. Cualquier escritura de otra pantalla los dejaba sueltos y lo escrito se perdía sin aviso. Eso incluía la bodega de la cuadrilla (de ella dependen las devoluciones) y la cédula del técnico (con ella TÉCNICOS encuentra su cuadrilla). Quitar de la dotación iba por posición: con la lista corrida se quitaba **otro** elemento.
+- Al abrir se guarda lo que muestran los campos (`_camposVentanaInv`). Al guardar, la cuadrilla y el técnico se buscan por id en la `DB` de ahora (`_cuadrillaDeAhoraInv`, `_tecnicoDeAhoraInv`), y se escribe **solo lo que la persona cambió** (`_camposTocadosInv`): un campo que otra pantalla cambió mientras tanto se conserva. Sin cambios, solo se cierra la ventana, sin guardar ni registrar. Un nombre vacío no se escribe, como siempre.
+- 📦 Directo agrega a la dotación del técnico de ahora.
+- **🗑️ de la dotación, por huella.** `_huellaDotInv(d)` junta el id, el nombre, la cantidad, el tipo, la unidad, la categoría, la fecha, si es directo y los seriales. El id solo no basta, porque `addDotItem` copia el de la fila. 👁️ pinta la huella en cada fila (`data-dot`) y 🗑️ la pasa como 4.º argumento: `delTecDotItem(cId, tId, idx, el)`. Si ese elemento ya no está: «⚠️ Ese elemento de la dotación cambió (otra pantalla lo modificó). Te muestro la dotación de ahora.». Sin el 4.º argumento, por posición, como siempre.
+- Una cuadrilla o un técnico que ya no están: aviso y nada, también al abrir (antes `TypeError`). Todo va escapado con `_catEsc`.
+- **🎒 Dotar** (`saveDotacionLogic`): si la cuadrilla o el técnico ya no están, «⚠️ La cuadrilla o el técnico ya no están (otra pantalla los quitó mientras armabas la dotación). No se descontó nada.». Antes descontaba el primer renglón y fallaba.
+- Cambios visibles menores: un receptor vacío ya no se muestra como «undefined», y una bodega que no está en la lista ya no se cambia sola por la primera al guardar otro campo.
+
+### 🔧 Seriales en dos sitios (C5)
+
+`window._snReps` guardaba **referencias** a los registros y las filas. Con un snapshot de por medio, los botones no cambiaban nada (o una parte), y aun así el registro decía «dejado solo en…» y el aviso «✅ Resueltos n de m». Es la herramienta que va a usar la Etapa 5.
+- `modalSerialesRepetidos` guarda además, por sitio, `col`, `regId` y la llave de la fila.
+- `_sitiosSNVivosInv(k, sitios)` vuelve a recorrer las bodegas y cuadrillas de ahora y compara la firma de cada sitio (`_firmaSitioSNInv`: registro, código, nombre y tipo). Si son los mismos, devuelve los de ahora; si no, `null`.
+- `_dejarSNSoloEn`: si el serial cambió de sitio, «⚠️ El serial S cambió de sitio mientras tenías la ventana abierta (otra pantalla lo movió). No se cambió nada. Te muestro la lista de ahora.», sin registro. Si no, `_aplicarSNSoloEn` (sin cambios) sobre lo de ahora, con registro y guardado solo si de verdad cambió algo.
+- `_resolverSNConPrueba` cuenta lo resuelto de verdad: «✅ Resueltos n de m.» y, si hubo, «⚠️ k cambiaron mientras tenías la ventana abierta y no se tocaron.». Con 0: «No se cambió nada…». Nunca «✅» sin cambio.
+- Hacerlo en una transacción y comparar los seriales normalizados al escribir queda para la Etapa 5.
+
+### Aprobar una edición: solo lo que la bodega cambió (C5)
+
+`approveEdit` hacía `Object.assign(m, req.datos)`: todo en absoluto, también la lista de seriales que armó la bodega al pedir. Un serial que entró después se perdía y uno que salió volvía, y quedaba en dos sitios. Avisaba si había cambiado la cantidad, no si habían cambiado los seriales.
+
+**Lo que mostraba el formulario.** `modalEditMat` toma, después de abrir la ventana, lo que muestran sus campos (`_vAbrir`), con la misma lectura que el Guardar. Hace falta porque los `<select>` no muestran todos los valores de la base: una fila con unidad «mts» sale como «Unidad» y un tipo vacío como «Nuevo» (crítica H5). La solicitud de la bodega guarda eso en `datosAntes.form`, más los códigos de las fotos (`fotosRef`), con `_datosAntesFormInv`. `nombre`, `cantidad`, `unidad` y `snes` de `datosAntes` siguen igual. La lista de cambios y la salida «sin cambios» comparan contra `_vAbrir`.
+
+**`_planEdicionInv(m, req)`**, pura, decide qué se aplica sobre la fila de ahora:
+- nombre, tipo, unidad, mínimo, categoría y observación: con `form` (las solicitudes desde la 118), solo los que la bodega cambió en el formulario; sin `form` (las de antes), los que difieren de los de ahora, como siempre;
+- cantidad: si la bodega no la cambió, no se toca. Si la cambió, se aplica **el ajuste** sobre la de ahora: `max(0, hoy + (pedida − antes))`. Desde la v77 todas las solicitudes traen `datosAntes.cantidad`, así que esto vale también para las pendientes de antes;
+- seriales: se quitan los que la bodega quitó y se agregan los que agregó, comparados con `_snNormal`, sobre los de ahora;
+- fotos: por diferencia (`fotosRef`). Las incrustadas solo pueden disminuir, y una que otra pantalla quitó no vuelve;
+- `aplicado` lleva solo lo que cambia, sin `undefined`.
+
+**`yaContadas` (primera revisión).** Si la bodega pidió 3 → 2 quitando E2, y E2 ya había salido en una entrega (la fila ya estaba en 2), el ajuste se aplicaba otra vez: quedaba 1 con 2 seriales. Ahora los seriales se calculan primero, y las unidades del ajuste que ellos prueban ya movidas no se ajustan otra vez. `yaContadas` es el mínimo entre los seriales quitados que ya no estaban, el ajuste y lo que la cantidad de verdad bajó desde la solicitud (y lo mismo al subir). Un serial quitado sin su unidad no descuenta nada. Caso A: 2 [E1, E3]. Caso B (subir, con E4 ya adentro): 4.
+
+**`approveEdit`**, camino normal:
+- la pregunta de la v77 sale solo si la bodega pidió otra cantidad y la de ahora no es la de la solicitud: «⚠️ OJO: la cantidad de "X" CAMBIÓ… • La bodega pidió: B (ajuste de ±d) • Ahora en bodega hay: H • Ya contado en «ahora»: N (…) • Si apruebas quedará: F (se aplica el ajuste, no el número) ¿Aplicar?». «Cancelar» la deja pendiente;
+- aplica `Object.assign(m, plan.aplicado)`. El efecto de la Etapa 2 lleva lo que de verdad se aplicó, para repetir lo mismo tras recargar;
+- el aviso final agrega los seriales (`_textoSerialesEdicionInv`): «se quitaron…», «se agregaron…», «no hubo que mover ninguno» y, si cambiaron desde la solicitud, que se aplicó solo lo que pidió la bodega;
+- el camino «otra fila» (la pregunta de la fila hermana) sigue como siempre, en absoluto (duda 11).
+
+**Repetir tras recargar (primera revisión).** Si la aprobación no llegó a la nube, `_reaplicarEditarDecInv` la repite al recargar. Con el efecto nuevo, que lleva solo lo que cambia, «ya aplicada» se miraba en todas las filas de ese código. Si una hermana ya tenía esos valores (el mismo mínimo, por ejemplo), la edición se daba por hecha sin hacerse. Ahora se mira solo en las filas de ese código con el nombre y el tipo finales. Esa función es de la Etapa 2 y la especificación decía que nadie la tocara (ver «Lo que se apartó…»).
+
+### ✏️ del administrador: solo lo que él cambió (C5)
+
+En la rama del admin de `modalEditMat`, cada campo se escribe en la fila de ahora **solo si el formulario cambió** respecto a `_vAbrir`. Los seriales, solo si hay marcados para quitar o nuevos. Las fotos marcadas se quitan por su valor, no por su posición. Así no se pisa una observación o una foto que otra pantalla puso mientras tanto, y la unidad «mts» ya no pasa sola a «Unidad» al guardar otra cosa (W23). Sin `_vAbrir`, lo de antes. La foto de cantidad y seriales, la vaciada, el kardex, el registro y las fotos nuevas no cambian.
+
+### 🗑️ de Ventas por su código (C5)
+
+El botón pasaba solo la posición en la lista, y el archivador saca las ventas viejas del principio: con la lista vieja se borraba otra venta. Ahora pasa también el código: `solicitarEliminarVenta(idx, vid)`. Si en esa posición no está esa venta, se busca por su código. Si ya no está: «Esa venta ya no está en la lista (se archivó o la borró otra pantalla). Te muestro la lista de ahora.». Con un solo argumento, como siempre.
+
+### Un traslado que ya se decidió (C5)
+
+`procTrans` sobre un traslado que ya no está, o que ya no está pendiente, no hacía nada ni decía nada. Ahora: «ℹ️ Ese traslado ya se decidió (o ya no está). Te muestro la lista de ahora.». No dice «en otra pantalla», porque un doble clic sobre una decisión de esta misma pantalla, todavía «⏳ por subir», también llega ahí. No pasa a transacción: aceptar el mismo traslado en dos pantallas a la vez sigue siendo posible (Etapa 7, decisión 11), porque una transacción cambiaría la decisión sin señal de la Etapa 2.
+
+### Segunda revisión: los avisos de ↩️ Devolver, ➕ Equipos y la venta que vuelve
+
+**↩️ Devolver: lo que dice cada aviso** (los dos confirmados de la segunda pasada):
+1. El aviso «Lo que cambiaste después… NO se devolvió» era falso cuando lo que quedó guardado era justo lo cambiado. Ejemplo: 10 no entra; se cambia a 12 y ese commit entra con la respuesta perdida. La nube tenía 12 y el aviso decía que no.
+2. Si el commit entraba y el último reintento chocaba (`failed-precondition`: «the stored version does not match the required base version»), salía «❌ No se devolvió nada», en inglés, cuando sí se había devuelto. Y el Guardar siguiente, con una ONU agregada, se cerraba sin avisar que la ONU no salió.
+
+El arreglo:
+- Con el devId, solo un commit de la ventana puede entrar, y todo intento posterior lee `yaHecha`. El que entró es el **último intento que planeó escribir** antes del primer `yaHecha`.
+- Cada Guardar lleva `escribioEste`. Cada intento que planea escribir lo marca y anota lo que mandaba en `foto.envioEscrito`. Reemplaza a `envioIncierto`, que guardaba lo del primer Guardar con error.
+- `yaHecha` en un Guardar que planeó escribir: fue su propio commit (el SDK repitió tras perder la respuesta). Es un guardado normal, sin aviso.
+- `yaHecha` en un Guardar que no planeó escribir: lo guardó uno anterior. **Siempre** se avisa «✅ Esa devolución ya había quedado guardada (N uds)…», aunque el anterior no se hubiera dado por incierto. «Lo que cambiaste después en la ventana NO se devolvió» sale solo si lo de este Guardar no es lo que entró.
+- `_errorNubeInciertoInv` cuenta como «no se sabe» todos los errores que reintenta el SDK 10.12: además de los de red, `failed-precondition`, `already-exists` y `unauthenticated`, y los textos «stored version» y «base version». Modo prueba, pantalla vieja, `permission-denied` e `invalid-argument` siguen siendo «seguro que no».
+- `_errorNubeTxtInv` da el choque en español: «🔄 Otra pantalla estaba guardando en la nube al mismo tiempo y no se alcanzó a confirmar. Inténtalo de nuevo en un momento.».
+- Después de un «no se pudo confirmar», los avisos de lo escrito mal, de sin internet y de fallo seguro dicen «Este Guardar no devolvió nada (el anterior sigue sin confirmar)» en vez de «No se devolvió nada». En una ventana sin dudas, los textos de siempre.
+- Límite que no se cubrió: un commit que la nube aplicara **después** de que el Guardar siguiente ya releyó. Con Firestore es prácticamente imposible: el commit se aplica antes de responder.
+
+**➕ Equipos: un 2.º Guardar ya no repite.** Era el dudoso 3 de la primera pasada. Se investigó y se arregló ahora.
+- **Reproducido** con la app real, igual en la copia de trabajo y en la v117 publicada. El Guardar de `modalAgregarEquipoCliente` trabaja primero en la memoria (baja la fila, quita los seriales, agrega al historial y a los equipos del cliente, deja el registro) y después llama `_fbSaveImmediate()` con `.then` y sin `.catch`.
+- Si el guardado falla, `_fbSaveCore` programa el reintento con la memoria ya cambiada, esconde el velo y relanza el error: el `.then` no corre. La ventana queda abierta, sin aviso (en el primer fallo solo sale el indicador chico «Error al guardar») y con «Uncaught (in promise)». Nada se deshace, y el 2.º Guardar repite todo sobre la memoria ya descontada.
+- **Medido** con 10 de cable sobre 100, donde debe quedar bodega 90 y cliente 10:
+  - sin señal, y el 2.º Guardar con señal: 80 y 20, con 2 historiales y 2 registros (AE-1);
+  - dos Guardar sin señal y Cancelar: el reintento automático sube igual 80 y 20 (AE-1b);
+  - el commit entra y la respuesta es «Connection failed.»: 80 y 20 (AE-2);
+  - con serial, la ONU no se duplica, pero el 2.º Guardar decía el falso «No se descontó nada… ármala de nuevo» (AE-3);
+  - **sin ningún fallo:** si al pulsar Guardar hay otro guardado en curso (el diferido de 400 ms), el Guardar queda en cola sin el velo y un 2.º clic da 80 y 20 (AE-4).
+  - La 🩺 Auditoría no lo ve: es un descuadre callado.
+- **El arreglo:** la marca `_aeHecho`, una por ventana. Se pone después de descontar y agregar, y el callback no hace nada si ya está. Los avisos que no tocan nada (sin equipos, sin nota, cliente o stock que cambió) no la ponen, así que se puede corregir y volver a guardar. Y el `.catch`: cierra la ventana, repinta Clientes y avisa «⚠️ Los equipos quedaron anotados en esta pantalla, pero todavía no llegaron a la nube… La app sigue intentando subirlos sola: no cierres esta pestaña y NO los vuelvas a agregar.». En modo prueba o con pantalla vieja: «⚠️ Los equipos no se guardaron.». No hace falta llamar `save()`: `_fbSaveCore` ya dejó los reintentos programados. La forma de los datos no cambia.
+- **Por qué ahora:** el daño es real y callado (material descontado dos veces y un equipo contado doble en el cliente). Se dispara con un gesto normal, volver a pulsar Guardar con el internet lento de las oficinas. La etapa ya era dueña de ese callback, y son unas 12 líneas.
+- Las demás ventanas de la ficha no tienen el patrón: traslado, cambio, retiro parcial y retiro del cliente cierran en el mismo paso (`save(); closeModal();`), y ✏️/➕ Cliente y ➕ Instalación tienen un `.catch` que cierra. ↩️ Devolver está hecho al revés: escribe la memoria solo después del commit. Confirmar un consumo, al repetir, dice que ya está confirmado.
+- **Queda para después** (ver «Pendiente»): el patrón de AE-4 en ➕ Instalación y en ➕ Agregar cliente nuevo, la Entrega con la respuesta perdida y `sincronizarInstalacionAUnCliente` sin `.catch`.
+
+**La venta que vuelve: confirmada, se deja para después.** En la primera revisión, SR-D5 (de la Etapa 3) falló a veces en el banco: en 1 de 2 corridas completas y en 4 de 7 corridas solas. Se investigó con las apps reales: no es del banco ni de la Etapa 4.
+- **Reproducido** de forma determinista con 11 escenarios `DEP-*`: unas compuertas detienen la lectura o la escritura del guardado mientras el oyente sigue recibiendo. 9 fallan con el repo y los mismos 9 con la v117 publicada; los 2 que pasan son controles. DEP-ECO calca SR-D5: la venta sigue en la nube y el material ya volvió a la bodega. Si se borra otra vez, se devuelve dos veces.
+- **Causa:** la lápida de un registro entero (`_tumbas`) nace solo al guardar, en `_fusionarListasInv` («estaba en la foto de la nube y aquí ya no»). Entre el borrado y esa fusión pasan al menos 400 ms, más la cola si hay un guardado en curso. Si en ese rato llega un snapshot, `_protegerSnapshotInv` no protege el borrado (solo las creaciones de esta pantalla). El oyente del historial pone la lista de la nube y toma su foto, y la venta vuelve: el guardado siguiente ya no ve el borrado.
+- **Segundo hueco:** el oyente de `inventario/datos` hace `Object.assign(window.DB, entrante)` y reemplaza `DB._tumbas` por la lista de la nube. Cualquier snapshot de datos borra la lápida local (DEP-V2b).
+- **Misma clase** (borrar un registro entero sin lápida inmediata):
+  - mueven material `solicitarEliminarVenta` y `approveDeleteVenta`; en la segunda, la solicitud queda «aprobada», la venta sigue y el material ya se devolvió;
+  - el registro reaparece en la nube con `eliminarCuarto`, `eliminarCuadrilla`, `delEntrega`, `delInst` y `delBodega` (con sus cuadrillas);
+  - `_archivarInv` tiene la misma ventana, pero se cura solo.
+  - No afecta a las filas (`_tumbasFila` nace en el acto), a las decisiones ni a nada que vaya por transacción.
+- Confirma el dudoso de la Etapa 2 (§11, «Una venta eliminada vuelve…»), con la pieza que faltaba en aquella nota: la unión en el oyente de `inventario/datos`.
+- **El arreglo está probado en una copia, no en el repo** (`rev2/venta/propuesta_lapida.diff`, unas 30 líneas). Son tres piezas, y las tres hacen falta:
+  1. `window._lapidaRegistroInv(col, id)` pone la lápida en `DB._tumbas` en el momento del borrado, con la forma de siempre;
+  2. `window._unirTumbasEnEntranteInv(entrante)` une a lo que llega de `inventario/datos` las lápidas de esta pantalla que la nube todavía no trae (sin esta, falla DEP-V2b);
+  3. `_protegerSnapshotInv` saca de lo que entra lo que tiene lápida de registro, como ya hace el guardado (sin esta, la venta reaparece en pantalla y un segundo borrado devuelve el material dos veces).
+
+  Con la copia: DEP 11/11, PRUEBAS (grupo inv) 59/59, `etapa2` 25/25, `etapa3` 39/39, `etapa4` 61/61, `revision_oct` 11/11 y SR-D5 6/6.
+- **Por qué después:** no viene de la Etapa 4 ni la empeora: está igual en la v117 y en la v115. La especificación congela `_protegerSnapshotInv` y la fusión (§0) y lo deja para otra etapa (§13.9). Meterlo ahora pediría otra revisión adversaria sobre el núcleo de la sincronización. Y en producción casi no se usa: el 15 oct (solo lectura) había 0 ventas en `inventario/historial` y 3 cuartos, y ningún borrado de venta, cuarto, entrega o cuadrilla en los últimos 130 registros. Puede ir como etapa corta justo después de publicar la v118, o ya, si Elkin lo pide.
+- SR-D5 no se estabilizó en el banco: después de los arreglos pasó las 7 veces que se corrió.
+
+**Aprobar una edición con el serial ya salido y otro equipo entrado (dudoso): sin corregir.** La bodega pide 3 → 2 quitando E2. Antes de aprobar, E2 sale en una entrega (3 → 2) y entra E5 (2 → 3). La cantidad de ahora es la de la solicitud: no sale la pregunta, `yaContadas` da 0 (la cantidad no bajó) y la fila queda con 2 unidades y 3 seriales [E1, E3, E5]. Debía quedar en 3. Un revisor lo dio por falla y el otro no: desde las cantidades no se puede saber si E2 salió con su unidad. La 🩺 Auditoría lo muestra como «cantidad distinta a los seriales». Queda para decidir (ver «Pendiente»).
+
+### Qué cambia en los datos y quién se entera
+
+| Dónde | Qué | ¿Lo lee otra app? |
+|---|---|---|
+| filas de `cuadrillas` | las que quedan en 0 al devolver, instalar o «Corregir» **se quedan** (antes se quitaban). Ningún campo nuevo | TÉCNICOS las esconde (filtra `cantidad>0`), no crea filas y reescribe el arreglo fresco conservando lo que no conoce. OFICINAS y RED no leen filas |
+| `inventario/datos._tumbasFila` | «Corregir» ya no crea lápidas `'corregir'`. Las que hay siguen valiendo | solo INVENTARIO |
+| kardex de las filas de bodega | la devolución escribe su línea dentro de la transacción, con el formato de siempre más `ref` (el devId de la ventana, unos 15 caracteres) | solo INVENTARIO |
+| `inventario/datos.consumosPendientes` | misma forma. Un consumo cuyo serial escogido ya no está en la cuadrilla queda pendiente, en vez de confirmarse | TÉCNICOS lo sigue viendo pendiente y lo reserva, como cualquier consumo sin confirmar. OFICINAS y RED no los leen |
+| `inventario/historial.editRequests` | `datosAntes` de las nuevas gana `form` (lo que mostraba el formulario) y `fotosRef` | solo INVENTARIO. `AVISOS_PENDIENTES.gs` cuenta pendientes: no cambia |
+| `inventario/clientes_*` | misma forma. Las ventanas escriben en el cliente de ahora | OFICINAS y TÉCNICOS leen igual |
+| navegador | `inv_ver_vacias_cuad:admin` o `inv_ver_vacias_cuad:bod_<id>`. El efecto de una edición aprobada (en `inv_decisiones`) lleva solo lo que de verdad se aplicó | — |
+
+- Nada guarda nombres de personas nuevos. El kardex de la devolución dice «Admin» o el nombre de la bodega, como siempre, y el nombre del cliente solo va en los avisos de pantalla.
+- Tamaño: 2–3 KB al mes por las filas en 0, con techo. La devolución pasa de un guardado general a una transacción sobre `inventario/datos`; el registro sigue yendo por el guardado general.
+
+### Lo que se apartó de la especificación
+
+1. **↩️ Devolver, un aviso de más** (C1): «"X": ahora tiene seriales en la cuadrilla (otra pantalla los agregó): hay que marcar cuáles devuelves.». Se quita con una línea.
+2. **↩️ Devolver, el devId** (primera revisión): el kardex lleva `ref`, que el §11 de la especificación no tenía, y hay avisos nuevos («no se pudo confirmar», «ya había quedado guardada», «Este Guardar no devolvió nada…»). `_errorNubeTxtInv` reconoce además los códigos de Firestore y «Connection failed.»; antes ese mensaje salía en inglés.
+3. **«Corregir»** (C2): una fila escondida o unificada que el admin no tocó ya no pasa por la validación. Sin esto, una fila en 0 con «N/A» como serial, o una unificada con seriales, bloqueaba con un aviso sobre algo que no se ve o no se puede cambiar. Las visibles se validan como siempre: de ahí lo de TL618.
+4. **👷 Cuadrillas** (C2): además de lo pedido, escapa el nombre, la especialidad y el receptor de la cuadrilla, y el nombre, el cargo y la cédula del técnico.
+5. **El aviso de la lista de equipos** (C3) dice «La lista de equipos de "X" cambió…». Con `_msgVentanaViejaInv`, el «Los equipos de "X"» de la especificación daba «Los equipos … cambió». Es una línea en `_avisoEquiposCliInv`.
+6. **🚚 Traslado** (C3): la cuadrilla instaladora solo se escribe si se cambió en la ventana. Y el registro de confirmar un consumo ya no dice «anotado en ficha de X» cuando no se anotó.
+7. **Los gemelos** (primera revisión): `_eqClienteVivoInv` ganó un 4.º parámetro opcional, y `_huellaEqDeBotonInv` anota `window._botonEqInv`. La firma de los modales y los `onclick` no cambiaron.
+8. **➕ Equipos** (segunda revisión): la especificación solo pedía el cliente de ahora en el callback. Se agregaron `_aeHecho` y el `.catch`.
+9. **C4:** un receptor vacío ya no se muestra como «undefined», y una bodega que no está en la lista no se cambia sola por la primera. W13d (🎒 Dotar con el técnico quitado) es un escenario de más.
+10. **Fotos incrustadas** (C5): `_planEdicionInv` conserva las entradas de `fotos` que no empiezan por `data:` (el formulario no las mostraba y no se podían marcar). La intersección literal de la especificación las habría quitado.
+11. **`yaContadas`** (primera revisión): la especificación aplicaba siempre el ajuste completo.
+12. **`_reaplicarEditarDecInv`** (primera revisión): la especificación decía que nadie la tocara. Se le agregó el filtro por nombre y tipo, en vez de agregar nombre y tipo al efecto, porque `PRUEBAS.html` compara el efecto al pie de la letra (`{"observaciones":"nota nueva"}`, `{"cantidad":7}`).
+13. **Funciones de más**, todas bajo su ancla:
+    - C3: `_equiposActivosCliInv`, `_repintarClientesInv`, `_avisoClienteNoEstaInv`, `_avisoEqClienteInv`, `_avisoEquiposCliInv`, `_avisoEqBotonViejoInv`, `_equiposFormClienteInv` y `_camposFormClienteInv`;
+    - C4: `_cuadrillaDeAhoraInv`, `_tecnicoDeAhoraInv`, `_dotDeAhoraInv`, `_huellaDotDeBotonInv`, `_camposVentanaInv`, `_camposTocadosInv` y `_avisoNoEstaCuadTecInv`;
+    - C5: `_firmaSitioSNInv`, `_datosAntesFormInv` y `_textoSerialesEdicionInv`.
+14. **El comentario de 🧩 de la Etapa 3** se puso al día: no tenía dueño en la especificación.
+15. **El banco:** los cuatro `.js` locales (`ia.js`, `buzon.js`, `recarga.js`, `pantallas.js`) se sirven siempre desde la copia de trabajo, también con `--v117`; no cambian en esta etapa. `etapa3.js` ganó `sinPantallas` (una pantalla sin latido) y `listadoQuieto`. U6(c), U11(a) y RV-ETIQ abren la v116 después del 🧩.
+
+### Decisiones de Elkin pendientes
+
+La especificación le planteó 15 decisiones. No ha respondido. Se construyó lo recomendado, y cada una se cambia en pocas líneas:
+
+| # | Lo que se le pregunta | Lo construido por defecto |
+|---|---|---|
+| 1 | Cuando un artículo de una cuadrilla queda en 0 al devolver, instalar o corregir, ¿se borra la fila o se queda en 0? | Se queda en 0 (opción a) |
+| 2 | ¿Esconder esos artículos en 👷 Cuadrillas y en «Corregir» con «Ver vacías», como en Bodegas? | Sí. **Cambia lo que decidió en la Etapa 3** (decisión 8: «escondidas solo en Bodegas»): ahora también en 👷 Cuadrillas y en «Corregir» |
+| 3 | «Corregir» no borra los artículos en 0 y no deja cambiar uno unificado con 🧩 | Así. La alternativa (seguir borrando, menos los puentes) deja el caso de 7 donde debían ser 2 |
+| 4 | ¿Un botón para limpiar los artículos en 0 de las cuadrillas? | No por ahora. Un artículo mal creado («srv-profile_2» en Cartagena del Chairá) se queda en 0, escondido |
+| 5 | ↩️ Devolver: todo o nada, en un solo paso contra la nube; sin señal no se devuelve | Así |
+| 6 | Las ventanas de la ficha del cliente con el cliente de ahora; si ese equipo o ese cliente cambió, nada y aviso | Así. De paso, la fecha de instalación vacía ya no se llena sola |
+| 7 | Al aprobar una edición, solo lo que la bodega cambió: los seriales por diferencia y la cantidad como ajuste | Así, con la pregunta que muestra cuánto quedaría |
+| 8 | ✏️ del administrador: solo lo que él cambió | Así. De paso, la unidad «mts» ya no pasa sola a «Unidad» |
+| 9 | 🔧 Seriales en dos sitios: arreglarla ya, porque la usará la Etapa 5 | Así |
+| 10 | Editar cuadrilla, editar técnico, dotación directa y quitar de dotación; borrar una venta por su código | Así |
+| 11 | Aceptar el mismo traslado en dos pantallas a la vez | Solo el aviso «ese traslado ya se decidió». El arreglo completo, con la Etapa 7 |
+| 12 | Que dos pantallas de bodega no se pisen la lista completa de clientes | Aparte, en una etapa corta después de esta |
+| 13 | Que las listas se actualicen solas cuando otra pantalla cambia algo | Después (una franja «Hay cambios — Actualizar»). Una ventana abierta no frena la actualización automática de versión |
+| 14 | Confirmar el material de un técnico: si el serial escogido ya no está en la cuadrilla, no confirmar y avisar | Así |
+| 15 | Para saber: se adaptan unas 10 pruebas viejas; Técnicos no tiene que actualizar | Así: 5 de `PRUEBAS.html` y 8 escenarios del banco |
+
+Además, quedan para decidir con él cuatro puntos de la revisión: la edición con el serial ya salido y otro entrado, el texto del kardex de una edición aprobada, cuándo hacer lo de la venta que vuelve, y si «Corregir» debe validar solo las filas tocadas (TL618).
+
+### Riesgos que quedan
+
+- **Una pantalla v117 abierta** sigue podando las filas en 0 y devolviendo en memoria hasta recargarse. No empeora nada respecto a hoy; por eso D2 se queda. Al publicar hay que recargar todas las pantallas de bodega.
+- **Sin señal no se devuelve material** (decisión 5), y en `?prueba=1` la devolución ya no corre en memoria: sale «🧪 Modo prueba: aquí no se guarda nada.», igual que la Entrega (duda 5).
+- **TL618** bloquea «Corregir» en esa cuadrilla hasta resolverla (arriba).
+- **Las filas en 0 crecen** 2–3 KB al mes, con techo, y no hay botón para limpiarlas (decisión 4).
+- **La instalación desde INVENTARIO sigue en memoria,** sin transacción. Con la fila en 0 ya no devuelve material, pero si dos pantallas instalan lo mismo a la vez, la resta tiene piso en 0, como antes. No se usa desde mayo (duda 6).
+- **Las ventanas del cliente guardan con `save()`.** En los 400 ms del guardado diferido, un bloque de clientes que llegue se lleva el cambio del cliente, y el stock ya se movió (duda 12). Es la lista completa de clientes (decisión 12), lo mismo que W22 justo después del commit.
+- **Una respuesta perdida en una ventana que guarda primero en la memoria** (➕ Equipos y las demás): si otra pantalla cambia esa misma fila antes de que esta relea la nube, la fusión suma los dos cambios. Ya pasaba.
+- **Los gemelos:** si otra pantalla movió el otro gemelo, esta también avisa y hay que volver a abrir.
+- **El devId** dura lo que las 50 líneas del kardex de la fila.
+- **`_reaplicarEditarDecInv`** repite lo aplicado como valores fijos: si otra pantalla movió seriales entre la aprobación y la recarga, los pisaría. Su guarda sigue siendo `cantAntes`. Es como antes, pero con menos datos.
+- **La fusión de `dotacion`** empareja por posición los elementos con el código repetido (`_indiceF3`). Con la huella, 🗑️ escoge bien, pero la fusión fina no cambió.
+- **Las dudas de la especificación (§13)**, construidas como allí dice:
+  - devolver una fila que 🧩 unificó con la ventana abierta no devuelve nada (duda 1);
+  - la cantidad de una edición se aplica como ajuste, no como número fijo; la pregunta muestra las dos cifras (duda 2);
+  - retirar un cliente al que otra pantalla le cambió los equipos se cancela entero (duda 3);
+  - una fila gemela en 0 en TÉCNICOS podría hacer decir «Solo tienes 0…» al devolver; hoy no hay gemelas exactas (duda 7);
+  - «Ver vacías» de «Corregir» no guarda la preferencia (duda 8);
+  - devolver desde INVENTARIO un serial que un técnico ya reportó instalado: el consumo queda pendiente, sin pérdida (duda 10, Etapa 5);
+  - el camino «otra fila» de `approveEdit` sigue en absoluto, también los seriales (duda 11).
+
+### Revisión adversaria (14 y 15 oct 2026)
+
+Antes de mostrarla se buscaron fallas a propósito, en dos pasadas. Cada hallazgo lo revisaron dos escépticos por separado, con las funciones reales sacadas del archivo y con el banco. Las reproducciones quedaron en el scratchpad de la sesión (`etapa4/rev`, `fix_rev`, `banco_rev`, `pruebas_fix` y `rev2`). Las copias de antes de cada pasada: `etapa4/pre_rev` y `etapa4/pre_rev2`, con los diffs de los arreglos de la primera en `pre_rev2/arreglos_*.diff`.
+
+**Primera pasada: 13 hallazgos**, con seis lentes: la devolución, las filas en 0, la ficha del cliente, C4 y C5, las etapas anteriores y las pruebas. **7 confirmados** (los dos escépticos dijeron que sí), **6 dudosos** (uno sí y uno no) y **0 refutados**. Los 7 se corrigieron, cada uno con su prueba:
+
+| Falla | Arreglo (arriba) |
+|---|---|
+| ↩️ Devolver con la respuesta del commit perdida: el cable se devolvía dos veces (Firestore repite la transacción, o la persona vuelve a guardar), o decía «No se devolvió nada» cuando sí (2 hallazgos) | El devId en el kardex (`ref`), `yaHecha`, `_errorNubeInciertoInv` y el aviso «No se pudo confirmar…» |
+| Dos equipos gemelos en la ficha del cliente: ↩️ o 🔄 sobre uno que otra pantalla ya retiró actuaba sobre el otro | `_cuantosHuellaCliInv`, el 4.º parámetro de `_eqClienteVivoInv` y `_nHuellaBotonInv` |
+| Aprobar una edición ajustaba la cantidad dos veces si el serial pedido ya se había movido | `yaContadas` en `_planEdicionInv`, la línea «Ya contado en «ahora»» y el texto de los seriales |
+| Tras recargar, una edición aprobada que no llegó a la nube se daba por hecha si una hermana con el mismo código ya tenía esos valores | `_reaplicarEditarDecInv` mira solo las filas con el nombre y el tipo finales |
+| Ninguna prueba detectaba que la devolución escribiera campos de más en `inventario/datos` | PRUEBAS exige que la transacción devuelva solo `bodegas` y `cuadrillas`; el banco mira la escritura misma (`llavesDevolucion`) en W1 y RV-DEV-R |
+| `verBodegas` del banco era inestable: el repintado al llegar el Catálogo cerraba lo desplegado (RV-VAC, E3-2) | `listadoQuieto` en `etapa3.js` y `etapa4.js` |
+
+**Dudosos de la primera pasada:**
+1. **TL618:** la fila en 0 con serial se queda y la bodega no puede hacer nada con ella; solo el admin, con «Corregir». Sin corregir: es de la Etapa 5. Además, bloquea «Corregir» de las demás filas de esa cuadrilla (ver «Las filas en 0 que se quedan»).
+2. **W22 justo después del commit:** el material no llega a la ficha, el consumo queda marcado como aplicado y «🔄 Sincronizar» no lo repone. Sin corregir: es la lista completa de clientes (decisión 12). Va a «Pendiente».
+3. **➕ Equipos:** si el guardado inmediato falla, la ventana queda abierta sin aviso y un 2.º Guardar descuenta y agrega otra vez (ya pasaba en la v117). Se investigó y se corrigió en la segunda pasada.
+4. **El kardex de una edición aprobada** (dos hallazgos) copia «cantidad: A→B» de la solicitud aunque se aplique otro movimiento: dice «10→8» y se aplicó 12 → 10. Sin corregir: la cantidad y el `stockResultante` de esa línea son los reales; solo el texto del detalle repite lo que pidió la bodega.
+5. **U6(c), U11(a) y RV-ETIQ fallaban por el número de versión:** 🧩 se niega por la pantalla v116 que late. Corregido en el banco: la v116 se abre después del 🧩, y en U11(a) también sin latido. U3v116 sigue igual: es solo informativo, y su texto («la salida se pierde») no vale con la 117, porque ahí 🧩 se niega.
+
+**Segunda pasada** (sobre los arreglos de la primera): **3 hallazgos, 2 confirmados, 1 dudoso y 0 refutados**, más dos investigaciones aparte (➕ Equipos y la venta que vuelve). Todo está en «Segunda revisión», arriba:
+
+| Hallazgo | Qué se hizo |
+|---|---|
+| ↩️ Devolver: el aviso «Lo que cambiaste después… NO se devolvió» era falso cuando lo guardado era justo lo cambiado (confirmado) | `escribioEste` y `foto.envioEscrito` |
+| ↩️ Devolver: tras un commit que sí entró, un fallo final `failed-precondition` decía «❌ No se devolvió nada» y el Guardar siguiente con cambios se cerraba sin aviso (confirmado) | `_errorNubeInciertoInv` con todos los errores que reintenta el SDK, el choque en español y el aviso que ya no depende de un incierto anterior |
+| Aprobar una edición: si el serial pedido ya salió y entró otro equipo a la fila, sigue ajustando dos veces (2 unidades con 3 seriales) y sin preguntar (dudoso) | Sin corregir: queda para decidir |
+| Investigación: ➕ Equipos | Arreglado ahora (`_aeHecho` y el `.catch`) |
+| Investigación: la venta que vuelve (SR-D5) | Confirmada; el arreglo está probado en una copia y queda para después de publicar |
+
+### Pruebas
+
+**`PRUEBAS.html`: 178 pruebas** (59 de INVENTARIO, 86 de OFICINAS, 32 de RED y 1 de Firma). Las 7 nuevas van en el grupo de INVENTARIO, después de las de la Etapa 3, cada una bajo el ancla de su parte:
+
+| # | Prueba | Qué comprueba |
+|---|---|---|
+| 1 | ↩️ Devolver material: sobre la cuadrilla y la bodega de AHORA, todo o nada y en un solo paso contra la nube (C1) | Con `e4Snap` y una «nube» que tiene 55 de cable frente a 50 en pantalla (crítica H7): la cuadrilla queda en 45 (lo leído menos lo devuelto), la bodega sube, el serial pasa, una sola transacción, un solo «Devolución:» y el kardex coherente. Un renglón sin su serial o con cantidad de más: nada, y la ventana abierta. El serial ya instalado en la nube: nada y aviso. La fila en 0 con serial y el puente siguen. Dos clics, una transacción. Modo prueba, sin conexión, cuadrilla que ya no está. `_planDevolucionInv` y `_errorNubeTxtInv`, puras. Revisión: el `ref` en cada línea, la respuesta perdida (45/110, sin aviso, un registro), «No se pudo confirmar…» y el 2.º Guardar «ya había quedado guardada», y que solo se escriban `bodegas` y `cuadrillas`. Revisión 2 (parte 6c): un corredor que imita el SDK web (hasta 5 intentos: entra, se pierde la respuesta, falla o choca), los dos hallazgos, el choque puro y `_errorNubeInciertoInv`/`_errorNubeTxtInv` con cada código |
+| 2 | Una fila en 0 ya no se borra sola: instalación y «Corregir» (C2) | `saveInstLogic` y la ventana real de «Corregir», con `e4Snap` de por medio: siguen la fila en 0, la de 0 con serial, el puente y el eslabón, sin lápidas. Por texto, ninguna de las dos poda. La fusión pura da P = 1 (y 5 si P se quita: por eso se deja D2) |
+| 3 | 👷 Cuadrillas y «Corregir»: «Ver vacías», la etiqueta 🧩 y la unificada que no se corrige (C2) | La casilla y su N, lo escondido y lo visible, la nota, «Sin artículos con stock», la etiqueta, el escape de `<` y `"`, el total igual, la cuadrilla que sigue abierta al cambiar la casilla, la preferencia por rol y bodega (también sin poder guardar). En «Corregir»: la vaciada deshabilitada; forzarle un valor, o que 🧩 la vacíe con la ventana abierta, da aviso y nada; la casilla muestra y esconde sin repintar |
+| 4 | Las ventanas de la ficha del cliente guardan en el cliente de AHORA (C3) | Las seis ventanas con `e4Snap('clientes')` y otro cliente cambiado; ese equipo cambiado: nada y aviso; la lista corrida (H8); el cliente ya retirado; los botones de una lista vieja (H2) y las llamadas con 2 argumentos; W22 y W25 con transacciones falsas; los literales que buscan otras pruebas. Revisión: los gemelos y sus funciones puras. Revisión 2 (parte 3b): ➕ Equipos con `_fbSaveImmediate` que falla, o que queda en cola: dos Guardar descuentan y agregan una sola vez, la ventana se cierra con «quedaron anotados…», no sale el falso «No se descontó nada», y en modo prueba sale «Los equipos no se guardaron» |
+| 5 | Editar cuadrilla, técnico y dotación (C4) | Las cuatro ventanas con `e4Snap('cuadrillas')` de por medio: solo los campos cambiados, lo de la otra pantalla se conserva, sin cambios no hay escritura, cuadrilla o técnico quitados dan aviso. 🗑️ de la dotación por huella, con la lista corrida hacia adelante y hacia atrás y con un código repetido. `saveDotacionLogic` sin técnico no descuenta nada |
+| 6 | 🔧 Seriales en dos sitios resuelve sobre lo de AHORA (C5) | Con `e4Snap('bodegas','cuadrillas')`: el serial queda en un sitio y la otra fila baja 1, con registro. Con el serial movido: aviso, sin registro ni «✅» |
+| 7 | Aprobar una edición; ✏️ del admin; la venta por su código; el traslado ya decidido (C5) | `_planEdicionInv` pura (W8, W8b, el ajuste, una solicitud vieja sin `form`, «mts» y el tipo vacío, las fotos, sin `undefined`); `datosAntes.form` desde la ventana real de la bodega; `approveEdit` con la pregunta nueva y el camino «otra fila»; ✏️ del admin (W23, la foto por valor); ventas con la lista vieja (clic real); `procTrans`. Revisión: los casos A y B de `yaContadas` (puros y con `approveEdit`) y la hermana del mismo código tras recargar |
+
+- Todas usan ids inventados que empiezan por `E4P` y reemplazan los objetos de `DB` con `e4Snap`, como hace el oyente. Las de la Etapa 3 que «simulaban un snapshot» cambiando `materiales` dentro del mismo objeto no veían estas fallas. Sustituyen `alert`, `confirm`, las ventanas, `_fbSave`, `_fbSaveImmediate`, las transacciones y los repintados, y lo devuelven todo en un `finally`, también la clave `inv_ver_vacias_cuad:*`. Exigen que `_escriturasBloqueadas` no crezca.
+- **Pruebas viejas adaptadas** (cambiaban de sentido con las filas en 0 que se quedan):
+  - «Etapa 3 · Lo que llega por nombre…» (C1): la devolución corre con una transacción falsa sobre copias. La cuadrilla queda `CONECTOR  APC=3,HERRAMIENTA E3=0`; antes la HERRAMIENTA se quitaba. Desde la revisión exige además que la transacción devuelva solo `bodegas` y `cuadrillas`.
+  - «Etapa 2 · Una fila cuyo borrado aprobó el admin no vuelve…» (C2): exige por texto que `modalCorregirCantCuad` ya no cree lápidas y que `_antesCorregirTFInv` siga.
+  - «Etapa 2 · Las demás pantallas no deshacen un borrado…» (C2): «Corregir» deja x1 en 0 sin lápida. «Otra» y «otraToco» arman la lápida que sube una pantalla v117, con la cantidad de antes (`_nuevaTumbaFilaInv(…, {cant:3, snes:[]}, …)`, crítica H1), y sus comprobaciones no cambian. «Vivo» da `x1=2,y1=0`.
+  - «En el celular (375 px) ninguna pestaña de Inventario…» (C2): recorre también `cuads`.
+  - «Etapa 3 · Lo que se escoge…»: solo un comentario.
+
+**El banco** (`inv/etapa4.js`, base simulada y compartida, las apps reales en Chromium; TÉCNICOS solo se abre ahí). **W** = falla con la v117 publicada y pasa con la 118; **G** = guarda que pasa con las dos; **RV** y **R2** fallan con la copia de antes de cada revisión:
+
+| Grupo | Escenarios |
+|---|---|
+| C1 ↩️ Devolver | W1, W1b, W1c, W1d, W1e, W1f, W2, W2b, W3, W4, W6b, W14, W15, W15d y G1 |
+| C2 Filas en 0 y 👷 | W3b, W4b, W4c, W6, W15b, W15c, W16, W17 y G2-INST |
+| C3 Ficha del cliente | W5, W5b, W5c, W5d, W9, W10, W11, W12, W18, W19, W22, W25 y G2-AE |
+| C4 Cuadrilla, técnico y dotación | W13, W13b, W13c, W13d y G2-DOT |
+| C5 Herramientas y solicitudes | W7, W7b, W8, W8b, W21, W23, W20b, G2-VENTA y G3 |
+| Primera revisión | RV-GEM-R, RV-GEM-H, RV-GEM-R0, RV-GEM-CB, RV-GEM-L, RV-DEV-R, RV-DEV-G, RV-ED-A, RV-ED-B y RV-HERM |
+| Segunda revisión | R2-DEV-1 a R2-DEV-4, y R2-AE-1, R2-AE-1b, R2-AE-2, R2-AE-3 y R2-AE-4 |
+
+- **Adaptados en las otras suites:**
+  - `etapa2.js` F1: (1) con la de ahora, «Corregir» 3 → 0 deja la fila en 0 en las dos pantallas, sin lápida ni «volvió»; (2a) y (2b), lo de antes con un admin v117.
+  - `etapa3.js`: E3-4 y RV-REP(b) siguen probando lo de antes con una pantalla v117 que poda (pasa durante la transición), más una variante con la de ahora (E3-4(b), RV-REP(c)). U11(b) sube la vaciada con `tocarNube`. RV-VOLVIO, SR-SINP y SR-D2H hacen el «Corregir» con un admin v117 (SR-D2H sin latido). En la primera revisión, U6(c), U11(a) y RV-ETIQ, y la espera `listadoQuieto`.
+
+**Corrido el 15 oct 2026, con el archivo final** (después de la segunda revisión), sobre la base SIMULADA del banco:
+- `PRUEBAS.html` completo, sin servidor, con el arnés de la Etapa 2 (`correr_e2.js`; INVENTARIO, OFICINAS, RED y Firma): 178 corridas, **177 bien**. Falla solo «Rastreador v314: la ficha de una factura REAL de WispHub», que necesita WispHub de verdad, como en las etapas anteriores. 0 errores de página y 0 escrituras en la base simulada; OFICINAS con sus 5 intentos bloqueados de siempre. El grupo de INVENTARIO: 59 de 59.
+- **Contrapruebas de `PRUEBAS.html`:**
+  - al cerrar la primera revisión, con la copia de antes de ella (`pre_rev`), el grupo daba 56 de 59: fallaban las 3 pruebas que ganaron filas en esa revisión, y dentro de ellas solo las filas nuevas (5 de ↩️ Devolver, 2 de la ficha del cliente y 3 de aprobar una edición);
+  - con la copia de antes de la segunda (`pre_rev2`), 57 de 59: fallan solo las 5 filas nuevas (4 de ↩️ Devolver y 1 de ➕ Equipos), con los 5 «Uncaught (in promise)» de la falla vieja;
+  - en la construcción, cada parte comprobó que sus pruebas nuevas fallan con la v117;
+  - una copia que escribe el plan entero en la devolución la atrapan ↩️ Devolver y «Lo que llega por nombre…»;
+  - en la construcción, 32 copias dañadas (6 de C1, 6 de C2, 7 de C3, 7 de C4 y 6 de C5): cada una la atrapa alguna prueba «Etapa 4 ·» y su W del banco.
+- **El banco:** `etapa4` **70 de 70** (440 s), `etapa3` **39 de 39** las 7 veces que se corrió (cinco seguidas y dos más, SR-D5 incluido), `etapa2` 25/25 y `revision_oct` 11/11 (R7 y R7b pasan con la ventana de «Corregir» de ahora).
+- **Contrapruebas del banco:**
+  - con `--v117`, cada parte comprobó sus escenarios antes de juntarlos: fallan sus 45 W y pasan sus 6 G;
+  - los 10 RV fallan con `pre_rev`. Con `--v117` pasa RV-HERM, y RV-ED-A y RV-ED-B fallan solo por los textos y el formato nuevos (la cantidad ya salía bien en la v117);
+  - los 9 R2 fallan con `pre_rev2`, y los 5 R2-AE fallan con una copia sin `if(_aeHecho) return;`;
+  - una copia que escribe el plan entero en la devolución la atrapan W1 y RV-DEV-R.
+- **Comprobaciones propias** (scratchpad, con las funciones reales sacadas del archivo o las apps reales, sin red): `fix_rev/unit_fix.js` 39/39; `rev2/arreglos/dev_avisos.js`, `rev2/verif_avisos/caso3.js` y `rev2/corr2/extra.js` (los avisos de ↩️); `rev2/equipos/etapa4_ae.js` (AE-0 a AE-5, AE-X-RP1 y AE-X-INST1 pasan; AE-X-INST4 y AE-X-CLI4 fallan, como se espera: son el patrón que queda para después); `rev2/venta/dep.js` (los 11 DEP-*).
+- **Validación:** `node .claude/validar.mjs` da sintaxis correcta en INVENTARIO (4 bloques) y PRUEBAS (1). Los dos en CRLF, sin LF sueltos (16.928 y 12.278 líneas). `inv/etapa4.js` va en LF, como el resto del banco, y pasa `node --check`. `APP_VERSION_INV` sigue en 117 y `APP_VERSION_TEC` en 102.
+
+**Corrida final, 15 oct 2026 (11:44 a. m. a 12:24 p. m.), con el archivo final** (ya con la segunda pasada):
+- **El banco completo**, en orden: `pantallas_unit` 216/216, `recarga_unit` 167/167, `unit_v112` 50/50, `revision_oct` 11/11, `repro` 21/21, `escenarios2` 20/20, `etapa1` 16/16, `etapa6` 13/13, `etapa2` 25/25, `etapa3` **39/39** y `etapa4` **70/70**. Contraprueba: `etapa4 --v117` (lo publicado) da 7 bien y 63 mal. Los 7 que pasan son los 6 G, que deben pasar con las dos versiones, y RV-HERM, que prueba una falla que metió la primera construcción de esta etapa y la v117 no tenía. Salidas en el scratchpad de la sesión (`etapa4/banco_final/`).
+- **`PRUEBAS.html` en el navegador contra la base real** (`?prueba=1`): **176 bien y 2 por revisar** de 178, las dos «Estado real» de siempre (36 seriales en dos sitios; servicios de proveedores sin costo). Después se miró la nube por REST (solo lectura): las escrituras de ese rato son de pantallas reales (una bodega con INVENTARIO v117 en `inventario/datos`; oficinas con OFICINAS v320 sincronizando WispHub en `main` y `logs_auditoria`). Ninguna de las pruebas.
+
+### Pendiente
+
+1. **La corrida final** con el archivo final (arriba).
+2. **Decidir con Elkin:** las 15 decisiones y lo que dejó la revisión (ver «Decisiones de Elkin pendientes»).
+3. **La lista completa de clientes que se pisa entre pantallas** (decisión 12): gana la última que guarda, y un bloque que llega en los 400 ms del guardado diferido se lleva el cambio de una ventana del cliente (duda 12). Etapa propia, corta, después de esta. Ahí entra **W22 justo después del commit**, que no se arregló: el consumo queda `materialAplicadoCliente:true` en la nube y, si el bloque de clientes llega antes del guardado, el material no queda en la ficha y «🔄 Sincronizar material con clientes» no lo repite.
+4. **La franja «Hay cambios — Actualizar»** (decisión 13): las listas no se repintan solas. Después de esta etapa ningún botón actúa sobre datos viejos, aunque la lista lo esté.
+5. **El traslado aceptado dos veces** en dos pantallas a la vez: el material entra dos veces. Va con la Etapa 7 (decisión 11); hoy solo sale el aviso «ya se decidió».
+6. **La Entrega con la respuesta perdida** (`saveEntregaLogic` con `_fbTransaccionInvMulti`, desde la v74): dice «❌ No se registró la entrega», la ventana sigue abierta y un 2.º Guardar entrega dos veces. Necesita una marca fija por entrega, como el devId (por ejemplo su `entregas[].id`, creado fuera de la transacción).
+7. **El patrón de AE-4 en ➕ Instalación y ➕ Agregar cliente nuevo** (AE-X-INST4 y AE-X-CLI4; también en la v117): con otro guardado en curso, `_ejecutarSaveInv(true)` deja el Guardar en cola sin el velo y un 2.º clic repite (2 instalaciones, la cuadrilla en 30 en vez de 40; 2 clientes iguales). Se arregla mejor en un solo sitio: que el guardado en cola muestre el velo. Ojo: si la cola la armó un guardado de fondo, `_fbSaveCore` se traga el error y el `.then` cierra la ventana aunque haya fallado. Toca todas las ventanas que guardan con `_fbSaveImmediate`: necesita su propia revisión. También `sincronizarInstalacionAUnCliente`, sin `.catch` (leído, no probado): otro clic en «➕ Crear en Clientes» crea el cliente otra vez.
+8. **La venta que vuelve** (ver «Segunda revisión»): etapa corta justo después de publicar la v118, con el arreglo ya probado (`rev2/venta/propuesta_lapida.diff`), o ya, si Elkin lo pide (cuesta otra revisión). Al hacerla, llevar los 11 DEP-* al banco y dos filas a `PRUEBAS.html` («lo que entra con lápida de registro no vuelve» y «la lápida de aquí sobrevive al snapshot de datos»). Mientras tanto, estabilizar SR-D5: esperar a que la pantalla del admin quede quieta (sin escrituras nuevas durante 1,5 s) antes de borrar la venta.
+9. **Aprobar una edición con el serial ya salido y otro entrado** (dudoso de la segunda pasada): una salida es preguntar también cuando los seriales cambiaron desde la solicitud. Y **el texto del kardex** de una edición aprobada, que repite lo que pidió la bodega.
+10. **Etapa 5:** TL618 y los seriales en dos sitios (y, si se quiere, que «Corregir» valide solo las filas tocadas); devolver desde INVENTARIO un serial que un técnico ya reportó instalado (duda 10); el serial devuelto que ya está en otro sitio; los seriales comparados letra por letra al escribir; TÉCNICOS que no vuelve a contar lo ya reportado al devolver.
+11. **Detalles:** U3v116 (informativo) dice algo que con la 117 no pasa; la fusión de `dotacion` con el código repetido; `_reaplicarEditarDecInv` con valores fijos; el camino «otra fila» de `approveEdit` en absoluto (duda 11); las ediciones de cuartos de equipos que se pierden (#34 del mapa de ventanas, otra etapa).
+12. **Al publicar** (cuando Elkin diga «publica»):
+    - INVENTARIO 118 **solo**, fuera de horario, con el respaldo de datos de la Etapa 1 antes;
+    - TÉCNICOS no cambia: no hay que pedir a los técnicos que actualicen;
+    - recargar todas las pantallas de bodega: una v117 abierta sigue podando y devolviendo en memoria hasta recargarse (no empeora nada);
+    - probar un caso real: devolver material de una cuadrilla con otra pantalla abierta; ver que el artículo que queda en 0 sigue, escondido, en 👷; aprobar una edición con seriales; confirmar un consumo escogiendo el serial; agregar un equipo a un cliente.
