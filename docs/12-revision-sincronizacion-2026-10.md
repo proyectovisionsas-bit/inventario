@@ -910,7 +910,7 @@ Los 6 refutados no cambiaron nada: material que entra después de bajar y volver
 
 **Dudosos de la primera pasada:**
 - **La fila hermana:** se corrigió en la segunda pasada (ver C3).
-- **Una venta eliminada vuelve** si llega un snapshot del historial antes del primer guardado (la venta no tiene lápida hasta la fusión) y el material devuelto queda contado dos veces. Se dejó: ya pasaba igual en la v115 y la Etapa 2 no toca las ventas. Arreglo posible, en otra etapa: dejar la lápida de la venta en el acto y que el oyente quite de lo que entra lo que tiene lápida propia.
+- **Una venta eliminada vuelve** si llega un snapshot del historial antes del primer guardado (la venta no tiene lápida hasta la fusión) y el material devuelto queda contado dos veces. Se dejó: ya pasaba igual en la v115 y la Etapa 2 no toca las ventas. Arreglo posible, en otra etapa: dejar la lápida de la venta en el acto y que el oyente quite de lo que entra lo que tiene lápida propia. *(Resuelto en la Etapa 4b, sin publicar, con una pieza más: el oyente de `inventario/datos` tiraba la lápida. Ver §14.)*
 - **«Rechazar y restaurar»** (y rechazar un traslado) deja la anulación de la lápida en el navegador; si la pantalla se recarga antes de guardar, la anulación sube aunque la restauración no se repita. Se dejó: no mueve material y no se encontró un caso con daño concreto.
 
 **Segunda pasada** (sobre lo ya corregido): **5 hallazgos, 2 confirmados y 3 dudosos.**
@@ -979,7 +979,7 @@ Los 6 refutados no cambiaron nada: material que entra después de bajar y volver
 2. **`AVISOS_PENDIENTES.gs` lee las solicitudes del documento equivocado:** las busca en `inventario/datos` y viven en `inventario/historial`. Sin corregir.
 3. **Publicada el 11 oct 2026** (Elkin: «Publica y después continua con la etapa 3»; commit `ac4fc2f`, INVENTARIO 116). Respaldo en `_RESPALDO_2026-10-11_antes_de_publicar`. Mantenimiento solo de INVENTARIO de 11:15 a 11:32; push 11:16, Pages con el archivo nuevo desde las 11:17 (huellas iguales a las del disco, dos veces), versión anunciada 11:31, prueba de humo en `?prueba=1` sin errores. Al publicar no había pantallas de bodega abiertas; solo un celular del admin con la v115, en reposo, que se recarga solo al despertar. **Falta:** comprobar en la nube real, con la primera aprobación de verdad, que deja `_tumbasFila` en `inventario/datos` junto con la fila quitada, en la misma escritura, y que una decisión hecha sin señal sube sola al volver.
 4. **Decidir con Elkin** el punto 6 de «Lo que se apartó de la especificación» (ediciones repetidas con datos distintos).
-5. **Decidir con Elkin los dudosos que quedaron** (ver «Revisión adversaria»): los 3 de la segunda pasada (la pantalla atrasada contra una lápida con más cantidad, las ediciones que se vuelven a cerrar tras recargar y la reapertura después de otra decisión a mano) y la venta que vuelve con un snapshot, que ya pasaba en la v115.
+5. **Decidir con Elkin los dudosos que quedaron** (ver «Revisión adversaria»): los 3 de la segunda pasada (la pantalla atrasada contra una lápida con más cantidad, las ediciones que se vuelven a cerrar tras recargar y la reapertura después de otra decisión a mano) y la venta que vuelve con un snapshot, que ya pasaba en la v115. *(La venta: resuelta en la Etapa 4b, sin publicar; ver §14.)*
 6. **Etapa 4:** de las ventanas con datos viejos solo se arregló «Corregir Cantidades». Editar, entregar, trasladar, vender y devolver no se revisaron. *(Resuelto en la Etapa 4: ver §13.)*
 
 ## 12. Etapa 3 — lo que se hizo (publicada el 13 oct 2026)
@@ -1771,11 +1771,279 @@ Antes de mostrarla se buscaron fallas a propósito, en dos pasadas. Cada hallazg
 6. **La Entrega con la respuesta perdida** (`saveEntregaLogic` con `_fbTransaccionInvMulti`, desde la v74): dice «❌ No se registró la entrega», la ventana sigue abierta y un 2.º Guardar entrega dos veces. Necesita una marca fija por entrega, como el devId (por ejemplo su `entregas[].id`, creado fuera de la transacción).
 7. **El patrón de AE-4 en ➕ Instalación y ➕ Agregar cliente nuevo** (AE-X-INST4 y AE-X-CLI4; también en la v117): con otro guardado en curso, `_ejecutarSaveInv(true)` deja el Guardar en cola sin el velo y un 2.º clic repite (2 instalaciones, la cuadrilla en 30 en vez de 40; 2 clientes iguales). Se arregla mejor en un solo sitio: que el guardado en cola muestre el velo. Ojo: si la cola la armó un guardado de fondo, `_fbSaveCore` se traga el error y el `.then` cierra la ventana aunque haya fallado. Toca todas las ventanas que guardan con `_fbSaveImmediate`: necesita su propia revisión. También `sincronizarInstalacionAUnCliente`, sin `.catch` (leído, no probado): otro clic en «➕ Crear en Clientes» crea el cliente otra vez.
 8. **La venta que vuelve** (ver «Segunda revisión»): etapa corta justo después de publicar la v118, con el arreglo ya probado (`rev2/venta/propuesta_lapida.diff`), o ya, si Elkin lo pide (cuesta otra revisión). Al hacerla, llevar los 11 DEP-* al banco y dos filas a `PRUEBAS.html` («lo que entra con lápida de registro no vuelve» y «la lápida de aquí sobrevive al snapshot de datos»). Mientras tanto, estabilizar SR-D5: esperar a que la pantalla del admin quede quieta (sin escrituras nuevas durante 1,5 s) antes de borrar la venta.
+   - **Resuelto en la Etapa 4b** (sin publicar): las tres piezas, en la venta y en los demás borrados de un registro entero, más los arreglos de dos revisiones (la unión del oyente solo con las lápidas de esta pantalla, y una cuadrilla o bodega a la que otra pantalla le movió material no se borra: se avisa «NO SE BORRÓ»). Los 11 DEP-* ya están en el banco, con 3 DEPX-* y 9 escenarios de la primera revisión, y `PRUEBAS.html` tiene una prueba nueva que cubre las dos filas y el rescate. Ver §14.
 9. **Aprobar una edición con el serial ya salido y otro entrado** (dudoso de la segunda pasada): una salida es preguntar también cuando los seriales cambiaron desde la solicitud. Y **el texto del kardex** de una edición aprobada, que repite lo que pidió la bodega.
 10. **Etapa 5:** TL618 y los seriales en dos sitios (y, si se quiere, que «Corregir» valide solo las filas tocadas); devolver desde INVENTARIO un serial que un técnico ya reportó instalado (duda 10); el serial devuelto que ya está en otro sitio; los seriales comparados letra por letra al escribir; TÉCNICOS que no vuelve a contar lo ya reportado al devolver.
 11. **Detalles:** U3v116 (informativo) dice algo que con la 117 no pasa; la fusión de `dotacion` con el código repetido; `_reaplicarEditarDecInv` con valores fijos; el camino «otra fila» de `approveEdit` en absoluto (duda 11); las ediciones de cuartos de equipos que se pierden (#34 del mapa de ventanas, otra etapa).
-12. **Al publicar** (cuando Elkin diga «publica»):
+12. **Publicada el 16 oct 2026** (Elkin: «publica y continua»; commit `8e38448`, INVENTARIO 118). Respaldo en `_RESPALDO_2026-10-16_antes_de_publicar` (código, inventario/datos, historial y los cinco bloques de clientes). Antes, el banco de los escenarios que abren pantallas viejas con la 118: etapa3 39/39, etapa2 F1 bien y etapa4 70/70. Mantenimiento solo de INVENTARIO de 6:50 a 6:53 p. m.; push 6:51, Pages con los dos archivos nuevos a las 6:52 (huellas iguales a las del disco, dos veces; PRUEBAS.html se volvió a sacar del commit porque un agente lo había dejado en LF), versión anunciada 6:53, prueba de humo en `?prueba=1` sin errores. Al publicar quedaban dos INVENTARIO 117 de bodega ocultas, que se recargan solas. De paso: las 9 lápidas por fila que hay en la nube (un «Corregir» del admin del 14 oct en una cuadrilla) están bien, ninguna anulada y ninguna fila volvió (la comprobación pendiente de la §11). Lo que se planeó para este paso:
     - INVENTARIO 118 **solo**, fuera de horario, con el respaldo de datos de la Etapa 1 antes;
     - TÉCNICOS no cambia: no hay que pedir a los técnicos que actualicen;
     - recargar todas las pantallas de bodega: una v117 abierta sigue podando y devolviendo en memoria hasta recargarse (no empeora nada);
     - probar un caso real: devolver material de una cuadrilla con otra pantalla abierta; ver que el artículo que queda en 0 sigue, escondido, en 👷; aprobar una edición con seriales; confirmar un consumo escogiendo el serial; agregar un equipo a un cliente.
+
+## 14. Etapa 4b — un registro borrado no vuelve (publicada el 17 oct 2026)
+
+Hecha el 16 oct 2026, después de publicar la Etapa 4, sobre lo publicado en `8e38448` (OFICINAS v320, INVENTARIO v118, TÉCNICOS v102, RED v44). Es el «Pendiente» 8 de la §13 (Elkin: «publica y continua»). **No está publicada** y la versión no se subió: al publicar, INVENTARIO pasa a 119, **solo**. TÉCNICOS, OFICINAS y RED no cambian. Las pruebas no escribieron nada en la base real: solo se leyó `inventario/datos._tumbas`, con GET y sin copiar datos personales (332 lápidas, en orden y lejos del tope de 800).
+
+Se partió del arreglo que la investigación de la §13 ya había probado en una copia (`etapa4/rev2/venta/`), aplicado por contenido porque la v118 cambió las líneas. Después hubo dos revisiones adversarias, cada una con sus arreglos (ver «Primera revisión adversaria» y «Segunda revisión adversaria»). Lo que sigue es lo que quedó, ya con esos arreglos. Las copias de antes están en el scratchpad de la sesión: `etapa4b/pre` (la v118 publicada) y `etapa4b/pre_rev2` (antes de la segunda revisión).
+
+### Qué quedó en cada archivo
+
+| Archivo | Qué cambió |
+|---|---|
+| `INVENTARIO_PTOVISION.html` | Las tres piezas, junto a `_fusionarConNubeInv`; la llamada en los 8 sitios que borran un registro entero; el filtro al principio de `_protegerSnapshotInv`; la unión en el oyente de `inventario/datos`; la lista de lápidas por subir y el rescate por material, de las dos revisiones; y en `_fbSaveCore`, el tercer parámetro de `_fusionarConNubeInv` y el aviso después del commit. Contra lo publicado, 220 líneas agregadas y 13 quitadas (git); cada parte lleva el comentario «docs/12 §14» |
+| `PRUEBAS.html` | 1 prueba nueva, con 16 condiciones (179 en total: 60 de INVENTARIO, 86 de OFICINAS, 32 de RED y 1 de Firma). Ninguna vieja cambió. 333 líneas agregadas (git) |
+| banco, `inv/etapa4.js` | La sección «Etapa 4b»: los 14 escenarios DEP (11 DEP-* y 3 DEPX-*), el ayudante `primerGuardadoDep`, la subsección «Revisión de la Etapa 4b», con 9 escenarios (TP-TOPE, TP-ROTA, 6 FX-* y LEN-RACE), y la subsección «Revisión 2 de la Etapa 4b», con 13 más (2 LP-*, 5 RS-* y 6 C3-*) y 3 informativos que no cuentan (INFO-*). El banco pasa de 70 a 106 escenarios |
+| TÉCNICOS, OFICINAS, RED | Sin cambios. No leen `_tumbas` |
+
+### El problema
+
+El admin borra una venta de 50 m de CABLE DROP: la venta sale de la lista y los 50 m vuelven a BODEGA NATALIA (1000 → 1050). Si antes de que el guardado lea la nube llega un snapshot (el eco del primer guardado general de la sesión, que es lo que vio SR-D5, u otra pantalla que escribe), la venta vuelve a la memoria y a la pantalla. El guardado sube la bodega con 1050 y la venta sigue en la nube. Si se borra otra vez, los 50 m vuelven otra vez: 1100. El material queda contado dos veces, sin ningún aviso.
+
+Lo mismo con los demás registros enteros: un cuarto, una cuadrilla, una entrega, una instalación o una bodega con sus cuadrillas borrados vuelven a la nube. Ya pasaba en la v115, la v117 y la v118. En producción casi no se usa (15 oct: 0 ventas en `inventario/historial`, 3 cuartos, y ningún borrado de esos en los últimos 130 registros), pero si las ventas se vuelven a usar, el descuadre es callado.
+
+### La causa
+
+- La lápida de un registro entero (`inventario/datos._tumbas`) nacía solo al guardar, en `_fusionarListasInv` («estaba en la foto de la nube y aquí ya no»). Entre el borrado y esa fusión pasan al menos los 400 ms del guardado diferido, más la cola si hay otro guardado en curso.
+- Si en ese rato llegaba un snapshot, `_protegerSnapshotInv` no protegía el borrado: solo protege lo que esta pantalla creó. El oyente ponía la lista de la nube y tomaba su foto. El registro volvía y el guardado siguiente ya no veía el borrado.
+- **Segundo hueco:** el oyente de `inventario/datos` hace `Object.assign(window.DB, entrante)`, que reemplaza `DB._tumbas` por la lista de la nube. Aunque la lápida se pusiera en el acto, cualquier snapshot de datos la tiraba (DEP-V2b).
+
+### Las tres piezas, y por qué hacen falta las tres
+
+1. **La lápida en el acto.** `window._lapidaRegistroInv(col, id, reg)` pone `{col, id, en}` en `DB._tumbas` en el momento del borrado, con la forma que ya pone el guardado. No repite una que ya está y arma un arreglo nuevo: no toca el que vino de la nube.
+2. **El oyente no la tira.** `window._unirTumbasEnEntranteInv(entrante)` corre en el oyente de `inventario/datos` justo después de `_unirTumbasFilaEnEntranteInv`, antes de `_protegerSnapshotInv` y del `Object.assign`. Une a lo que entra las lápidas que **esta pantalla puso** y la nube todavía no trae (la lista `_lapPorSubirInv`, ver «Las lápidas por subir»), en una lista nueva y podada. Si no falta ninguna, no hace nada.
+3. **Lo que tiene lápida no vuelve.** Lo primero que hace ahora `_protegerSnapshotInv` es sacar de cada lista que entra lo que tiene lápida de registro, en una lista nueva. Así ese registro tampoco pasa por las decisiones, las lápidas por fila ni la comparación. Vale para los dos oyentes y para `_aplicarNubeParcialInv` (lo que devuelven las transacciones).
+
+Sin la 1, no hay nada que proteger hasta que se guarda. Sin la 2, un snapshot de `inventario/datos` borra la lápida de la memoria (DEP-V2b, y los borrados de cuadrillas, instalaciones, bodegas y equipos dañados). Sin la 3, la venta reaparece en pantalla y un segundo borrado devuelve el material dos veces (DEP-REBORRAR da 1100).
+
+- La pieza 3 va al principio de la función, y no dentro del bucle de comparación como decía la propuesta: lo que llegó de la nube no se cambia, y una bodega borrada no llega a las lápidas por fila, que podían anular la lápida de una de sus filas y dar un falso «volvió».
+- El guardado sigue poniendo su lápida («estaba en la foto y aquí ya no»): queda de red. El comentario de la fusión v74 lo dice.
+
+### Qué borrados cubre
+
+| Botón o función | Lápida de |
+|---|---|
+| `solicitarEliminarVenta` y `approveDeleteVenta` | la venta. Son los que mueven material |
+| `eliminarCuarto` | el cuarto de equipos |
+| `eliminarCuadrilla` | la cuadrilla (le pasa el registro, porque ya lo quitó de `DB`) |
+| `delEntrega` | la entrega |
+| `delInst` | la instalación |
+| `delBodega` | la bodega y cada una de sus cuadrillas, antes de filtrarlas |
+| `eliminarTodosClientes` | cada equipo dañado, antes de vaciar `DB.equiposDanados`. No estaba en la propuesta: es una lista de `inventario/datos` con la misma carrera |
+
+Quedan fuera, a propósito:
+- `_archivarInv`: tiene la misma ventana, pero se cura solo, porque el archivo no repite un id.
+- Los clientes: viven en sus propios bloques, sin `_tumbas`. Es la lista completa de clientes (§13, «Pendiente» 3; ver el dudoso de `deleteCliente`, abajo).
+- El «borrado total» y restaurar un respaldo (`_ejecutarImport`): reemplazan la base entera.
+
+La Etapa 4 no agregó borrados de registros enteros en las listas de `inventario/datos` ni de `inventario/historial`.
+
+### Las lápidas por subir (primera revisión)
+
+La primera versión de la pieza 2 unía todas las lápidas de la memoria que la nube no traía. Eso incluía las que la nube ya había soltado por el tope de 800: volvían al final de la lista y el corte, que va por posición, se llevaba las más nuevas (TP-TOPE y TP-ROTA, ver «Primera revisión adversaria»).
+
+- `_lapPorSubirInv` es una lista en memoria (un `Map` col│id → {col, id}) con las lápidas que **esta pantalla** puso con `_lapidaRegistroInv`.
+- `_unirTumbasEnEntranteInv` une a lo que entra solo las de esa lista que la nube no trae.
+- Una lápida sale de la lista cuando la nube ya la trae (ya subió) o cuando ya no está en `DB._tumbas` (se podó o se soltó).
+- Así, lo que la nube soltó por el tope no vuelve, la memoria queda igual que la nube y un guardado que no borra nada no reescribe `_tumbas`.
+- `window._lapidasPorSubirInv()` deja leer la lista, sin cambiarla, para `PRUEBAS.html`.
+
+### Una cuadrilla o bodega con material nuevo no se borra (el rescate)
+
+Con la lápida en el acto, el borrado de una cuadrilla o una bodega se cumplía siempre. También cuando, entre el clic y el guardado, otra pantalla le entregó, devolvió o trasladó material. Antes el snapshot deshacía el borrado y el registro volvía con su material. Con la lápida, ese material se iba con el registro, sin rastro, y la entrega quedaba a una cuadrilla que no existe (LEN-RACE: CABLE DROP 3000 → 2970). El rescate lo evita. Es de la primera revisión, con tres arreglos de la segunda.
+
+Solo vale para cuadrillas y bodegas (`_COLS_FINAS_INV`): a una venta, un cuarto, una entrega o una instalación no les entra material de otra pantalla.
+
+**Al hacer clic.** `_lapidaRegistroInv` anota en `_copiaAlBorrarInv` (otra lista en memoria) dos firmas del material, hechas con `_firmaMaterialInv`:
+- la de la base: lo que tenía la nube en la última sincronía;
+- la de la pantalla: lo que había en la memoria al hacer clic, con lo propio aún sin subir.
+
+Hacen falta las dos. Con solo la de la base, lo que esta misma pantalla iba subiendo (un guardado en vuelo) contaba como cambio de otra pantalla (FX-PROPIO). De una cuadrilla anota también su bodega (`bod`), para nombrarla en el aviso de su bodega. `eliminarCuadrilla` le pasa el registro, porque ya lo quitó de `DB`.
+
+**La firma** es de lo que hay, no de cómo está repartido en filas (segunda revisión). Lleva:
+- la suma de las cantidades, redondeada;
+- los seriales, normalizados con `_snNormal`, sin repetir y sin los de relleno;
+- en una cuadrilla, su bodega.
+
+Unificar filas con 🧩 (también con claves distintas, como «TV BOX» y «TVBOX»), renombrar una fila, cambiarle el tipo o el orden no la cambian. Escribir un serial Huawei en el otro formato tampoco. Entregar, devolver, trasladar, confirmar un consumo, corregir una cantidad, cambiar una ONU por otra (otro serial, misma cantidad) o pasar la cuadrilla a otra bodega sí la cambian. Solo se le escapa que en ese rato entre y salga exactamente la misma cantidad, sin ningún serial. El nombre de la cuadrilla no cuenta: si otra pantalla solo lo cambió, se borra sin aviso (FX-CUAD-CTRL).
+
+**Al guardar.** `_rescatesAlBorrarInv(frescoDatos, enGuardado)` corre al principio de `_fusionarConNubeInv`, con lo recién leído:
+- Si la nube ya trae la lápida, o ya no trae el registro, el borrado quedó: la copia del clic se descarta.
+- Si la nube lo trae sin lápida y con una firma distinta de las dos, **no se borra**. `_fusionarListasInv` (parámetro `rescatados`) lo vuelve a meter con lo de la nube. Su lápida sale de `DB._tumbas` y de las dos listas. Queda una línea en el registro (`DB.logs`, con `_entradaLogInv`), que sale con ese mismo guardado.
+
+**Si la transacción se repite** (segunda revisión). Firebase repite la transacción del guardado si alguien escribe en medio. Por eso `_fbSaveCore` llama `_fusionarConNubeInv` con un tercer parámetro, `enGuardado`, en la transacción y en el modo prueba:
+- Lo rescatado queda en `_rescIntentoInv`, también en memoria, con lo necesario para deshacerlo: la lápida, las dos entradas de las listas y la línea del registro.
+- El intento siguiente empieza con `_deshacerRescatesInv`: vuelve a poner la lápida y las dos entradas, sin pisar un borrado nuevo del mismo registro, y quita la línea. Después decide otra vez, con la copia del clic y la nube de ese momento.
+- Si en la repetición la nube ya trae la lápida (otra pantalla la borró), queda borrada, sin aviso y sin línea (LP-REINT, C3-REINT-POR). Si la repetición fue por otra escritura, el rescate se mantiene, con un solo aviso y una sola línea (C3-REINT-AJENO). Si el material entra justo después de la primera lectura, la repetición lo ve y rescata (RS-REINT). Un snapshot que llega entre dos intentos tampoco lo deja callado.
+- Si el guardado falla, el guardado siguiente hace lo mismo: deshace lo del intento que no se confirmó y vuelve a decidir. El aviso de ese intento no sale.
+
+**El aviso.** Después del commit, `_fbSaveCore` llama `window._rescatesTrasGuardarInv(dbCopy)`, en la transacción y en el modo prueba. Solo avisa de lo que quedó escrito: el registro está en lo que se escribió y sin lápida. Devuelve cuántos avisó y vacía `_rescIntentoInv`, así que llamarla otra vez no repite el aviso. A los 600 ms, fuera de la transacción, `_avisarRescatesInv` repinta la pestaña abierta y muestra «⚠️ NO SE BORRÓ», una línea por registro y «Revísalo y, si todavía hay que borrarlo, vuelve a borrarlo.». Si alguien llama `_fusionarConNubeInv` sin `enGuardado` (como el paso 8 de la prueba de `PRUEBAS.html`), no hay nada que se repita: lo decidido es final y el aviso sale igual, a los 600 ms.
+
+Las líneas del aviso y del registro dicen:
+- de una cuadrilla: «No se borró la cuadrilla "X": mientras se borraba, otra pantalla le entregó o le quitó material (o la pasó a otra bodega)»;
+- de una bodega: «No se borró la bodega "X": mientras se borraba, otra pantalla le metió o le sacó material»;
+- de una bodega que se queda por su cuadrilla: «No se borró la bodega "X": su cuadrilla "Y" sigue».
+
+**Una bodega con sus cuadrillas.** `delBodega` pone lápida a la bodega y a cada una de sus cuadrillas. Al guardar:
+- **(a)** Si se queda una cuadrilla que esta pantalla borraba junto con su bodega, la bodega también se queda, para no dejar una cuadrilla sin bodega. Solo mira las cuadrillas que esta pantalla borraba: una que otra pantalla mete en la bodega mientras se borra no la salva (dudoso 2 de la segunda revisión).
+- **(b)** Una bodega que se queda por material nuevo no salva a sus cuadrillas sin cambios: esas se borran. Desde la segunda revisión, el aviso y la línea lo dicen, también de las que la nube ya no tiene: «…; su cuadrilla "CUADRILLA DEPB" SÍ se borró, con el material que tenía», o «sus cuadrillas "X" y "Y" SÍ se borraron, con el material que tenían». Esta regla queda para que Elkin la confirme (ver «Decisión abierta para Elkin»).
+- **(c)** Una cuadrilla que otra pantalla pasó a otra bodega se queda, y la bodega vieja se borra.
+
+### Qué cambia en los datos y quién se entera
+
+Nada nuevo. `_tumbas` lleva la misma forma `{col, id, en}`, con los mismos topes (15 días y 800); la diferencia es que la lápida llega a la nube en el primer guardado y no se pierde en el camino. La línea del rescate va en `logs` con `_entradaLogInv`, como cualquier otra.
+
+- Las tres listas nuevas, `_lapPorSubirInv`, `_copiaAlBorrarInv` y `_rescIntentoInv`, viven solo en la memoria de la pantalla: nunca van a `DB` ni a la nube, y al recargar se pierden, igual que un borrado sin guardar.
+- TÉCNICOS, OFICINAS y RED no leen `_tumbas`: no se enteran.
+- Una INVENTARIO v118 abierta convive: recibe la lápida y suelta el registro, como con cualquier borrado de otra pantalla (LEN-MIX: la venta no vuelve y el material se devuelve una vez). Sus propios borrados siguen con la carrera hasta que se recargue.
+
+### Riesgos y límites
+
+- **Recrear con el mismo id dentro de 15 días:** el registro se esconde en el acto (antes lo quitaba el guardado). Todos los sitios tocados crean ids nuevos (`Date.now()` o `uid`).
+- **Si el guardado falla,** el borrado se queda solo en esa pantalla, igual que la devolución del material. Recargar antes de guardar pierde los dos juntos, como hoy.
+- **Dos pantallas que borran la misma venta a la vez** devuelven el material dos veces. Es otro problema, como el traslado aceptado dos veces (§13, «Pendiente» 5).
+- **OFICINAS** tiene una forma parecida en `_protegerLocalesEnSnapshot` (alrededor de la línea 2240): protege lo creado, no lo borrado. No se revisó.
+- **El rescate no se mira en el oyente** (era opcional): desde el snapshot hasta que termina el guardado, unos segundos, la cuadrilla o bodega rescatada no se ve, y reaparece con el aviso. El material no se pierde.
+- **La firma no ve** que en ese rato entre y salga exactamente la misma cantidad sin ningún serial.
+- **El confirm de `delBodega`** no nombra las cuadrillas que se borran con la bodega (ya era así).
+- Los dudosos de las dos revisiones (abajo), sin corregir.
+
+### Primera revisión adversaria (16 oct 2026)
+
+Antes de mostrarla se buscaron fallas a propósito, en una pasada, con cuatro lentes: las tres piezas, los sitios que borran un registro entero, las etapas anteriores y las pruebas. Cada hallazgo lo revisaron dos escépticos por separado, con las apps reales en el banco. Las reproducciones quedaron en el scratchpad de la sesión (`etapa4b/rev`, `verif_*`, `fix_rev` y `tumbasnube`).
+
+**5 hallazgos: 3 confirmados** (los dos escépticos dijeron que sí), **2 dudosos** (uno sí y uno no) y **0 refutados**. Los 3 confirmados se corrigieron:
+
+| Falla | Gravedad | Arreglo |
+|---|---|---|
+| La unión del oyente volvía a meter las lápidas que la nube soltó por el tope de 800. Iban al final de la lista y el corte, que va por posición, se llevaba las más nuevas. Con la nube al tope, una pantalla con el arreglo que guardaba cualquier cosa devolvía las 400 viejas, el tope se llevaba la lápida de una venta recién borrada y una pantalla atrasada devolvía la venta (TP-TOPE). Y cada guardado, aunque no borrara nada, reescribía `_tumbas` (TP-ROTA: 20 de 20) | media | `_lapPorSubirInv` (ver «Las lápidas por subir») |
+| Borrar una cuadrilla o una bodega se llevaba en silencio el material que otra pantalla le metió entre el clic y el guardado (LEN-RACE) | baja | El rescate por material (ver «el rescate») |
+| DEP-INST, DEPX-CUAD, DEPX-BOD y DEPX-DAN no probaban la pieza 2: la nube simulada no tenía `_tumbas` (producción sí), y sin esa lista el `Object.assign` no pisa la de la pantalla | baja | En el banco, `primerGuardadoDep`: un primer guardado antes del borrado, que exige que la nube ya tenga su `_tumbas` |
+
+**Dudosos, sin corregir:**
+1. **Retirar un cliente con equipos** (`deleteCliente`, gravedad media). La ONU vuelve a la bodega y el cliente sale, en memoria y sin lápida. Si un bloque de clientes llega en los 400 ms del guardado diferido (otra pantalla edita otro cliente), el cliente vuelve con la ONU y queda así en la nube: la ONU cuenta dos veces (SIT-RET y SIT-RET2, igual con la v118 y con esta). Es la lista completa de clientes (§13, decisión 12 y «Pendiente» 3) y va con esa etapa.
+2. **«Eliminar todos los clientes»** (baja). La guarda de los bloques de clientes no deja guardar 0 clientes, así que los clientes siguen en la nube, pero el aviso dice «eliminados correctamente». Los equipos dañados, también los pendientes de TÉCNICOS, sí se van, ahora con su lápida en el acto (SIT-CLI). El guardado ya los borraba antes; la lápida solo cierra el hueco del snapshot. Queda para decidir con Elkin.
+
+### Segunda revisión adversaria (16 oct 2026)
+
+Después de los arreglos de la primera, otra pasada sobre lo nuevo, con dos lentes: las lápidas (el rescate cuando la transacción se repite) y el rescate por material. Igual que en la primera, cada hallazgo lo revisaron dos escépticos por separado, con las apps reales en el banco. Las reproducciones quedaron en `etapa4b/rev2` y los arreglos se probaron en `etapa4b/corr3`. Sus escenarios ya están en el banco (ver «El banco»).
+
+**5 hallazgos: 3 confirmados y 2 dudosos.** Los 3 confirmados se corrigieron, solo en `INVENTARIO_PTOVISION.html`:
+
+| Falla | Gravedad | Arreglo |
+|---|---|---|
+| Si la transacción del guardado se repetía y en la repetición la cuadrilla quedaba borrada (otra pantalla le puso su lápida), igual salían el aviso «NO SE BORRÓ» y la línea en el registro de la nube (LP-REINT) | baja | `_rescIntentoInv`, `_deshacerRescatesInv`, `_rescatesTrasGuardarInv` y el parámetro `enGuardado`: lo rescatado se deshace si el intento no se confirma, y el aviso sale después del commit (ver «Si la transacción se repite») |
+| Unificar filas con 🧩 entre el clic y el guardado rescataba la cuadrilla sin que entrara ni saliera material: la firma era fila por fila (RS-UNIF: 10 + 5 → 15 + 0, con un aviso de una entrega que no ocurrió). Igual al renombrar una fila o cambiarle el tipo | baja | La firma por contenido: el total, los seriales y la bodega (ver «La firma») |
+| Cuando la bodega se quedaba y sus cuadrillas sí se borraban, el aviso no decía que esas cuadrillas, con su material, ya no estaban (RS-REGLAB) | baja | El aviso y la línea nombran las cuadrillas que sí se borraron (regla (b)) |
+
+**Dudosos, sin corregir.** Quedan como pendientes (ver «Pendiente», 3). En el banco están como informativos (ℹ): muestran el caso y nunca fallan (ver «El banco»).
+1. **Lo que entró por un snapshot antes del clic, sin que la lista se repintara, se borra** (media). La firma «de la pantalla» sale de la memoria, no de lo que se ve. Los oyentes no repintan las listas, y el confirm de `delBodega` no dice nada del material. Si un snapshot metió material antes del clic y la lista seguía mostrando lo de antes, ese material se borra sin aviso. INFO-RS-NOREP-BOD: la pantalla muestra BODEGA DEP con 100 m; otra pantalla le devolvió 10 m y le entregó 20 m a su cuadrilla; al borrar, CABLE DROP queda en 2980 y no en 3010 (se pierden también los 30 m que no se veían). INFO-RS-NOREP-CUAD: la pantalla muestra 10 m y la cuadrilla ya tenía 40; al borrarla, CABLE DROP baja de 3010 a 2970: se van los 40 m, también los 30 que no se veían. Tiene que ver con que las listas no se repintan solas (§13, «Pendiente» 4).
+2. **Una cuadrilla que otra pantalla mete (o crea) en la bodega mientras se borra queda apuntando a una bodega borrada** (baja). Pasa entre el clic y el guardado. La regla (a) no la cubre, porque esta pantalla no la borraba. INFO-RS-HUERF: otra pantalla pasa CUADRILLA A CARTAGENA (con 7 m) a BODEGA DEP mientras se borra; la bodega se borra y la cuadrilla queda en la nube con `bodegaId` de una bodega que ya no existe.
+
+### Decisión abierta para Elkin
+
+**¿Una bodega que se queda debe quedarse también con sus cuadrillas?** Hoy rige la regla (b): si la bodega se queda porque otra pantalla le metió o le sacó material, sus cuadrillas sin cambios **sí** se borran, con el material que tenían. El aviso y la línea del registro lo dicen («…; su cuadrilla "CUADRILLA DEPB" SÍ se borró, con el material que tenía»).
+
+La otra opción: que la bodega que se queda arrastre a sus cuadrillas, y no se borre ninguna. Es más prudente con el material, pero deshace un borrado que la persona sí pidió. Si Elkin la escoge, hay que cambiar `_rescatesAlBorrarInv` y, en el banco, FX-BOD y RS-REGLAB, que hoy piden la regla (b).
+
+### Pruebas
+
+**`PRUEBAS.html`:** una prueba nueva en el grupo de INVENTARIO, después de la última «Etapa 4 ·»: «Etapa 4 · Un registro borrado no vuelve con un snapshot (venta, cuarto, cuadrilla, entrega, instalación, bodega)». Usa ids inventados (`E4L…`), sustituye `_fbSave`, `alert`, `confirm`, `prompt`, los repintados y `fixDB`, y lo devuelve todo en un `finally`, también el navegador (`e2FotoLS`/`e2RestaurarLS`). Los oyentes no se pueden llamar desde afuera: la prueba sigue sus pasos en el mismo orden y comprueba por texto que la app los da en ese orden. Tiene 16 condiciones: 13 de la primera construcción y la primera revisión, y 3 del paso 9, de la segunda revisión. Comprueba:
+- `_lapidaRegistroInv` y `_unirTumbasEnEntranteInv`: la forma, sin repetir, siempre una lista nueva, la de la nube intacta, la poda a 15 días y `null`. Desde la primera revisión, las lápidas se ponen con `_lapidaRegistroInv`; una que la nube soltó por el tope (`TOPE`) no vuelve; y las que la nube ya trae salen de `_lapidasPorSubirInv`;
+- la venta borrada con el eco del primer guardado en vuelo: llegan el snapshot de datos (sin la lápida) y el de historial (todavía con la venta); la venta no vuelve; borrarla otra vez dice «Esa venta ya no está en la lista…» y CABLE queda en 1050, con una sola lápida. `approveDeleteVenta` igual, y la solicitud sigue aprobada;
+- por el oyente de historial, el cuarto y la entrega; por el de datos, la cuadrilla, la instalación y la bodega con su cuadrilla; lo nuevo de otra pantalla sí entra. `_aplicarNubeParcialInv`, por los dos lados;
+- el rescate al guardar (paso 8, de la primera revisión). `_rescatesAlBorrarInv` vive dentro del `<script type="module">`, así que se ejerce como corre al guardar: `_fusionarConNubeInv(nube, historial)` y después `_fotoIdsRemotosInv(nube, historial)`. Se borran tres cuadrillas con `eliminarCuadrilla`. C1: otra pantalla le entregó conectores (de 5 a 8) y no se borra; vuelve con 8, sin lápida, fuera de las pendientes, con una línea en el registro y un solo aviso «NO SE BORRÓ» diferido que la nombra. C2: la nube la trae igual a la base; se borra. C3: esta pantalla la había puesto en 7 sin subir y la nube trae 7; se borra. Si el guardado se repite con la misma nube, no avisa otra vez. Al volver a borrar C1, se borra con una sola lápida;
+- el camino del guardado (paso 9, de la segunda revisión). Cada intento hace lo mismo que la transacción: `_fusionarConNubeInv(nube, historial, true)` y después `_fotoIdsRemotosInv`. El commit se imita con `window._armarCopiaInv().dbCopy` y luego `window._rescatesTrasGuardarInv(copia)`. Mientras dura el paso, `setTimeout` está sustituido para atrapar y contar los avisos diferidos. Cuatro ramas:
+  - **a)** Otra pantalla le entregó 3 conectores a C1 después del clic. C1 se rescata en el acto, con lo de la nube, sin lápida y con su línea, y no sale ningún aviso, ni inmediato ni diferido. La transacción se repite con una nube que ya trae la lápida de C1 (otra pantalla también la borró): C1 queda borrada, con una sola lápida, y su línea sale del registro (`_deshacerRescatesInv`). `_rescatesTrasGuardarInv` da 0 y no avisa;
+  - **b)** Otra rama, con la misma nube: se borran C1 y C2 y la transacción se repite con lo mismo. C1 se vuelve a rescatar con UNA sola línea y C2, igual a la base, se borra. `_rescatesTrasGuardarInv` da 1 y sale un solo «NO SE BORRÓ», diferido, que nombra solo a C1. Llamarla otra vez da 0 y no repite el aviso;
+  - **c)** Entre el intento y el commit llega un snapshot que ya trae la lápida (pasa en el modo prueba, donde el guardado espera a `prepareDbCopy`). Lo escrito ya no lleva a C1: `_rescatesTrasGuardarInv` da 0, sin aviso. Esta rama es la única que comprueba que solo se avisa de lo que quedó escrito;
+  - **d)** La firma por contenido. `_firmaMaterialInv` no está en `window`, así que se comprueba por su efecto. C1 tiene dos filas de CABLE DROP (10 + 5) y una ONU con dos seriales. La cuadrilla se borra (no la rescatan) si otra pantalla renombra una fila y le cambia el tipo, unifica dejando una fila en 0 o quitándola, cambia el orden o escribe los seriales Huawei en el otro formato (`485754431234ABCD`, `hwtc-5678-ef01`). Se queda (la rescatan) si entrega (10 → 13), cambia un serial con la misma cantidad o pasa la cuadrilla a otra bodega;
+- por texto, la lápida de cada equipo dañado en `eliminarTodosClientes` (no se corre: borra clientes y pide la clave);
+- que `_escriturasBloqueadas` no crezca.
+
+Contrapruebas:
+- Con la copia de antes (`etapa4b/pre`), en su primera forma (12 condiciones), fallaba en 11: la venta vuelve y borrarla otra vez deja CABLE en 1100. También fallaba con 8 copias dañadas del arreglo (sin la unión; sin el filtro o con uno que cambia lo que llega; una unión o una lápida que cambia la lista que ya existe; sin la lápida de la venta, de las cuadrillas de la bodega o de los equipos dañados).
+- Con la unión de la primera construcción (`fix_rev/INV_unionVieja.html`) falla en la unión: `TOPE` vuelve.
+- Con una sola firma (`fix_rev/INV_unaFirma.html`) falla en el rescate: C3 se queda.
+- Sin el rescate (`rev/tres_piezas/INV_pend.html`) falla en el rescate: C1 se borra con su material y sin aviso.
+- Con la copia de antes de la segunda revisión (`pre_rev2`) falla en las 3 condiciones del paso 9, y solo en esas: no existe `_rescatesTrasGuardarInv`, el primer intento ya deja programado el aviso, la línea sigue aunque la repetición traiga la lápida y la firma rescata al renombrar, al unificar y con el otro formato del serial.
+- Con 7 copias dañadas del arreglo de la segunda revisión, cada una falla en su condición: avisar en el acto, no deshacer el intento, no quitar la línea, no vaciar la lista tras el commit, avisar sin mirar lo escrito (lo ve la rama c), firmar con el nombre de la fila y firmar los seriales sin normalizar. Están en `etapa4b/pruebas_4c/mut`.
+
+El paso 8 llama `_fusionarConNubeInv` sin `enGuardado` (lo decidido es final) y el paso 9 con `enGuardado` (el de la transacción que se repite y el aviso después del commit). La limpieza del `finally` vacía sin aviso lo que un intento haya rescatado sin commit (`_rescatesTrasGuardarInv(null)`) y devuelve el `setTimeout` original. Corrida sola, deja la página igual que antes: `DB`, `USER`, las listas en memoria, las funciones sustituidas, las lápidas por subir, `setTimeout` y el navegador.
+
+Otra prueba que ya existía, «Etapa 4 · Aprobar una edición aplica solo lo que la bodega cambió…», deja dos lápidas por subir (`ventas│E4P_V1` y `ventas│E4P_V0`) en la lista en memoria. Pasa igual con la copia de antes. La limpieza de la prueba de la 4b las borra después, sin efecto en el resultado (ver «Pendiente»).
+
+**El banco** (`inv/etapa4.js`, sección «Etapa 4b»). Se escoge con `'DEP*'`, con `'TP*' 'FX*' LEN-RACE` y con `'LP*' 'RS*' 'C3*'`. Los informativos, con `'INFO*'`.
+- **DEP:** los 11 DEP-* de la investigación y 3 DEPX-* para los sitios que DEP-* no cubría (DEPX-CUAD, DEPX-BOD y DEPX-DAN, este con un equipo dañado). Lo que antes eran avisos ℹ «¿volvió?» ahora son comprobaciones: primero que el registro sigue en la nube, después que el snapshot llegó a la pantalla (por una marca suya) y solo entonces que el registro no volvió a la memoria. Al final, que no está en la nube, que tiene su lápida y, en las ventas, CABLE DROP en 1050. DEP-REBORRAR vuelve a abrir 💰 Ventas, porque los oyentes no repintan (leen `window.USER`, y `USER` es un `let`). DEP-CTRL y DEP-V2 son controles: pasan con las dos copias. Con la copia de antes pasan 2 de 14 (solo los dos controles); DEP-V1 y DEP-REBORRAR terminan con CABLE DROP en 1100. Con dos copias sin la unión, o con la unión después del `Object.assign`, fallan DEP-INST, DEPX-CUAD, DEPX-BOD y DEPX-DAN, en «ese snapshot NO devolvió el registro a la memoria».
+- **«Revisión de la Etapa 4b»,** los 9 de la primera revisión:
+  - TP-TOPE y TP-ROTA: tras el snapshot, la memoria de cada pantalla queda igual que la nube y cada guardado llega a escribir. En TP-TOPE, las 399 lápidas nuevas y la de la venta siguen en la nube y VTP1 no vuelve. En TP-ROTA, ningún guardado reescribe `_tumbas`.
+  - FX-CUAD (la cuadrilla se queda con 30 m, sin lápida y con el total igual, con una línea en el registro y un solo aviso; volver a borrarla la borra con una sola lápida), FX-BOD, FX-BODCUAD, FX-MOVIDA, y los controles FX-CUAD-CTRL y FX-PROPIO, que se borran sin aviso ni línea.
+  - FX-BOD se cambió después de la segunda revisión. Antes pedía que el aviso **no** nombrara la cuadrilla, justo lo que la segunda revisión corrigió. Ahora pide un solo aviso que diga «No se borró la bodega "BODEGA DEP"» y «su cuadrilla "CUADRILLA DEPB" SÍ se borró, con el material que tenía», y una sola línea «No se borró» en el registro de la nube, que también nombra esa cuadrilla.
+  - LEN-RACE dejó de ser informativo. Es el mismo caso que FX-CUAD, pero con la nube **sin** su lista `_tumbas`, como la deja la semilla. Pide la cuadrilla con sus 30 m y sin lápida, el total de CABLE DROP igual, la entrega registrada, una línea en el registro y un solo aviso.
+
+Los 9 de la primera revisión, corridos antes de la segunda revisión:
+
+| Copia | Resultado |
+|---|---|
+| el repo de ese momento | 9 de 9 |
+| la unión de la primera construcción (`fix_rev/INV_unionVieja.html`), TP-* | 0 de 2: 400 y 50 lápidas viejas vuelven a la memoria; en TP-ROTA los 20 guardados reescriben `_tumbas`; en TP-TOPE la nube pierde la lápida de la venta y VTP1 vuelve |
+| sin el rescate (`banco4b/INV_sinRescate.html` y `rev/tres_piezas/INV_pend.html`), FX-* y LEN-RACE | 2 de 7 en las dos: pasan solo los controles (CABLE DROP en 2970 y 2980, la lápida puesta, sin aviso) |
+| una sola firma (`fix_rev/INV_unaFirma.html`), FX-PROPIO | 0 de 1: sale «NO SE BORRÓ» y la cuadrilla no se borra |
+| la v118 publicada (`pre`) | 2 de 9: pasan solo TP-TOPE y TP-ROTA (esa falla la trajo la primera versión del arreglo, no la v118). Los controles fallan por la falla que arregla la 4b: el snapshot devuelve la cuadrilla |
+
+**«Revisión 2 de la Etapa 4b»,** después de LEN-RACE. Son los 13 escenarios de la segunda revisión, ya en el banco. Antes vivían en el scratchpad (`etapa4b/rev2/lapidas`, `rev2/rescate` y `corr3/c3`), y al pasarlos se endurecieron sus comprobaciones:
+- **LP-REINT:** el admin borra una cuadrilla vacía; otra pantalla le entrega 30 m antes de que su guardado lea; el guardado la rescata y su escritura queda detenida; en ese rato otra pantalla la borra. La transacción se repite y la cuadrilla queda borrada: ningún aviso mientras el commit espera, ni después, y ninguna línea «No se borró».
+- **LP-DOS:** dos pantallas borran a la vez (A una venta, B una cuadrilla). En la nube quedan las dos lápidas y CABLE DROP en 1050, y los 6 guardados siguientes escriben sin reescribir `_tumbas`.
+- **RS-UNIF, C3-UNIF-CLAVE y C3-RENOMBRA:** entre el clic y el guardado, otra pantalla unifica dos filas con 🧩 (CABLE DROP 10 + 5; o «TV BOX» 5 y «TVBOX» 3), o renombra una fila y la pasa a usado. No entró ni salió material: la cuadrilla se borra como siempre. Comprueban que la nube ya tenía ese cambio antes de la lectura, y piden una lápida, ningún aviso, ninguna línea «No se borró» y que la pantalla ya no tenga la cuadrilla.
+- **RS-REGLAB:** la regla (b). Se borra BODEGA DEP (100 m) con su cuadrilla (25 m) y otra pantalla le devuelve 10 m a la bodega. Pide el texto exacto del aviso y de la línea, la bodega con 110 m y sin lápida, la cuadrilla con una lápida y CABLE DROP en t0 + 10 − 25.
+- **RS-REINT:** la transacción ya leyó (sin cambios) y su escritura se detiene; otra pantalla le entrega 30 m a la cuadrilla; el commit choca y se repite. En la repetición la cuadrilla no se borra: 30 m, sin lápida, el total igual, la entrega registrada, la cuadrilla otra vez en memoria, un solo aviso y una sola línea.
+- **C3-REINT-AJENO:** el primer intento rescata la cuadrilla y su commit se detiene; un técnico escribe otra cosa en `inventario/datos`; la transacción se repite y el rescate se mantiene: 30 m, un aviso y una línea.
+- **C3-REINT-POR:** se borra una bodega vacía con su cuadrilla; otra pantalla le entrega 20 m a la cuadrilla; el primer intento rescata las dos y su commit se detiene; otra pantalla borra la cuadrilla con su lápida. En la repetición la cuadrilla y la bodega quedan borradas, sin aviso y sin línea.
+- **RS-DOS:** dos admins (A y B) borran la misma cuadrilla, con sus guardados detenidos; otra pantalla le entrega 30 m. La cuadrilla sigue, con 30 m y sin lápida; B también avisa, cada pantalla una sola vez, y quedan 2 líneas en el registro.
+- **RS-TEC:** el técnico devuelve 10 m desde TÉCNICOS (abierto solo en el Chromium del banco, con la nube simulada) mientras se borra la cuadrilla. El snapshot llega; la cuadrilla no se borra (40 m, sin lápida); el recuperado queda apuntando a ella; un aviso con su nombre y una línea.
+- **C3-POR-HERMANA:** una bodega con dos cuadrillas vacías; se borra la bodega y otra pantalla le entrega 20 m a una. Esa cuadrilla (CUADRILLA DEPB, con 20 m) y la bodega se quedan; la otra se borra. Un solo aviso, que lo dice, el total igual y la memoria correcta.
+- **C3-SERIAL:** se borran dos cuadrillas con una ONU cada una. Otra pantalla le cambia la ONU a la primera (otro serial, misma cantidad) y a la segunda le reescribe el mismo serial en el otro formato. La primera se queda, con la ONU nueva en la nube; la segunda se borra con su lápida. Un solo aviso, una sola línea y la memoria correcta.
+
+Los dos dudosos de la segunda revisión van como **informativos**: INFO-RS-NOREP-BOD, INFO-RS-NOREP-CUAD e INFO-RS-HUERF (ver «Segunda revisión adversaria»). Se registran con `escenarioInfo`, no corren con «todos» ni con un patrón que no empiece por INFO, sus comprobaciones dudosas salen con ℹ («se cumple» o «NO se cumple (dudoso, sin arreglar)») y nunca hacen fallar. No cuentan en el total ni en el código de salida: el resumen dice «(+ N informativos ℹ, que no cuentan)». Con el repo, los tres muestran que los dos dudosos siguen sin arreglar.
+
+FX-BOD y los 13 de la segunda revisión, contra cada copia:
+
+| Copia | Resultado |
+|---|---|
+| el repo | 14 de 14 (135 s) |
+| antes de la segunda revisión (`pre_rev2`) | 5 de 14. Fallan FX-BOD, LP-REINT, RS-UNIF, RS-REGLAB, C3-REINT-POR, C3-POR-HERMANA, C3-UNIF-CLAVE, C3-RENOMBRA y C3-SERIAL. Pasan los 5 controles: LP-DOS, RS-REINT, RS-DOS, RS-TEC y C3-REINT-AJENO |
+| la v118 publicada (`pre`) | 1 de 14. Fallan todos menos LP-REINT, también los 5 controles |
+
+Cada escenario nuevo falla con al menos una de las dos copias. LP-REINT pasa con la v118: allí el snapshot devuelve la cuadrilla a la memoria y la otra pantalla la borra igual, así que no hay aviso que sobre. Solo falla con `pre_rev2`.
+
+Siguen fuera del banco LEN-MIX (`etapa4b/rev/lente_etapas/escenarios_len.js`) y SIT-RET, SIT-RET2 y SIT-CLI (`rev/sitios/esc_sitios.js`, los dudosos de la primera revisión).
+
+**Corridas:**
+- Antes de la segunda revisión: `etapa4` completo **93 de 93** (los 84 de antes y los 9 nuevos, 613 s, 0 errores de JavaScript); `PRUEBAS.html` completo: 178 corridas (Firma no se abre), 177 bien; falla solo «Rastreador v314: la ficha de una factura REAL de WispHub…», que lee una factura que la WispHub simulada no tiene, como siempre. 0 errores de página y 0 escrituras en la base simulada. Con la primera construcción, además, `etapa2` 25/25 y `revision_oct` 11/11.
+- Con la INVENTARIO de después de la segunda revisión, antes de poner al día el banco y `PRUEBAS.html`: `etapa4` 92 de 93 (607 s; fallaba FX-BOD, que pedía lo que la segunda revisión corrigió; ya se cambió); `etapa3` **39 de 39**, SR-D5 incluido; `etapa2` **25 de 25**; `PRUEBAS.html`, grupo de INVENTARIO, **60 de 60**, 0 errores de página y 0 escrituras.
+- Con el banco al día (INVENTARIO sin cambios): `etapa4` completo **106 de 106**, dos veces (736 s y 734 s), 0 errores de JavaScript y 0 excepciones. Los 3 INFO-* no corren con «todos». INVENTARIO (v118) y TÉCNICOS (v102) tenían el mismo md5 antes y después.
+- Con `PRUEBAS.html` al día (INVENTARIO sin cambios): completo, 178 corridas de 179 (Firma no se abre), **177 bien**; falla solo «Rastreador v314…», como siempre. 0 errores de página y 0 escrituras en la base simulada. La prueba de la 4b, sola, pasa y deja la página igual que antes.
+- **Corrida final, 16 y 17 oct 2026 (11:55 p. m. a 12:44 a. m.), con los archivos finales.** El banco completo, en orden: `pantallas_unit` 216/216, `recarga_unit` 167/167, `unit_v112` 50/50, `revision_oct` 11/11, `repro` 21/21, `escenarios2` 20/20, `etapa1` 16/16, `etapa6` 13/13, `etapa2` 25/25, `etapa3` 39/39 y `etapa4` **106/106**. Contraprueba con la v118 publicada (`--html=` la copia `etapa4b/pre`): 76 bien y 30 mal. Pasan todos los de la Etapa 4 (ya publicada), los controles (DEP-CTRL, DEP-V2), los que prueban fallas que solo tuvo la primera corrección de esta entrega (TP-TOPE, TP-ROTA, LP-REINT) y DEP-ECO, que es una carrera y no siempre se da con la v118 (DEP-V1 sí la atrapa siempre). **`PRUEBAS.html` en el navegador contra la base real** (`?prueba=1`): **177 bien y 2 por revisar** de 179, las dos «Estado real» de siempre (los seriales en dos sitios bajaron de 36 a 33). Después se miró la nube por REST (solo lectura): la última escritura en `inventario/datos`, `main` y `logs_auditoria` es de la tarde del 16 oct, de pantallas reales. Ninguna de las pruebas.
+
+**Validación:** `node .claude/validar.mjs` da sintaxis correcta en INVENTARIO (4 bloques) y PRUEBAS (1). Los dos en CRLF, sin LF ni CR sueltos. `inv/etapa4.js` va en LF, como el resto del banco, pasa `node --check` y tiene 3646 líneas. `APP_VERSION_INV` sigue en 118.
+
+### Pendiente
+
+1. **Hecho:** la corrida final con los archivos finales (ver «Corridas»).
+2. **En el banco:** llevar LEN-MIX.
+3. **Los dos dudosos de la segunda revisión, sin arreglar** (ver «Segunda revisión adversaria»):
+   - lo que entró por un snapshot antes del clic, sin que la lista se repintara, se borra sin aviso (INFO-RS-NOREP-BOD e INFO-RS-NOREP-CUAD);
+   - una cuadrilla que otra pantalla mete en la bodega mientras se borra queda apuntando a una bodega borrada (INFO-RS-HUERF).
+
+   Si se arreglan, esos tres pasan de informativos a escenarios que cuentan.
+4. **Decidir con Elkin:**
+   - si una bodega que se queda arrastra también a sus cuadrillas (regla (b); ver «Decisión abierta para Elkin»). Cambiaría `_rescatesAlBorrarInv`, FX-BOD y RS-REGLAB;
+   - si se arreglan los dos dudosos de la segunda revisión (punto 3);
+   - los dos dudosos de la primera revisión: el aviso de «Eliminar todos los clientes» y el retiro de un cliente con equipos, que va con la etapa de la lista completa de clientes.
+5. **En `PRUEBAS.html`:** revisar la prueba «Etapa 4 · Aprobar una edición aplica solo lo que la bodega cambió…», que deja dos lápidas por subir en memoria (ver «Pruebas»). No cambia ningún resultado.
+6. **OFICINAS:** revisar si en `_protegerLocalesEnSnapshot` un borrado también vuelve con un snapshot.
+7. **Al publicar** (cuando Elkin diga «publica»):
+   - INVENTARIO 119 **solo**, fuera de horario, con el respaldo de datos de la Etapa 1 antes;
+   - TÉCNICOS, OFICINAS y RED no cambian: no hay que pedir a los técnicos que actualicen;
+   - recargar las pantallas de bodega: una v118 abierta convive, pero sus propios borrados siguen con la carrera hasta recargarse;
+   - probar un caso real: borrar una cuadrilla vacía de prueba con otra pantalla abierta, ver que no vuelve y que su lápida queda en `_tumbas`.
