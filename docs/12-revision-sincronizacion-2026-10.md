@@ -204,6 +204,8 @@ Un espacio de más crea otra fila. La bodega pide borrarla cuando queda vacía, 
 
 ### Etapa 7 — Partir el documento (siguiente proyecto, con plan aparte)
 
+**Plan aprobado por Elkin el 21 oct 2026 («D por tramos»).** Primero F0: los archivos por partes de OFICINAS e INVENTARIO, la 📤 Entrega sin duplicar, el doble clic y el serial en dos renglones (construida y sin publicar: ver §16). Después, la seguridad, con sus reglas corregidas. Después, «D corto», solo INVENTARIO. En febrero se decide el resto, con datos. El plan está en `~/.claude/plans/pure-gathering-pudding.md` y el estudio, en el scratchpad de la sesión (`etapa7/plan_etapa7.md`). Lo que sigue es la propuesta de antes del plan.
+
 `inventario/datos` está cerca del 80 % de 1 MiB, y que todo viva en un documento es lo que produce los choques. **(ChatGPT)** recomienda no dejarlo para mucho después. Modelo propuesto:
 - consumibles: un documento por sitio y material (cantidad + revisión);
 - equipos con serial: **un documento por serial**, con su estado (`en_bodega` → `en_cuadrilla` → `instalado`, y devuelto, dañado o baja) y su ubicación. Instalar cambia el estado del equipo: ya no depende de sacar el serial de una lista;
@@ -2576,6 +2578,7 @@ Con 🩺 Casos de seriales, caso por caso o por grupo, con el respaldo, el motiv
 ### Pendiente
 
 1. **Hecho el 19 oct 2026:** la corrida final con los archivos finales (ver «Corrida final» arriba).
+1b. **Publicada el 21 oct 2026** (Elkin, 20 oct: «publica», y esa tarde escogió publicar fuera de horario; el 21 a las 9:23 a. m.: «publica ya»; commit `8fbeed1`, INVENTARIO 120 y TÉCNICOS 103 juntos). Antes, con 120 y 103 en la copia de trabajo, el banco completo otra vez en verde (etapa5 132/132, etapa4 106/106, etapa3 39/39 y los demás) y PRUEBAS sin servidor 186/187 (solo WispHub real). Respaldo en `_RESPALDO_2026-10-21_antes_de_publicar_etapa5` (código del commit 40c59f4 y datos: inventario/datos, historial, clientes, archivos *_2026, mantenimiento y versiones). Mantenimiento de INVENTARIO y TÉCNICOS de 9:24 a 9:31 a. m.; push 9:24, Pages 9:30 (huellas iguales a las del disco, dos veces), versiones anunciadas 9:30, prueba de humo de la INVENTARIO publicada en `?prueba=1` sin errores (v120, funciones nuevas presentes, `_devolverDobleBajaGemeloInv` ausente); la TÉCNICOS publicada se comprobó por texto (103), sin abrirla. Al terminar quedaban abiertas 2 INVENTARIO v119 y 1 TÉCNICOS v102.
 2. **Decidir con Elkin:**
    - las 22 decisiones (ver «Decisiones de Elkin»);
    - **el traslado gemelo aceptado en otra bodega:** hoy **pregunta** con una nota y no frena; los revisores proponían frenar (V-DIST-AA). Cómo cambiarlo, y qué pruebas cambian, en C1;
@@ -2628,3 +2631,482 @@ Con 🩺 Casos de seriales, caso por caso o por grupo, con el respaldo, el motiv
    - los técnicos verán «actualizar»; hasta entonces su devolución sigue como en la v102;
    - probar un caso real: entregar un serial que está en otra fila (debe frenar con el aviso), devolver desde Inventario un serial reportado y sin confirmar (debe frenar) y abrir 🩺 Casos de seriales para ver los casos con lo archivado;
    - después, las correcciones de «Lo que ya quedó mal», con Elkin.
+
+## 16. Etapa 7 · F0 — los archivos por partes y la entrega sin duplicar (publicada el 23 oct 2026)
+Especificada y construida el 21 oct 2026, y revisada del 21 al 23 oct, sobre lo publicado en `8fbeed1` (OFICINAS v320, INVENTARIO v120, TÉCNICOS v103, RED v44). **No está publicada** y las versiones no se subieron (`APP_VERSION` sigue en 320 y `APP_VERSION_INV` en 120): al publicar, OFICINAS pasa a 321 (ver «La unión con la OFICINAS 321 de la otra sesión») e INVENTARIO a 121. Las dos se pueden publicar por separado. TÉCNICOS y RED no cambian. Las pruebas no escribieron nada en la base real: solo se leyó, con GET y sin copiar datos personales.
+
+**Cómo se hizo.** Primero se midieron los datos reales (solo lectura). Con cinco mapas se armó un plan con seis alternativas, que revisaron dos críticas (`scratchpad/etapa7/plan_etapa7.md`; el resumen para Elkin, en `resumen_elkin.md`). Elkin aprobó el plan (abajo). Después se escribieron dos especificaciones, una por app, y cada una la revisó una crítica adversaria. Quien coordina tomó 13 decisiones, y C0 pasó las especificaciones a ellas, puso las anclas y armó el arnés del banco. Luego vinieron cuatro partes en paralelo, cada una en su copia: K1 OFICINAS entera, K2 el archivo por partes de INVENTARIO, K3 la 📤 Entrega y K4 el doble clic y el serial en dos renglones. Se juntaron con `git merge-file`: 14 uniones, ningún conflicto. Después vinieron cinco rondas de revisión adversaria, cada una con sus arreglos y sus pruebas: dos sobre todo F0 el 21 oct (con G1, G2 y G3 entre las dos), una sobre las notas «hermanas» de la 📤 Entrega y la última verificación el 22 oct, y el cierre el 23 oct (ver «Revisión adversaria»). Todo está en el scratchpad de la sesión, en `etapa7/f0/`: las especificaciones (`spec_f0_oficinas.md`, `spec_f0_inventario.md`), las decisiones (`decisiones_f0.md`), la unión (`build/junta/`), las copias de antes de cada ronda (`pre_rev` a `pre_rev5`), el trabajo de cada ronda (`rev` … `rev11_banco` y `rev11_pruebas`) y lo publicado (`base/`).
+
+### Por qué (lo medido el 21 oct 2026, solo GET y solo cantidades)
+
+| Documento | Tamaño | Qué iba a pasar |
+|---|---|---|
+| `oficinas_sistema/ordenes_archivo_2026` | 922 KB · **90 %** · 1.630 órdenes | Se llenaba hacia el 28-29 nov, o hacia el 3-5 nov si alguien pulsaba «🧹 Aligerar base». Desde ahí las órdenes terminadas se quedaban en `main`, que llegaba a 1 MiB hacia el 10-15 ene. Ese día **ni la oficina ni los técnicos podrían guardar** |
+| `inventario/archivo_consumosPendientes_2026` | 649 KB · **63 %** · 1.036 consumos | Se llenaba entre el 17 nov y el 20 dic. Desde ahí lo resuelto se quedaba en la base e `inventario/datos` volvía a crecer |
+| `oficinas_sistema/main` | 536 KB · 52 % | Tenía 339 lápidas de órdenes, todas de una sola tanda: es lo que deja un 🧹 |
+| `inventario/datos` | 57 % | No es urgente |
+
+Además:
+- **La carrera.** Los dos archivadores leían el archivo, le sumaban lo nuevo y lo reescribían entero, sin transacción. Si dos pantallas archivaban a la vez, una borraba lo que puso la otra. Esos registros ya habían salido de la base: **se perdían**.
+- **OFICINAS:** `solicitudes_archivo` botaba las más viejas al pasar de 2.000, y cada pantalla trabajaba con una copia de la mañana. El 🧹 dejaba una lápida por cada orden archivada. Editar una oficina con la lista de bodegas sin cargar le borraba la bodega vinculada; desde ahí TÉCNICOS ya no manda lo recogido a la bodega.
+- **INVENTARIO:** si se perdía la respuesta, la 📤 Entrega se podía registrar dos veces (el cable entraba dos veces: es la «Entrega con la respuesta perdida» de la §15). Un doble clic en ➕ Instalación o ➕ Cliente descontaba o creaba dos veces. 🎒 Dotar y ➕ Instalación dejaban el mismo equipo en dos renglones.
+
+### El plan aprobado (21 oct 2026)
+
+El plan está en `~/.claude/plans/pure-gathering-pudding.md`. Se llama «D por tramos»:
+1. **F0, ya y por separado:** lo de esta sección. OFICINAS antes del 1 nov, INVENTARIO antes del 10 nov.
+2. **Después, la seguridad (S2)**, con su propio plan y **con las reglas corregidas**. Las reglas de `docs/SEGURIDAD-URGENTE.md`, tal como están, apagarían el inventario y la firma del SG-SST. La Etapa 7 no toca reglas.
+3. **Después, D corto, solo INVENTARIO** (122 en diciembre, 123 en enero): el libro de movimientos `mov_<operationId>`, una bitácora sin nombres, un índice de lo instalado, y los traslados y las solicitudes como operaciones de una sola vez.
+4. **A mediados de febrero, con datos,** se decide si se sigue con el resto de D.
+
+Nada grande se publica del 20 dic al 6 ene. Elkin decidió además: sin internet no se mueve material en bodega; lo que se archiva no se recorta (va entero, como hoy); avisa la sede con más movimiento.
+
+### Las decisiones de quien coordina (`decisiones_f0.md`)
+
+1. **La parte 1 nunca se escribe** (las dos apps). Solo cuenta como archivada una copia en las partes 2 en adelante. La parte 1 se sigue leyendo siempre.
+2. **Nombres:** `<nombre>_<n>`, con n desde 2, sin contador ni índice. Tope de 40 partes.
+3. **Tamaño:** 800 KB por parte, medidos con las reglas de Google y con la misma función en las dos apps.
+4. **Lote mínimo de 20** en el archivado automático. El botón manual archiva lo que haya.
+5. **INVENTARIO** archiva como mucho una vez cada 30 minutos por pantalla.
+6. **OFICINAS:** 10 minutos entre vueltas de fondo; tras un fallo, pausas de 10, 30 y 60 minutos. La emergencia por peso también archiva órdenes.
+7. **El aviso** de «no se pudo archivar» lo ve solo el administrador: tras 3 fallos seguidos, o enseguida si el motivo es permanente. Queda en `errores_guardado` con el rol, nunca el nombre. Botón «📏 Medir archivos», solo para el administrador.
+8. **El mismo id con distinto contenido:** no se archiva ninguna copia en esa vuelta, y se anota.
+9. **📤 Entrega:** la nota «entró» dura 2 horas. Si en ese rato se arma una entrega igual, se pregunta «¿Es OTRA entrega distinta…?». `receptor` nunca vale `undefined`.
+10. **«🔎 Órdenes sin consumo»** lee también el archivo de órdenes de OFICINAS, solo lectura.
+11. **La primera escritura real** se hace de noche, con el administrador y el botón manual, y se relee por REST.
+12. **Vigilancia:** un script de solo lectura por REST, con criterio de parada (ver «La vigilancia»).
+13. **Fuera de F0:** el interruptor para la primera escritura (va con `config_e7`, en F2) y un botón para ver los archivos de la otra app.
+
+### Qué quedó en cada archivo
+
+| Archivo | Qué cambió |
+|---|---|
+| `OFICINAS_PTOVISION.html` (de 39.684 a 40.217 líneas; será la 321) | Bloque nuevo «📦 F0 (docs/12 §16) · ARCHIVO POR PARTES», antes de «FIREBASE INIT». Trae las constantes `ARCHIVO_*`, la medida (`_bytesUTF8`, `_tamValorFS`, `_tamDocFS`), las funciones puras (`_planArchivoPartes`, `_dudososArchivo`, `_selloArchivo`, `_unirArchivoPorId`…), el núcleo `_archivarEnPartesCore`, el envoltorio `_archivarEnPartesOfi`, el aviso `_avisoArchivoOfi`, la vuelta de fondo (`_programarArchivoOfi`, `_archivoDeFondoOfi`, `_sacarArchivadasOfi`), el lector `_leerSerieArchivoOfi` y `medirArchivosOfi`. Cambian `_aligerarSolicitudes`, `_aligerarOrdenes` y `_aligerarRecogidas` (ya no escriben ni tocan `DB`), `aligerarBaseAhora` (el 🧹), los tres visores, `_saveReal`, el oyente de `main`, `_ocupadoRecargaOfi`, el panel 🩺, `modalEditarOficina`, `_cargarBodegasInventario`, `actualizarOficina` y `_registrarFalloGuardado` (G1). Comentarios «F0 (docs/12 §16)» |
+| `INVENTARIO_PTOVISION.html` (de 20.727 a 22.119 líneas; será la 121) | **A, el archivo por partes (K2):** `_anioDeInv`, las constantes `_TOPE_PARTE_ARCH_INV`, `_MAX_PARTES_ARCH_INV`, `_LOTE_MIN_ARCH_INV` y `_CADA_ARCH_AUTO_INV`, `_archivarInv`, `_aligerarAutoInv`, `aligerarBaseInventario`, los tres lectores, la caja «📦 Archivos del historial» de la 🛡️ y los puentes del módulo (`_fbTransaccionPartesInv`, `_fbLeerParteInv`, `_fbRegistrarFalloArchivoInv` con G3, la guarda de `_fbGuardarArchivoInv` y `arrayUnion` en el import). **B, la 📤 Entrega (K3 y sus revisiones):** `modalNewEntrega`, `saveEntregaLogic(foto)`, la nota del navegador con la marca «enviando», la franja (`_revisarEntregasInciertasInv`, `_pintarFranjaEntregaInv`) y sus botones (`cargarEntregaInciertaInv`, `mismaEntregaInciertaInv`, `descartarEntregaInciertaInv`). **C y D (K4):** el doble clic y el serial en dos renglones. Lo nuevo va debajo de las anclas «F0 · K2/K3/K4 (debajo)». Los comentarios dicen «F0 (docs/12 §16)»; lo que cambió en las rondas de revisión dice además «(b)», «(c)», «revisión 5», «revisión 7», «revisión 9», «revisión 10» o «cierre» |
+| `TECNICOS_PTOVISION.html` | Sin cambios: sigue la 103 |
+| `PRUEBAS.html` (de 15.929 a 18.415 líneas) | 16 pruebas nuevas «Etapa 7 ·»: 9 de OFICINAS (F0-1 a F0-9) y 7 de INVENTARIO. Son 204 en total: 76 de INVENTARIO, 95 de OFICINAS, 32 de RED y 1 de Firma. La de la 📤 Entrega creció en cada ronda (39 partes) y la del archivador tiene un paso 11 (el aviso del botón). Ayudantes nuevos `f0DbFalso` y `f0ErroresFalso`. 2 pruebas viejas adaptadas, y comprobaciones de las nuevas que cambiaron en las rondas (ver «Pruebas viejas que cambiaron de sentido») |
+| Banco: `inv/f0.js` (nuevo, 3.987 líneas, en LF; la copia de la junta, `build/junta/f0.js`, es idéntica) | 105 escenarios con las apps reales sobre la base simulada y compartida, más INFO-ARNES (informativo, no cuenta). Opciones `--dir=`, `--html=`, `--ofi=`, `--tec=`, `--publicado` (git `8fbeed1`) y `--reloj=` |
+| Banco: `ofi_f0_unit.js` (670 líneas, en LF) | U1 a U14: las funciones reales de OFICINAS en `vm`, con varias pantallas contra una nube simulada |
+| Banco: otros | `fs_compartido.js` mide como Google (`{tamano:'google'}`), cuenta lecturas y pasa `fromCache` (copia previa en `fs_compartido.antes_f0.js`). `inv/escenarios2.js` acepta `INV_HTML=` y cambia E35. `trayectoria.js` acepta `OFI_HTML=` |
+| `vigilar_f0.cjs` (scratchpad, `etapa7/f0/tools/`) | La vigilancia de la decisión 12. Va fuera de la app y solo lee |
+| RED, Firma, `contrato.js`, `ia.js` | Sin cambios |
+
+### El archivo por partes (la misma regla en OFICINAS e INVENTARIO)
+
+**Los nombres.** La parte 1 es el documento de siempre. La parte n es `<nombre>_<n>`, de la 2 a la 40.
+
+| App | Serie (la parte 1) | Partes nuevas |
+|---|---|---|
+| OFICINAS | `oficinas_sistema/ordenes_archivo_<año>`, `recogidas_archivo_<año>` y `solicitudes_archivo` (esta, sin año) | `…_2`, `…_3`… |
+| INVENTARIO | `inventario/archivo_<campo>_<año>`, de los 8 campos de `_REGLAS_ARCHIVO_INV` | `…_2`, `…_3`… |
+
+- Los archivos de 🧩 (`archivo_unificaciones_<año>`) y de 🩺 (`archivo_correcciones_<año>`) no van por partes. Los viejos sin año (`ordenes_archivo`, `recogidas_archivo`) se siguen leyendo, y nadie los escribe.
+- Forma de una parte nueva. OFICINAS: `{ordenes|recogidas|solicitudes:[…], serie, parte, anio, actualizado, version}` (sin `anio` en solicitudes). INVENTARIO: `{items:[…], campo, anio, parte, v, actualizado}`. Los registros van enteros, como hoy.
+- Las partes de OFICINAS van en `oficinas_sistema`. Es una excepción escrita: la serie ya vivía ahí. Nunca llevan `tipo`, `clienteCedula` ni `firmaRef` en su primer nivel, así no las traen las consultas `where` sobre la colección.
+
+**La regla de la parte 1.** La 321 y la 121 **nunca escriben la parte 1**, en ningún año. La serie nueva empieza en `_2`, también en un año nuevo: en 2027 lo primero será `…_2027_2`, y que falte la parte 1 es normal. La razón: una OFICINAS 320 o una INVENTARIO 120 abierta reescribe la parte 1 entera, desde lo que leyó. Si la versión nueva escribiera ahí, una vieja podría borrar lo que la nueva ya sacó de la base. Por lo mismo, **solo cuenta como «ya archivado» una copia igual en una parte 2 o más**. Lo que solo está en la parte 1 se copia a la parte abierta: es una copia repetida e inofensiva, mientras queden versiones viejas. El escritor ni lee la parte 1, así baja 922 KB (órdenes) o 649 KB (consumos) menos por vuelta.
+
+**Cómo se escribe.** Una transacción por serie:
+1. Lee desde la parte 2 hasta la primera que falta, y también la siguiente. Si la siguiente existe, falta una parte en el medio (un **hueco**): no escribe nada y avisa.
+2. No agrega lo que ya está igual en una de esas partes. Si está distinto, agrega la copia nueva al lado; los lectores muestran la más nueva.
+3. Escribe como mucho dos partes: la última que existe y la primera que falta, las dos leídas en esa misma transacción. Cada parte se llena hasta **800 KB** (819.200 bytes), medidos como Google: `_tamDocFS` en OFICINAS y `_pesoDocArchInv` en INVENTARIO hacen la misma cuenta, que da lo de `medir.cjs` más 16 bytes. Lo que no cabe espera a la vuelta siguiente; eso no es un fallo. Un registro solo que pasa de 800 KB es otro caso (ver abajo).
+4. Si otra pantalla escribió en medio, Firebase repite la transacción con lo nuevo: no hay carrera. Si se pierde la respuesta de un commit que sí entró, la vuelta siguiente lo encuentra «ya estaba».
+5. Vuelve a leer desde el servidor lo que escribió (una lectura de la copia del equipo no sirve). Lo que no se pudo releer no sale de la base. Las dos apps no confirman igual:
+   - **OFICINAS** saca solo lo que se releyó **con el mismo contenido**, o lo que ya estaba igual en una parte 2 o más;
+   - **INVENTARIO** saca **por id** lo que está en la parte releída (la que escribió o la que ya lo tenía). No compara el contenido.
+
+Un registro que viene dos veces con distinto contenido (el mismo id) no se archiva en esa vuelta: se queda en la base y se anota (decisión 8). Tope de 40 partes por serie.
+
+**Un registro que no cabe en 800 KB** no se trata igual en las dos apps:
+- **OFICINAS:** si va solo, entra en una parte nueva para él, siempre que no pase de 1.000.000 bytes (`ARCHIVO_DOC_DURO`). Esa parte queda por encima de 800 KB. Si pasa de 1.000.000 bytes, se queda en la base (motivo `grande`).
+- **INVENTARIO:** no hay esa excepción. Ninguna parte pasa de 800 KB, y un registro que no cabe en una parte vacía se queda en la base (motivo `grande`).
+- En las dos, `grande` es un motivo permanente: el administrador ve el aviso enseguida.
+
+**Cuándo corre.**
+
+| | OFICINAS 321 | INVENTARIO 121 |
+|---|---|---|
+| Automático | De fondo, 3 s después de un guardado bueno (`_archivoDeFondoOfi`), como mucho cada 10 minutos y 45 s por serie. Lo confirmado sale de `main` en el guardado siguiente, dentro de `_saveReal` y después de la fusión con la nube (`_sacarArchivadasOfi`): **así no deja lápidas** | Dentro del guardado (`_aligerarAutoInv`), como mucho una vez cada 30 minutos por pantalla |
+| Lote mínimo | 20 registros de una serie; 1 si `main` va apretado (más de 0,85 MB) | 20 de un mismo campo; 1 si la base pasa del 70 % |
+| Tras un fallo | Esa serie espera 10, 30 o 60 minutos | Los mismos 30 minutos: la marca cuenta toda vuelta que lee |
+| A mano | «🧹 Aligerar base» (`aligerarBaseAhora`): sin espera ni lote. Se frena en modo prueba, con versión vieja y en mantenimiento | «📦 Archivar historial viejo» (`aligerarBaseInventario`): sin espera ni lote |
+| Emergencia | Si `main` pasa de 1 MiB, el guardado que falló archiva solicitudes **y órdenes** en su `catch`, sin lote ni pausa, y se reintenta una vez. Lo confirmado sale de `main` en ese reintento. **Es el único caso en que OFICINAS archiva dentro del guardado** | — |
+| No corre | En `?prueba=1`, en mantenimiento, con versión vieja o sin conexión | En `?prueba=1` o con versión vieja. En `?prueba=1` el automático ni lee. El botón manual sí corre y pregunta, pero la transacción se bloquea y el aviso lo dice: «🧪 Modo prueba: aquí no se guarda nada.» |
+
+- La recarga automática de OFICINAS espera mientras se archiva: «pasando registros viejos al archivo».
+- OFICINAS anota lo confirmado para sacarlo (`window._archivadasPorSacar`). La anotación se olvida a las 24 horas o pasadas 5.000. Si un registro vuelve a `main` después, la vuelta siguiente lo encuentra «ya estaba».
+
+**Cómo leen.** Sin contador ni índice: leen la parte 1 si existe, y desde la `_2` hasta la primera que falta, mirando además la siguiente. Si la siguiente existe, avisan «falta la parte N» y siguen leyendo. Entre copias del mismo id muestran la de **sello mayor**, es decir, la más nueva por fecha; si empatan, la última leída. Un error de lectura ya no se calla: el visor lo dice.
+- OFICINAS (`_leerSerieArchivoOfi`): «📦 Archivo de órdenes» (`verArchivoOrdenes`), `verArchivoRecogidas`, `verArchivoSolicitudes` y «📏 Medir archivos».
+- INVENTARIO (`_leerArchivoPartesInv`): «👁️ Ver archivo» (`verArchivoHistoricoInv`, ahora con las celdas escapadas), «🔎 Órdenes sin consumo» (`revisarOrdenesSinConsumo`), 🩺 Casos de seriales (`_leerArchivosCasosInv`) y «📏 Medir archivos». «🔎 Órdenes sin consumo» lee además la serie `oficinas_sistema/ordenes_archivo_<año>` del año en curso y del anterior (decisión 10): una orden de 45 a 60 días que OFICINAS ya archivó deja de escaparse.
+
+**El aviso.** Solo lo ve el administrador (decisión 7). Sale cuando una serie falla 3 vueltas seguidas en esa pantalla, o enseguida si el motivo es permanente: falta una parte, ya hay 40 partes o un registro no cabe. Sale como mucho una vez cada 30 minutos por serie y motivo, y dice «📦 No se pudieron pasar al archivo N … Siguen … en la base: no se perdió nada. Motivo: …». El personal de oficina y la bodega no ven aviso, solo la consola. En ese mismo momento queda una entrada en `oficinas_sistema/errores_guardado`, con el título «📦 Archivo sin terminar», la serie, la cantidad, el motivo y **el rol, nunca el nombre**. La de INVENTARIO lleva además `app:'inventario'`. Desde G1 y G3, si una pantalla no puede leer esa lista, la entrada se agrega con `arrayUnion` y `merge`, sin borrar las demás.
+
+**El aviso del botón «📦 Archivar historial viejo»** (INVENTARIO, `aligerarBaseInventario`; D-C, en el cierre). Antes, si no se movía nada, el mismo aviso decía «⚠️ NO SE PUDO ARCHIVAR» y también «Todo quedó guardado… Los guardados deberían volver a funcionar», y el registro anotaba «Base aligerada: 0 registro(s)…». Ahora:
+
+| | Se movió algo | No se movió nada, con problemas | No se movió nada, sin problemas (todo dudoso o sin lugar) |
+|---|---|---|---|
+| Título | «✅ BASE ALIGERADA» | «⚠️ NO SE PUDO ARCHIVAR» | «⚠️ NO SE ARCHIVÓ NADA» |
+| Última línea | «Todo quedó guardado y consultable con "Ver archivo". Los guardados deberían volver a funcionar.» | «No se movió nada al archivo: la base sigue igual que antes.» | la misma |
+| Registro | «Base aligerada: N registro(s) al archivo histórico» | «Archivar historial viejo: no se movió nada (N con problemas)» | «Archivar historial viejo: no se movió nada» |
+
+El `save()` del final sigue corriendo aunque no se haya movido nada. No hace daño.
+
+**📏 Medir archivos** (solo el administrador; solo lee). En OFICINAS está en el panel 🩺: mide las órdenes y las recogidas del año en curso y del anterior, y las solicitudes. En INVENTARIO está en la caja «📦 Archivos del historial» de la 🛡️: mide los 8 campos del año en curso y del anterior (16 series). Dicen el tamaño y el porcentaje de cada parte; la parte 1 sale como «solo lectura». En INVENTARIO va en rojo una parte 2 o más por encima de 900 KB, o un hueco. Los dos paneles muestran además la última vuelta de esa pantalla y los dudosos.
+
+**Otros arreglos de OFICINAS 321.**
+- `solicitudes_archivo`: se quitaron el tope de 2.000, que botaba las más viejas, y la copia de la mañana.
+- El 🧹 ya no sube `docPrincipalMB` a 99 para forzar el modo a fondo. Pregunta con las cantidades, y el resultado sale de lo que quedó archivado de verdad.
+- Editar una oficina con la lista de bodegas sin cargar ya no le quita la bodega: «Guardado. La bodega vinculada no cambió: la lista de bodegas no cargó.». Una oficina sin bodega ya no queda con una inventada. Una bodega que ya no existe sale como «⚠️ Bodega que ya no está en el inventario (id)». Las opciones van escapadas.
+
+### 📤 Entrega con id fijo (INVENTARIO 121, K3 y sus revisiones)
+
+Así quedó el código después de las cinco rondas de revisión. Lo que cambió después de K3 lleva en su comentario «(b)», «(c)», «revisión 5», «revisión 7», «revisión 9», «revisión 10» o «cierre».
+
+**La ventana y su id.**
+- El id nace al abrir la ventana (`_nuevoIdEntregaInv`: `ent`, la hora en base 36 y 6 letras). La ventana guarda su «foto» (`TempLists.eFoto`: `entId`, `propios`, `inciertos` y `escritos`), y el Guardar se la pasa a `saveEntregaLogic(foto)`. Antes el id se creaba dentro de la transacción con `Date.now()`: si la respuesta se perdía, el segundo Guardar creaba otra entrega.
+- Sin internet no se intenta: «📴 Sin internet no se puede registrar la entrega…». Un segundo clic mientras guarda no hace nada (`window._entregandoInv`).
+- La fecha por defecto es la local (`_corrHoyISOInv`), no la UTC. Antes, después de las 7 p. m., la misma entrega rearmada salía con la fecha de mañana y ya no se reconocía (primera revisión).
+- `receptor`, bodega, cuadrilla y fecha nunca valen `undefined`.
+
+**Qué es una entrega «igual».** La que tiene el mismo contenido: bodega, cuadrilla, fecha y renglones, con cada serial por su clave (`_envioEntregaInv`). Con otra fecha ya es otra entrega.
+
+**El Guardar, paso a paso.** Todo pasa dentro de la transacción, con lo recién leído y antes de validar el stock. Si Firebase repite la función, todo se vuelve a calcular.
+- **a.** Un id de esta ventana ya está en la nube (o su lápida): no escribe nada y dice lo que quedó allá: «✅ Esa entrega ya había quedado guardada… No se entregó dos veces.». Si lo que quedó es distinto de lo que tiene la ventana, dice además que lo de la ventana NO se entregó.
+- **b.** Una entrega igual ya está en la nube: no escribe nada y pregunta «La entrega de las HH:MM (…) no se sabía si había quedado guardada, y SÍ quedó. Lo que tienes en esta ventana es igual. ¿Es OTRA entrega distinta y quieres registrarla también?». Si esa igual es la marca de otra pestaña que sigue guardando, dice «…, que se estaba guardando en otra pestaña de este navegador, SÍ quedó.».
+  - Las iguales salen de las notas de este navegador que no son de esta ventana: «incierta», «reemplazada», «enviando», o «entro» de menos de 2 horas (decisión 9). También cuentan la entrega que reemplazó a una nota de esta ventana y las `posibles` de una nota de esta ventana.
+  - Revisión 9: si lo que entró con el id de una igual tiene otro contenido, no cuenta como igual. Su nota pasa a «entro» con lo que de verdad entró, con una línea en el registro, y su id no se adopta (quedarían dos registros con el mismo id).
+- **c.** Con qué id se escribe. Si esta ventana no tiene intentos sin confirmar y hay una igual «incierta» que no está en la nube, escribe con el id de la más reciente: es la adopción (H4 de la crítica, paso 7c de la especificación). Así la ventana vieja, si sigue abierta y vuelve a guardar, la encuentra en la nube. La marca «enviando» de otra pestaña que sigue guardando no se adopta.
+- **b2.** Si la ventana lleva una nota con este mismo contenido, busca en lo leído una entrega igual que **cubra** esa nota (ver abajo). Si la hay, no escribe nada y pregunta «Ya quedó guardada una entrega igual de las HH:MM (…). Lo que tienes en esta ventana es igual. ¿Es OTRA…?». Aquí no hay límite de 2 horas, y la igual no necesita nota en este navegador. Las notas que mira: la de «📋 Cargarla», la que adopta en c, una suya sin confirmar y, desde la revisión 10, la marca «enviando» que dejó un intento anterior de este mismo Guardar.
+- Después valida el stock y los seriales, como siempre, descuenta y arma la entrega. Justo antes de mandar el commit deja la marca «enviando».
+
+**Cuándo una entrega igual «cubre» una nota** (`_igualCubreNotaInv`). Nunca si es la de la propia nota, ni si quien guardó dijo que es OTRA (está en `otras`). Sí en estos casos:
+- ya está en sus `posibles`;
+- no estaba en la nube cuando empezó el intento de la nota (no está en sus `vistas`);
+- este navegador todavía no sabía si había entrado cuando empezó ese intento. Pasa con dos Guardar solapados, o con una igual registrada mientras el Guardar estaba colgado.
+
+La hora que puso otro equipo no decide (revisión 5). Solo una nota vieja, sin `vistas`, compara la hora.
+
+**La respuesta a la pregunta.**
+- **Aceptar** (es OTRA): esa igual queda fuera y la transacción se repite sin adoptar ningún id: se escribe con el de la ventana. Hay una vuelta más por cada igual aceptada.
+- **Cancelar:** no se registra nada. Pasan a «reemplazada» por esa entrega las notas «incierta» de esta ventana con ese contenido y las iguales que este Guardar conocía al empezar. A las demás notas que esa entrega cubre solo se les anota como «posible» (revisión 7).
+
+**Cuando termina la transacción**, la marca «enviando» vuelve a lo que había antes de ese Guardar (`_soltarEnviandoInv`). Después sigue lo de siempre:
+- **Guardó bien:** la nota del id que se escribió, si había, pasa a «entro» con lo que de verdad entró (revisión 9). Las iguales «incierta» que el Guardar conocía pasan a «reemplazada». A las de otras ventanas que esta entrega cubre solo se les anota como «posible». Un guardado limpio, sin nota de antes, no deja ninguna nota.
+- **Ya estaba (paso a):** lo mismo. Queda una sola línea en el registro: la anota quien pasa la nota a «entro».
+- **No se pudo confirmar** (corte o respuesta perdida después de que un intento planeó escribir; `_errorNubeInciertoInv`): la ventana se queda con el id que pudo entrar (`foto.entId`), queda la nota «incierta» y sale el aviso «⚠️ No se pudo confirmar si la entrega quedó guardada… Si ya había quedado guardada, no se entrega dos veces.».
+- **Error definitivo** (el stock cambió, permisos…): «❌ No se registró la entrega.». Si antes hubo un Guardar sin confirmar en esa ventana, dice «Este Guardar no entregó nada (el anterior sigue sin confirmar)».
+
+**La nota del navegador** (`localStorage['inv_entregas_inciertas']`; con `?prueba=1`, `…_prueba`). Como mucho 20 notas. Lleva bodega, cuadrilla, fecha y renglones, sin receptor ni nombres de personas. No va a la nube.
+
+| Estado | Qué quiere decir | Cuánto dura |
+|---|---|---|
+| `enviando` | un Guardar la está mandando en este momento (cierre) | si ya no es de un Guardar vivo, se lee como «incierta» |
+| `incierta` | no se sabe si entró | 7 días |
+| `entro` | entró; lleva lo que de verdad entró (revisión 9) | 2 horas desde que se confirmó |
+| `reemplazada` | otra entrega igual la cubre (`reemplazadaPor`) | 7 días |
+
+Los campos que agregaron las revisiones:
+- `desdeMs`: cuándo empezó su primer Guardar (revisión 5). `ms` es la hora del último intento, la que se muestra.
+- `vistas`: las iguales que ya estaban en la nube en la primera lectura de ese Guardar (como mucho 50). Esas no la cubren.
+- `otras`: las que quien guardó aceptó como OTRA entrega.
+- `posibles`: entregas de la nube que pueden ser esta misma (revisión 7). La franja o un Guardar las anotan sin cambiar el estado.
+- `pestana` y `carga`: solo en la marca «enviando». La `carga` se conserva si otra pestaña la volvió a escribir como «incierta» (revisión 10).
+
+**La marca «enviando»** (D-A, en el cierre). Antes la nota nacía solo en el `catch`. Mientras el Guardar estaba en vuelo («Registrando entrega…») no había nada en el navegador. Si en ese rato se recargaba la página, se cerraba o saltaba el aviso de versión con el commit ya en la nube, o si se rehacía lo mismo en otra pestaña, quedaban dos entregas sin ninguna pregunta. Ahora:
+- La función de la transacción escribe la nota «enviando» al planear la escritura, **antes** de que salga el commit. Lleva el id de la pestaña y el de la carga de la página (`_CARGA_ENT_INV`). El de la pestaña va en `sessionStorage` (`inv_entregas_inciertas_pestana`): sobrevive a recargar y cada pestaña tiene el suyo. Si el navegador no lo deja guardar, se usa el de la carga, y una recarga cuenta como otra pestaña. Si Firebase repite la función, la marca se reescribe con la hora del intento nuevo.
+- Al terminar la transacción, bien, mal o sin escribir, `_soltarEnviandoInv` devuelve la nota que había antes de ese Guardar, o quita la marca si no había. Desde «pagehide» no suelta nada (`window._saliendoEntInv`; «pageshow» lo deshace). Una página que se va corta su conexión, y el Guardar falla por eso, no porque la nube dijera que no: la marca tiene que quedar para la próxima carga.
+- Una marca que ya no es de un Guardar vivo se lee como «incierta» (`_enviandoMuertaInv`). Son tres casos: es de esta carga y su Guardar ya terminó; es de esta pestaña pero de antes de recargar; o es de otra pestaña y su último intento tiene 3 minutos o más (`_NOTA_ENVIANDO_INV`). Desde ahí la franja, «📋 Cargarla», la adopción y la pregunta la tratan como cualquier incierta.
+- La marca de otra pestaña viva (menos de 3 minutos) no se ofrece, no se adopta y no se marca. Solo cuenta como igual en el Guardar de esta pestaña: si su id ya está en la nube, pregunta «…, que se estaba guardando en otra pestaña de este navegador, SÍ quedó…». Si todavía no está, esta pestaña escribe la suya. Lo cierra la otra pestaña (revisión 10): su commit choca con lo que escribió esta, Firebase repite su función y el paso b2, con su propia marca, pregunta «¿Es OTRA?».
+- Revisión 10: si otra pestaña ya dejó la marca escrita como «incierta» (pasaron los 3 minutos, o es una pestaña duplicada), la marca conserva su `carga`. El Guardar que la puso la reconoce (`_marcaDeEstaCargaInv`) y la suelta al terminar, también con un error definitivo. Antes quedaba 7 días ofreciendo «NO quedó guardada / 📋 Cargarla».
+
+**La franja** (`#eAvisoIncierta`). Al abrir 📤 Entrega, si hay notas «incierta», la ventana las revisa sin esperar (`_revisarEntregasInciertasInv`). La bodega ve las de sus bodegas; el administrador, todas. Primero mira la memoria y, para las que falten, hace una lectura fresca de `inventario/historial`. Si esa lectura sale de la copia del equipo o falla, «no se sabe». Cada nota es una fila (`_pintarFranjaEntregaInv`):
+- verde: «✅ La entrega de las HH:MM sí quedó guardada: … No la vuelvas a hacer.». Si lo último que se intentó era distinto, agrega que eso NO quedó. La nota pasa a «entro» con lo que entró y queda una línea en el registro;
+- verde: «✅ La entrega de las HH:MM (…) sí quedó guardada, y después la borraron.»;
+- roja: «❌ La entrega de las HH:MM (…) NO quedó guardada.», con «📋 Cargarla en esta ventana» y «🗑️ Descartarla»;
+- **ámbar** (revisión 7): «⚠️ La entrega de las HH:MM (…) no se sabe si quedó guardada, y después se registró una igual (la de las HH:MM)…», con «✅ Es la misma» y «📋 Cargarla en esta ventana». Sale cuando lo que la pantalla ve de la nube tiene una entrega igual que cubre la nota (`_igualDeNotaEntregaInv`). La franja anota esa entrega en `posibles`, pero no cambia el estado de la nota ni la esconde: puede ser otra entrega igual y legítima, y eso solo lo sabe la persona;
+- ámbar: «⚠️ … no se sabe si quedó guardada y ahora no se pudo revisar (sin conexión)…»;
+- azul: «📋 … quedó cargada en esta ventana: revísala y pulsa Guardar.».
+
+Una nota «reemplazada» deja de salir. Lo que la pantalla ve de la nube es `DB.entregas` más lo leído al abrir, sin las entregas que ya tienen lápida (`_entregasVistasFranjaInv`, revisión 9). Si la igual desaparece porque la borraron, la fila vuelve a lo que dijo la revisión.
+
+**Los botones de la franja.**
+- **«✅ Es la misma»** (`mismaEntregaInciertaInv`, revisión 7): pregunta una vez. Con Aceptar, la nota pasa a «reemplazada» por esa entrega y deja de salir. No escribe nada en la nube. Si esa igual ya no se ve (la borraron con la ventana abierta), no marca nada y avisa «⚠️ Esa entrega igual la borraron después: no se marcó nada…» (revisión 9).
+- **«📋 Cargarla en esta ventana»** (`cargarEntregaInciertaInv`): pone bodega, cuadrilla, fecha y renglones de la nota, y la ventana adopta su id. Si ya se ve una entrega igual que cubre la nota, primero pregunta: «Ya quedó guardada una entrega igual (…), que puede ser esta misma hecha otra vez… ¿Es OTRA entrega distinta y quieres cargarla también?» ((c)). Con Cancelar no carga nada, la nota pasa a «reemplazada» y sale de la franja. Con Aceptar la carga y anota esa entrega en `foto.otras`: el Guardar no vuelve a preguntar por ella. No carga si la ventana ya tiene un intento sin confirmar, si la nota es de otra bodega o si su bodega o su cuadrilla ya no están.
+- **«🗑️ Descartarla»** (`descartarEntregaInciertaInv`): quita la nota. No se registra nada.
+
+**Lo que se deja así a propósito (D-B).** La última verificación los dejó como dudosos, y se decidió no cambiarlos:
+- **La adopción callada.** Si la franja dice que Z «NO quedó guardada» y la persona arma a mano lo mismo, el Guardar escribe con el id de Z sin preguntar (paso c). Lo más probable es que sea la misma entrega rehecha, y sin adoptar quedaría repetida (con la 120, dos entregas y 200 m). Si de verdad era una segunda entrega legítima, Z ya no se registra aparte: su ventana original, si vuelve a guardar, dice «✅ Esa entrega ya había quedado guardada…». Si en las 2 horas siguientes se arma Z otra vez, el Guardar pregunta «¿Es OTRA?», y con Aceptar quedan las dos.
+- **Otra fecha es otra entrega.** La misma entrega rehecha otro día, con la fecha que trae la ventana (la de hoy), no cuenta como igual. La nota de ayer sigue en rojo «NO quedó guardada», y «📋 Cargarla» la registra con su fecha, sin preguntar. Lo normal es que una cuadrilla reciba el mismo material otro día: preguntar daría avisos falsos. G-F0-ENT-OTRO-DIA lo deja fijo.
+
+**Lo que no cierra.**
+- Otra computadora: la nota es del navegador. F2 lo cierra con el libro `mov_`.
+- Un navegador que no deja guardar: solo queda la protección de la misma ventana.
+- Otra pestaña que rehace la entrega mientras el commit de la primera va en camino: lo cierra la primera al repetir (revisión 10). Sigue abierto si ese commit se pierde del todo sin dejar nota, o si sus lecturas llegan después de que entró la de la otra pestaña: ninguna de las dos tiene con qué preguntar, y quedan dos.
+- «Duplicar pestaña» copia el `sessionStorage`: la copia ve la marca de la original como «de antes de recargar» y la trata enseguida como incierta. Solo cambia lo que se ve: si la carga y la guarda, escribe con el mismo id y no duplica.
+- La marca se conserva al recargar porque el error del Guardar colgado llega después de «pagehide». Eso se comprobó en el banco (Chromium con la nube simulada), no con el SDK real 10.12. Con el SDK real, un corte llega como `unavailable`, que ya cuenta como incierto, y el `catch` deja la nota «incierta» de todas formas.
+- Una igual que borran con la ventana abierta sale de la franja cuando llega su lápida (en `inventario/datos`). Si el historial llega antes, por unos instantes se sigue viendo.
+- Una pregunta de más: si en el Guardar se aceptó Y como OTRA (Z queda «incierta» con Y en sus `otras`), «📋 Cargarla» Z y Guardar vuelve a preguntar por Y, porque `cargarEntregaInciertaInv` no copia las `otras` de la nota. No duplica nada: con Aceptar quedan las dos.
+- Con «📋 Cargarla» y otra nota igual más reciente, el Guardar escribe con el id de esa otra, no con el de la cargada. Queda una sola entrega.
+
+### Doble clic y el mismo serial en dos renglones (INVENTARIO 121, K4)
+
+- **➕ Instalación y ➕ Cliente** (alta y edición): cada ventana lleva `ventana.hecho`, y el segundo clic no hace nada. Antes, cada clic de más volvía a descontar y a crear. Su `.catch`, que callaba, ahora avisa: «⚠️ La instalación quedó anotada en esta pantalla, pero todavía no llegó a la nube… NO la vuelvas a registrar.» (lo mismo con el cliente).
+- **El ➕ que pasa una instalación a cliente** (`sincronizarInstalacionAUnCliente`) mira primero si el cliente ya existe, antes de preguntar la bodega: «ℹ️ "NOMBRE" ya está en Clientes Instalados: no se creó otra vez.». Compara con `_nomClienteClaveInv`, que no falla con un cliente sin nombre. El masivo (`sincronizarInstalacionesAClientes`) hace lo mismo. Los dos ya no dejan campos `undefined` y tienen su `.catch`.
+- **🎒 Dotar y ➕ Instalación** ya no ofrecen ni aceptan un serial que ya está en otro renglón, tampoco escrito de dos formas: comparan por la clave, como la Entrega desde la Etapa 5. Al guardar, una lista con un serial repetido frena: «⛔ No se descontó nada.» o «⛔ No se guardó la instalación: no se descontó nada.». Funciones nuevas: `_clavesSnEnListaInv` y `_snMarcadoRepetidoInv`.
+
+### Qué cambia en los datos y quién se entera
+
+| Dónde | Qué | ¿Lo lee otra app? |
+|---|---|---|
+| `oficinas_sistema/ordenes_archivo_<año>_<n>`, `recogidas_archivo_<año>_<n>` y `solicitudes_archivo_<n>` | documentos nuevos (ver arriba) | INVENTARIO 121 lee las de órdenes, solo para «🔎 Órdenes sin consumo». TÉCNICOS y RED, no |
+| `inventario/archivo_<campo>_<año>_<n>` | documentos nuevos (ver arriba) | solo INVENTARIO 121 |
+| las partes 1 | no cambian: la versión nueva solo las lee | la versión vieja las sigue escribiendo |
+| `oficinas_sistema/errores_guardado` | entradas «📦 Archivo sin terminar» de las dos apps, con el rol. La forma del documento (`{items, actualizado}`, los últimos 150) no cambia | soporte por REST y la vigilancia |
+| `inventario/historial.entregas[].id` | las nuevas empiezan por `ent`. Los campos son los mismos | solo INVENTARIO; una 120 las ve y las borra igual |
+| `localStorage` del navegador | las notas de la 📤 Entrega: «enviando», «incierta», «entro» y «reemplazada» (como mucho 20, sin receptor ni nombres) | solo ese navegador |
+| `sessionStorage` del navegador | el id de la pestaña para la marca «enviando» (`inv_entregas_inciertas_pestana`) | solo esa pestaña |
+| `main.oficinas[].bodegaId` | el mismo campo; deja de borrarse por error | TÉCNICOS (lo recogido) e INVENTARIO (la sede al entrar) ya no lo pierden |
+| `main._tumbas` | el archivado deja de crear lápidas | — |
+
+La forma de `main`, de `inventario/datos` y de cada orden, recogida, solicitud o consumo **no cambia**. TÉCNICOS 103 no lee ni escribe ningún archivo; si un celular reintenta una orden ya archivada, dice «La orden ya no existe…» y no escribe nada. Nada se borra. Nada nuevo lleva nombres ni claves.
+
+### Convivencia con OFICINAS 320 e INVENTARIO 120 abiertas
+
+La versión vieja y la nueva **nunca escriben el mismo documento**: la vieja escribe la parte 1 y la nueva desde la `_2`.
+- **Una vieja deja de archivar cuando ve la versión nueva:** su guardado se frena por versión (en OFICINAS desde la Etapa 6; en INVENTARIO con `_versionViejaInv`). Quedan tres huecos cortos: el guardado que ya venía en camino, el «🧹 Aligerar base» de una OFICINAS 320 y el «📦 Archivar historial viejo» de una INVENTARIO 120. Esos dos botones no miran la versión. Por eso sigue el aviso de no pulsar el 🧹, y al publicar INVENTARIO se recargan las pantallas de bodega.
+- **Entre dos viejas sigue la carrera de hoy** en la parte 1, hasta que dejan de guardar.
+- **La vieja y la nueva archivan lo mismo:** queda en la parte 1 y en una parte 2 o más. Los lectores nuevos lo muestran una vez. No se pierde nada.
+- **Una vieja puso algo en la parte 1 y volvió a la base:** la nueva no se fía de la parte 1 y lo copia a su parte. Si otra vieja reescribe la parte 1 sin él, sigue en la parte nueva.
+- **Una vieja llena la parte 1 (1 MiB):** su escritura falla entera y no saca nada de la base. La nueva lo archiva en la `_2`.
+- **Una OFICINAS 320 guarda `main` con órdenes que la 321 ya sacó:** vuelven a `main`. La 321 las encuentra «ya estaba» y las saca otra vez. Una orden archivada también puede volver a `main` hasta 30 minutos, por la fusión de órdenes recientes: tampoco se pierde.
+- **Lo que la vieja no ve:** las partes 2 o más. En una 320, «📦 Archivo de órdenes» no muestra lo que archivó la 321 hasta recargar. En una 120, tampoco «👁️ Ver archivo», 🩺 ni «🔎 Órdenes sin consumo».
+- **`errores_guardado`:** una OFICINAS 320 sin señal todavía puede dejar la lista en una sola entrada (no pudo leer y reescribe). Eso se acaba cuando no quede ninguna 320.
+- **Las pantallas viejas duran días.** El 21 oct a las 23:52 había con latido en las últimas 24 h: OFICINAS 320 ×20, INVENTARIO 120 ×4 y **119 ×3**, TÉCNICOS 103 ×4 y 102 ×1, RED 44 ×1.
+
+### Volver atrás
+
+F0 no tiene interruptor: volver atrás es publicar el código anterior con un número nuevo. Si falla una sola pieza, es **mejor la 121 sin esa pieza** que la 120 entera: las piezas A, B y C-D no comparten funciones nuevas. Nada se pierde, porque lo de las partes nuevas sigue ahí. Pero con el código de la 120 o de la 320:
+- **la `_2` no se lee.** Todo lo archivado desde la publicación (no solo lo de diciembre) deja de verse en «👁️ Ver archivo», en 🩺 y en «📦 Archivo de órdenes»;
+- **«🔎 Órdenes sin consumo» de la 120 lista como «sin consumo» cada orden cuyo consumo la 121 archivó en la `_2`,** y propone «🧾 Reportar gasto olvidado». **No hay que reportarlo:** ese material ya se descontó, y reportarlo lo descontaría dos veces. Hay que decírselo a Elkin y a quien use ese botón (lo pidió la segunda revisión);
+- la 120 vuelve a llenar la parte 1 de consumos (63 %), que se llena entre el 17 nov y el 20 dic. La 320 vuelve a llenar la de órdenes (90 %) en unas dos semanas de archivado normal, y vuelve el tope de 2.000 de solicitudes. **Una vuelta atrás entera no puede durar más de unas semanas;**
+- las entregas `ent…` se ven y se borran igual en la 120.
+
+### La unión con la OFICINAS 321 de la otra sesión
+
+La copia de OFICINAS del repo es una 321 de otra sesión (WispHub), sin commit. F0 se construyó sobre la 320 de git y **no la toca**. Al publicar se unen con `git merge-file -p <321 del repo> <320 de git> <OFICINAS de F0>`. Se probó el 22 oct: **la unión sale limpia**, sin conflictos, con la sintaxis correcta y en CRLF sin LF sueltos, y queda con `APP_VERSION = 321` de la otra sesión. Qué número sale lo decide quien publica (plan, punto 4): si el trabajo de la otra sesión está listo, F0 va dentro de esa 321; si no, F0 sale sobre la 320 de git como 321, sin lo de la otra sesión, y lo suyo pasa a 322. PRUEBAS y el banco usan `APP_VERSION`, nunca un número fijo. La vigilancia necesita el número con que salga F0 (`--ofi-f0=`).
+
+### Revisión adversaria (21 a 23 oct 2026)
+
+Se buscaron fallas a propósito en cinco rondas. Cada hallazgo lo revisaron dos escépticos por separado, con las apps reales en el banco o con las funciones reales sacadas del archivo. Las reproducciones quedaron en el scratchpad, en `etapa7/f0/`: `rev`, `rev3`, `rev3_pruebas`, `g1g2`, `g3`, `rev2` y `pruebas_g` (las dos primeras pasadas), y de `rev4` a `rev11_pruebas` más las carpetas `verif_*` (las demás rondas).
+
+**Primera pasada: 14 hallazgos**, con seis lentes: el archivo de OFICINAS, su guardado, el archivo de INVENTARIO, la Entrega, el doble clic y las pruebas. **11 confirmados**, **3 dudosos** y ninguno refutado. Los 11 se corrigieron, cada uno con su prueba:
+
+| Falla | Arreglo |
+|---|---|
+| OFICINAS: si fallaba el guardado que saca lo archivado, el siguiente dejaba una lápida por cada registro (25 de 25), y se podía perder el cambio que otra pantalla hizo en una de esas órdenes (2 hallazgos, media y baja) | `_sacarArchivadasOfi` quita esos ids también de `window._idsRemotos`. El guardado siguiente los ve como nuevos, los vuelve a meter sin lápida y los saca otra vez si siguen iguales |
+| OFICINAS: el guardado de fondo que esperaba en la fila usaba la copia de `main` de hace 15 s y pisaba la aprobación de otra pantalla (media) | al cerrar `_saveReal`, si se ignoró un snapshot, y en la rama del eco del oyente: `window._cacheRemotoMain = null`. Así se lee `main` de la red |
+| OFICINAS: si salía una versión nueva mientras archivaba, el 🧹 decía «Todo quedó guardado» sin haber guardado (baja) | cuenta `_guardadosFrenadosVersion` antes del `save()`. Si se frenó, dice «…todavía no se guardó…» y «⛔ Salió una versión nueva del sistema…» |
+| Con la vuelta atrás a la 120, «🔎 Órdenes sin consumo» manda a reportar otra vez lo archivado en la `_2` (baja) | se explica en «Volver atrás» |
+| Entrega: una ventana adoptaba el id de una nota, ese Guardar quedaba incierto, el siguiente escribía con OTRO id y la entrega se repetía (alta) | `foto.entId = idPlaneado` en el `catch` del incierto: la ventana se queda con el id que pudo entrar. `_reemplazarPropiasE` pasa a «reemplazada» las notas propias con el mismo contenido (al guardar bien, en «ya estaba» y al Cancelar «¿Es OTRA?»). Al aceptar «es OTRA» se reinician `escribioEste` e `idPlaneado` |
+| Entrega: después de las 7 p. m. la fecha por defecto era la de mañana (UTC), y la misma entrega rearmada ni se adoptaba ni se preguntaba (baja) | la fecha local, con `_corrHoyISOInv()` |
+| PRUEBAS: la prueba de INVENTARIO «El archivador» fallaba en falso del 1 de enero al 1 de marzo (media) | el año sale de los registros, como en `_anioDeInv` |
+| `ofi_f0_unit.js`: U4 no probaba de verdad la decisión 7 (el rol, no el nombre) (media) | U4 corre el `_registrarFalloGuardado` real y mira la entrada: va con el rol y sin el nombre |
+| Ninguna prueba fallaba si se rompían el lote de 20, la emergencia por peso o la guarda de modo prueba de la vuelta de fondo (baja) | F0-7 por el camino real (con 19 y con 20 viejas), F0-4 lee la emergencia, U12 nueva y X-F0-OFI-EMERGENCIA en el banco |
+| F0-6, «Datos reales» y el 📏 de OFICINAS miraban solo el año en curso; en enero y febrero se archiva en la serie del año anterior (baja) | las dos pruebas, y `medirArchivosOfi` con G2, miran el año en curso y el anterior |
+
+**Los 3 dudosos** (un escéptico dijo que sí y otro que no):
+1. **El registro «📦 Archivo sin terminar» lo borraba el siguiente fallo de OFICINAS** (media). `_registrarFalloGuardado` leía `errores_guardado` y, si la lectura fallaba, reescribía la lista con una sola entrada. Ya pasaba en la 320 (el 21 oct había solo 4 entradas de 150 posibles), pero la vigilancia de F0 depende de ese documento. **Se corrigió en las dos apps:**
+   - **G1 (OFICINAS):** sin lectura, o si la lectura salió de la copia local, la entrada se agrega con `arrayUnion` y `merge:true`, sin recortar. Con lectura, todo sigue como antes (los últimos 150). Se quitan del extra los campos `undefined` o de tipo función.
+   - **G3 (INVENTARIO, `_fbRegistrarFalloArchivoInv`):** con lectura sigue en transacción, ahora con `merge:true`. Si la transacción no termina, la entrada se agrega con `arrayUnion` y `merge`, directo y no por `_setDoc` (sin señal, `_setDoc` dejaría a la recarga esperando). Si `items` no es una lista, no escribe. Sin `undefined`.
+   - **G2 (OFICINAS):** `medirArchivosOfi` mira también el año anterior. Es lo que quedaba del último confirmado.
+2. **➕ Instalación o ➕ Cliente con otro guardado en curso** (media): la ventana espera sin decir nada y, si se cancela y se registra otra vez, queda duplicado. **No se corrigió:** la cola de guardados es la misma de la 120, donde era peor (cada clic de más duplicaba). F0 quita una de las dos vías. Queda en «Pendiente».
+3. **➕ Instalación queda trabada si algo falla después de marcar la ventana** (baja): `actualizarClientesDesdeInstalacion` usa `.nombre.toLowerCase()` sin protección, y un cliente sin nombre corta todo sin aviso. **No se corrigió:** en la 120 es igual y además cada clic duplicaba; con los datos de hoy no pasa. Queda en «Pendiente».
+
+**Segunda pasada: 6 hallazgos**, con tres lentes: el guardado de OFICINAS, la Entrega y lo que faltaba. **2 confirmados**, **3 dudosos** y **1 refutado**.
+
+| Confirmado | Qué se hizo |
+|---|---|
+| La vuelta atrás a la 120 seguía diciendo «no se pierde nada» y no avisaba de «🔎 Órdenes sin consumo» (baja) | «Volver atrás», arriba. Hay que decírselo a Elkin antes de publicar |
+| G1, G2 y G3 no tenían prueba en ninguna tanda: si se deshacían, nada fallaba (baja) | En PRUEBAS: F0-8 (G1), F0-9 (G2) y «El registro del archivo en errores_guardado nunca borra la lista…» (G3), con el ayudante `f0ErroresFalso`. En el banco, 10 escenarios: X-F0-ERR-OFI-SIN-LECTURA, X-F0-ERR-OFI-COPIA-LOCAL, G-F0-ERR-OFI-CON-LECTURA, X-F0-OFI-MEDIR-ANTERIOR, los cinco X-F0-ERR-INV-* y X-F0-MEDIR-ANTERIOR. En `ofi_f0_unit.js`, U13 y U14 (el arnés ahora trae `FieldValue`). Cada uno falla con `pre_rev2` y pasa con la junta; 15 copias dañadas, cada una atrapada por su prueba |
+
+**Los dudosos:**
+- **Las notas «hermanas» de la Entrega (2 hallazgos, media y baja).** La salida «ya estaba» y el Cancelar de «¿Es OTRA?» solo cubren las notas de su propia ventana. Otra nota igual, de otra pestaña, sigue «incierta». La franja dice a la vez «sí quedó» y «NO quedó» de los mismos 100 m, y pasadas 2 horas «📋 Cargarla» repite la entrega sin preguntar. Hay una variante peor: si Firebase repite la función después de un commit que entró, la nota «entró» se queda con el contenido viejo y no protege ni en esas 2 horas. Pide dos pestañas del mismo navegador y varios Guardar sin confirmar seguidos. Ya pasaba igual antes de la primera revisión, y los arreglos no lo empeoraban; en la 120 una respuesta perdida ya repetía la entrega. **Se corrigió después:** en la tercera ronda (abajo), y la variante peor en la revisión 9 (la nota «entro» toma lo que de verdad entró).
+- **La vigilancia no estaba hecha** (media). El script viejo (`vigilar_f0_inv.cjs`) no veía huecos, ni series que empiezan en la `_2`, ni `errores_guardado`, ni OFICINAS. Era una tarea anotada para después de la junta. **Se hizo:** `vigilar_f0.cjs` (ver «La vigilancia»).
+
+**Refutado:** «la copia de `main` se descarta al cerrar casi todo guardado, así que el guardado que espera en la fila baja `main` dos veces seguidas» (una lectura más de unos 535 KB). Los dos escépticos dijeron que no. No se cambió nada.
+
+**Tercera ronda (22 oct): las notas «hermanas» de la 📤 Entrega.** Eran los dos dudosos de la segunda pasada. Se corrigieron con tres arreglos:
+- (a) cuando una entrega queda confirmada (guardado bueno, «ya estaba» o Cancelar «¿Es OTRA?»), las notas iguales que esa entrega cubre ya no quedan sueltas como «incierta»;
+- (b) la franja no ofrece como «NO quedó guardada» una nota que cubre una entrega igual que la pantalla ve en la nube;
+- (c) «📋 Cargarla», el Guardar de una ventana que la cargó y la adopción preguntan «¿Es OTRA?»: es el paso b2.
+
+La revisión de esos arreglos encontró **6 hallazgos**. Cinco ya los había corregido la revisión 5 cuando llegó la verificación, y los escépticos los dieron por resueltos:
+- dos Guardar solapados: la franja seguía diciendo «sí quedó» y «NO quedó» de los mismos 100 m (media);
+- una igual registrada mientras el Guardar estaba colgado no contaba como «después», y el reintento o «📋 Cargarla» la repetían (media);
+- el Guardar de la ventana de Z decía que Z «SÍ quedó» y la pasaba a «entro» cuando la franja de otra pestaña la había cubierto con otra entrega (baja);
+- (b), (c) y b2 comparaban la hora que puso otro equipo con la de este navegador (baja);
+- b2 preguntaba por una entrega que no tenía que ver cuando la ventana cambió lo cargado (baja).
+
+La revisión 5 dejó de comparar horas: cada nota guarda `desdeMs` y `vistas`, y una nota con otro contenido no cuenta en b2.
+
+**1 confirmado** (media): **dos entregas iguales legítimas.** Si una no entraba y después otro equipo registraba una igual, la franja de (b) la daba por hecha y la escondía: la segunda se perdía sin ninguna pregunta. **Revisión 7:** la franja ya no da por hecha ni esconde una nota que nadie contestó. La muestra en ámbar, anota la igual en `posibles` y ofrece «✅ Es la misma» y «📋 Cargarla». (a) quedó solo para las notas de la ventana y las iguales que el Guardar conocía al empezar; a las demás se les anota la entrega como «posible».
+
+**Cuarta ronda (22 oct): la última verificación.** Una mirada a la 📤 Entrega, como quedó tras la revisión 7, y otra a todo F0. **12 hallazgos: 8 confirmados y 4 dudosos.** El banco y estos documentos quedaron para después, porque se acabó el límite de uso. Los cinco escenarios R9 del banco los dejó un agente que se cortó; en el cierre se revisaron: no estaban repetidos y fallan con `pre_rev4`.
+
+| Confirmado | Qué se hizo |
+|---|---|
+| La nota pasaba a «entro» con el contenido de su primer intento: una entrega distinta preguntaba «es igual» y, con Cancelar, no se registraba (baja) | Revisión 9: la nota toma lo que de verdad entró (`_contenidoRegEntregaInv`). Una igual cuyo id entró con otro contenido no cuenta ni se adopta (`enNubeOtro`), y su nota pasa a «entro» con lo suyo (`_entroOtrosE`) |
+| Con la franja abierta, si borraban la igual, la fila seguía en ámbar, y «📋 Cargarla» o «✅ Es la misma» dejaban Z «reemplazada» por una entrega borrada (baja) | Revisión 9: `_entregasVistasFranjaInv` quita las que tienen lápida, y «✅ Es la misma» no marca nada y avisa |
+| La prueba de la 📤 Entrega en PRUEBAS reescribía al terminar la clave de verdad, `inv_entregas_inciertas` (baja) | Revisión 9: solo devuelve la clave de prueba, y cuenta lo que su ventana escribe en la de verdad (tiene que ser 0) |
+| Esta sección decía que las notas «hermanas» no se corrigieron y no describía la Entrega final (media) | Al día: «📤 Entrega con id fijo» |
+| Las cifras, los escenarios y las corridas de esta sección eran de antes de la tercera ronda (baja) | Al día: «Qué quedó en cada archivo» y «Pruebas» |
+| «Cada parte queda en 800 KB o menos» y el registro de hasta 1.000.000 bytes no valían igual para las dos apps; docs/01 decía lo mismo (baja) | Corregido en «Cómo se escribe» y en docs/01 |
+| «Solo lo que se releyó igual sale de la base» no vale para INVENTARIO, que confirma y saca por id (baja) | Corregido en «Cómo se escribe», punto 5 |
+| docs/01: «En OFICINAS el archivado ya no corre dentro del guardado» no es cierto con la emergencia por peso (baja) | Corregido en docs/01 y en «Cuándo corre» |
+
+**Los 4 dudosos y lo que se decidió:**
+1. **Mientras un Guardar estaba en vuelo no había nota** (alta según el hallazgo, media según quien lo confirmó). Si se recargaba la página, o se rehacía en otra pestaña, con el commit ya en la nube, quedaban dos entregas sin preguntar. Quien lo refutó mostró que la 120 hacía lo mismo o algo peor. **D-A: se corrige.** Es la marca «enviando» del cierre.
+2. **La adopción callada al armar a mano una segunda entrega igual** (media). Quien lo refutó: es la adopción H4 de la especificación, escrita y con su prueba (X-F0-ENT-ADOPTA), y en el caso más probable evita el duplicado. **D-B: se deja así** (ver «Lo que se deja así a propósito»).
+3. **La misma entrega rehecha otro día no cuenta como igual** (baja). Quien lo refutó: la fecha es parte de la entrega, y lo normal es entregar lo mismo otro día. **D-B: se deja así.**
+4. **«📦 Archivar historial viejo» decía «NO SE PUDO ARCHIVAR» y «Todo quedó guardado…» en el mismo aviso** (baja). Quien lo refutó: la 120 decía «✅ BASE ALIGERADA» con 0 movidos. **D-C: se corrige** (ver «El aviso del botón…»).
+
+**Quinta ronda (23 oct): el cierre.** Se construyeron D-A y D-C (comentarios «cierre» en el código). La revisión de ese arreglo encontró **4 hallazgos, los 4 confirmados**:
+
+| Confirmado | Qué se hizo |
+|---|---|
+| D-A no cerraba la entrega rehecha en otra pestaña cuando el commit de la primera todavía no había llegado: quedaban dos sin preguntar, y el reintento de la primera tenía con qué preguntar (media) | Revisión 10: el paso b2 suma la marca «enviando» que dejó un intento anterior del mismo Guardar. Los casos que siguen abiertos están en «Lo que no cierra» |
+| El banco y PRUEBAS seguían pidiendo «Z no preguntó nada» en el caso que D-A cierra (media) | Se reescribieron (ver «Pruebas viejas que cambiaron de sentido») |
+| Una marca de 3 minutos o más que otra pestaña dejó escrita «incierta» no se soltaba si ese Guardar terminaba con un error definitivo: quedaba 7 días ofreciendo «NO quedó guardada / 📋 Cargarla» (baja) | Revisión 10: la marca conserva su `carga` y `_soltarEnviandoInv` la suelta (`_marcaDeEstaCargaInv`). Se compara por la carga y no por la hora |
+| El aviso ya decía «No se movió nada al archivo», pero el registro anotaba «Base aligerada: 0 registro(s)…» (baja) | Revisión 10: «Archivar historial viejo: no se movió nada (N con problemas)» |
+
+D-C trae además algo que no se pidió: con 0 movidos y sin problemas, el título dice «⚠️ NO SE ARCHIVÓ NADA» y no «✅ BASE ALIGERADA». Después se pusieron al día PRUEBAS (la parte 24 de la 📤 Entrega, las partes 34 a 39 y el paso 11 del archivador) y el banco (los dos X reescritos y 16 escenarios nuevos).
+
+### Pruebas viejas que cambiaron de sentido
+
+Las tres primeras las cambiaron a propósito los constructores, según la especificación. Las demás cambiaron en las rondas de revisión, también a propósito. Ninguna otra prueba vieja falla.
+- **PRUEBAS «Etapa 5 · 🩺 Casos: los tipos A–F…»** (K2): las lecturas de `_leerArchivosCasosInv` pasan de 12 a 30, de 12 a 32 y de 36 a 96. Ahora se leen todas las partes: por cada serie, la parte 1, la primera que falta y la siguiente.
+- **E35 de `inv/escenarios2.js`** (K2): ahora espera los 20 resueltos archivados en la `_2` y la parte 1 sin escribir. La copia de antes está en `inv/escenarios2.antes_f0.js`. Con la 120 falla, como debe.
+- **PRUEBAS «Etapa 6 · OFICINAS ya no guarda con versión vieja…»** (K1): su lista `caminos` suma `_archivarEnPartesOfi`, `_archivoDeFondoOfi` y `aligerarBaseAhora`, que también se frenan con versión vieja.
+- **Revisión 7 (dos entregas iguales legítimas), en la prueba de la 📤 Entrega y en el banco.** Lo que pedía «reemplazada» sin que nadie contestara ahora pide la nota «incierta», con la igual en `posibles` y la fila en ámbar. En PRUEBAS son 8 comprobaciones, entre ellas: la franja no dice «sí» y «NO» de lo mismo, una igual de otro equipo, las dos solapadas, el guardado bueno solapado, «durante» y el aviso de una igual de otro equipo. En el banco: X-F0-ENT-SOLAPADAS y X-F0-ENT-MENSAJE-TUMBA; INFO-F0-ENT-LEGITIMA pasó a ser X-F0-ENT-LEGITIMA.
+- **Revisión 9, la clave de verdad en la prueba de la 📤 Entrega.** Antes comparaba la clave `inv_entregas_inciertas` con lo que había al empezar y al terminar la devolvía a como estaba: así borraba una nota que la pestaña de INVENTARIO de verdad dejara mientras tanto. Ahora pide que la ventana de la prueba no escriba nada en ella (0 escrituras), y el `finally` solo devuelve la clave de prueba.
+- **D-A (cierre): la entrega solapada.** X-F0-ENT-SOLAPADAS-ANTES y X-F0-ENT-SOLAPADA-BIEN del banco, y las partes «solapadas (ya)» y «(a) el guardado bueno, solapado» de PRUEBAS (la 24), pedían «Z no preguntó nada (Y no tiene nota)». Es justo el hueco que D-A cierra. Se reescribieron en su sitio, con el mismo id (`rv10Solapadas` en el banco): el Guardar de A pregunta una vez «…, que se estaba guardando en otra pestaña de este navegador, SÍ quedó. … ¿Es OTRA…?». Con Cancelar no escribe y queda una entrega (100 m). Con Aceptar, Z queda «incierta» con Y en sus `otras`, la franja dice «NO quedó guardada» y «📋 Cargarla» la registra: dos entregas, 200 m. La parte «solapadas (tarde)» no cambia.
+
+### Pruebas
+
+**`PRUEBAS.html`: 204 pruebas** (76 de INVENTARIO, 95 de OFICINAS, 32 de RED y 1 de Firma). Las 16 nuevas:
+
+| Prueba | Qué comprueba |
+|---|---|
+| F0-1 (OFICINAS) | Dos partes por vuelta, la parte 1 ni se lee ni se escribe, nada se repite, la medida, sin `tipo`, `clienteCedula` ni `firmaRef` arriba |
+| F0-2 | Dos pantallas que archivan a la vez no pierden ni repiten nada, y un fallo no saca nada |
+| F0-3 | Los tres visores leen todas las partes y avisan si falta algo |
+| F0-4 | No escribe en modo prueba, con versión vieja ni en mantenimiento; solo el envoltorio escribe; la emergencia por peso |
+| F0-5 | La bodega de una oficina no se borra con la lista sin cargar, y una sin bodega no queda con una inventada |
+| F0-6 | El archivo real, del año en curso y del anterior: partes, tamaños y nada repetido (solo lee) |
+| F0-7 | El automático: sin argumentos no falla, corre de fondo, el lote de 20 por el camino real y saca dentro del guardado |
+| F0-8 | `errores_guardado` (G1): sin lectura, o con la copia local, se agrega sin borrar; nunca un campo vacío |
+| F0-9 | «📏 Medir archivos» (G2): año en curso y anterior, más las solicitudes; solo lee |
+| INVENTARIO · El archivo por partes | La medida, la parte 1, el tope, el hueco y los repetidos |
+| INVENTARIO · El archivador | Transacción, relectura, cada cuánto, el aviso al administrador y, en el paso 11, el aviso y el registro del botón cuando no se mueve nada (D-C) |
+| INVENTARIO · Los lectores | Todas las partes, y «Órdenes sin consumo» con el archivo de OFICINAS |
+| INVENTARIO · Datos reales | Los archivos del año en curso y del anterior (solo lectura) |
+| INVENTARIO · `errores_guardado` | G3: sin lectura se agrega; con lectura, en transacción y con `merge` |
+| INVENTARIO · 📤 Entrega | El id de la ventana, la respuesta perdida, la nota y la franja, la adopción, la pregunta y la fecha local. Además, lo de cada ronda: las notas hermanas ((a), (b), (c)), la fila ámbar y «✅ Es la misma», las dos entregas iguales legítimas, la nota «entro» con lo que entró, la igual borrada, la marca «enviando», recargar, la otra pestaña y el paso b2 (39 partes) |
+| INVENTARIO · Doble clic y serial | Doble clic en ➕ y el mismo serial en dos renglones de 🎒 y ➕ (18 comprobaciones) |
+
+Los arreglos de la primera revisión van como comprobaciones dentro de estas pruebas: los de OFICINAS (las lápidas tras un guardado fallido, la copia de `main` y el 🧹 con una versión nueva a mitad) en F0-4 y F0-7, y los de la Entrega en la suya. Los de las rondas siguientes también: en la de la 📤 Entrega y en la del archivador.
+
+**El banco, `inv/f0.js`:** 105 escenarios: 76 X, 18 G y 11 P (P0 a P9 y P5b, de OFICINAS; P4 y P5b son guardas). **X** = falla con lo publicado y pasa con F0; **G** = guarda que pasa con los dos. Además está INFO-ARNES, informativo, que no cuenta.
+
+| Grupo | Escenarios |
+|---|---|
+| K1 · OFICINAS | P0 a P9 y P5b. De la primera revisión: X-F0-OFI-FALLO-LAPIDAS, X-F0-OFI-FALLO-CAMBIO, G-F0-OFI-FILA, X-F0-OFI-FILA-USUARIO, X-F0-OFI-ECO, X-F0-OFI-LIMPIAR-VERSION y X-F0-OFI-EMERGENCIA (cobertura). De G1 y G2: X-F0-ERR-OFI-SIN-LECTURA, X-F0-ERR-OFI-COPIA-LOCAL, G-F0-ERR-OFI-CON-LECTURA y X-F0-OFI-MEDIR-ANTERIOR |
+| K2 · archivo de INVENTARIO | X-F0-LLENA, CERRADA, SIGUE, HUECO, OTRO-ANIO, SOLO-EN-1, CARRERA, MIXTA, LECTORES, ORD-OFI, AVISO, ESPERA, LOTE y MEDIR; G-F0-PRUEBA, ARCH-REINTENTO y ARCH-PERDIDA. De G3: X-F0-ERR-INV-SIN-LECTURA, -CON-LECTURA, -ENTRA-OTRA, -NO-ES-LISTA y -AVISO, y X-F0-MEDIR-ANTERIOR (cobertura). Del cierre (D-C; están al final de K3): X-F0-ALIGERAR-SIN-MOVER y X-F0-ALIGERAR-REGISTRO |
+| K3 · 📤 Entrega | X-F0-ENT-PERDIDA, OTRA, IGUAL, REINTENTO, TARDE, ADOPTA y DOBLE; G-F0-ENT-DOS y ENT-STOCK. De la primera revisión: X-F0-ENT-ADOPTA-INCIERTA, CARGA-OTRA-IGUAL, CANCELA-PROPIA, OTRA-SIN-LECTURA y FECHA-19. De las notas hermanas, con las revisiones 5 y 7: X-F0-ENT-YA-HERMANA, CANCELA-HERMANA, CARGA-DESPUES, ADOPTA-DESPUES, CARGA-PREGUNTA, SOLAPADAS, SOLAPADAS-ANTES, SOLAPADAS-REINTENTA, DURANTE, MENSAJE, MENSAJE-TUMBA, OTRO-EQUIPO, LEGITIMA, ES-LA-MISMA y SOLAPADA-BIEN; G-F0-ENT-LEGITIMAS, IGUAL-ANTES, CAMBIA y PRUEBA-NOTAS. De la revisión 9: X-F0-ENT-ENTRO-OTRO-CONTENIDO, INCIERTA-ID-OTRO, FRANJA-ENTRO, BORRADA-FRANJA y BORRADA-ES-LA-MISMA. Del cierre y la revisión 10: X-F0-ENT-RECARGA-COLGADA, OTRA-PESTANA-COLGADA, OTRA-PESTANA-VIEJA, SOLAP-SIN-LLEGAR, SOLAP-CONVERTIDA, VIEJA-DEFINITIVA, VIEJA-DUPLICADA-STOCK y VIEJA-INCIERTA; G-F0-ENT-SEGUIDAS, OTRO-DIA, NORMAL-DOS-PESTANAS, TRABADA-STOCK, PRUEBA-MARCA y VIEJA-EXITO |
+| K4 · doble clic y serial | X-F0-INST-DOBLE, CLI-DOBLE, SINC-DOBLE, SN-DOT y SN-INST; G-F0-SN-OK |
+
+**`ofi_f0_unit.js`:** U1 a U14, con las funciones reales de OFICINAS: las partes, la carrera, el fallo que no saca nada, el aviso con el rol (U4), los dudosos (U11), la vuelta de fondo con el lote (U12) y `errores_guardado` sin lectura y con la copia local (U13, U14).
+
+**Corridas** (sobre la base SIMULADA; nada en la base real):
+- **`PRUEBAS.html` completo, con la junta final** (23 oct), sin servidor (`correr_e2.js` con `SUSTITUTOS` a la junta), dos corridas: 203 corridas de 204 (este runner no abre la de Firma), **202 bien**, 0 avisos, 83 s cada una. Falla solo «Rastreador v314: la ficha de una factura REAL de WispHub…», que en la base simulada no existe, como siempre. 0 errores de página y 0 escrituras en la base simulada.
+- **El banco, con la junta final** (23 oct): `inv/f0.js` **105 de 105** (1.013 s, sin errores de JavaScript), `ofi_f0_unit.js` **14 de 14**, `etapa5` **132/132** y `etapa4` **106/106** (con `--html` y `--tec` de la junta).
+- **El resto del banco, con la junta del 22 oct por la tarde,** antes de los arreglos de la revisión 9 (después solo cambiaron la 📤 Entrega y el aviso del archivador de INVENTARIO): `etapa1` 16/16, `etapa2` 25/25, `etapa3` 39/39, `etapa6` 13/13 (en dos tandas), `escenarios2` 20/20 (con el E35 nuevo), `revision_oct` 11/11 y `trayectoria` 22/22 con las tres apps de F0 y 0 errores de JavaScript.
+
+**Contrapruebas:**
+- **`inv/f0.js --publicado`** (git `8fbeed1`; 23 oct, 1.326 s): **20 bien y 85 mal**. Pasan exactamente las 18 G, P4 y P5b; fallan los 76 X y los otros 9 P, cada uno por su resultado. Algunos ejemplos. Con la 320: P1 deja 90 órdenes fuera del archivo, P7 pierde la aprobación de otra pantalla, P8 crea 30 lápidas y P5 deja la bodega vacía. Con la 120: LLENA, CERRADA y SIGUE escriben la parte 1; CARRERA y MIXTA pierden un consumo; la Entrega con la respuesta perdida deja 2 entregas (200 m en la cuadrilla); INST-DOBLE deja 2 instalaciones.
+- **`ofi_f0_unit.js`:** con lo publicado, 0 de 14; con `pre_rev2`, 12 de 14 (fallan U13 y U14).
+- **Cada ronda contra su copia de antes:**
+  - primera: los escenarios de esa revisión fallan con `pre_rev`; en PRUEBAS fallan F0-4, F0-7 y la de la Entrega, en sus comprobaciones nuevas;
+  - segunda: fallan con `pre_rev2`; en PRUEBAS, las 3 de la segunda revisión. En estas dos, pasan con las dos copias solo los de cobertura (X-F0-OFI-EMERGENCIA, X-F0-MEDIR-ANTERIOR) y las guardas;
+  - notas hermanas: con `pre_rev3` fallan los 15 X de su bloque y pasan sus 4 G; en PRUEBAS fallan las 17 comprobaciones de (a), (b), (c) y lo corregido. Con la copia de antes de la revisión 7 (`rev7_legit/antes`) fallan los 5 X de esa revisión y 10 comprobaciones de PRUEBAS;
+  - última verificación: con `pre_rev4` fallan los 5 X de la revisión 9 y las 4 comprobaciones nuevas de PRUEBAS;
+  - cierre: con `pre_rev5` fallan los 12 X nuevos o reescritos y pasan los 6 G nuevos; en PRUEBAS fallan exactamente las 10 comprobaciones nuevas o cambiadas (8 de la Entrega y 2 del archivador) y ninguna vieja. Con la copia de antes de la revisión 10 (`rev10/fix_inv/antes`) fallan los 5 X de esa revisión y 4 comprobaciones de PRUEBAS.
+
+- **Copias dañadas:** 13 en la primera revisión y 15 en la segunda. Cada una deshace un solo arreglo, y todas las atrapa su prueba.
+- **Reloj movido:** con el reloj del navegador en el 3 y el 20 de enero y el 20 de marzo de 2027, las 13 pruebas de la Etapa 7 de ese momento pasan. La versión vieja de la prueba K2 fallaba en enero.
+- **La medida común:** `_tamDocFS` (OFICINAS) y `_pesoDocArchInv` (INVENTARIO) dan lo mismo en 600 documentos al azar, y siempre lo de `medir.cjs` más 16 bytes.
+- **La vigilancia:** `probar_vigilar.cjs`, sin red, 11 de 11. Contra la base real (21 oct, 23:52; 69 GET, 16,5 MB bajados, nada escrito): «SEGUIR».
+
+**Validación** (vuelta a comprobar el 23 oct con la junta final): `node .claude/validar.mjs` da sintaxis correcta en OFICINAS (2 bloques), INVENTARIO (4) y PRUEBAS (1). Los tres van en CRLF, sin LF ni CR sueltos. `f0.js` y `ofi_f0_unit.js` van en LF y pasan `node --check`. `APP_VERSION` sigue en 320 y `APP_VERSION_INV` en 120.
+
+**Corrida final, 23 oct 2026 (3:00 a 4:30 a. m.), con los archivos finales** (copia en el scratchpad, `etapa7/f0/final/`, con sus huellas en `sha_final.txt`; OFICINAS probada también ya unida con la 321 de la otra sesión, `OFICINAS_union.html`, unión limpia). `PRUEBAS.html` en el navegador contra la base real en `?prueba=1`, sirviendo esos archivos aparte: 204 pruebas, 202 bien y 2 «por revisar», las «Estado real» de siempre (32 seriales repetidos; servicios sin costo); F0-6 avisa la parte 1 de órdenes al 90 %. Antes y después se leyó por REST la hora de modificación de los 259 documentos de `inventario` y `oficinas_sistema`: ninguno cambió. Sin navegador (correr_e2.js), con la OFICINAS de F0 y con la unida: 203 corridas, 202 bien, 1 falla (WispHub real), 0 errores y 0 escrituras en las dos. Banco: `inv/f0.js` 105/105 (con lo publicado, 20 G pasan y 85 X fallan), `ofi_f0_unit.js` 14/14 (0/14 con lo publicado), `pantallas_unit` 216/216, `recarga_unit` 167/167, `unit_v112` 50/50, `revision_oct` 11/11, `etapa1` 16/16, `etapa6` 13/13, `escenarios2` 20/20, `trayectoria` 22/22, `etapa2` 25/25, `etapa3` 39/39, `etapa4` 106/106 y `etapa5` 132/132, todos con los archivos finales.
+
+**Falta:** `PRUEBAS.html` en el navegador contra la base real, en `?prueba=1`. F0-6 y «Datos reales» solo corrieron en la base simulada, donde no hay archivo. Después, comprobar por REST que la corrida no escribió nada.
+
+### La vigilancia (`vigilar_f0.cjs`)
+
+- Está en el scratchpad de la sesión, en `etapa7/f0/tools/vigilar_f0.cjs`. **Al publicar, copiarlo al banco** (`trabajo/`): el scratchpad es de la sesión y se puede perder.
+- Solo hace GET por REST, sin sesión. No escribe nada, ni en la base ni en el disco. Imprime solo cantidades, tamaños, partes, versiones, fechas, roles y motivos: nunca el contenido de un registro.
+- Uso: `node vigilar_f0.cjs [--horas=48] [--ofi-f0=321] [--inv-f0=121]`.
+  - `--horas` es la ventana para contar los fallos. Si pasó más tiempo desde la vigilancia anterior, hay que darle las horas que pasaron.
+  - `--ofi-f0` e `--inv-f0` son la primera versión con F0 de cada app. Si OFICINAS sale con otro número, se le da ese.
+- **Qué mira:**
+  - cada parte de las series de OFICINAS (órdenes y recogidas del año en curso y del anterior, y solicitudes) y de INVENTARIO (los 8 campos, del año en curso y del anterior): su tamaño medido como Google, su porcentaje, cuántos registros, su versión, su campo `parte` y los huecos;
+  - las últimas entradas «📦 Archivo sin terminar» de `errores_guardado`;
+  - las pantallas con latido en las últimas 24 h, por app y versión, marcando las viejas y las que no tienen F0.
+- **Criterio de parada (decisión 12):** una parte 2 o más por encima de 900 KB, un hueco en una serie, o una entrada «📦 Archivo sin terminar» dentro de la ventana (cada una ya son 3 vueltas fallidas seguidas, o un motivo permanente). La parte 1 no cuenta para los 900 KB: la de órdenes de 2026 ya está en 922 KB, y solo la puede hacer crecer una versión vieja. Lo demás (pantallas viejas, una `parte` que no coincide, ids repetidos entre partes nuevas) sale para revisarlo a mano, sin parar solo por eso.
+- Una parte de OFICINAS con un solo registro grande puede pasar de 900 KB (llega hasta 1.000.000 bytes: ver «Cómo se escribe»). La vigilancia diría «PARAR»: antes de volver atrás, hay que mirar esa parte a mano.
+- La última línea dice **«PARAR»** o **«SEGUIR»**. Si algo no se pudo leer después de 3 intentos, dice «ERROR · la vigilancia no decide» y sale con código 2.
+- No hace lo que la especificación de OFICINAS proponía de más: «nada perdido» con los ids de `main` de cada día, la cuenta de lápidas, los dudosos, los atrasos de más de 7 días y las entregas repetidas. Eso se mira a mano.
+
+### Lo que se apartó de la especificación
+
+- **C0:** la decisión 8 se aplicó a las copias repetidas dentro de lo que se archiva en una vuelta. Contra lo ya archivado se guarda la versión nueva al lado («distintos» en OFICINAS, «versiones» en INVENTARIO). Con la base apretada, el lote baja a 1. Los criterios de parada de más que traían las especificaciones pasaron a «revisar a mano».
+- **K1 (OFICINAS):** `_archivoDeFondoOfi` pone `_cacheRemotoMain = null` antes de su `save` (lo encontró P7; la primera revisión lo completó). El 🧹 también saca lo que ya estaba anotado. Las vueltas omitidas también quedan en el resumen. Con un registro que no cabe, el motivo es `tope` o `grande`. Dos ayudantes que la especificación no nombra: `_hayLoteArchivoOfi` y `_avisosLecturaArchivoOfiHTML`. P7 usa una compuerta en vez de esperar 40 s.
+- **K2 (archivo de INVENTARIO):** `_leerArchivosCasosInv` pone también los huecos en «errores», y con un hueco no guarda en memoria. En `?prueba=1`, el botón manual suma a la racha de fallos, pero no registra nada. `_archivarInv` devuelve además `campos` y `porCampo`.
+- **K3 (Entrega):** en «ya estaba», el registro se anota solo si la nota no estaba ya en «entró», para no anotarlo dos veces. La nota propia «reemplazada» cuenta como igual solo si su contenido es el de la ventana. Al aceptar o cancelar la pregunta, la nota igual pasa a «entró» antes de decidir. La pregunta da una vuelta por cada igual aceptada. Hay ayudantes que la especificación no lista (`_pintarFranjaEntregaInv`, `_notasInciertasMiasInv` y otros). Las rondas de revisión agregaron lo que la especificación no tenía: la marca «enviando», los campos `desdeMs`, `vistas`, `otras`, `posibles`, `pestana` y `carga`, la fila ámbar con «✅ Es la misma», el paso b2 y la pregunta de «📋 Cargarla». La revisión 7 cambió además lo que se había decidido para (a) y (b) (ver «Pendiente», punto 3).
+- **K4:** los textos «El cambio del cliente … NO lo vuelvas a hacer.» y «Se crearon N cliente(s)…». En `addIItem`, un relleno (N/A) sigue como antes. Los `.catch` conservan su `save()`.
+
+### Al publicar (cuando Elkin diga «publica»)
+
+0. **Antes, decírselo a Elkin:** con una vuelta atrás no se ve nada de lo archivado desde la publicación; «🔎 Órdenes sin consumo» de la 120 mandaría a reportar otra vez material ya descontado; y esa vuelta atrás no puede durar más de unas semanas. Si se publica INVENTARIO, también cómo quedó la 📤 Entrega (ver «Pendiente», punto 3).
+1. **Cuándo:** OFICINAS antes del **1 nov** e INVENTARIO antes del **10 nov**. Son independientes: pueden ir juntas o por separado. Siempre **fuera de horario**, de noche.
+2. **Respaldo** por REST, solo con GET. OFICINAS: `main`, `ordenes_archivo_2026`, `ordenes_archivo` y `solicitudes_archivo`. INVENTARIO: `datos`, `historial`, los 8 `archivo_*_2026` y los clientes. Llevan datos personales: van donde Elkin guarda los respaldos, nunca en el repo ni en el scratchpad. Y una copia del código publicado.
+3. **Armar lo que se publica:** OFICINAS unida con la 321 de la otra sesión (`git merge-file`, ver arriba) y con el número que corresponda; INVENTARIO 121. Subir las versiones, `node .claude/validar.mjs`, los finales de línea y `/revisar`.
+4. **Mantenimiento de la app que se publica.** Push, Pages comprobado dos veces, la versión anunciada y una prueba de humo en `?prueba=1` (la versión nueva, las funciones nuevas presentes, cero escrituras). Con INVENTARIO, **recargar todas las pantallas de bodega**.
+5. **La primera escritura real, con el administrador** (decisión 11), justo después de recargar y antes de que abra cualquier sede:
+   - OFICINAS: pulsar «🧹 Aligerar base» desde una pantalla recién cargada. Con lo medido habrá algo: 20 órdenes archivables a fondo el 25 oct, 50 el 26 oct;
+   - INVENTARIO: pulsar «📦 Archivar historial viejo». El 21 oct esperaban 374 consumos resueltos (255 KB);
+   - releer por REST, solo tamaños y campos: tiene que existir `ordenes_archivo_2026_2` (o `archivo_consumosPendientes_2026_2`) con `parte:2` y la versión nueva, por debajo de 800 KB. En OFICINAS, sin `tipo`, `clienteCedula` ni `firmaRef` arriba. La parte 1 con el mismo `actualizado` de antes (no se tocó). `main` sin esas órdenes y **sin lápidas nuevas**. «📏 Medir archivos» y los visores cuentan las dos partes;
+   - si el botón dice que no hay nada, la primera escritura la hace la primera pantalla que guarde con un lote, y la vigilancia de la mañana la revisa.
+6. **Correr `vigilar_f0.cjs` esa noche y la mañana siguiente,** y después cada mañana durante dos semanas. Si dice «PARAR», se vuelve atrás (ver «Volver atrás»).
+7. **Levantar el aviso de no pulsar «🧹 Aligerar base»** cuando no quede ninguna OFICINAS 320 abierta: lo dicen «📺 Pantallas abiertas» y la línea de pantallas de la vigilancia. Si queda una INVENTARIO 120, pedirle a esa sede que recargue.
+8. Después, `CLAUDE.md`: las versiones, los tamaños y la línea de «Tres documentos de Firestore van al 76–80 %». Hay que unirlo con los cambios de la otra sesión, sin tocar lo suyo.
+
+### Pendiente
+
+1. **La corrida final** con los archivos finales (la anota quien orquesta).
+2. **`PRUEBAS.html` en el navegador contra la base real**, en `?prueba=1`. Después, comprobar por REST que no escribió nada.
+3. **Antes de publicar INVENTARIO 121, contarle a Elkin cómo quedó la 📤 Entrega:** lo que se deja así a propósito (D-B) y lo que no cierra (ver «📤 Entrega con id fijo»). La revisión 7 cambió lo que se había decidido para (b): la franja ya no da por hecha ni esconde una nota que cubre una entrega igual; la muestra en ámbar y la persona decide. También restringió (a): sin pregunta, solo pasan a «reemplazada» las notas de la ventana y las iguales que el Guardar conocía al empezar. Si Elkin prefiere lo de antes, cambian X-F0-ENT-SOLAPADAS, MENSAJE-TUMBA, LEGITIMA, ES-LA-MISMA y SOLAPADA-BIEN, y sus comprobaciones en PRUEBAS.
+4. **Decidir con Elkin, sin prisa** (vienen de antes, y F0 no los empeora):
+   - ➕ Instalación o ➕ Cliente con otro guardado en curso: la ventana no dice nada y, si se cancela y se registra otra vez, queda duplicado (dudoso 2 de la primera revisión);
+   - `actualizarClientesDesdeInstalacion` y `renderInst` siguen con `.nombre.toLowerCase()`: un cliente sin nombre traba ➕ Instalación sin aviso (dudoso 3; K4 lo dejó anotado);
+   - el sello de las órdenes de OFICINAS en «🔎 Órdenes sin consumo»: usan `finalizada` y `actualizada`, sin `Ms`, así que entre dos copias gana la última leída. Solo cambia lo que se muestra.
+5. **Detalles de la 📤 Entrega que no duplican nada** (ver «Lo que no cierra»): la pregunta de más después de «📋 Cargarla» (`cargarEntregaInciertaInv` no copia las `otras` de la nota), «Duplicar pestaña», y «📋 Cargarla» con otra nota igual más reciente, que escribe con el id de la otra. Se pueden dejar así o arreglar en otra versión.
+6. **`errores_guardado`:**
+   - OFICINAS, cuando sí puede leer, sigue leyendo, sumando y escribiendo sin transacción. Si otra pantalla agrega una entrada en medio, la pisa (como hoy: a lo sumo un registro);
+   - el registro general de un guardado fallido anota el nombre de la oficina (`USER.nombre`, desde la v304). La entrada del archivo ya va con el rol. Va con la seguridad;
+   - en INVENTARIO, si un commit entra y su respuesta se pierde, la entrada puede quedar dos veces.
+7. **La vigilancia y 📏** miran solo el año en curso y el anterior. Un registro con fecha de hace dos años o más iría a una serie de ese año, que ninguno de los dos ve.
+8. **Fuera de F0** (decisión 13 y especificaciones): el interruptor `config_e7` (F2); un botón para ver los archivos de la otra app; los archivos de 🧩 y 🩺 siguen leyendo, sumando y reescribiendo; `_pesoDocsInv` con las reglas de Google (F2); `fechaMs` en las entregas; la entrega incierta en otra computadora (F2, con `mov_`); la carrera entre dos versiones viejas en la parte 1.

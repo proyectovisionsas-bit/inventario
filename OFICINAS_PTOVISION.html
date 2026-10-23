@@ -1017,7 +1017,7 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION = 320; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 321; // ⬆️ Subir en cada nueva versión publicada
 
 // Etapa 6 (docs/12): hora en que se cargó ESTA página. Vive en memoria, nunca en sessionStorage: una recarga
 // la reinicia. La usan la guarda de 24 h (_revisarCaducadaOfi) y el latido de pantallas.js (cargadaMs).
@@ -1044,7 +1044,7 @@ const MSG_VERSION_VIEJA_OFI = 'Hay una versión nueva: esta pantalla ya no guard
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '10 Oct 2026 (v320: pantallas abiertas y freno de versión vieja. v319: se recarga sola al publicar. Historial en git y en docs/)';
+const APP_VERSION_FECHA = '23 Oct 2026 (v321: los archivos de órdenes, recogidas y solicitudes se guardan por partes y ya no se llenan ni se pisan entre pantallas. v320: pantallas abiertas y freno de versión vieja. Historial en git y en docs/)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -1328,6 +1328,11 @@ function _traducirErrorGuardado(m){
 }
 // El motivo de cada fallo queda en este equipo (últimos 20) y en la nube (errores_guardado, últimos 150),
 // para que soporte lo pueda leer sin pedirle a nadie que copie la consola. Nunca bloquea ni lanza error.
+// F0 (docs/12 §16): si la lista de la nube no se puede leer (sin señal, que es justo cuando más falla el guardado, o
+// la lectura sale de la copia local), el registro se AGREGA con arrayUnion y merge:true, sin recortar. Antes se escribía
+// con set una lista que solo tenía este registro y se borraba todo lo anterior, también lo que anota INVENTARIO
+// (_fbRegistrarFalloArchivoInv). Con lectura, como siempre: los últimos 150 (ahí se recorta lo que se agregó sin leer).
+// La forma del documento no cambia ({items, actualizado}) y el registro nunca lleva un campo undefined.
 async function _registrarFalloGuardado(e, extra){
     const item={ fecha:new Date().toISOString(), ms:Date.now(), version:APP_VERSION,
         quien:String((USER&&(USER.nombre||USER.role))||''), rol:String((USER&&USER.role)||''),
@@ -1335,11 +1340,14 @@ async function _registrarFalloGuardado(e, extra){
         enLinea:(typeof navigator!=='undefined' && navigator.onLine)!==false,
         navegador:String((typeof navigator!=='undefined' && navigator.userAgent)||'').slice(0,140) };
     Object.assign(item, extra||{});
+    Object.keys(item).forEach(k=>{ if(item[k]===undefined || typeof item[k]==='function') delete item[k]; });   // F0 (docs/12 §16): nunca undefined
     try{ const l=JSON.parse(localStorage.getItem('fallosGuardadoOfi')||'[]'); l.push(item); localStorage.setItem('fallosGuardadoOfi', JSON.stringify(l.slice(-20))); }catch(_){}
     try{
         if(!db || MODO_PRUEBA) return item;
         const ref=db.collection('oficinas_sistema').doc('errores_guardado');
-        let items=[]; try{ const s=await ref.get(); if(s.exists) items=(s.data().items||[]); }catch(_){}
+        // F0 (docs/12 §16): items=null = no se leyó la nube (falló o vino de la copia local): se agrega sin pisar lo que hay
+        let items=null; try{ const s=await ref.get(); if(!(s.metadata && s.metadata.fromCache)) items=s.exists ? (s.data().items||[]) : []; }catch(_){}
+        if(items===null){ await ref.set({ items: firebase.firestore.FieldValue.arrayUnion(item), actualizado: Date.now() }, { merge:true }); return item; }
         items.push(item);
         await ref.set({ items: items.slice(-150), actualizado: Date.now() });
     }catch(e2){ console.warn('No se pudo registrar el fallo de guardado (no crítico):', e2); }
@@ -1762,9 +1770,10 @@ function save(opts){
 // las resueltas más antiguas al documento aparte 'solicitudes_archivo':
 //  - Las PENDIENTES nunca se tocan.
 //  - Se conservan las `mantenerResueltas` resueltas más recientes en el principal.
-//  - PRIMERO se escribe el archivo; SOLO si tuvo éxito se quitan del principal
+//  - PRIMERO se escribe el archivo; SOLO si se volvió a leer igual se quitan del principal
 //    (si algo falla, no se pierde nada: se conserva todo donde estaba).
-//  - El archivo guarda las 2000 más recientes (≈800 KB, lejos de su propio límite).
+//  - F0 (docs/12 §16): el archivo va POR PARTES (solicitudes_archivo, _2, _3…, 800 KB cada una) y ya no tiene tope:
+//    antes guardaba solo las 2000 más recientes y botaba las demás. Ver «📦 F0 · ARCHIVO POR PARTES» al final del script.
 // Se consultan con el botón "📦 Archivo" en Administración → Solicitudes.
 // ════════════════════════════════════════════════════════════════════
 // ════════════════════════════════════════════════════════════════════
@@ -2315,39 +2324,21 @@ function _protegerLocalesEnSnapshot(datos){
     return datos;
 }
 
-async function _aligerarSolicitudes(mantenerResueltas){
+async function _aligerarSolicitudes(mantenerResueltas, opts){
+    opts = opts || {};
+    // F0 (docs/12 §16): ya no lee ni escribe el archivo aquí ni toca DB. Las resueltas viejas (la regla de siempre, en
+    // _solicitudesArchivables) van al archivo POR PARTES con _archivarEnPartesOfi, y lo confirmado queda anotado:
+    // sale de la base en el guardado (_sacarArchivadasOfi). Sin copia de la mañana y sin tope que bote las más viejas.
+    // Mínimo de 20 nuevas (1 con la base apretada, la emergencia o aFondo). Devuelve cuántas quedaron confirmadas.
     try{
-        const todas = DB.solicitudes||[];
-        // v312: una autorización de préstamo aprobada, sin usar y sin vencer NO se archiva (la oficina la necesita para entregar)
-        const _autViva = s => s && s.tipo==='aprobar_prestamo' && s.estado==='aprobado' && !s.usadaPid
-            && ((Number(s.venceMs)||((Number(s.decididoMs)||Number(s.actualizado)||0)+PREST_VENCE_AUT_DIAS*86400000)) > Date.now());
-        const resueltas = todas.filter(s=>s && s.estado && s.estado!=='pendiente' && !_autViva(s));
-        if(resueltas.length <= mantenerResueltas) return 0;
-        // Más antiguas primero; se archivan todas menos las `mantenerResueltas` últimas
-        const ordenadas = resueltas.slice().sort((a,b)=> new Date(a.fecha||0) - new Date(b.fecha||0));
-        const aArchivar = ordenadas.slice(0, resueltas.length - mantenerResueltas);
-        const idsArchivar = new Set(aArchivar.map(s=>s&&s.id));
-        // Leer el archivo existente una vez por sesión (caché) y fusionar por id
-        if(!window._archivoSolCache){
-            const snapA = await db.collection('oficinas_sistema').doc('solicitudes_archivo').get();
-            const dataA = snapA.exists ? reconvertirArrays(snapA.data()) : null;
-            window._archivoSolCache = (dataA && Array.isArray(dataA.solicitudes)) ? dataA.solicitudes : [];
-        }
-        const idsEnArchivo = new Set(window._archivoSolCache.map(s=>s&&s.id));
-        aArchivar.forEach(s=>{ if(s && s.id && !idsEnArchivo.has(s.id)) window._archivoSolCache.push(s); });
-        // Tope del archivo: 2000 más recientes (protege al propio archivo del límite de 1 MB)
-        if(window._archivoSolCache.length > 2000){
-            window._archivoSolCache.sort((a,b)=> new Date(a.fecha||0) - new Date(b.fecha||0));
-            window._archivoSolCache = window._archivoSolCache.slice(-2000);
-        }
-        // Escribir PRIMERO el archivo; solo con éxito se quita del doc principal.
-        // (JSON.parse/stringify limpia los `undefined` que Firebase rechaza.)
-        await db.collection('oficinas_sistema').doc('solicitudes_archivo').set({
-            solicitudes: JSON.parse(JSON.stringify(window._archivoSolCache)), actualizado: Date.now()
-        });
-        DB.solicitudes = todas.filter(s=> !(s && idsArchivar.has(s.id)));
-        console.log(`📦 Archivadas ${aArchivar.length} solicitud(es) resuelta(s) → 'solicitudes_archivo' (quedan ${DB.solicitudes.length} en el principal · archivo total: ${window._archivoSolCache.length}).`);
-        return aArchivar.length;
+        const mantener=(typeof mantenerResueltas==='number' && mantenerResueltas>=0) ? mantenerResueltas : 300;
+        const minimo=(opts.aFondo || _apretadoOfi()) ? 1 : ARCHIVO_LOTE_MIN;
+        const aArchivar=_solicitudesArchivables(DB.solicitudes||[], mantener, Date.now(), {minimo:1}).filter(s=>!_yaPorSacar('solicitudes', s));
+        if(!aArchivar.length || aArchivar.length<minimo) return 0;
+        const r=await _archivarEnPartesOfi({base:'solicitudes_archivo', campo:'solicitudes', nombre:'solicitudes resueltas', col:'solicitudes'}, aArchivar, {ignorarPausa:!!opts.aFondo});
+        const n=_anotarPorSacar('solicitudes', r && r.confirmados);
+        if(n) console.log(`📦 ${n} solicitud(es) resuelta(s) quedaron en el archivo por partes; salen de la base con el próximo guardado.`);
+        return n;
     }catch(eA){
         console.warn('Archivado de solicitudes (no crítico, se conserva todo donde estaba):', eA);
         return 0;
@@ -2360,7 +2351,8 @@ async function _aligerarSolicitudes(mantenerResueltas){
 // guardado (descarga+subida). Aquí las de más de 45 días (conservando las 150
 // terminales más recientes) pasan al documento aparte 'ordenes_archivo'.
 // PRIMERO se escribe el archivo; solo con éxito se quitan del principal.
-// La fusión entre equipos las suelta en los demás PCs vía lápidas implícitas.
+// F0 (docs/12 §16): desde oct 2026 el archivo de cada año va POR PARTES (ordenes_archivo_<año>_2, _3…), en transacción y
+// de fondo; lo archivado sale de la base dentro del guardado siguiente, después de la fusión, sin dejar lápidas.
 // Se consultan con el botón "📦 Archivo" del módulo Órdenes.
 // ════════════════════════════════════════════════════════════════════
 // ════════════════════════════════════════════════════════════════════════════
@@ -2370,106 +2362,116 @@ async function _aligerarSolicitudes(mantenerResueltas){
 // 60 días (conservando las 200 más recientes) pasan al documento 'recogidas_archivo'.
 // PRIMERO se escribe el archivo; solo si eso sale bien se quitan del principal:
 // ninguna se pierde. Se consultan con el botón "📦 Archivo" del módulo Recogidas.
+// F0 (docs/12 §16): por partes, como las órdenes (recogidas_archivo_<año>_2, _3…).
 // ════════════════════════════════════════════════════════════════════════════
 // 🧹 v207 — ALIGERAR AHORA (botón manual, para no esperar al próximo guardado).
 // Corre los dos archivadores a fondo y muestra cuánto espacio se liberó.
+// F0 (docs/12 §16): con los frenos de modo prueba, versión vieja y mantenimiento ANTES de preguntar; la pregunta dice
+// cuántas son; ya no infla docPrincipalMB (pasa aFondo:true); y lo archivado sale de la base dentro del guardado, después
+// de la fusión: ya no deja una lápida por cada orden. El resultado sale de lo que de verdad quedó en el archivo.
+// F0 (docs/12 §16): el guardado final va sin permiso, como el de la vuelta de fondo: si mientras archiva sale una versión
+// nueva, se frena (una pantalla vieja no escribe main) y ese freno no toca _ultimoGuardadoOk. Por eso «guardó» también mira
+// que no haya subido _guardadosFrenadosVersion, como Efecty y los abonos; si se frenó, el aviso no dice «Todo quedó guardado».
 async function aligerarBaseAhora(){
     if(USER.role!=='admin') return alert('Solo el administrador puede hacer esto.');
-    const _antes = (window._saludBaseOfi && window._saludBaseOfi.docPrincipalMB) || null;
+    if(MODO_PRUEBA) return alert('🧪 Modo prueba: aquí no se archiva nada.');
+    if(_pestanaDesactualizada()) return alert(MSG_VERSION_VIEJA_OFI);
+    if(window._mantBloqueando===true) return alert('🛠️ Mantenimiento: inténtalo cuando termine.');
+    const _ahoraC=Date.now();
+    const nOrdC=_ordenesArchivables(DB.ordenesTrabajo||[], _ahoraC, {apretado:true, minimo:1}).length;
+    const nRecC=_recogidasArchivables(DB.recogidas||[], _ahoraC, {minimo:1}).length;
+    if(!nOrdC && !nRecC) return alert('✅ No hay nada viejo que archivar por este lado.\n\nSi la base sigue pesada, avísale a soporte con el detalle que muestra el aviso.');
     if(!confirm('🧹 ALIGERAR LA BASE\n\nSe van a mover a un archivo aparte:\n'
-        + '• Órdenes de trabajo ya finalizadas o canceladas, antiguas\n'
-        + '• Recogidas ya resueltas (recogido/pago/cerrado), antiguas\n\n'
-        + '⚠️ NO SE BORRA NADA: todo queda guardado y se consulta con el botón "📦 Archivo" de cada módulo.\n'
-        + 'Lo que está pendiente o activo NUNCA se archiva.\n\n¿Continuar?')) return;
+        + `• ${nOrdC} órdenes ya finalizadas o canceladas, antiguas\n`
+        + `• ${nRecC} recogidas ya resueltas, antiguas\n\n`
+        + 'Van a la parte del archivo de cada año que tenga espacio; cuando una se llena, se abre la siguiente.\n'
+        + '⚠️ NO SE BORRA NADA: todo se consulta con el botón «📦 Archivo» de cada módulo. Lo pendiente o activo NUNCA se archiva.\n'
+        + 'Si otra pantalla está archivando al mismo tiempo, no pasa nada: cada orden queda una sola vez.\n\n¿Continuar?')) return;
+    const _antes = (window._saludBaseOfi && window._saludBaseOfi.docPrincipalMB) || null;
+    const _t0 = Date.now();
+    window._archivandoOfi=(window._archivandoOfi||0)+1;   // la recarga automática espera a que termine
     try{
         mostrarSaveOverlay('saving','Aligerando la base...','');
-        // forzar modo a fondo aunque aún no se haya medido el peso
-        if(!window._saludBaseOfi) window._saludBaseOfi={};
-        const _prev=window._saludBaseOfi.docPrincipalMB;
-        window._saludBaseOfi.docPrincipalMB = 99;   // fuerza los umbrales agresivos
-        const nOrd = await _aligerarOrdenes();
-        const nRec = await _aligerarRecogidas();
-        window._saludBaseOfi.docPrincipalMB = _prev;
-        if(!nOrd && !nRec){
-            mostrarSaveOverlay('done');
-            return alert('✅ No hay nada viejo que archivar por este lado.\n\nSi la base sigue pesada, avísale a soporte con el detalle que muestra el aviso.');
+        // lo que una vuelta anterior ya dejó confirmado en el archivo y sigue en la base: sale con este mismo guardado
+        const _yaAnotadas = (DB.ordenesTrabajo||[]).filter(o=>_yaPorSacar('ordenesTrabajo', o)).length + (DB.recogidas||[]).filter(r=>_yaPorSacar('recogidas', r)).length;
+        const nOrd = await _aligerarOrdenes({aFondo:true});
+        const nRec = await _aligerarRecogidas({aFondo:true});
+        let _guardo = true, _frenadoV = false;
+        if(nOrd+nRec+_yaAnotadas>0){
+            const _fren0 = window._guardadosFrenadosVersion||0;
+            await save();
+            _frenadoV = (window._guardadosFrenadosVersion||0) > _fren0;   // salió una versión nueva y el freno no dejó guardar
+            _guardo = window._ultimoGuardadoOk===true && !_frenadoV;
         }
-        await save();
         mostrarSaveOverlay('done');
+        const _res = window._resumenArchivoOfi||{};
+        const _vueltas = Object.keys(_res).filter(k=>/^(ordenes|recogidas)_archivo_\d{4}$/.test(k) && (Number(_res[k] && _res[k].ms)||0)>=_t0).sort().map(k=>_res[k]);
+        const _may = t=>String(t||'').charAt(0).toUpperCase()+String(t||'').slice(1);
+        const _lineas = [];
+        _vueltas.forEach(x=>{
+            if(x.ok){ const p=(x.partes||[]).slice(-1)[0]; _lineas.push(`• ${_may(x.nombre)}: ${x.archivadas} archivadas`+(p?` (parte ${p.n}: ${p.kb} KB, ${p.pct} % de 1 MB)`:''));
+                if(x.pendientes) _lineas.push(`• Quedan ${x.pendientes} para la próxima vuelta: no cupieron en esta.`); }
+            else _lineas.push(`• No se pudieron archivar ${x.candidatas} ${x.nombre}: ${String(x.texto||'error').replace(/\.\s*$/,'')}. Siguen en la base.`);
+            if(x.dudosos) _lineas.push(`• ${x.dudosos} registro(s) con el mismo código y distinto contenido: no se archivan y siguen en la base.`);
+        });
+        if(!_vueltas.some(x=>/^recogidas_/.test(x.base))) _lineas.push('• Recogidas: 0');
+        if(_yaAnotadas) _lineas.push(`• ${_yaAnotadas} que ya estaban en el archivo salen de la base con este guardado.`);
+        if(nOrd+nRec+_yaAnotadas===0){
+            if(_vueltas.some(x=>!x.ok)) return alert('⚠️ NO SE PUDO ALIGERAR\n\n'+_lineas.join('\n')+'\n\nNo se perdió nada.');
+            return alert('✅ No hay nada viejo que archivar por este lado.'+(_lineas.length?'\n\n'+_lineas.join('\n'):''));
+        }
         const _desp = (window._saludBaseOfi && window._saludBaseOfi.docPrincipalMB) || null;
         alert(`✅ BASE ALIGERADA\n\n`
-            + `• Órdenes archivadas: ${nOrd}\n`
-            + `• Recogidas archivadas: ${nRec}\n`
-            + (_antes&&_desp?`\n📉 La base pasó de ${_antes.toFixed(2)} MB a ${_desp.toFixed(2)} MB\n`:'')
-            + `\nTodo quedó guardado y se consulta con el botón "📦 Archivo" de cada módulo.`);
+            + _lineas.join('\n') + '\n'
+            + (_guardo ? (_antes&&_desp?`\n📉 La base pasó de ${_antes.toFixed(2)} MB a ${_desp.toFixed(2)} MB\n`:'')
+                       : '\nSe archivaron, pero la base todavía no se guardó: salen de la base con el próximo guardado. No se perdió nada.\n')
+            + (_frenadoV ? '\n⛔ Salió una versión nueva del sistema y esta pantalla ya no guarda: toca «Actualizar ahora». La versión nueva las encuentra en el archivo y no las repite.\n' : '')
+            + (_guardo ? `\nTodo quedó guardado y se consulta con el botón «📦 Archivo» de cada módulo.` : `\nLo archivado ya se consulta con el botón «📦 Archivo» de cada módulo.`));
         registrarLog('ALIGERAR_BASE', `${nOrd} orden(es) y ${nRec} recogida(s) al archivo`);
     }catch(e){
         mostrarSaveOverlay('error','Error','');
-        alert('❌ No se pudo completar el aligerado.\n\n'+(e.message||e)+'\n\nLo que alcanzó a archivarse quedó guardado.');
+        alert('❌ No se pudo completar el aligerado.\n\n'+(e.message||e)+'\n\nNo se perdió nada: lo que no alcanzó a archivarse sigue en la base.');
+    }finally{
+        window._archivandoOfi=Math.max(0, (window._archivandoOfi||1)-1);
     }
 }
 window.aligerarBaseAhora = aligerarBaseAhora;
 
-async function _aligerarRecogidas(){
+async function _aligerarRecogidas(opts){
+    opts = opts || {};
+    // F0 (docs/12 §16): la regla de siempre (_recogidasArchivables: conserva 200, archiva las de más de 60 días), por año y
+    // POR PARTES con _archivarEnPartesOfi. Ya no lee ni escribe aquí ni toca DB: lo confirmado queda anotado y sale de la
+    // base en el guardado (_sacarArchivadasOfi). Mínimo de 20 (1 con aFondo o la base apretada). Devuelve cuántas quedaron confirmadas.
     try{
-        const todas=DB.recogidas||[];
-        const esTerminal=r=>r && ['recogido','pago','cerrado'].includes(r.estado);
-        const fechaRef=r=>{ const v=r.cerradoEn||r.recogidoEn||r.actualizadoEn||r.creadoEn||0;
-            const n=(typeof v==='number')?v:Date.parse(v); return isNaN(n)?0:n; };
-        const terminales=todas.filter(esTerminal).sort((a,b)=>fechaRef(b)-fechaRef(a));
-        const CONSERVAR=200, corte=Date.now()-60*86400000;
-        const aArchivar=terminales.slice(CONSERVAR).filter(r=>fechaRef(r)<corte);
-        if(!aArchivar.length) return 0;
-        // 📅 v208: UN ARCHIVO POR AÑO — así NADA se descarta nunca.
-        // Antes todo iba a un solo documento con tope de 2000: al llenarse, las más
-        // viejas se perdían. Ahora cada año tiene su propio archivo, que se guarda
-        // completo. Solo se sacan del principal las que se confirmó que quedaron.
-        const _anio=r=>{ const n=fechaRef(r); return n? new Date(n).getFullYear() : new Date().getFullYear(); };
-        const porAnio={};
-        aArchivar.forEach(r=>{ const a=_anio(r); (porAnio[a]=porAnio[a]||[]).push(r); });
-        const guardadas=new Set();
-        for(const [anio, items] of Object.entries(porAnio)){
-            const docId='recogidas_archivo_'+anio;
-            const s=await db.collection('oficinas_sistema').doc(docId).get();
-            const d=s.exists?reconvertirArrays(s.data()):null;
-            const previas=(d&&Array.isArray(d.recogidas))?d.recogidas:[];
-            const ya=new Set(previas.map(r=>r&&r.id));
-            const nuevas=items.filter(r=>r&&r.id&&!ya.has(r.id));
-            await db.collection('oficinas_sistema').doc(docId).set({ recogidas: JSON.parse(JSON.stringify(previas.concat(nuevas))), anio:Number(anio), actualizado: Date.now() });
-            // ✅ verificar que quedaron guardadas ANTES de sacarlas del principal
-            const chk=await db.collection('oficinas_sistema').doc(docId).get();
-            const dchk=chk.exists?reconvertirArrays(chk.data()):null;
-            const idsChk=new Set(((dchk&&dchk.recogidas)||[]).map(r=>r&&r.id));
-            items.forEach(r=>{ if(r&&r.id&&idsChk.has(r.id)) guardadas.add(r.id); });
+        const minimo=(opts.aFondo || _apretadoOfi()) ? 1 : ARCHIVO_LOTE_MIN;
+        const aArchivar=_recogidasArchivables(DB.recogidas||[], Date.now(), {minimo:1}).filter(r=>!_yaPorSacar('recogidas', r));
+        if(!aArchivar.length || aArchivar.length<minimo) return 0;
+        const porAnio=_porAnioArchivo(aArchivar, _fechaRefRecogidaArch);
+        let n=0;
+        for(const anio of Object.keys(porAnio).sort()){
+            const r=await _archivarEnPartesOfi({base:'recogidas_archivo_'+anio, campo:'recogidas', anio:Number(anio), legado:['recogidas_archivo'], nombre:'recogidas resueltas de '+anio, col:'recogidas'}, porAnio[anio], {ignorarPausa:!!opts.aFondo});
+            n+=_anotarPorSacar('recogidas', r && r.confirmados);
         }
-        if(!guardadas.size) return 0;
-        DB.recogidas=todas.filter(r=>!(r&&guardadas.has(r.id)));
-        console.log(`📦 Archivadas ${guardadas.size} recogida(s) resueltas antiguas (por año) — quedan ${DB.recogidas.length} en el principal.`);
-        return guardadas.size;
+        if(n) console.log(`📦 ${n} recogida(s) resueltas antiguas quedaron en el archivo por partes; salen de la base con el próximo guardado.`);
+        return n;
     }catch(e){ console.warn('Archivado de recogidas (no crítico, se conserva todo):', e); return 0; }
 }
 // 👁️ Consultar las recogidas archivadas
 async function verArchivoRecogidas(){
     try{
         mostrarSaveOverlay('saving','Buscando en el archivo...','');
-        // v208: lee TODOS los años (y el archivo viejo, si aún existe)
+        // F0 (docs/12 §16): lee cada año POR PARTES (la 1, _2, _3…; el viejo sin año con el más antiguo), en paralelo, y entre
+        // copias del mismo id muestra la de sello mayor. Una lectura que falla o una parte que falta ya no se callan.
         const _ahora=new Date().getFullYear();
-        const _docs=['recogidas_archivo'];
-        for(let a=_ahora; a>=_ahora-6; a--) _docs.push('recogidas_archivo_'+a);
-        let arr=[]; const _vistos=new Set();
-        for(const _id of _docs){
-            try{
-                const s=await db.collection('oficinas_sistema').doc(_id).get();
-                if(!s.exists) continue;
-                const d=reconvertirArrays(s.data());
-                ((d&&d.recogidas)||[]).forEach(r=>{ if(r&&r.id&&!_vistos.has(r.id)){ _vistos.add(r.id); arr.push(r); } });
-            }catch(e){}
-        }
+        const _series=[]; for(let a=_ahora-6; a<=_ahora; a++) _series.push({base:'recogidas_archivo_'+a, campo:'recogidas', anio:a, legado:(a===_ahora-6?['recogidas_archivo']:[])});
+        const _rs=await Promise.all(_series.map(s=>_leerSerieArchivoOfi(db, s)));
+        const arr=_unirArchivoPorId(_rs.map(r=>r.lista));
+        const _avisos=_avisosLecturaArchivoOfiHTML(_rs, i=>'de '+_series[i].anio);
         mostrarSaveOverlay('done');
-        if(!arr.length) return openModal('📦 Archivo de recogidas','<p class="text-muted">Aún no hay recogidas archivadas.</p>',`<button class="btn btn-primary" onclick="closeModal()">Cerrar</button>`);
+        if(!arr.length) return openModal('📦 Archivo de recogidas','<p class="text-muted">Aún no hay recogidas archivadas.</p>'+_avisos,`<button class="btn btn-primary" onclick="closeModal()">Cerrar</button>`);
         const orden=arr.slice().sort((a,b)=>String(b.creadoEn||'').localeCompare(String(a.creadoEn||''))).slice(0,200);
         openModal('📦 Archivo de recogidas ('+arr.length+')', `
-            <p style="font-size:0.78rem;color:var(--muted);">Recogidas ya resueltas de más de 60 días. Se guardan aparte para que la app siga liviana${arr.length>200?` — se muestran las 200 más recientes`:''}.</p>
+            <p style="font-size:0.78rem;color:var(--muted);">Recogidas ya resueltas de más de 60 días. Se guardan aparte para que la app siga liviana${arr.length>200?` — se muestran las 200 más recientes`:''}. El archivo de cada año va por partes; aquí se ven todas.</p>${_avisos}
             <div class="table-wrap" style="max-height:60vh;overflow:auto;"><table style="width:100%;font-size:0.78rem;">
                 <thead><tr><th>Cliente</th><th>Zona</th><th>Monto</th><th>Estado</th><th>Fecha</th></tr></thead>
                 <tbody>${orden.map(r=>`<tr>
@@ -2483,42 +2485,25 @@ async function verArchivoRecogidas(){
 }
 window.verArchivoRecogidas = verArchivoRecogidas;
 
-async function _aligerarOrdenes(){
+async function _aligerarOrdenes(opts){
+    opts = opts || {};
+    // F0 (docs/12 §16): la regla de siempre (_ordenesArchivables: conserva 150 y archiva las de más de 45 días; 60 y 20 con
+    // la base apretada o aFondo), por año y POR PARTES con _archivarEnPartesOfi. Ya no lee ni escribe aquí ni toca DB:
+    // lo confirmado queda anotado y sale de la base en el guardado (_sacarArchivadasOfi), después de la fusión, sin
+    // lápidas. Mínimo de 20 nuevas (1 a fondo o apretado). Devuelve cuántas quedaron confirmadas.
     try{
-        const todas=DB.ordenesTrabajo||[];
-        const esTerminal=o=>o && (o.estado==='finalizada'||o.estado==='cancelada');
-        const fechaRef=o=>{ const v=o.finalizada||o.finalizadaEn||o.canceladaEn||o.actualizada||o.fecha||0; const n=(typeof v==='number')?v:Date.parse(v); return Number.isFinite(n)?n:0; }; // v216: la app de TÉCNICOS escribe 'finalizada' (no 'finalizadaEn'), que aquí nadie escribía nunca
-        const terminales=todas.filter(esTerminal).sort((a,b)=>fechaRef(b)-fechaRef(a));
-        // v207: si la base ya está por encima del límite, se archiva más a fondo
-        const _apretado = (window._saludBaseOfi && window._saludBaseOfi.docPrincipalMB > 0.85);
-        const CONSERVAR = _apretado ? 60 : 150;
-        const corte = Date.now() - (_apretado ? 20 : 45)*86400000;
-        const aArchivar=terminales.slice(CONSERVAR).filter(o=>fechaRef(o)<corte);
-        if(!aArchivar.length) return 0;
-        // 📅 v208: UN ARCHIVO POR AÑO — nada se descarta nunca.
-        // Antes todo iba a un solo documento con tope de 1500: al llenarse, las
-        // órdenes más viejas se perdían. Ahora cada año tiene su propio archivo.
-        const _anioO=o=>{ const n=fechaRef(o); return n? new Date(n).getFullYear() : new Date().getFullYear(); };
-        const porAnioO={};
-        aArchivar.forEach(o=>{ const a=_anioO(o); (porAnioO[a]=porAnioO[a]||[]).push(o); });
-        const guardadasO=new Set();
-        for(const [anio, items] of Object.entries(porAnioO)){
-            const docId='ordenes_archivo_'+anio;
-            const s=await db.collection('oficinas_sistema').doc(docId).get();
-            const d=s.exists?reconvertirArrays(s.data()):null;
-            const previas=(d&&Array.isArray(d.ordenes))?d.ordenes:[];
-            const ya=new Set(previas.map(o=>o&&o.id));
-            const nuevas=items.filter(o=>o&&o.id&&!ya.has(o.id));
-            await db.collection('oficinas_sistema').doc(docId).set({ ordenes: JSON.parse(JSON.stringify(previas.concat(nuevas))), anio:Number(anio), actualizado: Date.now() });
-            const chk=await db.collection('oficinas_sistema').doc(docId).get();
-            const dchk=chk.exists?reconvertirArrays(chk.data()):null;
-            const idsChk=new Set(((dchk&&dchk.ordenes)||[]).map(o=>o&&o.id));
-            items.forEach(o=>{ if(o&&o.id&&idsChk.has(o.id)) guardadasO.add(o.id); });
+        const apretado = !!opts.aFondo || _apretadoOfi();
+        const minimo = apretado ? 1 : ARCHIVO_LOTE_MIN;
+        const aArchivar=_ordenesArchivables(DB.ordenesTrabajo||[], Date.now(), {apretado, minimo:1}).filter(o=>!_yaPorSacar('ordenesTrabajo', o));
+        if(!aArchivar.length || aArchivar.length<minimo) return 0;
+        const porAnio=_porAnioArchivo(aArchivar, _fechaRefOrdenArch);
+        let n=0;
+        for(const anio of Object.keys(porAnio).sort()){
+            const r=await _archivarEnPartesOfi({base:'ordenes_archivo_'+anio, campo:'ordenes', anio:Number(anio), legado:['ordenes_archivo'], nombre:'órdenes terminadas de '+anio, col:'ordenesTrabajo'}, porAnio[anio], {ignorarPausa:!!opts.aFondo});
+            n+=_anotarPorSacar('ordenesTrabajo', r && r.confirmados);
         }
-        if(!guardadasO.size) return 0;
-        DB.ordenesTrabajo=todas.filter(o=>!(o&&guardadasO.has(o.id)));
-        console.log(`📦 Archivadas ${guardadasO.size} orden(es) terminales antiguas (por año) — quedan ${DB.ordenesTrabajo.length} en el principal.`);
-        return guardadasO.size;
+        if(n) console.log(`📦 ${n} orden(es) terminadas antiguas quedaron en el archivo por partes; salen de la base con el próximo guardado.`);
+        return n;
     }catch(e){ console.warn('Archivado de órdenes (no crítico, se conserva todo):', e); return 0; }
 }
 
@@ -2691,12 +2676,11 @@ async function _saveReal(_opts){
             }
         }catch(eFr){ console.warn('Frescura de solicitudes (no crítico, se continúa):', eFr); }
 
-        // 📦 ALIGERAR (v170): archivar solicitudes resueltas antiguas ANTES de armar el
-        // documento (corrección del choque con el límite de 1 MB). Va DESPUÉS de la
-        // fusión de frescura para que ninguna solicitud recién resuelta se pierda.
-        await _aligerarSolicitudes(300);
-        await _aligerarOrdenes();    // v178: órdenes terminales viejas fuera del doc que viaja en cada guardado
-        await _aligerarRecogidas();  // v207: recogidas ya resueltas fuera del doc principal
+        // 📦 F0 (docs/12 §16): aquí solo sale de la base lo que la vuelta de fondo ya dejó en el archivo y se volvió a
+        // leer igual. Va después de la fusión (no crea lápidas) y no usa la red: el guardado ya no espera al archivo
+        // (antes corrían aquí los tres archivadores, hasta 45 s cada uno con la cortina puesta). La vuelta de fondo la
+        // agenda _programarArchivoOfi después de un guardado bueno.
+        try{ _sacarArchivadasOfi(); }catch(eSa){ console.warn('📦 Sacar lo archivado (no crítico, se conserva todo):', eSa); }
 
         // 3) Clonar SÓLO el documento principal, ya sin los datos pesados
         let datosLimpios;
@@ -3317,6 +3301,7 @@ async function _saveReal(_opts){
         }
         }
         window._ultimoGuardadoOk = !window._guardadoParcial;   // v305
+        try{ if(window._ultimoGuardadoOk && !window._parcialReintentable) _programarArchivoOfi(); }catch(_){}   // F0 (docs/12 §16): el archivo por partes corre de fondo, después de un guardado bueno
         console.log('✅ save() exitoso');
         console.log(`   ⏱️ Fusión con ${window._origenFresco||'—'} (${window._tFrescoMs||0}ms) · guardado total: ${((Date.now()-(window._tSaveIni||Date.now()))/1000).toFixed(1)}s`);
         console.log('💾 ═══════════════════════════════════════════');
@@ -3340,8 +3325,12 @@ async function _saveReal(_opts){
         // servidor y se descartó (otro equipo guardó algo), ahora se relee UNA vez del
         // servidor y se aplica. Antes esa actualización se perdía para siempre hasta que
         // alguien más volviera a escribir — por eso "a veces no sincronizaba".
+        // F0 (docs/12 §16): y se descarta la copia de main que este cierre acaba de dejar (_cacheRemotoMain, v178): con un
+        // snapshot ignorado, lo escrito aquí ya no es la nube. Un guardado en la fila arranca a ≤150 ms, antes de la
+        // relectura, y fusionaba contra esa copia: pisaba la aprobación de otra pantalla (la falla de la v295). Sin copia,
+        // lee main de la red; la relectura la vuelve a llenar.
         if(window._snapshotPerdido){
-            window._snapshotPerdido = false;
+            window._snapshotPerdido = false; window._cacheRemotoMain = null;
             setTimeout(async ()=>{
                 if(_saveInProgress) return; // hay otro guardado corriendo: su cierre hará esta relectura
                 try{
@@ -3372,12 +3361,19 @@ async function _saveReal(_opts){
                     .map(k=>{ try{ return [k, JSON.stringify(DB[k]==null?null:DB[k]).length]; }catch(_){ return [k,-1]; } })
                     .sort((a,b)=>b[1]-a[1]).slice(0,6);
                 console.warn('   🩺 Secciones más pesadas:', _pesos.map(([k,n])=>`${k}=${(n/1024).toFixed(0)}KB`).join(' · '));
-                const n = await _aligerarSolicitudes(60);
-                if(n>0){
-                    console.warn(`🚑 Se archivaron ${n} solicitudes. Reintentando el guardado...`);
+                // F0 (docs/12 §16): también archiva órdenes, sin esperar el lote ni la pausa (aFondo). Lo confirmado sale de la
+                // base dentro del reintento (_sacarArchivadasOfi). Si no se pudo archivar, el aviso dice por qué.
+                const _tEm = Date.now();
+                const nS = await _aligerarSolicitudes(60, {aFondo:true});
+                const nO = await _aligerarOrdenes({aFondo:true});
+                if(nS + nO > 0){
+                    console.warn(`🚑 Se archivaron ${nS} solicitud(es) y ${nO} orden(es). Reintentando el guardado...`);
                     return await _saveReal({permiso:_permisoReintento});   // revisión Etapa 6: con el mismo permiso de este guardado
                 }
-                alert('⚠️ El documento principal superó el límite de 1 MB de Firebase y ya no hay solicitudes viejas que archivar.\n\n📊 Secciones más pesadas:\n'+_pesos.map(([k,v])=>`• ${k}: ${(v/1024).toFixed(0)} KB`).join('\n')+'\n\nPásale esta lista a tu desarrollador para mover la sección más pesada a su propio documento.');
+                const _mot = _motivoEmergenciaArchivoOfi(_tEm);
+                alert('⚠️ El documento principal superó el límite de 1 MB de Firebase'
+                    + (_mot ? ' y no se pudo archivar: '+_mot+' No se perdió nada.' : ' y ya no hay solicitudes ni órdenes viejas que archivar.')
+                    + '\n\n📊 Secciones más pesadas:\n'+_pesos.map(([k,v])=>`• ${k}: ${(v/1024).toFixed(0)} KB`).join('\n')+'\n\nPásale esta lista a tu desarrollador para mover la sección más pesada a su propio documento.');
                 mostrarSaveOverlay('error','Documento lleno','Supera el límite de 1 MB');
                 return;
             }catch(e2){ console.error('Emergencia por peso falló:', e2); }
@@ -3443,6 +3439,7 @@ function _ocupadoRecargaOfi(){
     if((window._subidasDriveEnCurso||0)>0) return 'subiendo un archivo a Drive';
     if(window._huellaAbonoEnCurso) return 'revisando la huella de un comprobante de abono';
     if(window._cargaMovsEnCurso) return 'cargando los movimientos de las oficinas';
+    if((window._archivandoOfi||0)>0) return 'pasando registros viejos al archivo';   // F0 (docs/12 §16): no cortar una vuelta del archivo ni un 🧹 a la mitad
     if(_syncOcupado()) return 'sincronizando con WispHub';
     if(window._huecosEnCurso) return 'buscando pagos de facturas viejas en WispHub';
     return '';
@@ -3681,6 +3678,9 @@ function iniciarEscuchaRealtime(){
                         }catch(e2){ console.warn('Relectura tras eco (no crítico):', e2); }
                     }, 3300);
                 }
+                // F0 (docs/12 §16): el eco puede traer un cambio ajeno: la copia de main deja de valer hasta la relectura (un
+                // guardado en esos 3,3 s, como el de la vuelta del archivo o el del 🧹, lee main de la red).
+                window._cacheRemotoMain = null;
                 console.log('🔒 Snapshot ignorado: eco de guardado reciente (<3s) → relectura programada');
                 return;
             }
@@ -17535,6 +17535,8 @@ function renderAdmin(){
     const _crit = _mb!==null && _mb > 0.97;
     const _ojo  = _mb!==null && _mb > 0.80 && !_crit;
     const _pct  = _mb!==null ? Math.min(100, Math.round(_mb*100)) : 0;
+    // F0 (docs/12 §16): debajo de los botones van la última vuelta del archivo en esta pantalla (_lineaArchivoOfiHTML) y
+    // «📏 Medir archivos» (medirArchivosOfi, solo lee). Este panel solo lo ve el administrador.
     const panelSalud = `
     <div class="card" style="margin-bottom:14px;border:2px solid ${_crit?'#ef4444':(_ojo?'#f59e0b':'var(--border)')};">
         <div class="card-header"><h2>🩺 Salud del sistema</h2></div>
@@ -17552,8 +17554,11 @@ function renderAdmin(){
             <button class="btn ${_crit?'btn-danger':'btn-primary'}" onclick="aligerarBaseAhora()">🧹 Aligerar base</button>
             <button class="btn btn-outline" onclick="verArchivoOrdenes()">📦 Archivo de órdenes</button>
             <button class="btn btn-outline" onclick="verArchivoRecogidas()">📦 Archivo de recogidas</button>
+            <button class="btn btn-outline" onclick="medirArchivosOfi()" title="Solo lee: cuánto pesa cada parte del archivo de este año y del anterior">📏 Medir archivos</button>
         </div>
         <p style="font-size:0.76rem;color:var(--muted);margin-top:8px;">Lo pendiente o activo NUNCA se archiva. Todo lo archivado se sigue consultando desde estos botones.</p>
+        <div style="font-size:0.76rem;margin-top:6px;line-height:1.5;">${_lineaArchivoOfiHTML()}</div>
+        <div id="medidaArchivosOfi" style="font-size:0.76rem;color:var(--muted);margin-top:4px;line-height:1.5;"></div>
     </div>`;
     content.innerHTML=`
     ${panelSalud}
@@ -17775,7 +17780,7 @@ function modalEditarOficina(oid){
     </div>
     <div class="form-group-dark" style="border:1px dashed rgba(14,165,233,0.4);border-radius:10px;padding:12px;background:rgba(14,165,233,0.05);">
         <label>🏭 Bodega del Inventario vinculada <span style="color:var(--muted);font-weight:400;">(para recogidas de equipos)</span></label>
-        <select id="eo_bodega" class="form-control"><option value="">Cargando bodegas...</option></select>
+        <select id="eo_bodega" data-oid="${esc2(oid)}" class="form-control"><option value="">Cargando bodegas...</option></select>
         <p style="font-size:0.72rem;color:var(--muted);margin:6px 0 0;">Cuando un técnico finalice una recogida en esta oficina, el equipo recuperado llegará a esta bodega del inventario (como pendiente, para que el jefe de bodega lo integre).</p>
     </div>
     <div class="form-group-dark" style="border:1px dashed rgba(139,92,246,0.4);border-radius:10px;padding:12px;background:rgba(139,92,246,0.05);">
@@ -17797,21 +17802,39 @@ function modalEditarOficina(oid){
     `,`<button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
        <button class="btn btn-primary" onclick="actualizarOficina('${oid}')">💾 Guardar</button>`);
     // Cargar bodegas del inventario para el selector
-    _cargarBodegasInventario(o.bodegaId);
+    _cargarBodegasInventario(o.bodegaId, oid);   // F0 (docs/12 §16): con el id de la oficina (data-oid): la lista solo vale para esta ventana
 }
 
 // Lee las bodegas del sistema de Inventario (colección 'inventario', doc 'datos')
-async function _cargarBodegasInventario(seleccionada){
+// F0 (docs/12 §16): marca la lista como cargada (data-cargadas) SOLO si la lectura salió bien y trae bodegas, y solo
+// pinta si la ventana sigue siendo la de esa oficina (data-oid). Una bodega vinculada que ya no está en el inventario
+// sale escogida con «⚠️» (guardar no la cambia sin que nadie lo decida); una oficina SIN bodega no recibe esa opción
+// (si no, quedaría con una bodega inventada, "undefined"). Ids y nombres van escapados: la colección se escribe sin
+// autenticación. De esta bodega depende que TÉCNICOS mande lo recogido al inventario.
+async function _cargarBodegasInventario(seleccionada, oid){
     const sel=document.getElementById('eo_bodega');
     if(!sel||!db) return;
+    const oidTxt=String(oid==null?'':oid);
+    const mismaVentana=()=>document.getElementById('eo_bodega')===sel && sel.dataset.oid===oidTxt;
+    const conTexto=seleccionada!=null && String(seleccionada).trim()!=='';
     try{
         const snap=await db.collection('inventario').doc('datos').get();
-        const data=snap.exists?snap.data():{};
-        const bodegas=data.bodegas||[];
-        sel.innerHTML='<option value="">— Sin bodega vinculada —</option>'+
-            bodegas.map(b=>`<option value="${b.id}" ${String(seleccionada)===String(b.id)?'selected':''}>${b.nombre}</option>`).join('');
-        if(bodegas.length===0) sel.innerHTML='<option value="">No hay bodegas en el inventario</option>';
-    }catch(e){ console.warn('cargar bodegas inventario',e); sel.innerHTML='<option value="">No se pudo cargar bodegas</option>'; }
+        if(!mismaVentana()) return;
+        const data=snap.exists?(snap.data()||{}):{};
+        const bodegas=(Array.isArray(data.bodegas)?data.bodegas:[]).filter(b=>b && b.id!=null && String(b.id)!=='');
+        if(bodegas.length===0){ delete sel.dataset.cargadas; sel.innerHTML='<option value="">No hay bodegas en el inventario: la bodega vinculada no cambia</option>'; return; }
+        let html='<option value="">— Sin bodega vinculada —</option>'+
+            bodegas.map(b=>`<option value="${esc2(b.id)}" ${String(seleccionada)===String(b.id)?'selected':''}>${esc2(b.nombre)}</option>`).join('');
+        if(conTexto && !bodegas.some(b=>String(b.id)===String(seleccionada)))
+            html+=`<option value="${esc2(seleccionada)}" selected>⚠️ Bodega que ya no está en el inventario (${esc2(seleccionada)})</option>`;
+        sel.innerHTML=html;
+        sel.dataset.cargadas='1';
+    }catch(e){
+        console.warn('cargar bodegas inventario',e);
+        if(!mismaVentana()) return;
+        delete sel.dataset.cargadas;
+        sel.innerHTML='<option value="">⚠️ No se pudo cargar la lista: la bodega vinculada no cambia</option>';
+    }
 }
 window._cargarBodegasInventario=_cargarBodegasInventario;
 
@@ -17823,13 +17846,17 @@ function actualizarOficina(oid){
     o.responsable=document.getElementById('eo_resp').value.trim();
     const np=document.getElementById('eo_pass').value;
     if(np) o.password=np;
+    // F0 (docs/12 §16): la bodega solo cambia si la lista de bodegas de ESTA oficina cargó. Antes, con la lista sin cargar
+    // («Cargando…» o sin señal) el valor era '' y se borraba la bodega vinculada, y TÉCNICOS dejaba de mandar lo recogido.
     const bsel=document.getElementById('eo_bodega');
-    if(bsel) o.bodegaId=bsel.value;
+    const bodegaSinCambio=!(bsel && bsel.dataset.cargadas==='1' && bsel.dataset.oid===String(oid));
+    if(!bodegaSinCambio) o.bodegaId=bsel.value;
     const wsel=document.getElementById('eo_wisphub');
     if(wsel) o.cuentaWisphub=wsel.value;
     const zin=document.getElementById('eo_zonas');
     if(zin) o.zonasWisphub = zin.value.split(',').map(z=>z.trim()).filter(z=>z);
     save(); closeModal(); renderAdmin();
+    if(bodegaSinCambio) showToastRespaldo('Guardado. La bodega vinculada no cambió: la lista de bodegas no cargó.', false);
 }
 
 function eliminarOficina(oid){
@@ -17845,11 +17872,11 @@ function eliminarOficina(oid){
 // doc principal), solo lectura, con filtro de texto.
 // ════════════════════════════════════════════════════════════════════
 async function verArchivoSolicitudes(){
-    let archivadas=[];
-    try{
-        const s=await db.collection('oficinas_sistema').doc('solicitudes_archivo').get();
-        if(s.exists){ const d=reconvertirArrays(s.data()); archivadas=Array.isArray(d.solicitudes)?d.solicitudes:[]; }
-    }catch(e){ alert('No se pudo leer el archivo de solicitudes: '+(e.message||e)); return; }
+    // F0 (docs/12 §16): lee el archivo POR PARTES (solicitudes_archivo, _2, _3…) y entre copias del mismo id muestra la de
+    // sello mayor. Si una lectura falla ya no se corta: se ven las recientes y el aviso de lectura.
+    const _rs=await _leerSerieArchivoOfi(db, {base:'solicitudes_archivo', campo:'solicitudes'});
+    const archivadas=_unirArchivoPorId([_rs.lista]);
+    const _avisos=_avisosLecturaArchivoOfiHTML([_rs], ()=>'de solicitudes');
     const idsArch=new Set(archivadas.map(s=>s&&s.id));
     const recientes=(DB.solicitudes||[]).filter(s=>s && s.estado && s.estado!=='pendiente' && !idsArch.has(s.id));
     const todas=[...archivadas, ...recientes].sort((a,b)=> new Date(b.fecha||0)-new Date(a.fecha||0));
@@ -17873,7 +17900,7 @@ async function verArchivoSolicitudes(){
             <h3 style="margin:0;font-size:1.05rem;">📦 Solicitudes resueltas (${todas.length})</h3>
             <button class="btn btn-outline btn-sm" onclick="document.getElementById('ovArchivoSol').remove()">✖ Cerrar</button>
         </div>
-        <p style="font-size:0.75rem;color:var(--muted);margin:0 0 8px;">Las resueltas más antiguas se archivan solas en un documento aparte (así el sistema principal no se llena). Aquí las ves todas, solo lectura.</p>
+        <p style="font-size:0.75rem;color:var(--muted);margin:0 0 8px;">Las resueltas más antiguas se archivan solas en un documento aparte (así el sistema principal no se llena). Aquí las ves todas, solo lectura. El archivo va por partes; aquí se ven todas.</p>${_avisos}
         <input type="text" class="form-control" placeholder="🔍 Filtrar por oficina, descripción, quién solicitó..." style="margin-bottom:8px;" oninput="(function(v){document.querySelectorAll('.arch-sol-item').forEach(el=>{el.style.display=el.dataset.txt.includes(v.toLowerCase())?'':'none';});})(this.value)">
         <div style="overflow-y:auto;display:flex;flex-direction:column;gap:6px;">
             ${todas.length? todas.map(filaSol).join('') : '<p style="color:var(--muted);text-align:center;padding:16px;">Sin solicitudes resueltas aún.</p>'}
@@ -31858,21 +31885,15 @@ window.aplicarRetirosPendientes=aplicarRetirosPendientes;
 // equipos la trata como estado terminal (nunca retrocede).
 // 📦 Visor del archivo de órdenes (v178): finalizadas/canceladas antiguas, solo lectura.
 async function verArchivoOrdenes(){
-    let arch=[];
+    let arch=[], _avisos='';
     try{
-        // v208: lee TODOS los años (y el archivo viejo, si aún existe)
+        // F0 (docs/12 §16): lee TODOS los años POR PARTES (la 1, _2, _3…; el viejo sin año con el más antiguo), en paralelo.
+        // Entre copias del mismo id se ve la de sello mayor. Una lectura que falla o una parte que falta ya no se callan.
         const _ahora=new Date().getFullYear();
-        const _docs=['ordenes_archivo'];
-        for(let a=_ahora; a>=_ahora-6; a--) _docs.push('ordenes_archivo_'+a);
-        const _vistos=new Set();
-        for(const _id of _docs){
-            try{
-                const s=await db.collection('oficinas_sistema').doc(_id).get();
-                if(!s.exists) continue;
-                const d=reconvertirArrays(s.data());
-                (Array.isArray(d.ordenes)?d.ordenes:[]).forEach(o=>{ if(o&&o.id&&!_vistos.has(o.id)){ _vistos.add(o.id); arch.push(o); } });
-            }catch(e){}
-        }
+        const _series=[]; for(let a=_ahora-6; a<=_ahora; a++) _series.push({base:'ordenes_archivo_'+a, campo:'ordenes', anio:a, legado:(a===_ahora-6?['ordenes_archivo']:[])});
+        const _rs=await Promise.all(_series.map(s=>_leerSerieArchivoOfi(db, s)));
+        arch=_unirArchivoPorId(_rs.map(r=>r.lista));
+        _avisos=_avisosLecturaArchivoOfiHTML(_rs, i=>'de '+_series[i].anio);
     }catch(e){ alert('No se pudo leer el archivo de órdenes: '+(e.message||e)); return; }
     if(USER.role!=='admin') arch=arch.filter(o=>String(o.oficinaId)===String(USER.id));
     arch.sort((a,b)=>{ const f=o=>{const v=o.finalizada||o.finalizadaEn||o.canceladaEn||o.actualizada||o.fecha||0; const n=(typeof v==='number')?v:Date.parse(v); return Number.isFinite(n)?n:0;}; return f(b)-f(a); }); // v216: incluye 'finalizada' (campo real de TÉCNICOS)
@@ -31897,7 +31918,7 @@ async function verArchivoOrdenes(){
             <h3 style="margin:0;font-size:1.05rem;">📦 Órdenes archivadas (${arch.length})</h3>
             <button class="btn btn-outline btn-sm" onclick="document.getElementById('ovArchivoOrd').remove()">✖ Cerrar</button>
         </div>
-        <p style="font-size:0.75rem;color:var(--muted);margin:0 0 8px;">Las órdenes finalizadas/canceladas con más de 45 días se archivan solas (así los guardados son más livianos). Aquí las consultas, solo lectura.</p>
+        <p style="font-size:0.75rem;color:var(--muted);margin:0 0 8px;">Las órdenes finalizadas/canceladas con más de 45 días se archivan solas (así los guardados son más livianos). Aquí las consultas, solo lectura. El archivo de cada año va por partes; aquí se ven todas.</p>${_avisos}
         <input type="text" class="form-control" placeholder="🔍 Filtrar por cliente, tipo, técnico..." style="margin-bottom:8px;" oninput="(function(v){document.querySelectorAll('.arch-ord-item').forEach(el=>{el.style.display=el.dataset.txt.includes(v.toLowerCase())?'':'none';});})(this.value)">
         <div style="overflow-y:auto;display:flex;flex-direction:column;gap:6px;">
             ${arch.length? arch.map(fila).join('') : '<p style="color:var(--muted);text-align:center;padding:16px;">Aún no hay órdenes archivadas.</p>'}
@@ -39596,6 +39617,518 @@ async function _ejecutarImport(){
 }
 window._ejecutarImport=_ejecutarImport;
 
+// ═══ F0 · K1 (debajo) ═══
+// ════════════════════════════════════════════════════════════════════════════
+// 📦 F0 (docs/12 §16) · ARCHIVO POR PARTES de órdenes, recogidas y solicitudes (Etapa 7, oct 2026).
+// Antes cada pantalla leía el archivo, le sumaba y lo REESCRIBÍA entero, sin transacción: dos pantallas que archivaban
+// a la vez podían perder órdenes (ordenes_archivo_2026 iba al 90 % el 21 oct 2026); el de solicitudes botaba las más
+// viejas al pasar de 2.000 y se reescribía con una copia de la mañana; y el 🧹 dejaba una lápida por cada orden.
+// Ahora:
+//  - Cada archivo va POR PARTES. La parte 1 es el documento de siempre (ordenes_archivo_<año>, recogidas_archivo_<año>,
+//    solicitudes_archivo) y la parte n es <nombre>_<n> (n ≥ 2). Esta versión NUNCA escribe la parte 1 (la reescriben a
+//    ciegas las versiones viejas) ni cuenta lo que hay en ella como «ya archivado»: escribe desde la 2, también en un
+//    año nuevo. Es la misma regla de INVENTARIO (decisión 1 de F0). Los visores leen todas, la 1 incluida.
+//  - Cada serie se escribe en UNA transacción: lee desde la parte 2 hasta la primera que falta (más la siguiente, para
+//    ver un hueco) y escribe como mucho dos partes, la última y la primera que falta, las dos leídas ahí. 800 KB por
+//    parte medidos como Google; hasta 40 partes por serie. Si otra pantalla escribió en medio, Firebase la repite.
+//  - Corre DE FONDO después de un guardado bueno (como mucho cada 10 minutos y con 20 registros o más). Lo que se
+//    volvió a leer igual en el archivo sale de la base DENTRO del guardado siguiente, después de la fusión con la
+//    nube: así no deja lápidas.
+//  - Si algo falla, no se saca nada. El administrador ve un aviso tras 3 vueltas fallidas seguidas.
+// Nombres de las funciones: f0/spec_f0_oficinas.md §3.
+// ════════════════════════════════════════════════════════════════════════════
+const ARCHIVO_PARTE_MAX = 800*1024;          // margen por parte, medido como Google (78 % de 1 MiB)
+const ARCHIVO_DOC_DURO = 1000000;            // un registro que solo no cabe bajo esto, no se archiva
+const ARCHIVO_PARTES_TOPE = 40;              // partes por serie (decisión 2, regla común con INVENTARIO)
+const ARCHIVO_LOTE_MIN = 20;                 // vuelta de fondo: mínimo de registros nuevos
+const ARCHIVO_ESPERA_MAX_MS = 45000;         // tiempo máximo de una vuelta de una serie
+const ARCHIVO_FONDO_CADA_MS = 10*60000;      // espacio entre vueltas de fondo
+const ARCHIVO_PAUSAS_MIN = [10, 30, 60];     // pausa de una serie tras 1, 2 y 3 o más fallos seguidos
+const ARCHIVO_SACAR_VIGENCIA_MS = 24*3600000, ARCHIVO_SACAR_MAX = 5000;   // anotaciones de _archivadasPorSacar
+
+// ── La medida común (decisión 3): el MISMO cuerpo que _bytesUtf8Inv / _pesoFirestoreInv / _pesoDocArchInv de INVENTARIO.
+// Reglas publicadas de Google: texto = bytes UTF-8 + 1; número y fecha 8; booleano y nulo 1; mapa = clave + 1 + valor;
+// arreglo = suma; undefined y funciones = 0 (tampoco cuenta su llave). Nombre = (colección + 1) + (id + 1) + 16; documento + 32.
+function _bytesUTF8(s){ s=String(s); let n=0; for(let i=0;i<s.length;i++){ const c=s.charCodeAt(i);
+    if(c<0x80) n+=1; else if(c<0x800) n+=2;
+    else if(c>=0xD800&&c<=0xDBFF&&i+1<s.length){ const d=s.charCodeAt(i+1); if(d>=0xDC00&&d<=0xDFFF){ n+=4; i++; } else n+=3; }
+    else n+=3; } return n; }
+function _tamValorFS(v){ if(v===undefined||typeof v==='function') return 0; if(v===null) return 1;
+    if(typeof v==='string') return _bytesUTF8(v)+1; if(typeof v==='number') return 8; if(typeof v==='boolean') return 1;
+    if(v instanceof Date) return 8; if(Array.isArray(v)) return v.reduce((a,x)=>a+_tamValorFS(x),0);
+    if(typeof v==='object'){ let t=0; for(const k of Object.keys(v)){ const x=v[k]; if(x===undefined||typeof x==='function') continue;
+        t+=_bytesUTF8(k)+1+_tamValorFS(x); } return t; }
+    return 8; }
+function _tamDocFS(docId, campos){ return (_bytesUTF8('oficinas_sistema')+1)+(_bytesUTF8(docId)+1)+16+32+_tamValorFS(campos); }
+
+// F0: la copia que se archiva. Igual que la 320 (JSON quita los undefined; un Date queda en texto) y además un arreglo
+// dentro de otro pasa a mapa {0:…}, que Firebase sí acepta.
+function _limpioArchivo(x){ return x===undefined ? null : _limpiarLogsFirebase(JSON.parse(JSON.stringify(x))); }
+// F0: la forma con la que se compara «igual»: sin undefined, con los arreglos anidados devueltos a arreglos y las claves
+// ordenadas (Firebase devuelve las claves en otro orden y guarda los arreglos anidados como mapas).
+function _normArchivo(x){ return _jsonEstable(reconvertirArrays(_limpioArchivo(x))); }
+// F0 (decisión 8): los ids que vienen dos o más veces con DISTINTO contenido. De esos no se archiva ninguna copia en la
+// vuelta: siguen en la base y se anotan. Pura.
+function _dudososArchivo(lista){
+    const m=new Map();
+    (lista||[]).forEach(x=>{ if(!x || x.id==null || x.id==='') return; const id=String(x.id); if(!m.has(id)) m.set(id, new Set()); m.get(id).add(_normArchivo(x)); });
+    return [...m].filter(([,s])=>s.size>1).map(([id])=>id);
+}
+// F0: el sello de un registro (para escoger entre copias del mismo id): el MAYOR de estos campos, solo números y textos
+// AAAA-MM-DD; 0 si no hay. El mayor y no el primero: una orden cancelada después de su última edición vale por canceladaEn.
+function _selloArchivo(x){
+    if(!x || typeof x!=='object') return 0;
+    let m=0;
+    ['actualizada','actualizadoEn','actualizado','finalizada','finalizadaEn','canceladaEn','cerradoEn','recogidoEn','decididoMs','creada','creadoEn','fecha'].forEach(k=>{
+        const v=x[k]; let n=0;
+        if(typeof v==='number') n=Number.isFinite(v) ? v : 0;
+        else if(typeof v==='string' && /^\d{4}-\d{2}-\d{2}/.test(v)){ const t=Date.parse(v); n=Number.isFinite(t) ? t : 0; }
+        if(n>m) m=n;
+    });
+    return m;
+}
+function _parteArchivoId(base, n){ return n<=1 ? base : base+'_'+n; }
+// F0: los campos de primer nivel de una parte, además de la lista. Nunca undefined, y nunca tipo, clienteCedula ni
+// firmaRef (así ninguna consulta where de la colección trae una parte).
+function _metaParte(serie, n, ahora, version){
+    const m={ serie:String(serie.base), parte:Number(n)||0, actualizado:Number(ahora)||0, version:Number(version)||0 };
+    if(serie.anio!=null) m.anio=Number(serie.anio)||0;
+    return m;
+}
+// F0: el plan de una vuelta (pasos 3 y 4 de spec §2.3). Puro.
+//  leidas: [{docId, n, existe, crudo}] = SOLO las partes ≥ 2 que existen, tal como se leyeron (nunca la 1 ni el viejo sin año)
+//  candidatos: [{id, limpio, norm, tam}]; opts: {limite, tope, libre:{docId, n}|null, ahora, version}
+// Devuelve {escribir:[{docId, n, lista, tam, nuevos}], yaEstaban, agregados, distintos, sinLugar:[{id, motivo}], pendientes}.
+// escribir tiene 0, 1 o 2 partes: la abierta (la última ≥ 2 que existe) y la libre (la primera que falta).
+function _planArchivoPartes(serie, leidas, candidatos, opts){
+    opts=opts||{};
+    const limite=Number(opts.limite)||ARCHIVO_PARTE_MAX, tope=Number(opts.tope)||ARCHIVO_PARTES_TOPE;
+    const ahora=Number(opts.ahora)||Date.now(), version=Number(opts.version)||0, campo=serie.campo;
+    const altas=(leidas||[]).filter(p=>p && p.n>=2 && p.existe);
+    const candIds=new Set((candidatos||[]).map(c=>c.id));
+    const vistos=new Map();   // id → Set de las formas con que ya está en las partes ≥ 2 (solo de los candidatos)
+    altas.forEach(p=>{ (Array.isArray(p.crudo) ? p.crudo : []).forEach(x=>{
+        if(!x || x.id==null || x.id==='') return; const id=String(x.id); if(!candIds.has(id)) return;
+        if(!vistos.has(id)) vistos.set(id, new Set()); vistos.get(id).add(_normArchivo(x)); }); });
+    const yaEstaban=[], distintos=[], agregados=[], sinLugar=[], pendientes=[], porAgregar=[];
+    (candidatos||[]).forEach(c=>{ const s=vistos.get(c.id); if(s && s.has(c.norm)){ yaEstaban.push(c.id); return; } if(s) distintos.push(c.id); porAgregar.push(c); });
+    const tamDe=(docId, n, lista)=>_tamDocFS(docId, Object.assign({[campo]:lista}, _metaParte(serie, n, ahora, version)));
+    const ultima=altas.length ? altas[altas.length-1] : null;
+    const abierta=(ultima && Array.isArray(ultima.crudo))   // una parte que no se lee como lista no se toca
+        ? { docId:ultima.docId, n:ultima.n, lista:ultima.crudo.slice(), tam:tamDe(ultima.docId, ultima.n, ultima.crudo), nuevos:[] } : null;
+    const libre=(opts.libre && opts.libre.n>=2 && opts.libre.n<=tope) ? opts.libre : null;
+    const nueva=libre ? { docId:libre.docId, n:libre.n, lista:[], tam:tamDe(libre.docId, libre.n, []), nuevos:[] } : null;
+    const vacia=tamDe(_parteArchivoId(serie.base, Math.max(tope, 2)), Math.max(tope, 2), []);   // el nombre más largo: así nunca se queda corto
+    for(const c of porAgregar){
+        if(vacia + c.tam > ARCHIVO_DOC_DURO){ sinLugar.push({id:c.id, motivo:'grande'}); continue; }
+        let dest=null;
+        if(abierta && abierta.tam + c.tam <= limite) dest=abierta;
+        else if(nueva && (nueva.tam + c.tam <= limite || (!nueva.lista.length && nueva.tam + c.tam <= ARCHIVO_DOC_DURO))) dest=nueva;   // uno más grande que el margen va solo
+        if(dest){ dest.lista.push(c.limpio); dest.tam+=c.tam; dest.nuevos.push(c.id); agregados.push(c.id); continue; }
+        if(!libre) sinLugar.push({id:c.id, motivo:'tope'});   // ya existen las 40 partes y la última no da más
+        else pendientes.push(c.id);                            // no cabe en esta vuelta: se queda en la base para la próxima
+    }
+    return { escribir:[abierta, nueva].filter(w=>w && w.nuevos.length), yaEstaban, agregados, distintos, sinLugar, pendientes };
+}
+// F0: quita de lista lo que está anotado en porSacar (Map id → {norm, ms} o texto) CON el mismo contenido. Pura.
+function _sinArchivadas(lista, porSacar){
+    if(!porSacar || typeof porSacar.get!=='function') return (lista||[]).slice();
+    return (lista||[]).filter(x=>{
+        if(!x || x.id==null) return true;
+        const e=porSacar.get(String(x.id)); if(e==null) return true;
+        const norm=(typeof e==='string') ? e : e.norm;
+        return _normArchivo(x)!==norm;
+    });
+}
+// F0: une listas leídas del archivo por id: gana el sello mayor; si empatan, la última leída. Pura.
+function _unirArchivoPorId(listas){
+    const m=new Map();
+    (listas||[]).forEach(l=>(l||[]).forEach(x=>{ if(!x || x.id==null || x.id==='') return; const id=String(x.id), p=m.get(id); if(!p || _selloArchivo(x)>=_selloArchivo(p)) m.set(id, x); }));
+    return [...m.values()];
+}
+// F0: las reglas de siempre (v178, v207, v170), sacadas a funciones puras. Sin cambios en los números.
+function _fechaRefOrdenArch(o){ if(!o) return 0; const v=o.finalizada||o.finalizadaEn||o.canceladaEn||o.actualizada||o.fecha||0; const n=(typeof v==='number')?v:Date.parse(v); return Number.isFinite(n)?n:0; }   // v216: TÉCNICOS escribe 'finalizada'
+function _fechaRefRecogidaArch(r){ if(!r) return 0; const v=r.cerradoEn||r.recogidoEn||r.actualizadoEn||r.creadoEn||0; const n=(typeof v==='number')?v:Date.parse(v); return isNaN(n)?0:n; }
+// Órdenes finalizadas o canceladas: conserva las 150 más nuevas y archiva las de más de 45 días (apretado: 60 y 20).
+function _ordenesArchivables(todas, ahora, o){
+    o=o||{}; ahora=Number(ahora)||Date.now();
+    const terminales=(todas||[]).filter(x=>x && (x.estado==='finalizada'||x.estado==='cancelada')).sort((a,b)=>_fechaRefOrdenArch(b)-_fechaRefOrdenArch(a));
+    const CONSERVAR=o.apretado ? 60 : 150, corte=ahora-(o.apretado ? 20 : 45)*86400000;
+    const lista=terminales.slice(CONSERVAR).filter(x=>_fechaRefOrdenArch(x)<corte);
+    return lista.length<(Number(o.minimo)||1) ? [] : lista;
+}
+// Recogidas recogidas, pagadas o cerradas: conserva las 200 más nuevas y archiva las de más de 60 días.
+function _recogidasArchivables(todas, ahora, o){
+    o=o||{}; ahora=Number(ahora)||Date.now();
+    const terminales=(todas||[]).filter(r=>r && ['recogido','pago','cerrado'].includes(r.estado)).sort((a,b)=>_fechaRefRecogidaArch(b)-_fechaRefRecogidaArch(a));
+    const corte=ahora-60*86400000;
+    const lista=terminales.slice(200).filter(r=>_fechaRefRecogidaArch(r)<corte);
+    return lista.length<(Number(o.minimo)||1) ? [] : lista;
+}
+// Solicitudes resueltas: conserva las `mantener` más recientes; una autorización de préstamo viva nunca se archiva (v312).
+function _solicitudesArchivables(todas, mantener, ahora, o){
+    o=o||{}; ahora=Number(ahora)||Date.now(); mantener=(typeof mantener==='number' && mantener>=0) ? mantener : 300;
+    const _autViva = s => s && s.tipo==='aprobar_prestamo' && s.estado==='aprobado' && !s.usadaPid
+        && ((Number(s.venceMs)||((Number(s.decididoMs)||Number(s.actualizado)||0)+PREST_VENCE_AUT_DIAS*86400000)) > ahora);
+    const resueltas=(todas||[]).filter(s=>s && s.estado && s.estado!=='pendiente' && !_autViva(s));
+    if(resueltas.length <= mantener) return [];
+    const lista=resueltas.slice().sort((a,b)=> new Date(a.fecha||0) - new Date(b.fecha||0)).slice(0, resueltas.length - mantener);
+    return lista.length<(Number(o.minimo)||1) ? [] : lista;
+}
+function _porAnioArchivo(lista, fechaRef){
+    const out={};
+    (lista||[]).forEach(x=>{ const n=fechaRef(x); const a=n ? new Date(n).getFullYear() : new Date().getFullYear(); (out[a]=out[a]||[]).push(x); });
+    return out;
+}
+// La base está apretada (main por encima de 0,85 MB en la última medida de esta pantalla): se archiva más a fondo (v207).
+function _apretadoOfi(){ return !!(window._saludBaseOfi && window._saludBaseOfi.docPrincipalMB > 0.85); }
+function _pausaArchivoMs(fallosSeguidos){ const n=Number(fallosSeguidos)||0; if(n<=0) return 0; return ARCHIVO_PAUSAS_MIN[Math.min(n, ARCHIVO_PAUSAS_MIN.length)-1]*60000; }
+// F0: el motivo, en palabras del personal de oficina. '' si no hay nada que decir.
+function _motivoArchivoES(r){
+    r=r||{};
+    const hora=ms=>{ const d=new Date(Number(ms)||Date.now()); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
+    if(r.omitido==='prueba') return 'Modo prueba: aquí no se archiva nada.';
+    if(r.omitido==='version') return MSG_VERSION_VIEJA_OFI;
+    if(r.omitido==='mantenimiento') return 'Mantenimiento: el archivo espera a que termine.';
+    if(r.omitido==='sin conexión') return 'No hay conexión con la nube.';
+    if(r.omitido==='pausa') return 'Falló hace poco: se vuelve a intentar a las '+hora(r.hasta)+'.';
+    if(r.motivo==='tiempo') return 'La nube tardó demasiado en responder.';
+    if(r.motivo==='hueco') return 'Falta la parte '+(Number(r.parte)||'?')+' del archivo en la nube. Avísale a soporte.';
+    if(r.ok===false) return _traducirErrorGuardado(r.error||r.motivo||'').titulo;
+    const sl=r.sinLugar||[];
+    if(sl.some(x=>x && x.motivo==='tope')) return 'El archivo de este año llegó a '+ARCHIVO_PARTES_TOPE+' partes. Avísale a soporte.';
+    if(sl.some(x=>x && x.motivo==='grande')) return 'Un registro pesa más de 1 MB y no cabe en el archivo.';
+    if((r.sinVerificar||[]).length) return 'Se escribió, pero no se pudo comprobar. Se comprueba en la próxima vuelta.';
+    if((r.pendientes||[]).length) return r.pendientes.length+' no cupieron en esta vuelta: van en la próxima.';
+    return '';
+}
+
+// F0: el núcleo. Lee y escribe UNA serie en una transacción (spec §2.3) y relee lo escrito (§2.7). Recibe la base como
+// parámetro (las pruebas le pasan una falsa). No mira el modo prueba ni la versión: eso lo hace _archivarEnPartesOfi, el
+// único que lo llama. serie = {base, campo, anio?, legado?, nombre, col}: el legado (viejo sin año) NO se lee aquí.
+// opts = {limite?, tope?, version, debeParar?}: debeParar() se mira al empezar cada intento y antes de escribir; si dice
+// algo ('tiempo', 'mantenimiento', 'version'), lanza y Firebase no confirma.
+async function _archivarEnPartesCore(dbX, serie, registros, opts){
+    opts=opts||{};
+    const campo=serie.campo, tope=Number(opts.tope)||ARCHIVO_PARTES_TOPE, limite=Number(opts.limite)||ARCHIVO_PARTE_MAX, version=Number(opts.version)||0;
+    const ref=id=>dbX.collection('oficinas_sistema').doc(id);
+    const parar=()=>{ const m=(typeof opts.debeParar==='function') ? (opts.debeParar()||'') : ''; if(m){ const e=new Error('El archivo se detuvo: '+m); e.motivo=m; throw e; } };
+    // 1) Candidatos, una vez: sin ids vacíos; un id repetido igual cuenta una vez; repetido con distinto contenido, ninguno (decisión 8)
+    const dudosos=_dudososArchivo(registros), dud=new Set(dudosos);
+    const cand=[], normDe=new Map();
+    (registros||[]).forEach(x=>{ if(!x || x.id==null || x.id==='') return; const id=String(x.id); if(dud.has(id) || normDe.has(id)) return;
+        const limpio=_limpioArchivo(x), norm=_jsonEstable(reconvertirArrays(limpio)); normDe.set(id, norm); cand.push({id, limpio, norm, tam:_tamValorFS(limpio)}); });
+    const r={ ok:true, confirmados:new Map(), agregados:[], yaEstaban:[], distintos:[], dudosos, sinLugar:[], pendientes:[], sinVerificar:[], intentos:0, partes:[], leidos:[] };
+    if(!cand.length) return r;
+    // 2) La transacción: lee la 2…n (la primera que falta) y la n+1; escribe solo la abierta y la libre, las dos leídas aquí
+    let plan=null;
+    await dbX.runTransaction(async tx=>{
+        r.intentos++; parar();
+        plan=null; const leidos=[], leidas=[];
+        let n=2;
+        for(; n<=tope; n++){
+            const id=_parteArchivoId(serie.base, n), s=await tx.get(ref(id)); leidos.push(id);
+            if(!s.exists) break;
+            const d=s.data()||{}; leidas.push({docId:id, n, existe:true, crudo:d[campo]});
+        }
+        let libre=null;
+        if(n<=tope){
+            const idS=_parteArchivoId(serie.base, n+1), sS=await tx.get(ref(idS)); leidos.push(idS);
+            if(sS.exists){ const e=new Error('Falta la parte '+n+' de '+serie.base+' y existe la '+(n+1)); e.motivo='hueco'; e.parte=n; throw e; }
+            libre={docId:_parteArchivoId(serie.base, n), n};
+        }
+        const ahora=Date.now();
+        plan=_planArchivoPartes(serie, leidas, cand, {limite, tope, libre, ahora, version});
+        parar();
+        r.leidos=leidos.slice();
+        const yaLeidos=new Set(leidos);
+        for(const w of plan.escribir){
+            if(!yaLeidos.has(w.docId)) throw new Error('Parte sin leer: '+w.docId);   // nunca pasa: el plan solo usa la abierta y la libre
+            tx.set(ref(w.docId), Object.assign({[campo]:w.lista}, _metaParte(serie, w.n, ahora, version)));
+        }
+    });
+    // 3) Confirmado = la relectura del servidor lo trae igual, o ya estaba igual en una parte ≥ 2
+    plan.yaEstaban.forEach(id=>r.confirmados.set(id, normDe.get(id)));
+    for(const w of plan.escribir){
+        try{
+            const s=await ref(w.docId).get({source:'server'}), d=s.exists ? (s.data()||{}) : {}, m=new Map();
+            (Array.isArray(d[campo]) ? d[campo] : []).forEach(x=>{ if(!x || x.id==null) return; const id=String(x.id); if(!normDe.has(id)) return;
+                if(!m.has(id)) m.set(id, new Set()); m.get(id).add(_normArchivo(x)); });
+            w.nuevos.forEach(id=>{ const s2=m.get(id); if(s2 && s2.has(normDe.get(id))) r.confirmados.set(id, normDe.get(id)); else r.sinVerificar.push(id); });
+        }catch(e){ w.nuevos.forEach(id=>r.sinVerificar.push(id)); }
+    }
+    r.agregados=plan.agregados; r.yaEstaban=plan.yaEstaban; r.distintos=plan.distintos; r.sinLugar=plan.sinLugar; r.pendientes=plan.pendientes;
+    r.partes=plan.escribir.map(w=>({docId:w.docId, n:w.n, tam:w.tam}));
+    return r;
+}
+// F0: el resultado de una vuelta que no corrió (o que falló: omitido '' y motivo/error en extra).
+function _resArchivoOmitido(serie, omitido, extra){
+    return Object.assign({ ok:false, omitido:omitido||'', motivo:'', error:'', confirmados:new Map(), agregados:[], yaEstaban:[], distintos:[],
+        dudosos:[], sinLugar:[], pendientes:[], sinVerificar:[], intentos:0, partes:[], leidos:[] }, extra||{});
+}
+// F0: el envoltorio, el ÚNICO que llama al núcleo. Guardas ANTES de leer o escribir nada (en este orden: mantenimiento,
+// modo prueba, versión vieja, sin conexión), la pausa tras un fallo, una vuelta a la vez por pestaña (fila), 45 s como
+// mucho, y el resumen, la cuenta de fallos y el aviso. Nunca lanza.
+async function _archivarEnPartesOfi(serie, registros, opts){
+    const fin=x=>{ _anotarArchivoOfi(serie, (registros||[]).length, x); return x; };
+    if(window._mantBloqueando===true) return fin(_resArchivoOmitido(serie, 'mantenimiento'));
+    if(MODO_PRUEBA) return fin(_resArchivoOmitido(serie, 'prueba'));
+    if(_pestanaDesactualizada()) return fin(_resArchivoOmitido(serie, 'version'));
+    if(!db) return fin(_resArchivoOmitido(serie, 'sin conexión'));
+    opts=opts||{};
+    const hasta=Number((window._pausaArchivoOfi||{})[serie.base])||0;
+    if(!opts.ignorarPausa && hasta>Date.now()) return fin(_resArchivoOmitido(serie, 'pausa', {hasta}));
+    window._archivandoOfi=(window._archivandoOfi||0)+1;
+    let soltar=null;
+    try{
+        const antes=window._archivoColaOfi||Promise.resolve();
+        const mia=new Promise(res=>{ soltar=res; });
+        window._archivoColaOfi=antes.then(()=>mia, ()=>mia);
+        await antes;
+        let r;
+        const guarda=window._mantBloqueando===true ? 'mantenimiento' : (MODO_PRUEBA ? 'prueba' : (_pestanaDesactualizada() ? 'version' : (!db ? 'sin conexión' : '')));
+        if(guarda) r=_resArchivoOmitido(serie, guarda);
+        else{
+            const ctl={abandonada:false};
+            const debeParar=()=>ctl.abandonada ? 'tiempo' : (window._mantBloqueando===true ? 'mantenimiento' : (_pestanaDesactualizada() ? 'version' : ''));
+            let tmr=null;
+            const pNucleo=_archivarEnPartesCore(db, serie, registros, {version:APP_VERSION, debeParar});
+            pNucleo.catch(()=>{});
+            const pTiempo=new Promise((_, rechazar)=>{ tmr=setTimeout(()=>{ ctl.abandonada=true; const e=new Error('La nube tardó demasiado en responder.'); e.motivo='tiempo'; rechazar(e); }, ARCHIVO_ESPERA_MAX_MS); });
+            pTiempo.catch(()=>{});
+            try{ r=await Promise.race([pNucleo, pTiempo]); }
+            catch(e){
+                const mot=String((e && e.motivo)||'');
+                if(mot==='mantenimiento' || mot==='version') r=_resArchivoOmitido(serie, mot);
+                else r=_resArchivoOmitido(serie, '', {motivo:mot||'error', error:String((e && e.message)||e||'').slice(0,300), parte:Number(e && e.parte)||0});
+            }
+            finally{ clearTimeout(tmr); }
+        }
+        fin(r);
+        _contarFalloArchivoOfi(serie, r);
+        _avisoArchivoOfi(serie, (registros||[]).length, r);
+        return r;
+    }catch(eE){
+        console.warn('📦 Archivo por partes (no crítico, no se sacó nada):', eE);
+        return fin(_resArchivoOmitido(serie, '', {motivo:'error', error:String((eE && eE.message)||eE||'').slice(0,300)}));
+    }finally{
+        if(soltar) soltar();
+        window._archivandoOfi=Math.max(0, (window._archivandoOfi||1)-1);
+    }
+}
+// F0: el resumen de la última vuelta de cada serie en esta pantalla (panel 🩺, 🧹 y la emergencia por peso).
+function _anotarArchivoOfi(serie, n, r){
+    try{
+        r=r||{};
+        const x={ ms:Date.now(), base:String(serie.base), nombre:String(serie.nombre||serie.base), candidatas:Number(n)||0,
+            archivadas:(r.confirmados && r.confirmados.size)||0, yaEstaban:(r.yaEstaban||[]).length, dudosos:(r.dudosos||[]).length,
+            pendientes:(r.pendientes||[]).length, sinLugar:(r.sinLugar||[]).length, sinVerificar:(r.sinVerificar||[]).length,
+            ok:!!r.ok, omitido:String(r.omitido||''), motivo:String(r.motivo||''), texto:_motivoArchivoES(r),
+            partes:(r.partes||[]).map(p=>({docId:p.docId, n:p.n, kb:Math.round((Number(p.tam)||0)/1024), pct:Math.round((Number(p.tam)||0)*100/1048576)})) };
+        window._resumenArchivoOfi=window._resumenArchivoOfi||{};
+        window._resumenArchivoOfi[x.base]=x;
+        if(!x.omitido) console.log(`📦 Archivo ${x.base}: ${x.archivadas} de ${x.candidatas} confirmada(s)`+(x.partes.length?' → '+x.partes.map(p=>'parte '+p.n+' ('+p.kb+' KB, '+p.pct+' %)').join(' y '):'')+(x.texto?' · '+x.texto:''));
+        if(x.dudosos) console.warn(`📦 ${x.dudosos} registro(s) de ${x.base} con el mismo código y distinto contenido: no se archivan y siguen en la base.`, (r.dudosos||[]).slice(0,10));
+        return x;
+    }catch(e){ return null; }
+}
+// F0: una vuelta mala (falló o no pudo comprobar) suma un fallo seguido y pone la serie en pausa (10, 30, 60 minutos);
+// una buena los deja en cero. Lo omitido no cuenta, y lo que no cupo (pendientes, sin lugar) tampoco es fallo.
+function _contarFalloArchivoOfi(serie, r){
+    if(!r || r.omitido) return 0;
+    window._fallosArchivoOfi=window._fallosArchivoOfi||{}; window._pausaArchivoOfi=window._pausaArchivoOfi||{};
+    const fallo=(r.ok===false) || (r.sinVerificar||[]).length>0;
+    if(!fallo){ window._fallosArchivoOfi[serie.base]=0; window._pausaArchivoOfi[serie.base]=0; return 0; }
+    const n=(Number(window._fallosArchivoOfi[serie.base])||0)+1;
+    window._fallosArchivoOfi[serie.base]=n; window._pausaArchivoOfi[serie.base]=Date.now()+_pausaArchivoMs(n);
+    return n;
+}
+// F0 (decisión 7): tras 3 vueltas fallidas seguidas, o enseguida si el motivo es permanente (hueco, 40 partes, un registro
+// de más de 1 MB), queda un registro en errores_guardado (con el ROL, nunca el nombre) y el ADMINISTRADOR ve el aviso.
+// El personal de oficina no ve aviso. Como mucho una vez cada 30 minutos por serie y motivo.
+function _avisoArchivoOfi(serie, n, r){
+    try{
+        if(!r || r.omitido) return false;
+        const sl=r.sinLugar||[], sinV=(r.sinVerificar||[]).length;
+        const permanente=r.motivo==='hueco' || sl.some(x=>x && (x.motivo==='tope' || x.motivo==='grande'));
+        const fallo=(r.ok===false) || sinV>0;
+        const seguidos=Number((window._fallosArchivoOfi||{})[serie.base])||0;
+        if(!permanente && !(fallo && seguidos>=3)) return false;
+        const motivo=String(r.motivo || (sl[0] && sl[0].motivo) || (sinV ? 'sin comprobar' : '') || 'error');
+        window._avisosArchivoOfi=window._avisosArchivoOfi||{};
+        const clave=serie.base+'│'+motivo, ult=Number(window._avisosArchivoOfi[clave])||0;
+        if(Date.now()-ult < 30*60000) return false;
+        window._avisosArchivoOfi[clave]=Date.now();
+        const cuantos=(r.ok===false) ? (Number(n)||0) : (sinV || sl.length);
+        const texto=_motivoArchivoES(r);
+        try{ _registrarFalloGuardado(new Error(texto), { titulo:'📦 Archivo sin terminar', aviso:true, quien:String((USER && USER.role)||''),
+            serie:String(serie.base), n:Number(cuantos)||0, motivo }); }catch(_){}
+        if(USER && USER.role==='admin') showToastRespaldo('📦 No se pudieron pasar al archivo '+cuantos+' '+(serie.nombre||serie.base)+'. Siguen guardadas en la base: no se perdió nada. Motivo: '+texto, true);
+        console.warn('📦 Archivo sin terminar ('+serie.base+'): '+texto);
+        return true;
+    }catch(e){ return false; }
+}
+// F0: lo confirmado en el archivo queda anotado aquí (por colección de DB, id → {norm, ms}); lo saca _sacarArchivadasOfi
+// dentro del guardado. Devuelve cuántos se anotaron.
+function _anotarPorSacar(col, confirmados){
+    if(!confirmados || typeof confirmados.forEach!=='function') return 0;
+    window._archivadasPorSacar=window._archivadasPorSacar||{};
+    const m=window._archivadasPorSacar[col] || (window._archivadasPorSacar[col]=new Map());
+    let n=0; const ahora=Date.now();
+    confirmados.forEach((norm, id)=>{ m.set(String(id), {norm:String(norm), ms:ahora}); n++; });
+    return n;
+}
+// F0: ¿este registro ya está anotado, con el mismo contenido? Entonces no se vuelve a mandar al archivo.
+function _yaPorSacar(col, x){
+    const m=(window._archivadasPorSacar||{})[col];
+    if(!m || !x || x.id==null) return false;
+    const e=m.get(String(x.id));
+    return !!e && e.norm===_normArchivo(x);
+}
+// F0: corre DENTRO de _saveReal, después de la fusión con la nube (así no crea lápidas) y sin red: quita de la memoria
+// lo anotado que sigue IGUAL a lo archivado. Si alguien lo cambió, se queda (la vuelta siguiente lo archiva como «distinto»).
+// Olvida las anotaciones de más de 24 h, y las más viejas si pasan de 5.000.
+// F0 (docs/12 §16): también quita esos ids de la foto de la nube (window._idsRemotos). Si después falla la escritura de main
+// (sin señal, Firebase rechazó, 1 MiB), el guardado siguiente los encuentra en la nube como «nunca vistos» y los vuelve a
+// meter, sin lápida, y esta función los vuelve a sacar si siguen iguales (si otra pantalla cambió uno, se queda). Antes la
+// fusión los tomaba por borrados aquí y dejaba una lápida por registro. Un guardado bueno o un snapshot rehacen la foto.
+function _sacarArchivadasOfi(){
+    const out={solicitudes:0, ordenesTrabajo:0, recogidas:0};
+    const todas=window._archivadasPorSacar||{}, ahora=Date.now();
+    ['solicitudes','ordenesTrabajo','recogidas'].forEach(col=>{
+        const m=todas[col];
+        if(!m || typeof m.forEach!=='function') return;
+        [...m].forEach(([id, e])=>{ if(!e || ahora-(Number(e.ms)||0) > ARCHIVO_SACAR_VIGENCIA_MS) m.delete(id); });
+        if(m.size>ARCHIVO_SACAR_MAX) [...m].sort((a,b)=>(Number(a[1].ms)||0)-(Number(b[1].ms)||0)).slice(0, m.size-ARCHIVO_SACAR_MAX).forEach(([id])=>m.delete(id));
+        const antes=DB[col];
+        if(!m.size || !Array.isArray(antes) || !antes.length) return;
+        const despues=_sinArchivadas(antes, m);
+        if(despues.length!==antes.length){
+            out[col]=antes.length-despues.length; DB[col]=despues;
+            try{ const f=(window._idsRemotos||{})[col]; if(f && typeof f.delete==='function'){ const quedan=new Set(despues.map(x=>x&&x.id)); antes.forEach(x=>{ if(x && x.id!=null && !quedan.has(x.id)) f.delete(x.id); }); } }catch(_){}
+        }
+    });
+    const total=out.solicitudes+out.ordenesTrabajo+out.recogidas;
+    if(total) console.log(`📦 Salieron de la base ${total} registro(s) que ya están en el archivo (órdenes ${out.ordenesTrabajo} · solicitudes ${out.solicitudes} · recogidas ${out.recogidas}).`);
+    return out;
+}
+// F0: después de un guardado bueno, agenda UNA vuelta de fondo a los 3 s. En modo prueba, nada.
+function _programarArchivoOfi(){
+    if(MODO_PRUEBA || window._tmrArchivoOfi) return;
+    window._tmrArchivoOfi=setTimeout(()=>{ window._tmrArchivoOfi=null; _archivoDeFondoOfi().catch(e=>console.warn('📦 Archivo de fondo (no crítico):', e)); }, 3000);
+}
+// F0: ¿alguna de las tres reglas llega a su mínimo sin contar lo ya anotado? (20; 1 con la base apretada)
+function _hayLoteArchivoOfi(){
+    const ahora=Date.now(), apretado=_apretadoOfi(), minimo=apretado ? 1 : ARCHIVO_LOTE_MIN;
+    const nS=_solicitudesArchivables(DB.solicitudes||[], 300, ahora, {minimo:1}).filter(x=>!_yaPorSacar('solicitudes', x)).length;
+    const nO=_ordenesArchivables(DB.ordenesTrabajo||[], ahora, {apretado, minimo:1}).filter(x=>!_yaPorSacar('ordenesTrabajo', x)).length;
+    const nR=_recogidasArchivables(DB.recogidas||[], ahora, {minimo:1}).filter(x=>!_yaPorSacar('recogidas', x)).length;
+    return nS>=minimo || nO>=minimo || nR>=minimo;
+}
+// F0: la vuelta de fondo. Sin leer nada si la pantalla está en mantenimiento, en modo prueba, con versión vieja o sin
+// conexión; una a la vez; como mucho cada 10 minutos; solo con un lote. Si algo quedó confirmado, pide un guardado
+// silencioso, que lo saca de la base (sin permiso: si la versión ya es vieja se frena, y la nueva lo encuentra «ya estaba»).
+// Ese guardado sale pocos segundos después del anterior: se descarta antes la copia de main que dejó ese guardado (vale
+// 15 s, v178), para fusionar con lo que la nube tiene AHORA y no pisar lo que otra pantalla aprobó mientras tanto.
+// F0 (docs/12 §16): si ese save entra a la fila de otro guardado en curso, el cierre de ese guardado volvía a dejar su copia;
+// ahora la descarta también cuando ignoró un snapshot, y el oyente la descarta con cada eco (ver _saveReal y el oyente).
+async function _archivoDeFondoOfi(){
+    if(window._mantBloqueando===true || MODO_PRUEBA || _pestanaDesactualizada() || !db) return 0;
+    if(window._archivoFondoCorriendo) return 0;
+    if(Date.now()-(Number(window._archivoFondoUltimoMs)||0) < ARCHIVO_FONDO_CADA_MS) return 0;
+    if(!_hayLoteArchivoOfi()) return 0;
+    window._archivoFondoCorriendo=true; window._archivoFondoUltimoMs=Date.now(); window._archivandoOfi=(window._archivandoOfi||0)+1;
+    try{
+        const n=(await _aligerarSolicitudes(300)) + (await _aligerarOrdenes()) + (await _aligerarRecogidas());
+        if(n>0){ window._cacheRemotoMain=null; save({silencioso:true}); }   // antes de soltar _archivandoOfi: la recarga automática no ve un hueco
+        return n;
+    }finally{
+        window._archivoFondoCorriendo=false;
+        window._archivandoOfi=Math.max(0, (window._archivandoOfi||1)-1);
+    }
+}
+// F0: lee una serie para los visores y «📏 Medir»: el legado (viejo sin año, si la serie lo trae), la parte 1 y desde la 2
+// hasta la primera que falta, mirando además la siguiente (si existe, anota el hueco y sigue). Un error de lectura NO se
+// calla: va a fallos y se deja de leer esa serie. Devuelve {lista (legado, 1, 2…), partes:[{docId, n, kb, pct, registros}], fallos, huecos}.
+async function _leerSerieArchivoOfi(dbX, serie){
+    const out={lista:[], partes:[], fallos:[], huecos:[]};
+    const ref=id=>dbX.collection('oficinas_sistema').doc(id), campo=serie.campo;
+    const tomar=(id, n, s)=>{ const crudo=s.data()||{}, d=reconvertirArrays(crudo)||{}; const l=Array.isArray(d[campo]) ? d[campo] : [];
+        out.lista.push(...l); const tam=_tamDocFS(id, crudo); out.partes.push({docId:id, n, kb:Math.round(tam/1024), pct:Math.round(tam*100/1048576), registros:l.length}); };
+    try{
+        for(const leg of (serie.legado||[])){ const s=await ref(leg).get(); if(s.exists) tomar(leg, 0, s); }
+        const s1=await ref(serie.base).get(); if(s1.exists) tomar(serie.base, 1, s1);
+        let n=2;
+        while(n<=ARCHIVO_PARTES_TOPE+1){
+            const s=await ref(_parteArchivoId(serie.base, n)).get();
+            if(s.exists){ tomar(_parteArchivoId(serie.base, n), n, s); n++; continue; }
+            const sig=await ref(_parteArchivoId(serie.base, n+1)).get();
+            if(!sig.exists) break;
+            out.huecos.push(n); tomar(_parteArchivoId(serie.base, n+1), n+1, sig); n+=2;
+        }
+    }catch(e){ out.fallos.push(String((e && e.message)||e||'').slice(0,200)); }
+    return out;
+}
+// F0: los avisos de lectura de los visores, debajo de su párrafo. `de(i)` dice de qué archivo es la serie i («de 2026»).
+function _avisosLecturaArchivoOfiHTML(resultados, de){
+    const l=[];
+    if((resultados||[]).some(r=>r && (r.fallos||[]).length)) l.push('⚠️ No se pudo leer una parte del archivo (sin conexión). La lista puede estar incompleta: ciérrala y ábrela otra vez en un momento.');
+    (resultados||[]).forEach((r, i)=>((r && r.huecos)||[]).forEach(n=>l.push('⚠️ Falta la parte '+n+' del archivo '+de(i)+'. Avísale a soporte.')));
+    return l.map(t=>`<p class="aviso-archivo-f0" style="font-size:0.75rem;color:#f59e0b;margin:0 0 6px;">${esc2(t)}</p>`).join('');
+}
+// F0: el motivo de la emergencia por peso: el de la primera serie de solicitudes u órdenes que, desde desdeMs, falló o no
+// corrió. '' si no hubo fallo ni omisión.
+function _motivoEmergenciaArchivoOfi(desdeMs){
+    const t0=Number(desdeMs)||0, res=window._resumenArchivoOfi||{};
+    const ks=Object.keys(res).filter(k=>(k==='solicitudes_archivo' || /^ordenes_archivo_\d{4}$/.test(k)) && (Number(res[k] && res[k].ms)||0)>=t0);
+    for(const k of ks){ const x=res[k]; if(x && (x.ok===false || x.omitido)) return String(x.texto||'') || 'no se pudo leer el archivo.'; }
+    return '';
+}
+// F0: las líneas del panel 🩺 con la última vuelta de cada serie en esta pantalla. Nunca lanza.
+function _lineaArchivoOfiHTML(){
+    try{
+        const res=window._resumenArchivoOfi||{}, ks=Object.keys(res).sort();
+        const p=(t, ambar)=>`<p style="margin:0 0 4px;color:${ambar?'#f59e0b':'var(--muted)'};">${esc2(t)}</p>`;
+        if(!ks.length) return p('📦 Esta pantalla todavía no ha pasado nada al archivo.');
+        return ks.map(k=>{
+            const x=res[k]||{}, ult=(x.partes||[]).slice(-1)[0];
+            let h;
+            if(x.ok) h=p('📦 Última vez (esta pantalla): '+x.archivadas+' '+x.nombre+(ult ? ' → parte '+ult.n+' ('+ult.kb+' KB, '+ult.pct+' % de 1 MB)' : '')+(x.pendientes ? ' · '+x.pendientes+' no cupieron: van en la próxima vuelta' : ''));
+            else h=p('📦 Última vez (esta pantalla): no se pudieron archivar '+x.candidatas+' '+x.nombre+' — '+String(x.texto||'error').replace(/\.\s*$/,'')+'. No se perdió nada.', true);
+            if(x.dudosos) h+=p('⚠️ '+x.dudosos+' registro(s) con el mismo código y distinto contenido: no se archivan y siguen en la base.', true);
+            return h;
+        }).join('');
+    }catch(e){ return ''; }
+}
+// F0 (decisión 7): «📏 Medir archivos» del panel 🩺 (solo admin). Solo lee: el tamaño de cada parte como Google.
+// F0 (docs/12 §16): órdenes y recogidas del año en curso Y del anterior, más las solicitudes, como F0-6 (PRUEBAS) y la
+// vigilancia: en enero y febrero se siguen archivando órdenes (45 días) y recogidas (60 días) del año pasado, en la serie
+// de ese año, y un hueco o una parte llena ahí no se vería mirando solo el año en curso.
+async function medirArchivosOfi(){
+    if(!USER || USER.role!=='admin') return '';
+    const caja=document.getElementById('medidaArchivosOfi');
+    const pintar=h=>{ if(caja) caja.innerHTML=h; };
+    if(!db){ pintar(esc2('No hay conexión con la nube.')); return ''; }
+    pintar(esc2('📏 Midiendo el archivo (solo lee)…'));
+    const anio=new Date().getFullYear(), series=[];
+    [{base:'ordenes_archivo_', campo:'ordenes', titulo:'Órdenes '}, {base:'recogidas_archivo_', campo:'recogidas', titulo:'Recogidas '}]
+        .forEach(x=>[anio, anio-1].forEach(a=>series.push({base:x.base+a, campo:x.campo, titulo:x.titulo+a})));
+    series.push({base:'solicitudes_archivo', campo:'solicitudes', titulo:'Solicitudes'});
+    const rs=await Promise.all(series.map(s=>_leerSerieArchivoOfi(db, s)));
+    const lineas=series.map((s, i)=>{
+        const r=rs[i];
+        const partes=r.partes.length ? r.partes.map(p=>'parte '+p.n+' '+p.kb+' KB ('+p.pct+' %'+(p.n===1 ? '; ya no recibe' : '')+')').join(' · ') : 'sin archivo';
+        return s.titulo+': '+partes+(r.huecos.length ? ' · ⚠️ falta la parte '+r.huecos.join(' y ') : '')+(r.fallos.length ? ' · ⚠️ no se pudo leer todo (sin conexión)' : '');
+    });
+    pintar(lineas.map(t=>esc2(t)).join('<br>'));
+    console.log('📏 Archivos: '+lineas.join(' · '));
+    return lineas.join(' · ');
+}
+window.medirArchivosOfi=medirArchivosOfi;
+/* · */
+/* · */
+/* · */
+/* · */
 
 
 

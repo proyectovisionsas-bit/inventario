@@ -25,11 +25,11 @@ sin proceso de compilación: se editan directamente y se publican tal cual.
 | Archivo | Para quién | Versión | Tamaño |
 |---|---|---|---|
 | `index.html` | Portal de entrada, solo enlaces | — | 170 líneas |
-| `OFICINAS_PTOVISION.html` | Oficina: caja, cartera, facturas, clientes, RRHH, SG-SST | `APP_VERSION = 320` | 39.684 líneas · 3,0 MB |
-| `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 120` | 20.727 líneas · 1,6 MB |
+| `OFICINAS_PTOVISION.html` | Oficina: caja, cartera, facturas, clientes, RRHH, SG-SST | `APP_VERSION = 321` | 40.217 líneas · 3,1 MB |
+| `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 121` | 22.119 líneas · 1,7 MB |
 | `RED_PTOVISION.html` | Red y nodos | `APP_VERSION_RED = 44` | 9.759 líneas · 607 KB |
 | `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 103` | 4.290 líneas · 304 KB |
-| `PRUEBAS.html` | Banco de pruebas (188 pruebas) | — | 15.929 líneas |
+| `PRUEBAS.html` | Banco de pruebas (204 pruebas) | — | 18.415 líneas |
 | `FIRMA_SST.html` | Firma desde el celular (SG-SST): página pública, sin login, lee un solo documento por token | — | 187 líneas |
 | `contrato.js` | Contrato de servicio: **compartido** OFICINAS ↔ TECNICOS | `?v=6` | 956 líneas |
 | `ia.js` | Llamadas a Groq: compartido por OFICINAS, INVENTARIO y TECNICOS | `?v=5` | 388 líneas |
@@ -80,7 +80,7 @@ versión**, o los usuarios seguirán con la copia vieja en caché.
 Lo que sigue son las notas de arquitectura y los problemas ya resueltos. No se
 cargan enteras: se leen cuando se toca ese tema.
 
-- @docs/01-firestore-limites.md — el límite de 1 MiB por documento y el archivador
+- @docs/01-firestore-limites.md — el límite de 1 MiB por documento, el archivador y los archivos por partes (desde OFICINAS 321 e INVENTARIO 121)
 - @docs/02-contrato-de-servicio.md — contrato de servicio, `contrato.js`, condiciones por oficina
 - @docs/03-datos-y-acceso.md — Firebase/Firestore y autenticación
 - @docs/04-wisphub.md — sincronización con WispHub
@@ -91,7 +91,7 @@ cargan enteras: se leen cuando se toca ese tema.
 - @docs/09-antes-de-llamar-al-ingeniero.md — listas de validación antes de escalar (`checklists.js`), documentos `esc_*` y `fallas_masivas`, cómo corregir un paso
 - @docs/10-prestamos.md — préstamos: una cuenta por persona, `resumenPrestamo`/`estadoDe`, caja con reverso, tope y atraso, conciliación
 - @docs/11-buzon.md — buzón de sugerencias (`buzon.js`): documentos `buzon_<id>`, contrato `op` de cada app, privacidad, tablero del admin
-- @docs/12-revision-sincronizacion-2026-10.md — revisión de sincronización por etapas (borrados que vuelven, equipo instalado que vuelve); Etapas 1, 6, 2, 3, 4, 4b y 5 hechas: rastro, sello, vigilancia, recarga automática, pantallas abiertas, aprobaciones definitivas (lápidas por fila), nombres y filas repetidas (🧩 Unificar), ventanas con datos viejos, registros borrados que no vuelven y un serial, un sitio (🩺 Casos de seriales)
+- @docs/12-revision-sincronizacion-2026-10.md — revisión de sincronización por etapas (borrados que vuelven, equipo instalado que vuelve); Etapas 1, 6, 2, 3, 4, 4b, 5 y 7 · F0 hechas (F0: archivos por partes y la 📤 Entrega sin duplicar): rastro, sello, vigilancia, recarga automática, pantallas abiertas, aprobaciones definitivas (lápidas por fila), nombres y filas repetidas (🧩 Unificar), ventanas con datos viejos, registros borrados que no vuelven y un serial, un sitio (🩺 Casos de seriales)
 
 ## Pendientes conocidos
 
@@ -100,7 +100,7 @@ cargan enteras: se leen cuando se toca ese tema.
   Worker de Cloudflare que ya existe para WispHub. Ver `docs/05-ia-y-servicios.md`.
 - `APP_VERSION_FECHA` quedó en una línea corta desde la v302 (12-09-2026); el
   historial anterior está en los mensajes de commit.
-- **Tres documentos de Firestore van al 76–80% del límite** y nunca se partieron.
+- **Tamaños medidos el 21 oct 2026:** `inventario/datos` 57 %, `oficinas_sistema/main` 52 %, `inventario/clientes_4` 66 %. Los archivos de lo viejo ya van por partes (docs/01); la parte 1 de `ordenes_archivo_2026` quedó en 90 % y ya no se escribe. Vigilar con `vigilar_f0.cjs` (docs/12 §16).
 - **`ORDEN_ESTADOS` está duplicado** en OFICINAS y TECNICOS, sincronizado a mano.
   Es candidato natural a un `estados.js` compartido, como `contrato.js`.
 - **`descargarDiagramaSVG`** en INVENTARIO quedó sin quien la llame.

@@ -69,6 +69,84 @@ nada**. Verificado con ambos fallos simulados.
 El botón manual sigue existiendo y ahora comparte el mismo núcleo
 (`_archivarInv`) en lugar de duplicar la lógica.
 
+## Archivos por partes (Etapa 7 · F0, 21 oct 2026)
+
+Entra con OFICINAS 321 e INVENTARIO 121 (sin publicar al 23 oct 2026). El
+detalle, las pruebas y el porqué están en docs/12 §16. Desde entonces, el
+archivo de lo viejo ya no es un solo documento por año: es una **serie de
+partes**. Los dos archivadores escriben en transacción y ya no se pisan.
+
+En OFICINAS el archivado corre de fondo, después de un guardado bueno, y lo
+archivado sale de `main` en el guardado siguiente. **Hay una excepción: la
+emergencia por peso.** Si `main` pasa de 1 MiB, el guardado que falló archiva
+solicitudes y órdenes ahí mismo (en su `catch`) y se reintenta una vez; lo
+confirmado sale de `main` en ese reintento. INVENTARIO archiva dentro de su
+guardado, antes de la transacción (`_aligerarAutoInv`), como mucho una vez
+cada 30 minutos por pantalla.
+
+**Los nombres.** La parte 1 es el documento de siempre. La parte n es
+`<nombre>_<n>`, de la 2 a la 40. Sin contador ni índice.
+
+| App | Parte 1 | Partes nuevas |
+|---|---|---|
+| OFICINAS | `oficinas_sistema/ordenes_archivo_<año>`, `recogidas_archivo_<año>`, `solicitudes_archivo` | `…_2`, `…_3`… |
+| INVENTARIO | `inventario/archivo_<campo>_<año>` (los 8 campos de `_REGLAS_ARCHIVO_INV`) | `…_2`, `…_3`… |
+
+Los archivos de 🧩 y 🩺 (`archivo_unificaciones_<año>`,
+`archivo_correcciones_<año>`) no van por partes. Cada parte se llena hasta
+800 KB, medidos como Google (`_tamDocFS` y `_pesoDocArchInv`, la misma
+cuenta). Un registro solo que no cabe en 800 KB no se trata igual: en OFICINAS
+va en una parte nueva para él si no pasa de 1.000.000 bytes, y esa parte queda
+por encima de 800 KB; en INVENTARIO se queda en la base. Si ni así cabe, en
+las dos se queda en la base, y el administrador ve el aviso enseguida.
+Las partes de OFICINAS nunca llevan `tipo`, `clienteCedula` ni `firmaRef` en su
+primer nivel: así no las traen las consultas `where` de la colección.
+
+**La regla de la parte 1.** Las versiones con F0 **nunca escriben la parte 1**,
+en ningún año: solo la leen. La serie nueva empieza en `_2`, también en un año
+nuevo. En 2027 lo primero que se escribe es `…_2027_2`, y **que falte la parte
+1 es normal**: no se perdió nada. El motivo: una versión vieja reescribe la
+parte 1 entera, y borraría lo que la nueva ya sacó de la base. Por lo mismo,
+solo cuenta como «ya archivado» una copia igual en una parte 2 o más.
+
+**Qué sale de la base.** Después de escribir, las dos apps releen la parte
+desde el servidor; lo que no se pudo releer no sale. OFICINAS saca solo lo que
+se releyó con el mismo contenido. INVENTARIO saca, por id, lo que está en la
+parte releída: no compara el contenido.
+
+**Cómo leer todas las partes.** Quien lea un archivo (una pantalla nueva, un
+script, una revisión a mano) tiene que leer la serie entera:
+1. la parte 1, si existe;
+2. desde la `_2`, una por una, hasta la primera que no existe (la n);
+3. también la n+1. Si existe, falta la parte n: es un **hueco**. Se avisa y
+   se sigue leyendo hasta la próxima que falte, y su siguiente. Como mucho,
+   hasta la 41;
+4. se junta por id. Si un id sale dos veces, vale la copia más nueva por fecha
+   (el «sello mayor»); si empatan, la última leída.
+
+Leer solo la parte 1 deja fuera todo lo archivado desde F0. En las apps ya lo
+hacen `_leerSerieArchivoOfi` (OFICINAS) y `_leerArchivoPartesInv`
+(INVENTARIO). Por REST es un GET por nombre: 404 = la parte no existe.
+
+**Medir y vigilar.** El botón «📏 Medir archivos» (solo admin, solo lee) está
+en el panel 🩺 de OFICINAS y en la 🛡️ de INVENTARIO: da el tamaño de cada
+parte del año en curso y del anterior. Fuera de las apps está el script
+`vigilar_f0.cjs` (docs/12 §16, «La vigilancia»). Al 22 oct estaba en el
+scratchpad de la sesión (`etapa7/f0/tools/`); al publicar se copia al banco.
+
+```bash
+node vigilar_f0.cjs --horas=48 --ofi-f0=321 --inv-f0=121
+```
+
+Solo hace GET y nunca imprime el contenido de un registro. Mira cada parte, los
+huecos, las entradas «📦 Archivo sin terminar» de `errores_guardado` y las
+pantallas viejas. La última línea dice **PARAR** o **SEGUIR**. Para si una
+parte 2 o más pasa de 900 KB, si hay un hueco o si hay una entrada «📦 Archivo
+sin terminar» en la ventana de horas. La parte 1 no cuenta para los 900 KB:
+la de órdenes de 2026 ya estaba en 922 KB (90 %) el 21 oct. Una parte de
+OFICINAS con un solo registro grande puede pasar de 900 KB: la vigilancia dice
+PARAR y esa parte se mira a mano.
+
 ## Guardado de movimientos por bloques (OFICINAS v304, 14 Sep 2026)
 
 Los movimientos de cada oficina viven en bloques de 400 (`movs_<ofi>_<i>`),
