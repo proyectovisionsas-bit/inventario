@@ -85,6 +85,8 @@ var REV_MODELO     = 'gemini-3.6-flash';        // rápido y barato; lee imagen 
 var REV_POR_TANDA  = 100;                       // tope de seguridad por corrida; el reloj es el que manda
 var REV_TOPE_MS    = 270000;                    // 4,5 min de trabajo: Apps Script corta a los 6, mejor parar antes con todo guardado
 var REV_MAX_CADENA = 10;                        // continuaciones por noche (10 × ~40 soportes alcanza de sobra)
+var REV_ESPERA_SAT_MS = 15*60*1000;             // Gemini saturado: esperar 15 min y volver, NO acabar la noche
+var REV_MAX_PASAJEROS = 8;                      // noches saturadas que aguanta un soporte antes de darlo por error
 var REV_PAUSA_MS   = 1200;                      // respiro entre llamadas, para no chocar con el límite
 
 function REV_prop(nombre){
@@ -242,12 +244,16 @@ function REV_esPasajero(codigo){
 
 /* Un respiro y un segundo intento antes de rendirse esta noche. */
 function REV_preguntarGeminiConCalma(blob, mime){
-  try{ return REV_preguntarGemini(blob, mime); }
-  catch(e){
-    if(!e || !e.pasajero) throw e;
-    Utilities.sleep(10000);
-    return REV_preguntarGemini(blob, mime);
+  var esperas = [8000, 25000], ultimo;
+  for(var i=0; i<=esperas.length; i++){
+    try{ return REV_preguntarGemini(blob, mime); }
+    catch(e){
+      if(!e || !e.pasajero) throw e;
+      ultimo = e;
+      if(i < esperas.length) Utilities.sleep(esperas[i]);
+    }
   }
+  throw ultimo;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -257,7 +263,10 @@ function REV_preguntarGeminiConCalma(blob, mime){
 // Las mismas cuentas que ya valida la app (CUENTAS_OFICIAL_PV en OFICINAS):
 // la cuenta de ahorros y la llave de Bancolombia/Nequi de PROYECTOVISION.
 // Si abren otra cuenta, hay que agregarla AQUÍ y allá.
-var REV_CUENTAS_PV = ['46600004696', '0046922142'];
+var REV_CUENTAS_PV = ['46600004696', '0046922142', '3156890560', '84790570129'];
+// 3156890560  = la llave Bre-B por celular (transferencias BBVA/Nequi por numero).
+// 84790570129 = la otra cuenta de ahorros Bancolombia, la que se lleva como Cta 0129.
+// Faltaban las dos: todo pago de cliente a esas dos salia marcado como cuenta ajena.
 var REV_TOLERANCIA = 1000;              // pesos de diferencia que se dejan pasar
 
 function REV_soloDigitos(s){ return String(s||'').replace(/\D/g,''); }
@@ -291,7 +300,7 @@ function REV_notaEsRuido(nota){
   return deAnio && !otraCosa;
 }
 
-function REV_comparar(item, leido){
+function REV_comparar(item, leido, grupo){
   var reparos = [];
 
   if(leido.es_comprobante === false)
@@ -301,10 +310,30 @@ function REV_comparar(item, leido){
     reparos.push({gravedad:'media', que:'El comprobante está borroso o cortado; no se puede verificar bien.'});
 
   // El valor. Un pago combinado reparte un comprobante entre varios movimientos,
-  // así que ahí el total leído SÍ debe ser mayor: no es un reparo.
+  // así que el total leído SÍ debe ser mayor que cada uno: comparar contra el
+  // movimiento suelto daría un reparo falso.
+  //
+  // Pero ANTES eso se resolvía saltándose la comprobación por completo, y el
+  // valor de esos pagos quedaba SIN VERIFICAR. Medido el 9 sep 2026: 64 de los
+  // 401 comprobantes del mes eran combinados, o sea el 16% entraba sin que
+  // nadie mirara la plata. Ahora se compara el papel contra la SUMA de los
+  // movimientos que respalda, que es la cuenta que de verdad tiene que cuadrar.
+  // El reparo se anota una sola vez, en el primer movimiento del grupo, para no
+  // repetir la misma alarma tantas veces como movimientos tenga.
   var vLeido = Number(leido.valor||0);
   var vReg   = Number(item.valorRegistrado||0);
-  if(vLeido > 0 && vReg > 0 && !item.esPagoCombinado){
+  if(vLeido > 0 && item.esPagoCombinado && grupo && grupo.n > 1){
+    if(item.id === grupo.cabeza){
+      var difG = Math.abs(vLeido - grupo.suma);
+      if(difG > REV_TOLERANCIA){
+        reparos.push({gravedad:'alta',
+          que:'El comprobante dice $'+vLeido.toLocaleString('es-CO')
+             +' y los '+grupo.n+' movimientos que respalda suman $'
+             + grupo.suma.toLocaleString('es-CO')
+             +' (diferencia de $'+difG.toLocaleString('es-CO')+').'});
+      }
+    }
+  } else if(vLeido > 0 && vReg > 0 && !item.esPagoCombinado){
     var dif = Math.abs(vLeido - vReg);
     if(dif > REV_TOLERANCIA){
       reparos.push({gravedad:'alta',
@@ -385,6 +414,16 @@ function REV_comparar(item, leido){
 // revisarSoportesPendientes, y el ▶ manual también — con una sola ejecutada,
 // el resto sigue solo.
 // ════════════════════════════════════════════════════════════════════════════
+/* Cuánto duele que este soporte esté mal. Manda el orden de revisión cuando
+   no alcanza a revisarse todo. No es una nota de sospecha: es prioridad. */
+function REV_riesgo(item, grupo){
+  var v = Number(item.valorRegistrado||0), p = 0;
+  if(String(item.tipo||'') === 'egreso')        p += 3000000;  // lo que sale pesa más que lo que entra
+  if(String(item.forma||'') === 'Efectivo')     p += 1000000;  // el efectivo no deja rastro en el banco
+  if(grupo && grupo.n > 1)                      p += 2000000;  // un papel pegado a varios movimientos
+  return p + (isFinite(v) ? v : 0);
+}
+
 function revisarSoportesPendientes(){ REV_correr(false); }
 function continuarRevisionNocturna(){ REV_correr(true); }
 
@@ -392,7 +431,13 @@ function continuarRevisionNocturna(){ REV_correr(true); }
    (nuevos > 0: si nada entró, repetir no va a mejorar nada), si no cortó la
    saturación de Gemini, y si la cadena no llegó a su tope. */
 function REV_debeContinuar(restantes, nuevos, cortada, cadena){
-  return restantes > 0 && nuevos > 0 && !cortada && (Number(cadena)||0) < REV_MAX_CADENA;
+  if(restantes <= 0) return false;
+  if((Number(cadena)||0) >= REV_MAX_CADENA) return false;
+  // Gemini saturado NO acaba la noche: antes cortaba y no se programaba nada,
+  // y la cola se quedaba quieta hasta la 1 a.m. del dia siguiente. Medido el
+  // 9 sep 2026: 351 en cola, 348 sin un solo intento. Ahora se espera y vuelve.
+  if(cortada) return true;
+  return nuevos > 0;
 }
 
 function REV_correr(esContinuacion){
@@ -404,7 +449,34 @@ function REV_correr(esContinuacion){
   });
   var doc = REV_leerDoc();
   var cola = doc.cola || [];
+
+  /* Un mismo comprobante puede respaldar varios movimientos (pago combinado).
+     Se arma el grupo por archivo: cuántos son, cuánto suman y cuál es el
+     primero — ese es el que lleva el reparo del total, para no repetirlo. */
+  var GRUPOS = {};
+  cola.forEach(function(x){
+    var k = x.fileId || x.url || '';
+    if(!k) return;
+    if(!GRUPOS[k]) GRUPOS[k] = {n:0, suma:0, cabeza:x.id};
+    GRUPOS[k].n++;
+    GRUPOS[k].suma += Number(x.valorRegistrado||0);
+  });
+  function REV_grupoDe(item){ return GRUPOS[item.fileId || item.url || ''] || null; }
+
   var pendientes = cola.filter(function(x){ return !x.revisado; });
+
+  /* EL ORDEN IMPORTA. Antes se revisaba por orden de llegada, y con Gemini
+     saturado solo alcanzan unos pocos por noche: se gastaban en la primera
+     cuota de $50.000 mientras un egreso grande esperaba atrás. Ahora primero
+     va lo que más duele si está mal — lo que SALE, lo que sale en EFECTIVO
+     (que no deja rastro en el banco), los papeles pegados a varios movimientos
+     y los montos altos. Y los que ya fallaron varias veces se van al final,
+     para que un archivo gafado no tape la cola entera. */
+  pendientes.sort(function(a, b){
+    var ia = Number(a.intentosPasajeros||0), ib = Number(b.intentosPasajeros||0);
+    if(ia !== ib) return ia - ib;
+    return REV_riesgo(b, REV_grupoDe(b)) - REV_riesgo(a, REV_grupoDe(a));
+  });
 
   if(pendientes.length === 0){
     Logger.log('No hay soportes pendientes de revisar.');
@@ -434,7 +506,7 @@ function REV_correr(esContinuacion){
         throw new Error('Tipo de archivo que no se puede leer: '+mime);
 
       var leido = REV_preguntarGeminiConCalma(blob, mime);
-      var reparos = REV_comparar(item, leido);
+      var reparos = REV_comparar(item, leido, REV_grupoDe(item));
 
       salida.leido   = leido;
       salida.reparos = reparos;
@@ -452,7 +524,7 @@ function REV_correr(esContinuacion){
       var intentos = 0, k0;
       for(k0=0; k0<cola.length; k0++) if(cola[k0].id === item.id)
         intentos = Number(cola[k0].intentosPasajeros || 0);
-      if(e && e.pasajero && intentos < 3){
+      if(e && e.pasajero && intentos < REV_MAX_PASAJEROS){
         for(k0=0; k0<cola.length; k0++) if(cola[k0].id === item.id)
           cola[k0].intentosPasajeros = intentos + 1;
         aplazados++; seguidos++;
@@ -474,7 +546,7 @@ function REV_correr(esContinuacion){
   });
 
   // La cola no crece para siempre: lo ya revisado se suelta a los 60 días.
-  var corte = new Date(Date.now() - 60*86400000).toISOString();
+  var corte = new Date(Date.now() - 21*86400000).toISOString();  // eran 60: a ~50 comprobantes por dia eso llega al tope de 1 MiB
   doc.cola = cola.filter(function(x){ return !x.revisado || String(x.creadoEn||'') > corte; });
   // Y los resultados se quedan con los 1.500 más recientes, para no pasar del
   // límite de 1 MB por documento que impone Firestore.
@@ -492,7 +564,7 @@ function REV_correr(esContinuacion){
            + ' · quedan '+restantes+'.');
 
   if(REV_debeContinuar(restantes, nuevos, cortada, doc.cadena)){
-    ScriptApp.newTrigger('continuarRevisionNocturna').timeBased().after(90*1000).create();
+    ScriptApp.newTrigger('continuarRevisionNocturna').timeBased().after(cortada ? REV_ESPERA_SAT_MS : 90*1000).create();
     Logger.log('La revisión continúa SOLA en un par de minutos con los '+restantes+' que quedan.');
   }
 }

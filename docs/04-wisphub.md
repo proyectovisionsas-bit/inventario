@@ -70,6 +70,18 @@ Además:
 eso solo lo actualiza `_aplicarFacturasWisphub`, desde los botones manuales.
 En esta empresa se sincroniza a diario, y por eso alcanza.
 
+**Facturas borradas en WispHub (v321, 20-10-2026).** Ninguna sincronización quita
+de `DB.facturasHistorial` una factura que se borró en WispHub: si la copia decía
+«Pagada», salía para siempre en el aviso «pagos de WispHub que NO están en la caja»
+(`_pagosSinRegistrar`). Caso real: la #106245 de ESNEIDER, $1.000.000 digitado por
+error y borrado allá. Ahora el Dashboard y Reportes revisan en segundo plano la ficha
+de cada una (`_verificarAvisoFaltantesBg`, una vez por factura y sesión; si WispHub no
+responde, pausa de 5 min) y `registrarPagosFaltantes` lo hace antes de registrar
+(`_depurarFaltantesEliminados`). Si da 404 **por debajo** de una factura de control de
+la misma cuenta que sí responde, se marca `eliminadaWisphub:true` con estado
+«Cancelada (eliminada en WispHub)» y `estadoAntesDeEliminar` (`_marcarFacturaEliminadaWH`;
+no se borra nada) y deja de contarse. Auditoría: `FACTURA_ELIMINADA_EN_WISPHUB`.
+
 En la v234 se eliminó una segunda sincronización automática que llevaba tiempo
 desactivada (`iniciarAutoSyncWisphub`, `_autoSyncWisphubTick`,
 `_mostrarNotifSync`, `_mostrarNotifFacturas`): traía el histórico COMPLETO de

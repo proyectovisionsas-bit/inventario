@@ -45,14 +45,14 @@ function validarHTML(ruta) {
 
 const args = process.argv.slice(2);
 const archivos = args.length ? args
-  : readdirSync(RAIZ).filter(f => ['.html', '.js', '.mjs'].includes(extname(f).toLowerCase()));
+  : readdirSync(RAIZ).filter(f => ['.html', '.js', '.mjs', '.gs'].includes(extname(f).toLowerCase()));
 
 console.log(`Validando ${archivos.length} archivo(s)...`);
 for (const a of archivos) {
   const ext = extname(a).toLowerCase();
   try {
     if (ext === '.html') validarHTML(a);
-    else if (ext === '.js' || ext === '.mjs') chequear(readFileSync(a, 'utf8'), basename(a), 0);
+    else if (ext === '.js' || ext === '.mjs' || ext === '.gs') chequear(readFileSync(a, 'utf8'), basename(a), 0);
   } catch (e) { console.error(`  ✗ ${a}: no se pudo leer (${e.message})`); fallos++; }
 }
 rmSync(tmp, { recursive: true, force: true });

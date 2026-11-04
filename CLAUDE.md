@@ -25,7 +25,7 @@ sin proceso de compilación: se editan directamente y se publican tal cual.
 | Archivo | Para quién | Versión | Tamaño |
 |---|---|---|---|
 | `index.html` | Portal de entrada, solo enlaces | — | 170 líneas |
-| `OFICINAS_PTOVISION.html` | Oficina: caja, cartera, facturas, clientes, RRHH, SG-SST | `APP_VERSION = 321` | 40.217 líneas · 3,1 MB |
+| `OFICINAS_PTOVISION.html` | Oficina: caja, cartera, facturas, clientes, RRHH, SG-SST | `APP_VERSION = 323` | 40.416 líneas · 3,1 MB |
 | `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 122` | 25.875 líneas · 2,0 MB |
 | `RED_PTOVISION.html` | Red y nodos | `APP_VERSION_RED = 44` | 9.759 líneas · 607 KB |
 | `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 103` | 4.290 líneas · 304 KB |
@@ -91,16 +91,33 @@ cargan enteras: se leen cuando se toca ese tema.
 - @docs/09-antes-de-llamar-al-ingeniero.md — listas de validación antes de escalar (`checklists.js`), documentos `esc_*` y `fallas_masivas`, cómo corregir un paso
 - @docs/10-prestamos.md — préstamos: una cuenta por persona, `resumenPrestamo`/`estadoDe`, caja con reverso, tope y atraso, conciliación
 - @docs/11-buzon.md — buzón de sugerencias (`buzon.js`): documentos `buzon_<id>`, contrato `op` de cada app, privacidad, tablero del admin
+- 🔴 Hay un pendiente de seguridad crítico cuyo detalle NO vive en este repositorio (es público). Ver «Pendientes conocidos».
 - @docs/12-revision-sincronizacion-2026-10.md — revisión de sincronización por etapas (borrados que vuelven, equipo instalado que vuelve); Etapas 1, 6, 2, 3, 4, 4b, 5, 7 · F0 y 7 · E7-F2 hechas (F0: archivos por partes y la 📤 Entrega sin duplicar; E7-F2, INVENTARIO 122: el libro de movimientos, el registro largo y la lista de instalados, que se encienden desde el panel 🎛️): rastro, sello, vigilancia, recarga automática, pantallas abiertas, aprobaciones definitivas (lápidas por fila), nombres y filas repetidas (🧩 Unificar), ventanas con datos viejos, registros borrados que no vuelven y un serial, un sitio (🩺 Casos de seriales)
 
 ## Pendientes conocidos
 
-- **La clave de Groq está expuesta** en `oficinas_sistema/main`, que responde
-  HTTP 200 a peticiones anónimas. Igual `compsDriveClave`. La salida es el
-  Worker de Cloudflare que ya existe para WispHub. Ver `docs/05-ia-y-servicios.md`.
+- 🔴 **PENDIENTE DE SEGURIDAD CRÍTICO — el detalle NO se escribe aquí.**
+  Este repositorio es **público** (GitHub Pages lo sirve y `raw.githubusercontent`
+  lo entrega sin autenticar), así que describirlo aquí equivale a publicarlo. El
+  documento con el hallazgo, su alcance y el orden de los pasos lo tiene **Elkin
+  fuera del repositorio**.
+  Antes de tocar el **login**, las **reglas de Firestore**, el **Worker de
+  WispHub** o cualquier **clave de servicio**: pregúntale a Elkin y pídele ese
+  documento. No lo copies de vuelta a este repo ni resumas su contenido aquí, ni
+  en los `docs/`, ni en los comentarios del código.
+  Dos advertencias para quien vaya a arreglarlo: el login de hoy **no usa
+  autenticación de Firebase**, así que cerrar reglas sin reemplazarlo primero deja
+  a las cinco oficinas sin entrar; y el arreglo se prueba con **una sola oficina**
+  antes de soltarlo a todas.
 - `APP_VERSION_FECHA` quedó en una línea corta desde la v302 (12-09-2026); el
   historial anterior está en los mensajes de commit.
 - **Tamaños medidos el 21 oct 2026:** `inventario/datos` 57 %, `oficinas_sistema/main` 52 %, `inventario/clientes_4` 66 %. Los archivos de lo viejo ya van por partes (docs/01); la parte 1 de `ordenes_archivo_2026` quedó en 90 % y ya no se escribe. Vigilar con `vigilar_f0.cjs` (docs/12 §16).
 - **`ORDEN_ESTADOS` está duplicado** en OFICINAS y TECNICOS, sincronizado a mano.
   Es candidato natural a un `estados.js` compartido, como `contrato.js`.
+- **La revisión nocturna de soportes se para sola cuando Gemini se congestiona.**
+  Corregido el 09-09-2026 en `REVISION_SOPORTES.gs` (espera 15 min en vez de
+  terminar la noche, tres intentos con espera creciente, tope de noches
+  saturadas de 3 a 8, y la cola pasa de 60 a 21 días para no llegar al 1 MiB).
+  **El `.gs` hay que volver a pegarlo en el Apps Script del Drive**, y después
+  ejecutar `probarConfiguracion()` e `instalarRevisionNocturna()`.
 - **`descargarDiagramaSVG`** en INVENTARIO quedó sin quien la llame.

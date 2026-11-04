@@ -1017,7 +1017,7 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION = 321; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 323; // ⬆️ Subir en cada nueva versión publicada
 
 // Etapa 6 (docs/12): hora en que se cargó ESTA página. Vive en memoria, nunca en sessionStorage: una recarga
 // la reinicia. La usan la guarda de 24 h (_revisarCaducadaOfi) y el latido de pantallas.js (cargadaMs).
@@ -1044,7 +1044,7 @@ const MSG_VERSION_VIEJA_OFI = 'Hay una versión nueva: esta pantalla ya no guard
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '23 Oct 2026 (v321: los archivos de órdenes, recogidas y solicitudes se guardan por partes y ya no se llenan ni se pisan entre pantallas. v320: pantallas abiertas y freno de versión vieja. Historial en git y en docs/)';
+const APP_VERSION_FECHA = '3 Nov 2026 (v323: las facturas sincronizadas ya no se pierden si falla el guardado, aviso cuando el historial de una oficina está viejo, y la vista previa de la sincronización dice la verdad. v322: las facturas borradas en WispHub ya no salen como pagos sin registrar. v321: los archivos de órdenes, recogidas y solicitudes se guardan por partes y ya no se llenan ni se pisan entre pantallas. v320: pantallas abiertas y freno de versión vieja. Historial en git y en docs/)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -3138,7 +3138,26 @@ async function _saveReal(_opts){
             });
             _facturasCambiaron = true;
         }
-        // Limpiar banderas tras prepararlas
+        // ════════════════════════════════════════════════════════════════════
+        // 🧾 v322 — LAS FACTURAS SINCRONIZADAS NO SE PIERDEN SI FALLA EL GUARDADO.
+        // EL PROBLEMA QUE RESUELVE (medido el 3-nov-2026): aquí se BORRABAN las banderas
+        // en cuanto las operaciones quedaban preparadas, antes de que la nube confirmara.
+        // Si después fallaba cualquier cosa (un lote rechazado, la lectura fresca del
+        // documento principal, un bache de red), las facturas recién bajadas de WispHub
+        // se quedaban SOLO en memoria y NADIE las reintentaba: al recargar volvía lo
+        // viejo de la nube y el historial quedaba congelado en silencio. Así se quedó el
+        // historial de MONTAÑITA desde el 21-ago y el de FLORENCIA desde el 14-oct —
+        // 3.106 facturas sin guardar entre las cinco oficinas— y el cuadre día a día
+        // mostraba días enteros en $0 como si no se hubiera cobrado nada.
+        // AHORA: se guardan aparte y el catch de _saveReal las DEVUELVE, así el siguiente
+        // guardado vuelve a escribir esos chunks. Solo se sueltan tras el éxito.
+        // ════════════════════════════════════════════════════════════════════
+        window._factBanderasPend = {
+            mod: new Set(_serviciosFactMod),
+            borrar: new Set(_servBorrar),
+            ofis: new Set(window._oficinasFacturasModificadas||[]),
+            borradoExpl: Object.assign({}, window._facturasBorradoExplicito||{})
+        };
         window._serviciosFactModificados = new Set();
         window._serviciosFactBorrar = new Set();
         window._oficinasFacturasModificadas = new Set();
@@ -3256,6 +3275,7 @@ async function _saveReal(_opts){
         try{ _enviarLogsAuditoria(sanitizarFirebase); }catch(eLg){ console.warn('registro de auditoría:', eLg); }   // v308: aparte y después del lote
         _sigClientes = sigClientesNuevas;
         _sigIdxClientes = idxClientesSig;
+        window._factBanderasPend = null;   // v322: la nube YA tiene las facturas; ahora sí se sueltan
         // v296: firmas y bases de movimientos, solo tras el éxito (lo escrito ES la nube ahora)
         try{ if(Object.keys(_movsPendientesConfirmar).length) window._genConfirmMovs=(window._genConfirmMovs||0)+1;   /* v305: una carga que empezó antes ya es vieja */ if(!window._sigMovs) window._sigMovs={}; Object.keys(_movsPendientesConfirmar).forEach(oid=>{ const p=_movsPendientesConfirmar[oid]; window._sigMovs[oid]=p.sig; _guardarBaseMovs(oid, p.lista); if(window._quitadosPorUnion) window._quitadosPorUnion[oid]=0;   /* v310: lo unido ya está en la nube */ if(p.firmasBloques){ if(!window._sigMovsBloque) window._sigMovsBloque={}; window._sigMovsBloque[oid]=p.firmasBloques; } if(p.escritos) _cacheConfirmarEscrituraMovs(oid, p.numChunks, p.escritos, p.firmasBloques||[]); }); }catch(eM){ console.warn('base movs tras guardar:', eM); }
         if(_gsigNueva) window._sigGaps = _gsigNueva; // v168: firma de gaps confirmada tras el lote
@@ -3341,6 +3361,22 @@ async function _saveReal(_opts){
             }, 400);
         }
     }catch(e){
+        // 🧾 v322: devolver las banderas de facturas para que el PRÓXIMO guardado reintente
+        // esos chunks. Sin esto, un guardado fallido dejaba las facturas solo en memoria.
+        try{
+            const _bp=window._factBanderasPend;
+            if(_bp){
+                if(!(window._serviciosFactModificados instanceof Set)) window._serviciosFactModificados=new Set();
+                if(!(window._serviciosFactBorrar instanceof Set)) window._serviciosFactBorrar=new Set();
+                if(!(window._oficinasFacturasModificadas instanceof Set)) window._oficinasFacturasModificadas=new Set();
+                _bp.mod.forEach(x=>window._serviciosFactModificados.add(x));
+                _bp.borrar.forEach(x=>window._serviciosFactBorrar.add(x));
+                _bp.ofis.forEach(x=>window._oficinasFacturasModificadas.add(x));
+                window._facturasBorradoExplicito=Object.assign({}, _bp.borradoExpl, window._facturasBorradoExplicito||{});
+                window._factBanderasPend=null;
+                console.warn('↩️ v322: las facturas sincronizadas quedaron PENDIENTES de guardar ('+_bp.mod.size+' servicio(s)); el próximo guardado las reintenta.');
+            }
+        }catch(_){}
         try{ _enviarLogsAuditoria(); }catch(_){}   // v308: los registros (bloqueos, duplicados aceptados) no esperan a que entren los movimientos
         showSync('err','Error al guardar: '+e.message);
         console.error('❌ save() ERROR DETALLADO:', e);
@@ -12309,6 +12345,8 @@ function renderDash(){
                 </div>
                 ${_pf.map(x=>`<button class="btn btn-primary btn-sm" style="margin-right:6px;" onclick="registrarPagosFaltantes('${x.ofi.id}','${_dashMesStr}')">🧾 Registrar los de ${x.ofi.nombre}</button>`).join('')}
             </div>`;
+            // v321: revisar en segundo plano si alguna ya se borró en WispHub
+            try{ setTimeout(()=>_verificarAvisoFaltantesBg(_pf.map(x=>({oid:x.ofi.id, lista:x.lista})), _refrescarVistaFaltantes), 600); }catch(eBg){}
         }
     }catch(e){}
     // v259: lo que la oficina asume por comprobantes que faltan. Se calcula
@@ -14734,6 +14772,8 @@ function renderReportes(){
         if(!_per) return '';
         const _falt = _pagosSinRegistrar(oid, _per);
         if(!_falt.length) return '';
+        // v321: revisar en segundo plano si alguna ya se borró en WispHub
+        try{ setTimeout(()=>_verificarAvisoFaltantesBg([{oid, lista:_falt}], _refrescarVistaFaltantes), 600); }catch(eBg){}
         const _tot = _falt.reduce((s,x)=>s+x.valor,0);
         return `<div class="card" style="margin-bottom:16px;border:1px solid rgba(239,68,68,0.45);background:rgba(239,68,68,0.06);">
             <div style="padding:12px 14px;">
@@ -14754,6 +14794,15 @@ function renderReportes(){
         if(!_periodoWH || _periodoWH.length!==7) return '';   // solo en vista de MES
         const _oficina=(DB.oficinas||[]).find(x=>x.id===oid);
         if(!_oficina) return '';
+        // ⚠️ v322 — AVISO DE HISTORIAL VIEJO. Un día en $0 casi nunca es plata perdida:
+        // es el historial de facturas sin bajar. Antes NADA lo advertía desde esta pantalla
+        // y por eso MONTAÑITA pasó dos meses y medio mostrando el mes entero en cero.
+        const _tSF=_oficina.ultimoSyncFacturas||0;
+        const _diasSF=_tSF?Math.floor((Date.now()-_tSF)/86400000):9999;
+        const _avisoSincFact = (_diasSF>=2) ? `<div class="card" style="margin-bottom:16px;border:1px solid rgba(245,158,11,0.5);background:rgba(245,158,11,0.07);padding:11px 14px;">
+            <div style="font-weight:800;color:#f59e0b;margin-bottom:3px;">⚠️ El historial de facturas de ${_oficina.nombre||'esta oficina'} ${_tSF?('se actualizó hace '+_diasSF+' día(s)'):'NUNCA se ha bajado completo'}</div>
+            <div style="font-size:0.8rem;color:var(--muted);line-height:1.5;">Antes de sacarle conclusiones a este cuadre, dale a <strong>⭐🔄 Sincronizar WispHub</strong> y elige esta oficina. Un día en <strong>$0</strong> con pagos en WispHub casi siempre es historial sin bajar, NO plata perdida.</div>
+        </div>` : '';
         // Pagos de WispHub por día (desde el historial de facturas)
         const _whDia={};
         const _norm = s => (s||'').toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
@@ -14784,13 +14833,13 @@ function renderReportes(){
         });
         const dias=[...new Set([...Object.keys(_whDia), ...Object.keys(_cajaDia)])].sort();
         const desc=dias.filter(d=>Math.abs((_whDia[d]||0)-(_cajaDia[d]||0))>0.5);
-        if(!desc.length) return `<div class="card" style="margin-bottom:16px;border:1px solid rgba(16,185,129,0.4);background:rgba(16,185,129,0.06);padding:11px 14px;">
+        if(!desc.length) return _avisoSincFact + `<div class="card" style="margin-bottom:16px;border:1px solid rgba(16,185,129,0.4);background:rgba(16,185,129,0.06);padding:11px 14px;">
             <strong style="color:#10b981;">✅ Cuadre día a día perfecto</strong>
             <div style="font-size:0.8rem;color:var(--muted);margin-top:3px;">Los ${dias.length} día(s) con movimiento coinciden al peso entre WispHub y la caja.</div>
         </div>`;
         const _difTot=desc.reduce((s,d)=>s+((_whDia[d]||0)-(_cajaDia[d]||0)),0);
         const _nombreDia=(d)=>{ try{ return new Date(d+'T12:00:00').toLocaleDateString('es-CO',{weekday:'long'}); }catch(e){ return ''; } };
-        return `<div class="card" style="margin-bottom:16px;border:1px solid rgba(239,68,68,0.45);background:rgba(239,68,68,0.05);">
+        return _avisoSincFact + `<div class="card" style="margin-bottom:16px;border:1px solid rgba(239,68,68,0.45);background:rgba(239,68,68,0.05);">
             <div style="padding:12px 14px;">
                 <div style="font-weight:800;color:#ef4444;margin-bottom:4px;">📅 ${desc.length} día(s) NO cuadran con WispHub — diferencia ${fmtShort(_difTot)}</div>
                 <div style="font-size:0.8rem;color:var(--muted);margin-bottom:8px;">Compara lo que WispHub reporta como pagado cada día contra lo que quedó en los registros diarios. Un día en $0 con pagos en WispHub suele ser un día que no se guardó.</div>
@@ -34294,13 +34343,17 @@ const WISPHUB_INTERMEDIARIO = 'https://intermediario-wisphub.proyectovisions-a-s
    oficina estaba al dia: se daba por hecho, y mientras tanto se acumulaban
    los clientes nuevos de WispHub sin que nadie lo notara. */
 function _sincHace(o){
-    const t=o.ultimoSyncWisphub;
+    const t=o.ultimoSyncFacturas||0;   // v322: lo que importa es cuándo entraron las FACTURAS
     if(!t) return {txt:'nunca', dias:9999, color:'#ef4444'};
     const d=Math.floor((Date.now()-t)/86400000);
     const txt = d<1 ? 'hoy' : d===1 ? 'ayer' : 'hace '+d+' días';
     return {txt, dias:d, ts:t, color: d>=7?'#ef4444' : d>=3?'#f59e0b' : '#10b981'};
 }
-function _marcarSync(o){ o.ultimoSyncWisphub=Date.now(); }
+function _marcarSync(o){ o.ultimoSyncWisphub=Date.now(); o.ultimoSyncClientes=Date.now(); }
+/* v322 — la marca de las FACTURAS va aparte. El botón del día a día solo concilia
+   CLIENTES, y marcaba igual que la sincronización completa: todas las oficinas
+   figuraban al día mientras su historial de facturas llevaba semanas congelado. */
+function _marcarSyncFacturas(o){ o.ultimoSyncFacturas=Date.now(); }
 const _dig = s => String(s||'').replace(/[^0-9]/g,'');
 // Los caracteres invisibles no se pueden meter en una expresion regular sin
 // que se estropeen al editar el archivo: literales dieron un rango invalido y
@@ -37828,10 +37881,34 @@ async function sincronizarTodoWisphub(oid){
             const existe=(s && yaServicio.has(s)) || (!s && ced && yaCedula.has(ced));
             return !existe;
         });
+        // 👥 v322 — LA VISTA PREVIA CUENTA CON LA MISMA REGLA QUE SE APLICA DESPUÉS.
+        // Antes contaba aquí por servicio/cédula a secas, mientras lo que de verdad se
+        // aplica es el plan de conciliarOficina (que empareja por llave cuenta:servicio
+        // y respeta los duplicados y los repetidos en dos cuentas). Resultado: la vista
+        // previa prometía "30 clientes nuevos" y el resumen final decía "agregados: 0".
+        // conciliarOficina NO toca nada: solo dice qué habría que hacer.
+        let _planPrev=null;
+        try{ _planPrev=conciliarOficina(o, clientesRaw||[], {[o.cuentaWisphub]:clientesRaw||[]}); }catch(ePP){ console.warn('plan previo', ePP); }
+        const _cliNuevosPrev = _planPrev ? _planPrev.agregar.length : nuevosClientes.length;
+        const _lineasPlan = _planPrev ? [
+            _planPrev.servicio.length?`🔁 Clientes a los que WispHub les cambió el número de servicio: ${_planPrev.servicio.length}\n`:'',
+            _planPrev.mover.length?`📦 Clientes que se mudaron de oficina: ${_planPrev.mover.length}\n`:'',
+            _planPrev.reactivar.length?`♻️ Clientes retirados que volvieron: ${_planPrev.reactivar.length}\n`:'',
+            _planPrev.retirar.length?`🚪 Clientes que ya no están en WispHub (se retiran): ${_planPrev.retirar.length}\n`:'',
+            (_planPrev.conflicto&&_planPrev.conflicto.length)?`⚠️ Repetidos en dos cuentas de WispHub (NO se tocan): ${_planPrev.conflicto.length}\n`:''
+        ].join('') : '';
         const _fechaInvalida=f=>{const s=String(f==null?'':f);return f===0||f==='0'||!s||s.length<8||!/^\d{4}-\d{2}-\d{2}/.test(s);};
         const presentesValidos = new Set(o.movimientos.filter(m=>m.facturaWisphub && !(m.origen==='cierre_wisphub' && _fechaInvalida(m.fecha))).map(m=>String(m.facturaWisphub)));
         const pagadas = facturas.filter(f=>{ const est=String(f.estado||'').toLowerCase(); return est.includes('pagad') && (_valorCobradoWH(f)>0); });
-        const nuevosPagos = pagadas.filter(f=> !presentesValidos.has(String(f.id_factura||'').trim()) );
+        // 💰 v322 — no prometer pagos que NO se van a crear. _aplicarPagosWisphubEnMemoria
+        // salta las facturas que el admin borró permanentemente, pero la vista previa no lo
+        // miraba: anunciaba "1 pago nuevo ($50.000)" y el resumen final decía "creados: 0".
+        const nuevosPagos = pagadas.filter(f=>{
+            const _n=String(f.id_factura||'').trim();
+            if(presentesValidos.has(_n)) return false;
+            try{ if(typeof _esBorradoPermanente==='function' && _esBorradoPermanente(o.id, _n, null)) return false; }catch(eBP){}
+            return true;
+        });
         const aReemplazar = o.movimientos.filter(m=>m.origen==='cierre_wisphub' && _fechaInvalida(m.fecha)).length;
         const porFormaPrev={};
         nuevosPagos.forEach(f=>{ const fm=_mapearFormaPago((f.forma_pago&&f.forma_pago.nombre)?f.forma_pago.nombre:'Efectivo'); const v=_valorCobradoWH(f); if(!porFormaPrev[fm])porFormaPrev[fm]={n:0,v:0}; porFormaPrev[fm].n++; porFormaPrev[fm].v+=v; });
@@ -37845,7 +37922,8 @@ async function sincronizarTodoWisphub(oid){
         const lineasForma=Object.entries(porFormaPrev).map(([k,v])=>`     - ${k}: ${v.n} (${fmtShort(v.v)})`).join('\n');
         const resumen = `🔎 VISTA PREVIA — ${o.nombre}\n\n`
             + `Se va a AGREGAR / ACTUALIZAR esto (no se borra nada tuyo):\n\n`
-            + `👥 Clientes nuevos: ${nuevosClientes.length}\n`
+            + `👥 Clientes nuevos: ${_cliNuevosPrev}\n`
+            + _lineasPlan
             + `💰 Pagos nuevos por reflejar: ${nuevosPagos.length}\n`
             + (lineasForma?lineasForma+'\n':'')
             + (aReemplazar>0?`🔧 Pagos sin fecha que se corrigen: ${aReemplazar}\n`:'')
@@ -37917,6 +37995,7 @@ async function sincronizarTodoWisphub(oid){
 
         // 6) UN SOLO guardado (optimizado + en lotes, como tu guardado de siempre).
         registrarLog('SYNC_TODO_WISPHUB',{ oficinaId:o.id, cuenta:o.cuentaWisphub, clientesNuevos:resCli.agregados, clientesActualizados:resEst.actualizados, pagosNuevos:resPag.creados, pagosCorregidos:resPag.aReemplazar, serviciosFact:resFact.serviciosActualizados });
+        _marcarSyncFacturas(o);   // v322: queda en el MISMO guardado; si el guardado falla, la marca tampoco queda
         await save();
         if(_paraRastreo.length){ try{ await _rastreoEntregarUrgentes(o.cuentaWisphub, _paraRastreo, 'sincronización completa'); }catch(eP){} }   // v314
 
@@ -38035,6 +38114,7 @@ function _pagosSinRegistrar(oid, periodoOMes){
         if(String(oidH||'')!==String(oid)) return;
         (h.facturas||[]).forEach(f=>{
             if(!f || !f.numero) return;
+            if(f.eliminadaWisphub) return;   // v321: se borró en WispHub (ver _depurarFaltantesEliminados)
             if(!String(f.estado||'').toLowerCase().includes('pagad')) return;
             if(!_enPeriodo(f.fechaPago, periodo)) return;
             const num=String(f.numero);
@@ -38054,12 +38134,131 @@ function _pagosSinRegistrar(oid, periodoOMes){
     faltantes.sort((a,b)=>String(a.fechaPago).localeCompare(String(b.fechaPago)));
     return faltantes;
 }
+// 🧹 v321: FACTURAS BORRADAS EN WISPHUB. La sincronización solo agrega o reemplaza en la
+// copia local (DB.facturasHistorial) lo que WispHub devuelve: nunca quita lo que allá se
+// borró. Si esa copia decía «Pagada», salía para siempre en «pagos de WispHub que NO están
+// en la caja» (caso real: la #106245 de ESNEIDER, $1.000.000 digitado por error y borrado
+// en WispHub). Ahora, antes de avisar o de registrar, se pide la ficha de cada factura: si
+// ya no existe (404) y una factura de control de la misma cuenta sí responde, se MARCA como
+// eliminada en la copia (no se borra nada) y deja de contarse.
+function _marcarFacturaEliminadaWH(cuenta, numero){
+    const num=String(numero||'').trim();
+    if(!cuenta || !num) return 0;
+    const ofisCuenta=new Set((DB.oficinas||[]).filter(o=>o && o.cuentaWisphub===cuenta).map(o=>o.id));
+    if(!(window._serviciosFactModificados instanceof Set)) window._serviciosFactModificados=new Set();
+    let marcadas=0;
+    Object.entries(DB.facturasHistorial||{}).forEach(([k,h])=>{
+        if(!h || !ofisCuenta.has(h.oficinaId) || !Array.isArray(h.facturas)) return;
+        let cambio=false;
+        h.facturas.forEach(f=>{
+            if(!f || String(f.numero)!==num || f.eliminadaWisphub) return;
+            f.estadoAntesDeEliminar=String(f.estado||'');
+            f.estado='Cancelada (eliminada en WispHub)';
+            f.eliminadaWisphub=true;
+            f.eliminadaVerificadaEn=now();
+            cambio=true; marcadas++;
+        });
+        if(!cambio) return;
+        // mismo resumen que _aplicarFacturasWisphub
+        const pend=h.facturas.filter(x=>x && String(x.estado||'').toLowerCase().includes('pendiente'));
+        const pag=h.facturas.filter(x=>x && String(x.estado||'').toLowerCase().includes('pagad'));
+        h.pendientes=pend.length; h.pagadas=pag.length;
+        h.montoPend=pend.reduce((s,x)=>s+(x.total||0),0);
+        h.actualizadoEn=now();
+        window._serviciosFactModificados.add(String(k));   // para que save() reescriba su documento
+    });
+    if(marcadas){ try{ registrarLog('FACTURA_ELIMINADA_EN_WISPHUB', `#${num} (cuenta ${cuenta}) ya no existe en WispHub: se marcó como eliminada en el historial y deja de contarse como pago sin registrar`); }catch(e){} }
+    return marcadas;
+}
+// Revisa en WispHub una lista de «faltantes» (la de _pagosSinRegistrar).
+// → {reales, eliminadas, sinVerificar}. Solo marca; quien llama guarda (save).
+async function _depurarFaltantesEliminados(oid, lista){
+    const todos=Array.isArray(lista)?lista.slice():[];
+    const res={reales:[], eliminadas:[], sinVerificar:false};
+    const o=(DB.oficinas||[]).find(x=>x.id===oid);
+    if(!o || !o.cuentaWisphub || !todos.length || typeof _fichaFacturaWisp!=='function'){ res.reales=todos; res.sinVerificar=!!todos.length; return res; }
+    const cuenta=o.cuentaWisphub;
+    // Control: la factura más alta de la copia de esta cuenta tiene que responder. Si no
+    // responde, no se decide nada (un intermediario caído podría contestar 404 a todo).
+    const ofisCuenta=new Set((DB.oficinas||[]).filter(x=>x && x.cuentaWisphub===cuenta).map(x=>x.id));
+    const nums=new Set(todos.map(x=>String(x.numero)));
+    let ctrl=0;
+    Object.values(DB.facturasHistorial||{}).forEach(h=>{
+        if(!h || !ofisCuenta.has(h.oficinaId)) return;
+        (h.facturas||[]).forEach(f=>{ const n=Number(f && f.numero); if(f && !f.eliminadaWisphub && !nums.has(String(f.numero)) && n>ctrl) ctrl=n; });
+    });
+    if(!ctrl){ res.reales=todos; res.sinVerificar=true; return res; }
+    const c=await _fichaFacturaWisp(cuenta, String(ctrl), 2);
+    if(!c || !c.f){ res.reales=todos; res.sinVerificar=true; return res; }
+    for(const x of todos.slice(0,40)){
+        const r=await _fichaFacturaWisp(cuenta, String(x.numero), 2);
+        // un 404 POR ENCIMA de la de control no es "no existe" (puede crearse mañana)
+        if(r && r.noExiste && Number(x.numero)<ctrl){
+            _marcarFacturaEliminadaWH(cuenta, x.numero);
+            res.eliminadas.push(x);
+        } else res.reales.push(x);
+    }
+    todos.slice(40).forEach(x=>res.reales.push(x));   // el resto, en la siguiente vuelta
+    return res;
+}
+function _refrescarVistaFaltantes(){
+    try{
+        const t=document.querySelector('.nav-btn.active'), tab=t?t.dataset.tab:'dash';
+        if(tab==='dash') renderDash();
+        else if(tab==='reportes') renderReportes();
+        else if(tab==='registro') renderRegistro();
+    }catch(e){}
+}
+// Dashboard y Reportes: revisión en segundo plano de lo que el aviso muestra, una vez por
+// factura y por sesión. Si alguna ya no existe en WispHub: se marca, se guarda y se repinta.
+async function _verificarAvisoFaltantesBg(grupos, alTerminar){
+    if(window._faltBgCorriendo) return;
+    if(window._faltBgPausaHasta && Date.now()<window._faltBgPausaHasta) return;
+    if(window._mantBloqueando) return;
+    try{ if(typeof _pestanaDesactualizada==='function' && _pestanaDesactualizada()) return; }catch(e){}
+    if(!(window._faltBgVistos instanceof Set)) window._faltBgVistos=new Set();
+    const pend=(grupos||[]).map(g=>({oid:g.oid, lista:(g.lista||[]).filter(x=>!window._faltBgVistos.has(g.oid+'|'+x.numero))})).filter(g=>g.oid && g.lista.length);
+    if(!pend.length) return;
+    window._faltBgCorriendo=true;
+    try{
+        let eliminadas=0, total=0;
+        for(const g of pend){
+            const dep=await _depurarFaltantesEliminados(g.oid, g.lista);
+            if(dep.sinVerificar){ window._faltBgPausaHasta=Date.now()+5*60000; continue; }   // WispHub no respondió: se reintenta en 5 min
+            g.lista.forEach(x=>window._faltBgVistos.add(g.oid+'|'+x.numero));
+            eliminadas+=dep.eliminadas.length; total+=dep.eliminadas.reduce((s,x)=>s+(x.valor||0),0);
+        }
+        if(eliminadas){
+            await save();
+            try{ showToastMini(`🧹 ${eliminadas} factura(s) que ya no existen en WispHub dejaron de salir como pagos sin registrar (${fmtShort(total)}).`); }catch(e){}
+            try{ if(typeof alTerminar==='function') alTerminar(); }catch(e){}
+        }
+    }catch(e){ console.warn('v321: revisión de facturas borradas en WispHub (no crítico):', e); }
+    finally{ window._faltBgCorriendo=false; }
+}
+window._marcarFacturaEliminadaWH=_marcarFacturaEliminadaWH;
+window._depurarFaltantesEliminados=_depurarFaltantesEliminados;
+window._verificarAvisoFaltantesBg=_verificarAvisoFaltantesBg;
 // Crea en la caja los movimientos de los pagos detectados
 async function registrarPagosFaltantes(oid, periodoOMes){
     const o=(DB.oficinas||[]).find(x=>x.id===oid);
     if(!o) return;
-    const faltan=_pagosSinRegistrar(oid, periodoOMes);
+    let faltan=_pagosSinRegistrar(oid, periodoOMes);
     if(!faltan.length) return alert('✅ No hay pagos pendientes de registrar: la caja tiene todo lo que hay en WispHub.');
+    // v321: antes de registrar, confirmar en WispHub que cada factura todavía existe.
+    // Si la borraron allá, NO entra a la caja: se marca como eliminada en la copia.
+    try{
+        try{ showSync('saving','Revisando las facturas en WispHub...'); }catch(e){}
+        const _dep=await _depurarFaltantesEliminados(oid, faltan);
+        if(_dep.eliminadas.length){
+            await save();
+            const _tE=_dep.eliminadas.reduce((s,x)=>s+x.valor,0);
+            const _detE=_dep.eliminadas.slice(0,8).map(x=>`• #${x.numero} · ${x.cliente.substring(0,26)} · ${fmtShort(x.valor)}`).join('\n');
+            alert(`🧹 ${_dep.eliminadas.length} factura(s) ya NO existen en WispHub (las borraron allá), así que no se registran en la caja:\n\n${_detE}${_dep.eliminadas.length>8?`\n… y ${_dep.eliminadas.length-8} más`:''}\n\nTOTAL: ${fmtShort(_tE)}\n\nQuedaron marcadas como eliminadas y ya no salen en el aviso.`);
+            faltan=_dep.reales;
+            if(!faltan.length){ _refrescarVistaFaltantes(); return; }
+        }
+    }catch(eDep){ console.warn('v321: no se pudo revisar en WispHub antes de registrar (se sigue como antes):', eDep); }
     const total=faltan.reduce((s,x)=>s+x.valor,0);
     const detalle=faltan.slice(0,12).map(x=>`• #${x.numero} · ${x.cliente.substring(0,26)} · ${x.fechaPago} · ${fmtShort(x.valor)}`).join('\n');
     if(!confirm(`🧾 Se encontraron ${faltan.length} pago(s) de WispHub que NO están en la caja de ${o.nombre}:\n\n${detalle}${faltan.length>12?`\n… y ${faltan.length-12} más`:''}\n\nTOTAL: ${fmtShort(total)}\n\n¿Registrarlos ahora en la caja con su fecha de pago real?`)) return;

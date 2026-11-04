@@ -18,7 +18,7 @@ try {
 } catch {}
 
 if (!ruta) process.exit(0);
-if (!['.html', '.js', '.mjs'].includes(extname(ruta).toLowerCase())) process.exit(0);
+if (!['.html', '.js', '.mjs', '.gs'].includes(extname(ruta).toLowerCase())) process.exit(0);
 
 const r = spawnSync(process.execPath, [join(aqui, 'validar.mjs'), ruta], { encoding: 'utf8' });
 if (r.status === 0) process.exit(0);
