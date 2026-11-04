@@ -26,10 +26,10 @@ sin proceso de compilación: se editan directamente y se publican tal cual.
 |---|---|---|---|
 | `index.html` | Portal de entrada, solo enlaces | — | 170 líneas |
 | `OFICINAS_PTOVISION.html` | Oficina: caja, cartera, facturas, clientes, RRHH, SG-SST | `APP_VERSION = 321` | 40.217 líneas · 3,1 MB |
-| `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 121` | 22.119 líneas · 1,7 MB |
+| `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 122` | 25.875 líneas · 2,0 MB |
 | `RED_PTOVISION.html` | Red y nodos | `APP_VERSION_RED = 44` | 9.759 líneas · 607 KB |
 | `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 103` | 4.290 líneas · 304 KB |
-| `PRUEBAS.html` | Banco de pruebas (204 pruebas) | — | 18.415 líneas |
+| `PRUEBAS.html` | Banco de pruebas (229 pruebas) | — | 21.622 líneas |
 | `FIRMA_SST.html` | Firma desde el celular (SG-SST): página pública, sin login, lee un solo documento por token | — | 187 líneas |
 | `contrato.js` | Contrato de servicio: **compartido** OFICINAS ↔ TECNICOS | `?v=6` | 956 líneas |
 | `ia.js` | Llamadas a Groq: compartido por OFICINAS, INVENTARIO y TECNICOS | `?v=5` | 388 líneas |
@@ -91,7 +91,7 @@ cargan enteras: se leen cuando se toca ese tema.
 - @docs/09-antes-de-llamar-al-ingeniero.md — listas de validación antes de escalar (`checklists.js`), documentos `esc_*` y `fallas_masivas`, cómo corregir un paso
 - @docs/10-prestamos.md — préstamos: una cuenta por persona, `resumenPrestamo`/`estadoDe`, caja con reverso, tope y atraso, conciliación
 - @docs/11-buzon.md — buzón de sugerencias (`buzon.js`): documentos `buzon_<id>`, contrato `op` de cada app, privacidad, tablero del admin
-- @docs/12-revision-sincronizacion-2026-10.md — revisión de sincronización por etapas (borrados que vuelven, equipo instalado que vuelve); Etapas 1, 6, 2, 3, 4, 4b, 5 y 7 · F0 hechas (F0: archivos por partes y la 📤 Entrega sin duplicar): rastro, sello, vigilancia, recarga automática, pantallas abiertas, aprobaciones definitivas (lápidas por fila), nombres y filas repetidas (🧩 Unificar), ventanas con datos viejos, registros borrados que no vuelven y un serial, un sitio (🩺 Casos de seriales)
+- @docs/12-revision-sincronizacion-2026-10.md — revisión de sincronización por etapas (borrados que vuelven, equipo instalado que vuelve); Etapas 1, 6, 2, 3, 4, 4b, 5, 7 · F0 y 7 · E7-F2 hechas (F0: archivos por partes y la 📤 Entrega sin duplicar; E7-F2, INVENTARIO 122: el libro de movimientos, el registro largo y la lista de instalados, que se encienden desde el panel 🎛️): rastro, sello, vigilancia, recarga automática, pantallas abiertas, aprobaciones definitivas (lápidas por fila), nombres y filas repetidas (🧩 Unificar), ventanas con datos viejos, registros borrados que no vuelven y un serial, un sitio (🩺 Casos de seriales)
 
 ## Pendientes conocidos
 

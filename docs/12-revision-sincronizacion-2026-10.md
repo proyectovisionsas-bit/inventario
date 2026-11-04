@@ -204,7 +204,7 @@ Un espacio de más crea otra fila. La bodega pide borrarla cuando queda vacía, 
 
 ### Etapa 7 — Partir el documento (siguiente proyecto, con plan aparte)
 
-**Plan aprobado por Elkin el 21 oct 2026 («D por tramos»).** Primero F0: los archivos por partes de OFICINAS e INVENTARIO, la 📤 Entrega sin duplicar, el doble clic y el serial en dos renglones (construida y sin publicar: ver §16). Después, la seguridad, con sus reglas corregidas. Después, «D corto», solo INVENTARIO. En febrero se decide el resto, con datos. El plan está en `~/.claude/plans/pure-gathering-pudding.md` y el estudio, en el scratchpad de la sesión (`etapa7/plan_etapa7.md`). Lo que sigue es la propuesta de antes del plan.
+**Plan aprobado por Elkin el 21 oct 2026 («D por tramos»).** Primero F0: los archivos por partes de OFICINAS e INVENTARIO, la 📤 Entrega sin duplicar, el doble clic y el serial en dos renglones (publicada el 23 oct 2026: ver §16). Después, la seguridad, con sus reglas corregidas. Después, «D corto», solo INVENTARIO. En febrero se decide el resto, con datos. (El 2 nov Elkin cambió el orden: la 122, el primer paso de D corto, va antes que la seguridad; ver §17, decisión E0.) El plan está en `~/.claude/plans/pure-gathering-pudding.md` y el estudio, en el scratchpad de la sesión (`etapa7/plan_etapa7.md`). Lo que sigue es la propuesta de antes del plan.
 
 `inventario/datos` está cerca del 80 % de 1 MiB, y que todo viva en un documento es lo que produce los choques. **(ChatGPT)** recomienda no dejarlo para mucho después. Modelo propuesto:
 - consumibles: un documento por sitio y material (cantidad + revisión);
@@ -2633,7 +2633,7 @@ Con 🩺 Casos de seriales, caso por caso o por grupo, con el respaldo, el motiv
    - después, las correcciones de «Lo que ya quedó mal», con Elkin.
 
 ## 16. Etapa 7 · F0 — los archivos por partes y la entrega sin duplicar (publicada el 23 oct 2026)
-Especificada y construida el 21 oct 2026, y revisada del 21 al 23 oct, sobre lo publicado en `8fbeed1` (OFICINAS v320, INVENTARIO v120, TÉCNICOS v103, RED v44). **No está publicada** y las versiones no se subieron (`APP_VERSION` sigue en 320 y `APP_VERSION_INV` en 120): al publicar, OFICINAS pasa a 321 (ver «La unión con la OFICINAS 321 de la otra sesión») e INVENTARIO a 121. Las dos se pueden publicar por separado. TÉCNICOS y RED no cambian. Las pruebas no escribieron nada en la base real: solo se leyó, con GET y sin copiar datos personales.
+Especificada y construida el 21 oct 2026, y revisada del 21 al 23 oct, sobre lo publicado en `8fbeed1` (OFICINAS v320, INVENTARIO v120, TÉCNICOS v103, RED v44). **Publicada el 23 oct 2026** (commit `c8173b2`: OFICINAS 321 e INVENTARIO 121; ver «Pendiente», 1b). Las dos se pueden publicar por separado. TÉCNICOS y RED no cambian. Las pruebas no escribieron nada en la base real: solo se leyó, con GET y sin copiar datos personales.
 
 **Cómo se hizo.** Primero se midieron los datos reales (solo lectura). Con cinco mapas se armó un plan con seis alternativas, que revisaron dos críticas (`scratchpad/etapa7/plan_etapa7.md`; el resumen para Elkin, en `resumen_elkin.md`). Elkin aprobó el plan (abajo). Después se escribieron dos especificaciones, una por app, y cada una la revisó una crítica adversaria. Quien coordina tomó 13 decisiones, y C0 pasó las especificaciones a ellas, puso las anclas y armó el arnés del banco. Luego vinieron cuatro partes en paralelo, cada una en su copia: K1 OFICINAS entera, K2 el archivo por partes de INVENTARIO, K3 la 📤 Entrega y K4 el doble clic y el serial en dos renglones. Se juntaron con `git merge-file`: 14 uniones, ningún conflicto. Después vinieron cinco rondas de revisión adversaria, cada una con sus arreglos y sus pruebas: dos sobre todo F0 el 21 oct (con G1, G2 y G3 entre las dos), una sobre las notas «hermanas» de la 📤 Entrega y la última verificación el 22 oct, y el cierre el 23 oct (ver «Revisión adversaria»). Todo está en el scratchpad de la sesión, en `etapa7/f0/`: las especificaciones (`spec_f0_oficinas.md`, `spec_f0_inventario.md`), las decisiones (`decisiones_f0.md`), la unión (`build/junta/`), las copias de antes de cada ronda (`pre_rev` a `pre_rev5`), el trabajo de cada ronda (`rev` … `rev11_banco` y `rev11_pruebas`) y lo publicado (`base/`).
 
@@ -2661,6 +2661,8 @@ El plan está en `~/.claude/plans/pure-gathering-pudding.md`. Se llama «D por t
 
 Nada grande se publica del 20 dic al 6 ene. Elkin decidió además: sin internet no se mueve material en bodega; lo que se archiva no se recorta (va entero, como hoy); avisa la sede con más movimiento.
 
+El 2 nov Elkin cambió el orden de los puntos 2 y 3: la 122 va antes que la seguridad (decisión E0, §17). La 122 solo agrega documentos y se apaga sin publicar; la seguridad, cuando llegue, tiene que cubrir también lo nuevo.
+
 ### Las decisiones de quien coordina (`decisiones_f0.md`)
 
 1. **La parte 1 nunca se escribe** (las dos apps). Solo cuenta como archivada una copia en las partes 2 en adelante. La parte 1 se sigue leyendo siempre.
@@ -2675,7 +2677,7 @@ Nada grande se publica del 20 dic al 6 ene. Elkin decidió además: sin internet
 10. **«🔎 Órdenes sin consumo»** lee también el archivo de órdenes de OFICINAS, solo lectura.
 11. **La primera escritura real** se hace de noche, con el administrador y el botón manual, y se relee por REST.
 12. **Vigilancia:** un script de solo lectura por REST, con criterio de parada (ver «La vigilancia»).
-13. **Fuera de F0:** el interruptor para la primera escritura (va con `config_e7`, en F2) y un botón para ver los archivos de la otra app.
+13. **Fuera de F0:** el interruptor para la primera escritura (va con `config_e7`, en F2) y un botón para ver los archivos de la otra app. (Al final el `config_e7` de la 122 solo enciende el libro, el registro largo y la lista de instalados: ver §17.)
 
 ### Qué quedó en cada archivo
 
@@ -2840,7 +2842,7 @@ Una nota «reemplazada» deja de salir. Lo que la pantalla ve de la nube es `DB.
 - **Otra fecha es otra entrega.** La misma entrega rehecha otro día, con la fecha que trae la ventana (la de hoy), no cuenta como igual. La nota de ayer sigue en rojo «NO quedó guardada», y «📋 Cargarla» la registra con su fecha, sin preguntar. Lo normal es que una cuadrilla reciba el mismo material otro día: preguntar daría avisos falsos. G-F0-ENT-OTRO-DIA lo deja fijo.
 
 **Lo que no cierra.**
-- Otra computadora: la nota es del navegador. F2 lo cierra con el libro `mov_`.
+- Otra computadora: la nota es del navegador. La 122 (E7-F2) **no** lo cierra: solo lee el `mov_ent_<id>` con el id de esa misma ventana, y otra computadora tiene otro id, así que puede escribir una segunda entrega, igual que hoy. Va con la 123 (E7-F3): guardar en el libro la huella del contenido y, al guardar, buscarla por igualdades (ver §17, «Pendiente»).
 - Un navegador que no deja guardar: solo queda la protección de la misma ventana.
 - Otra pestaña que rehace la entrega mientras el commit de la primera va en camino: lo cierra la primera al repetir (revisión 10). Sigue abierto si ese commit se pierde del todo sin dejar nota, o si sus lecturas llegan después de que entró la de la otra pestaña: ninguna de las dos tiene con qué preguntar, y quedan dos.
 - «Duplicar pestaña» copia el `sessionStorage`: la copia ve la marca de la original como «de antes de recargar» y la trata enseguida como incierta. Solo cambia lo que se ve: si la carga y la guarda, escribe con el mismo id y no duplica.
@@ -3096,8 +3098,10 @@ Los arreglos de la primera revisión van como comprobaciones dentro de estas pru
 
 ### Pendiente
 
-1. **La corrida final** con los archivos finales (la anota quien orquesta).
-2. **`PRUEBAS.html` en el navegador contra la base real**, en `?prueba=1`. Después, comprobar por REST que no escribió nada.
+1. **Hecho el 23 oct 2026:** la corrida final (ver «Pruebas», «Corrida final»).
+1b. **Publicada el 23 oct 2026** (Elkin, 23 oct: publicar solo F0, «ahora mismo»; commit `c8173b2`, OFICINAS 321 e INVENTARIO 121; TÉCNICOS y RED no cambian). La OFICINAS publicada es la 320 con F0: el cambio de WispHub de la otra sesión (facturas borradas en WispHub) **no va**. Antes, con 321 y 121 en las copias: `PRUEBAS.html` sin navegador 202/203 (solo WispHub real), `inv/f0.js` 105/105 y los G de `etapa5` 11/11. Respaldo en `_RESPALDO_2026-10-23_antes_de_publicar_f0` (código del commit 8fbeed1, la copia de trabajo de OFICINAS de la otra sesión tal como estaba, y datos: inventario/datos, historial, los 8 archivos de 2026, oficinas_sistema/main, los archivos de órdenes y solicitudes, errores_guardado, mantenimiento y versiones). Mantenimiento solo de OFICINAS e INVENTARIO de 5:40 a 5:43 a. m.; push 5:40; Pages 5:42 (huellas iguales a las de los archivos publicados, dos veces); versiones anunciadas 5:42; prueba de humo de las dos en `?prueba=1` sin errores (OFICINAS 321 con `_archivarEnPartesOfi` y sin `_marcarFacturaEliminadaWH`; INVENTARIO 121 con las funciones de F0). `vigilar_f0.cjs` copiado al banco (`trabajo/vigilar_f0.cjs`) y corrido a las 5:43: **SEGUIR**; la parte 1 de consumos ya iba en 73 % (era 63 % el 21 oct) y quedaban pantallas 120 y 320 con latido en las últimas 24 h.
+1c. **La copia de trabajo de OFICINAS de la otra sesión** quedó como su cambio de WispHub **unido con F0** y renumerado a **322** (`APP_VERSION = 322`, «v322, sin publicar» en `APP_VERSION_FECHA`): la 321 ya es F0. Así, cuando esa sesión publique, no deshace F0. Su `docs/04-wisphub.md` todavía dice «v321»: al publicar su cambio debe decir 322.
+2. **Hecho el 23 oct 2026:** `PRUEBAS.html` en el navegador contra la base real, en `?prueba=1`, y la comprobación por REST de que no escribió nada.
 3. **Antes de publicar INVENTARIO 121, contarle a Elkin cómo quedó la 📤 Entrega:** lo que se deja así a propósito (D-B) y lo que no cierra (ver «📤 Entrega con id fijo»). La revisión 7 cambió lo que se había decidido para (b): la franja ya no da por hecha ni esconde una nota que cubre una entrega igual; la muestra en ámbar y la persona decide. También restringió (a): sin pregunta, solo pasan a «reemplazada» las notas de la ventana y las iguales que el Guardar conocía al empezar. Si Elkin prefiere lo de antes, cambian X-F0-ENT-SOLAPADAS, MENSAJE-TUMBA, LEGITIMA, ES-LA-MISMA y SOLAPADA-BIEN, y sus comprobaciones en PRUEBAS.
 4. **Decidir con Elkin, sin prisa** (vienen de antes, y F0 no los empeora):
    - ➕ Instalación o ➕ Cliente con otro guardado en curso: la ventana no dice nada y, si se cancela y se registra otra vez, queda duplicado (dudoso 2 de la primera revisión);
@@ -3109,4 +3113,680 @@ Los arreglos de la primera revisión van como comprobaciones dentro de estas pru
    - el registro general de un guardado fallido anota el nombre de la oficina (`USER.nombre`, desde la v304). La entrada del archivo ya va con el rol. Va con la seguridad;
    - en INVENTARIO, si un commit entra y su respuesta se pierde, la entrada puede quedar dos veces.
 7. **La vigilancia y 📏** miran solo el año en curso y el anterior. Un registro con fecha de hace dos años o más iría a una serie de ese año, que ninguno de los dos ve.
-8. **Fuera de F0** (decisión 13 y especificaciones): el interruptor `config_e7` (F2); un botón para ver los archivos de la otra app; los archivos de 🧩 y 🩺 siguen leyendo, sumando y reescribiendo; `_pesoDocsInv` con las reglas de Google (F2); `fechaMs` en las entregas; la entrega incierta en otra computadora (F2, con `mov_`); la carrera entre dos versiones viejas en la parte 1.
+8. **Fuera de F0** (decisión 13 y especificaciones): un botón para ver los archivos de la otra app; los archivos de 🧩 y 🩺 siguen leyendo, sumando y reescribiendo; `_pesoDocsInv` con las reglas de Google (E7-F3, INVENTARIO 123); `fechaMs` en las entregas (E7-F3); la entrega incierta en otra computadora (E7-F3: la 122 no la cierra, ver §17); la carrera entre dos versiones viejas en la parte 1. El interruptor de la primera escritura no se hizo: el `config_e7` de la 122 solo enciende el libro, el registro largo y la lista de instalados (§17), y el archivo por partes ya escribe por su cuenta desde la 321 y la 121 (§16, «Cuándo corre»).
+
+## 17. Etapa 7 · E7-F2 — el libro, el registro largo y la lista de instalados (INVENTARIO 122, publicada el 3 nov 2026)
+Especificada y construida el 2 nov 2026 y revisada el 2 y el 3 nov, sobre lo publicado en `c8173b2` (OFICINAS 321, INVENTARIO 121, TÉCNICOS 103, RED 44). **Publicada el 3 nov 2026**, de noche, con las tres piezas apagadas (ver «Al publicar» y «El encendido»). Solo cambian INVENTARIO y PRUEBAS: TÉCNICOS, OFICINAS, RED, Firma, `contrato.js`, `ia.js` y las reglas de Firestore no cambian. La 122 **solo agrega** documentos en `inventario/`, llega **apagada** y se enciende pieza por pieza desde un panel, sin volver a publicar (las tres la misma noche: ver «El encendido»). Las pruebas no escribieron nada en la base real: lo medido se leyó con GET y solo cantidades. En los comentarios del código dice «E7-F2 (docs/12 §17)» (aquí «F2» ya es un tipo de caso de 🩺: por eso «E7-F2»). Lo que cambiaron las revisiones dice además «E7-F2 r1», «E7-F2 r2» o «E7-F2 r3».
+
+**Cómo se hizo.** Primero se midieron los datos reales, solo con GET (cuatro mapas: transacciones, bitácora, instalados e infraestructura). Con eso se escribió una especificación (`spec_f2.md`), que revisaron dos críticas (una de datos, con 19 hallazgos, y una de costo y simplicidad, con 11). Elkin respondió las preguntas el 2 nov, salvo E1 y E12, que siguen por confirmar (ver «Decisiones de Elkin»). C0 puso las piezas comunes, las anclas y el arnés del banco; después cuatro partes en paralelo, cada una en su copia: K1 el libro, K2 el registro largo, K3 la lista de instalados y K4 la vigilancia, el estrés y la convivencia. Se juntaron con `git merge-file`: 12 uniones, ningún conflicto y 5 arreglos chicos: 4 de contratos entre partes y 1 de una prueba vieja de RED que lee el texto del código. Después vinieron cuatro revisiones adversarias. Las tres primeras encontraron fallas, y sus arreglos se unieron otra vez con `git merge-file` (r1: 13 uniones, ningún conflicto; r2: 12 uniones, ningún conflicto de texto y uno de diseño, resuelto en un escenario; r3: 12 uniones, ningún conflicto de texto ni de diseño, y un escenario de K3 que se llamaba G y pasó a X). En esta sección, r1, r2 y r3 son los arreglos de la primera, la segunda y la tercera revisión, y la unión de cada uno; «la revisión N» es la búsqueda de fallas. La cuarta revisó lo que cambió la r3 y no encontró nada (ver «Revisión adversaria»). **El código de la app es el de la r3** (`build/r3/junta`). Lo que se publica está en `build/final_nombres`: la INVENTARIO de la r3 con los ejemplos de nombres cambiados en sus comentarios (da los mismos tokens de JavaScript) y la PRUEBAS de la r3 con cinco arreglos de pruebas que encontró la corrida contra la base real, también con los ejemplos cambiados (ver «Pruebas», «La corrida final», y «Al publicar», paso 2). `build/final` es el paso intermedio: los cinco arreglos, con los nombres de antes. Todo está en el scratchpad de la sesión, en `etapa7b/f2/`: la especificación, la página para Elkin (`decisiones_elkin_f2.md`), los mapas (`mapa_*.md`), las copias de cada parte (`build/base`, `build/c0`, `build/k1` … `build/k4`, y las de cada ronda en `build/r1`, `build/r2` y `build/r3`), las uniones (`build/junta`, `build/r1/junta`, `build/r2/junta` y `build/r3/junta`, cada una con su informe), lo final (`build/final` y `build/final_nombres`, con los scripts de los arreglos), la corrida contra la base real (`final/`, `revision_datos_reales/`) y las revisiones (`revision1/` a `revision4/`).
+
+### Por qué (lo medido el 2 nov 2026, solo GET y solo cantidades)
+
+| Qué | Medido | Qué pasaba |
+|---|---|---|
+| El «instalado» del día a día | 569 seriales figuran instalados mirando la base y el archivo. Con solo la base, **463 se olvidan** (81 %) | El archivador se lleva el consumo confirmado a los 14–18 días, porque la base pasa del 70 %. Desde ahí, entregar, trasladar o recibir ese equipo no pregunta nada. De los 463, 23 siguen en un sitio: 17 en una bodega y 6 en una cuadrilla |
+| La prueba de que un equipo volvió | De 185 seriales con «vuelto», 179 tienen la prueba solo en el archivo | Sin guardar la vuelta, esos 179 saldrían «instalados» por error |
+| El registro de actividad (`historial.logs`) | 200 líneas: **unos 8 días** (del 23 al 31 oct, 24,7 líneas por día) | Lo que sale del tope se pierde. El 38 % de las líneas trae datos de persona o texto libre |
+| Confirmar con un corte de internet | — | ✅, ❌, 🧩 y 🧹 decían «no se hizo» aunque el commit hubiera entrado. No había con qué comprobarlo |
+
+**El plan.** Lo aprobado el 21 oct («D por tramos», ver §16) ponía, después de F0, la seguridad (S2) y después el «tramo corto» (D corto, solo INVENTARIO): la 122 en diciembre (el libro de movimientos, una bitácora sin nombres —aquí, «el registro largo»— y un índice de lo instalado —aquí, «la lista de instalados»—) y la 123 en enero (traslados y solicitudes como operaciones). El 2 nov Elkin escogió seguir con el tramo corto **antes** de la seguridad (decisión E0). La 122 puede ir antes porque solo agrega documentos y se apaga sin publicar. Lo nuevo no lleva datos personales.
+
+### Qué quedó en cada archivo
+
+Cifras de la unión r3 (`build/r3/junta/`) y, entre paréntesis, de lo que se publica (`build/final_nombres/`).
+
+| Archivo | Qué cambió |
+|---|---|
+| `INVENTARIO_PTOVISION.html` (de 22.119 a 25.875 líneas; de 1.764.262 a 2.090.344 bytes (2.090.378 con los ejemplos cambiados); es la 122) | **Script clásico:** cuatro bloques bajo sus anclas, antes de `init();`: «E7-F2 · C0 (piezas comunes)», «· K1 (debajo)», «· K2 (debajo)» y «· K3 (debajo)» (el de K4 queda vacío). Son 224 declaraciones nuevas de primer nivel (funciones y constantes): C0 59, K1 39, K2 56 y K3 70. Cambian `logMsg` (un segundo dato opcional, `bit`), `_entradaLogInv` (anota en `window._bitCreadasInv` cada entrada que crea esta carga de página: r1, F4), los ocho botones que pasan por las puertas (✅, ❌, ↩️, 📤, 🧩, 🧹, 🩺 y los cuartos), las 21 llamadas a `logMsg` que nombran a un cliente o un técnico o llevan un motivo, `modalRetiroParcial`, `_instaladoSNInv` (un cuarto parámetro opcional, `idx`) y `_ocupacionSNInv` (la opción `opc.instIdx`), la 🛡️ (`_chequeoInventarioInv`, `_datosChequeoInv`, `_revisarAlzasInv`), la Auditoría (sección 3d), 🩺 (`_datosCasosInv`, `_casosSNInv`) y las ventanas que preguntan «¿Volvió…?». **Módulo:** `FieldPath` en el `import`; las dos puertas (`_fbTransaccionInv`, `_fbTransaccionInvMulti`); `_e7TxLeerInv` y `_e7TxEscribirInv`; `_fbCfgE7GuardarInv`; el oyente de `config_e7` (`_escucharCfgE7Inv`); una línea en `_fbSaveCore` (`_e7TrasGuardarInv`); `_fbGuardarArchivoInv` se niega a los nombres nuevos; `_fbLeerArchivoInv` anota en `window._origenLecturaInv` si la lectura salió de la copia del equipo (así la siembra, la comparación y «Rehacer» la rechazan: `_instLeerTodoInv`); y bajo las anclas «· K2 (módulo, debajo)» y «· K3 (módulo, debajo)»: `_fbBitEnviarInv`, `_fbInstTxInv` y `_fbInstRevInv` |
+| `PRUEBAS.html` (de 18.415 a 21.617 líneas; 21.622 con los cinco arreglos de la corrida final) | 25 pruebas nuevas cuyo título empieza por «Etapa 7 · E7-F2» (13 sin ronda y 12 con «r1», «r2» o «r3»): C0 7, K1 4, K2 6, K3 6 y K4 2. Son 229 en total. Ninguna vieja cambia de sentido (ver «Pruebas») |
+| Banco: `inv/f2.js` (nuevo, 4.723 líneas, en LF) | 88 escenarios (66 X: fallan con la 121 y pasan con la 122; 22 G: guardas que pasan con las dos; no confundir con los hallazgos G1 a G11) y 4 INFO, con las apps reales sobre la base simulada y compartida. Opciones `--html=`, `--dir=`, `--ofi=`, `--tec=`, `--publicado` (git `c8173b2`) y `--reloj=` |
+| Banco: `inv/estres.js` (nuevo, 388 líneas) | Tres pantallas 122 al azar, respuestas perdidas, recargas y una 121 que se frena a mitad; al final revisa los invariantes |
+| Banco: `fs_compartido.js` | `FieldPath`, `mergeFields`, `arrayUnion` revisado como arreglo, «leer antes de escribir» en las transacciones, `entregasOyente` (cada aviso del oyente cuenta como lectura), `{reglas:'hoy'}` y `F2_ORDEN_LLAVES` (ver «Pruebas»). Copias previas en `fs_compartido.antes_f2.js` y `fs_compartido.js.antes_r1`. Sin opciones, hace lo mismo que antes |
+| Banco: `vigilar_f2.cjs` (nuevo, 732 líneas) | La vigilancia (ver «La vigilancia»). La copia de `etapa7b/f2/tools/` es la de la junta, anterior a la r1: **no usarla** |
+| Banco: `marcas.cjs` (71 líneas) y `correr_pruebas_html.js` | Comprueban que una corrida contra la base real no escribió nada, y corren `PRUEBAS.html` sin navegador (variables `SOLO`, `GRUPOS`, `SUSTITUTOS`). Los dos se habían perdido con la limpieza del scratchpad del 30 oct: `correr_pruebas_html.js` se recuperó del historial de la sesión y `marcas.cjs` se rehízo |
+| TÉCNICOS, OFICINAS, RED, Firma, `contrato.js`, `ia.js` | Sin cambios. La OFICINAS del disco es de otra sesión (al 3 nov, una 323 sin publicar): la 122 no la toca |
+
+### Los documentos nuevos
+
+Un aviso de nombres: en la pantalla y en el registro, la lista de instalados se llama «índice» («🌱 Sembrar índice», «🔎 Comparar índice», «🔧 Índice de instalados» y, en la línea de una degradación, «entró sin libro ni índice»). Eso no tiene que ver con las «entradas de índice» ni con la «exención de índice» de Firestore, que también salen en esta sección.
+
+Todos van sueltos en `inventario/`, no en una subcolección. Nada va en `oficinas_sistema`, tampoco en `errores_guardado`. Las fechas de los nombres van en **hora de Colombia fija** (UTC−5, `_e7ColInv`), sin importar la zona del computador: así todas las pantallas escriben lo mismo en el mismo documento. `_fbGuardarArchivoInv`, que reescribe un documento entero sin merge, se niega a estos nombres.
+
+| Documento | Qué guarda | Qué NO guarda | Cuándo se escribe |
+|---|---|---|---|
+| `config_e7` (el interruptor) | `k`, `v`, `libro`, `bit`, `inst`, `desde` (cuándo se encendió cada pieza y `instLeer`), `comparacion` (solo números), `exencionSn`, `historial` (un mapa por id: un arreglo se reemplazaría entero con `merge`), `actualizado`, `actualizadoEn`, `por` y `ver` | nombres: `por` es el rol | al cambiar una pieza en el panel y al guardar el resumen de «🔎 Comparar índice» o de la siembra |
+| `mov_<operationId>` (el libro: una hoja por operación) | `k`, `v`, `op`, `tipo`, `ref` (el id del dueño), `clic`, `mes` (AAAA-MM), `fechaMs`, `en` (hora del servidor), `app`, `ver`, `rol`, `bodega` (el id, solo si quien opera es una bodega), `lineas` (lo que se movió, fila por fila), `nLineas`, `snRecortado` y `extra` (una lista blanca por tipo) | nombres de personas, cliente, cédula, receptor, comprador, motivo, observaciones, el usuario del kardex, quién confirmó, nombres de bodega o cuadrilla (van por id), `equipo` ni `sesion` | en el **mismo commit** que el stock. Nunca se reescribe |
+| `bit_<AAAA>_<MM>_<q>` (el registro largo: una quincena por documento; q = 1 del día 1 al 15, 2 del 16 al 31) | `k`, `v`, `anio`, `mes`, `q`, `e` (las líneas), `actualizado`, `actualizadoEn`. Cada línea, siempre con las llaves en este orden: `id, ms, app, ver, rol, b, tipo, txt, op, sns, ref` | nombres de clientes o técnicos, direcciones, motivos, `ses` ni `eq`. La frase no repite los seriales (van en `sns`) | después de un guardado bueno, con `arrayUnion` y sin leer. Además, la lista de instalados copia aquí la línea de un ↩️ Retiro parcial antes de escribir su vuelto `ret_` (en la puesta al día, la siembra y «Rehacer»). Solo crece |
+| `inst_<AAAA>` (la lista de instalados de ese año) | `k`, `anio`, `actualizado` y `sn`: por clave de serial `{c, ms, cu}`, más `red:true` si fue a la red, y `vuelto` y `vop` si volvió | nombres, ni el del cliente: solo ids, claves y horas | la entrada, al confirmar (en el mismo commit, sin leer); los «vueltos», después (cola y puesta al día); «🌱 Sembrar índice» (solo agrega o completa) y «🔧 Rehacer una entrada» (después de archivar la vieja en `instrev_`). Cada entrada se reemplaza **entera**, nunca hacia atrás salvo con «Rehacer»; ninguna clave se borra |
+| `instrev_<AAAA>` | las entradas que el administrador rehízo: `{clave, antes, ms, por:'admin', ver}` | nombres | solo con «🔧 Rehacer una entrada» |
+
+- **Lista blanca:** solo ids, claves de serial, cantidades, nombres de material, fechas, el rol, la app y la versión. El nombre de bodega o cuadrilla solo va en la frase del registro largo (decisión E2). Ningún campo `undefined`; los ids van con `String(x==null?'':x)`; las marcas sí/no van solo como `true`; toda fecha lleva su número en milisegundos.
+- **Lo nuevo no lleva el sello** de `_ultimaEscritura` (trae `quien`, `sesion` y `equipo`, que se cruzan con el latido: §10). Dentro de las transacciones (el `mov_` y las entradas de `inst_`), lo nuevo se escribe con `_e7TxEscribirInv`; `bit_` e `instrev_` van por `setDoc` con `arrayUnion`, y `config_e7` por su propia transacción. Ninguno lleva sello, así la prueba del sello de la Etapa 1 no cambia.
+- **Tamaños y límites:** ver la nota de docs/01 («Los documentos nuevos de INVENTARIO 122»).
+
+### El interruptor y el panel 🎛️ Etapa 7
+
+**Qué hace cada valor** (`_normalizarCfgE7Inv`, pura):
+
+| Pieza | `'no'` (o cualquier otra cosa) | `'escribir'` («Escribe») | `'leer'` («En uso») |
+|---|---|---|---|
+| `libro` | como la 121 | lee el `mov_` antes de aplicar y lo escribe en el mismo commit | reservado para la 123: en la 122 vale `'escribir'` |
+| `bit` | como la 121 | copia las líneas a `bit_` | reservado para la 123: vale `'escribir'` |
+| `inst` | como la 121 | carga la lista, la escribe y la pone al día; el «instalado» del día a día sigue como hoy | además, el «instalado» del día a día la usa |
+
+- **Ausente, mal escrito** (`k` no es `'cfg'`, `v` no es un número ≥ 1) **o sin leer todavía: todo apagado.** Con todo apagado, la 122 hace las mismas lecturas y escrituras que la 121; lo único de más es leer el interruptor.
+- **Cómo se lee:** un oyente desde el arranque (`_escucharCfgE7Inv`), con el patrón de `_escucharVersionInv`: su primer aviso es la lectura «al cargar»; si se cae, se vuelve a suscribir a los 60 s. Si se cae después de una lectura buena, se queda con el último valor (apagarlo en cada caída dejaría huecos en el libro). Una operación usa el valor que había **al empezar** (`op.cfg`), aunque cambie en medio. El registro largo y la lista se enteran de cada cambio enseguida, también en plena carga o sin sesión (r3; ver «El contrato «la carga terminó»»). Una pieza apagada en esta pantalla por un rechazo de Firebase (ver «La degradación») vale `'no'` aquí hasta recargar.
+- **El panel** (`modalE7Inv`, solo el administrador; botón «🎛️ Abrir panel de la Etapa 7» en la caja nueva de la 🛡️ Vigilancia). Un selector por pieza con lo que hace cada valor en palabras; «⏹️ Apagar todo»; la casilla «Ya pedí la exención del índice de seriales en Firebase»; la sección de cada parte (`_cajaE7LibroInv`, `_cajaE7BitInv`, `_cajaE7InstInv`); cuántas pantallas de INVENTARIO menores que 122 se vieron en el latido de las últimas 24 h (solo después de «🔄 Ver pantallas»: ver «El encendido», paso 2; si no, el panel pide hacerlo); el orden de la noche del encendido; y «Últimos cambios», con las palabras del panel («registro largo: escribe → apagado»).
+- **La caja de la 🛡️** dice qué hace cada pieza y desde cuándo, lo apagado en esta pantalla y por qué (en palabras), la última comparación de la lista (en ámbar desde 7 días con la lista «En uso») y si el interruptor está mal escrito.
+- **Cambiar una pieza** (`cambiarPiezaE7Inv`): pide confirmar con la consecuencia en palabras («Desde ahora cada confirmación… deja una hoja en el libro…»). Escribe con una transacción (`_fbCfgE7GuardarInv`, `merge:true`): la pieza, `desde.<pieza>` si se enciende, una entrada en `historial` y `por:'admin'`. Deja una línea en el registro, sin nombre: «🎛️ Etapa 7: registro largo pasó de «apagado» a «escribe»». No guarda en `?prueba=1` ni con la página a medio cargar («⏳ La pantalla todavía está cargando…»). Si se pide la lista con el registro largo apagado, avisa que el orden es libro, registro largo y después la lista.
+- **Un interruptor mal escrito** se repara al cambiar cualquier pieza: se escriben las tres, la pedida con su valor y las otras apagadas, como las mostraba el panel (r1, F10). El historial guarda lo que había de verdad, o «(no se podía leer)» / «(valor no válido)» (r2, G11).
+- **El candado de «En uso»** (`_e7CandadoLeerInv`): la lista no pasa a «En uso» si no hay una comparación, si tiene más de 24 horas o si trae diferencias sin explicar. Se revisa en la pantalla y otra vez dentro de la transacción, con lo recién leído.
+
+### Las puertas y el objeto `op`
+
+Cada botón le pasa a la puerta un segundo argumento, `op` (`_e7NuevaOpInv`). Sin `op`, la puerta hace lo de la 121.
+
+| Operación | Botón | Su `operationId` |
+|---|---|---|
+| ✅ Confirmar | `_confirmarConsumoElegidos` | `conf_<id del consumo>` |
+| ❌ Rechazar | `rechazarConsumo` | `rech_<id del consumo>` |
+| ↩️ Devolver | `modalDevolverMat` | `dev_<id de la ventana>` |
+| 📤 Entrega | `saveEntregaLogic` | `ent_<id escrito>` (desde F0 el id se decide dentro de la transacción; por eso el `op` lo pide después de `modifFn`, con `idTarde`) |
+| 🧩 Unificar | `_unificarMarcadosCoreInv` | `uni_<op del primer grupo>` |
+| 🧹 Quitar vaciadas | `quitarVaciadasUnificadasInv` | `lim_<hora>_<6 al azar>` |
+| 🩺 Corrección | `_corrTransaccionInv` | `cor_<id de la corrección>` |
+| Cuartos | `_cuartosTx` | `cto_<hora>_<6 al azar>` |
+
+**En cada intento de la transacción** (`_fbTransaccionInv` y `_fbTransaccionInvMulti`):
+1. `_e7PrepararOpInv` (una vez, al entrar): fija `op.cfg`, un `clic` al azar de ESTA llamada y la hora. Con el libro apagado y nada que hacer en la lista, devuelve `null` y la puerta corre **exactamente** el código de la 121.
+2. Lee `inventario/datos` (y `historial` en la Multi), como siempre. Con un id conocido, lee además el `mov_` **antes** de `modifFn`: si ya existe y cuadra, no aplica nada (ver «El libro»).
+3. Toma una **copia de lo leído antes de `modifFn`**, porque `modifFn` cambia lo leído en su sitio. Se mide contra esa copia; si no, todas las filas darían «sin cambio».
+4. `modifFn`, como siempre. Lo que se mide es lo que **de verdad se escribe** (después de quitar las filas con lápida), no lo que pidió el botón.
+5. El plan (`_e7PlanInv`): la hoja del libro (`_lineasMovInv`, `_armarMovInv` de K1) y, al confirmar, la entrada de `inst_` (de K3). La Entrega lee aquí su `mov_`, todavía antes de la primera escritura (Firestore exige leer todo antes de escribir).
+6. Escribe lo de siempre y, después, lo nuevo con `_e7TxEscribirInv`: el `mov_` con `set` sin merge (se acaba de leer que no existe) y la entrada de `inst_` con `mergeFields` (cada clave se reemplaza entera y las demás no se tocan).
+
+**Los estados de `op`** (se reinician en cada intento): `''`; `'apagado'` (nada que hacer: la 121); `'nada'` (`modifFn` devolvió `null`); `'ya'` (la operación ya había quedado); `'choque'` (el libro no cuadra con la base: sigue como la 121, sin libro); `'escrito'`; `'degradada'` (se repitió sin lo nuevo). `op.ult` guarda el último intento que llegó a escribir y no se reinicia: si Firebase repite la función después de un commit que entró, `ult` es lo que entró.
+
+**Después del commit** (`_e7FinPuertaInv` → `_e7TrasCommitInv`): K3 pone en la lista de la memoria lo escrito y deja en la cola los «vueltos» de ↩️, 📤 y 🩺. También con «ya» del mismo clic, con `op.ult`.
+
+### La degradación: lo nuevo nunca tumba una operación
+
+Si Firebase rechaza **para siempre** lo nuevo (un `invalid-argument` o `permission-denied`, el tope de entradas de índice, un dato inválido, o una regla futura de S2), la operación no puede quedarse sin hacer (decisión D17):
+- la puerta la repite **una vez sin lo nuevo** (el código de la 121), y el botón sigue como si nada (`_e7DegradarInv`);
+- el libro y la lista quedan apagados **en esa pantalla** hasta recargar (`window._e7ApagadasInv`), para no pagar un commit fallido en cada operación;
+- queda **una** línea por carga en el registro de INVENTARIO, con el motivo en palabras (el código de Firebase solo va a la consola): «⚠️ Etapa 7: una operación de bodega entró sin libro ni índice (la base no dejó escribir lo nuevo, por permisos). Se apagaron en esta pantalla.». Si la repetición sin lo nuevo también dio error, dice «dio error también». Si no se sabe si la repetición entró, dice «no se sabe si entró. Revisa si quedó hecha antes de repetirla», con la causa: «se cortó la conexión» solo con un error de red (sin señal, tiempo agotado, cancelada); con otro error incierto (un choque que agotó los reintentos, la cuota agotada), «la base no la confirmó» (r2, G9; r3, H5). La línea espera a que termine la carga y haya sesión (ver «El contrato «la carga terminó»»). La vigilancia busca esas líneas.
+- **No se degrada:** un error incierto (corte, `resource-exhausted`, choque): con ese se mira el libro (ver «Cuando no se sabe si entró»); el error del propio botón; y un rechazo que nombra solo `inventario/datos` o `historial` (el tope de 1 MiB, un `undefined` en la base: la 121 falla igual). Si la repetición sin lo nuevo falla con el **mismo** código, la causa no era lo nuevo: la pantalla vuelve a como estaba y sale el error original (r1, F6).
+
+### El libro de movimientos y la decisión E6
+
+Cada operación que pasa por las dos puertas deja su hoja en el mismo commit que el stock. Hoy sirve para no hacer dos veces lo mismo y para no decir «no se hizo» cuando sí se hizo. En la 123 servirá para cuadrar el stock fila por fila: cada línea trae `d` (cuánto cambió) y `q` (cuánto quedó), así `q − d` es el `q` anterior sin necesitar una foto inicial.
+
+**Las líneas** (`_lineasMovInv`, pura): solo `bodegas` y `cuadrillas`; por registro y por fila (por `id`, o por nombre y tipo si la fila no tiene id); `d`, `q`, `nSn`, `entra` y `sale` (claves de serial), y `nueva`, `quitada` o `artAntes` cuando aplica. Las filas sin cambio no van. Si la hoja pasa de 200 KB, se quitan `entra` y `sale` y va `snRecortado:true`. Los cuartos dejan su hoja con `lineas:[]`.
+
+**«Ya había quedado».** Si el `mov_` ya existe y es del mismo dueño, la puerta no llama a `modifFn` ni escribe. Para ✅ y ❌, además, el consumo en lo recién leído tiene que estar confirmado (o rechazado); si sigue pendiente, es un **choque**: la operación sigue como la 121 y no escribe libro. El libro nunca frena lo que la 121 dejaría hacer. El `clic` distingue dos casos:
+- **mismo clic:** un intento anterior de este mismo botón entró y se perdió su respuesta. El botón termina como si hubiera llegado. En ✅, lo que entró de verdad (`escritoUlt` y `xFUlt`, que el botón guarda en cada intento) pasa a la memoria y a la ficha del cliente. Así, la parte que quedó como consumo pendiente aparte no se anota en la ficha;
+- **otro clic:** «✅ Este consumo ya había quedado confirmado (en otra pantalla o en un intento anterior). No se descontó otra vez.» (cada botón con su texto).
+
+**Cuando no se sabe si entró (decisión E6).** Con un corte, el libro encendido y fuera de `?prueba=1`, antes de avisar se hace **un GET** de la hoja, desde el servidor (`_e7LeerMovInv`; una copia del equipo no cuenta):
+
+| El GET | Qué dice el botón |
+|---|---|
+| la hoja existe y es de este clic | termina como un éxito (en ✅: la memoria, la ficha y el registro) |
+| la hoja es de otro clic | «✅ Ya había quedado hecho (en otra pantalla).» En ✅ y ❌, si el consumo sigue pendiente en la memoria (se esperan hasta 3 s al oyente), dice que no se pudo saber (r1, F1) |
+| no existe | el aviso de siempre, con «(comprobado: no quedó nada en la nube)» |
+| falla | «⚠️ No se pudo confirmar si quedó. Revisa la lista en un momento.» (en los cuartos, solo eso: r1, F12) |
+
+- Un choque en cualquier intento deja `op.choqueContado`, que no se borra: con él no se mira el libro (la hoja que haya es de antes).
+- 🩺: con la hoja de este clic, como un commit bueno; con la de otro, los vueltos salen de esa hoja (`_instVueltosDeMovInv`, r1 F11). Cuando se perdía la respuesta de una corrección en una cuadrilla, la 121 decía «⚠️ No se pudo confirmar si la corrección quedó guardada» y, al reintentar, preguntaba si había quedado. La 122 mira el libro: si la hoja está, sabe que entró y no pregunta.
+- ↩️ Devolver y 📤 Entrega no cambian su `catch`: su reintento ya era seguro por su id (desde F0), y ahora además lo cubre el «ya».
+- 🧩 con el GET fallido deja las entradas de su archivo en «preparada» (la 121 las marcaba «cancelada»): no se sabe si entró.
+
+### Lo que entró sin saberse: el mecanismo «tarde» (r1, r2 y r3)
+
+Si un corte deja sin respuesta el commit de ✅, ❌, 🧩 o 🧹 y el GET del libro tampoco llega, la pantalla lo recuerda en su memoria (`op.id`, el clic y la sesión que pulsó: `_movRecordarInv`) y vuelve a mirar el libro (`_movMirarTardeInv`):
+- un reloj (`_movVigiaTardeInv`) late cada 2 s, solo mientras haya algo recordado, y solo mira la memoria: decide cuándo toca el GET. El GET al libro va cada 30 s los primeros 10 minutos y después cada 5 minutos;
+- mira además enseguida con el evento `online`, cuando el oyente trae el consumo ya decidido (✅ y ❌) y cuando el oyente trae algo nuevo después de un GET que falló sin red (como mucho uno cada 30 s);
+- **nunca se suelta sin haber podido leer el libro** (r2, G3; antes se soltaba a los 10 minutos);
+- con la hoja de ese clic, termina como si la respuesta hubiera llegado, sin que nadie pulse nada (en el código, el modo «solo»): la ficha del cliente si todavía no tiene ese consumo, la línea del registro con «(quedó; se confirmó después)» y un aviso corto. La ficha y la línea se mandan a guardar **antes** de cualquier aviso (r3, H1). En ✅, cuando termina así, la línea del aviso sobre la ficha del cliente (👤) dice «se está guardando en la nube», y el aviso corto ya no dice «Material anotado». Si hay un aviso (cliente no encontrado o retirado, seriales de la Etapa 5):
+  - sale en la ventana de la app;
+  - si ya hay otra ventana abierta (la bodega puede estar escribiendo en ella), sale en una franja en la parte de arriba de la página, que queda detrás de esa ventana (no la tapa), se cierra a mano y junta los avisos que lleguen (`_movAvisoTardeInv`);
+  - nunca con una ventana del navegador (`alert()`): frenaba el guardado, y cerrar la pestaña sin «Aceptar» perdía la ficha y la línea (r2, G8; r3, H1);
+- con la hoja de otro clic, o sin hoja, se suelta sin anotar;
+- en ✅ y ❌, si la bodega vuelve a pulsar y la puerta (o el GET) encuentra la hoja de ese clic, se termina ese (`_movTerminarRecordadoInv`; en el código, el modo «activo»), una sola vez. En 🧩 y 🧹 cada clic es una operación nueva, con otro id: lo recordado lo termina el reloj;
+- nada corre antes de que la carga termine ni con otra sesión: sin sesión o con otra, espera; si vuelve a entrar la misma (rol e id de la bodega), termina a su nombre (r2, G1);
+- **al recargar se olvida.** Con el libro apagado no se recuerda nada nuevo; lo recordado antes de apagarlo se termina igual (lo señaló la revisión 3: es lo correcto).
+
+La sección del libro en el panel cuenta, desde que se cargó la pantalla: hojas escritas, operaciones que ya habían quedado, cortes en que se miró el libro, lo terminado después del corte, lo soltado y lo que sigue esperando.
+
+### El registro largo (`bit_`)
+
+**Qué va.** A `bit_` va una línea por cada entrada que esta pestaña puso en `historial.logs` y **ya llegó a la nube** (con su frase sin nombres, no el texto del registro), desde que se encendió la pieza (`desde.bit`). Lo que una transacción repetida quita del registro nunca llegó a la nube y nunca sale: `_cerrarDuplicadasAlGuardarInv` y `_deshacerRescatesInv` no se tocaron. `historial.logs` no cambia de forma, de tope (200) ni de fusión. **En la 122 solo la lista de instalados lee `bit_`**, siempre por su nombre (un GET de una quincena) y solo para probar un vuelto `ret_`: la comparación, la siembra, la puesta al día y «Rehacer». 🩺, el Excel de actividad y lo demás siguen con `historial.logs`: leer `bit_` ahí va en la 123, cuando tenga semanas de historia.
+
+**La frase.**
+- `logMsg(msg, bit)`: `bit` es opcional (`{tipo, txt, op, sns, ref}`, o una función que lo devuelve). Lo pasan las 21 llamadas que nombran a un cliente o un técnico o llevan un motivo (17 de K2, 2 de K3 y 2 de K1) y los botones del libro, para unir la línea con su hoja (`op`, `sns`, `ref`). Nunca se copia el `msg` crudo.
+- Sin `bit`, la frase sale de una de las 25 plantillas (`_BIT_PLANTILLAS_INV`), que salen de las 98 llamadas a `logMsg` de la 121 y de las 5 entradas sueltas. La primera que calza da el tipo; lo que no calza queda `{tipo:'otro', txt:''}`. «Traslado de "…"» no está: trae el cliente y la dirección. Toda etiqueta de `_logAceptadosSNInv` (18 llamadas) calza con una plantilla.
+- Toda frase pasa por la red de nombres (ver abajo) y se corta a 300 letras; como mucho 20 seriales.
+- El nombre de bodega o cuadrilla lo decide una sola función, `_bitNombreSitioInv` (decisión E2: el nombre, como en el registro de siempre: «Entrega BODEGA DE EJEMPLO ➜ CUADRILLA 3»). Para pasar a «solo códigos» se cambia su `return` (el de «solo códigos» está en su comentario) y el texto que espera X-F2-BIT-SIN-NOMBRES. Desde la junta, K1 (✅ y ❌) y K3 (↩️ Retiro parcial) también pasan por ella, así que el cambio los alcanza.
+
+**El envío.**
+- `logMsg` arma la línea enseguida y la deja **solo en la memoria** (`_bitArmadasInv`).
+- Después de un guardado bueno, pasan a la cola del navegador (`localStorage['inv_bit_por_enviar']`, como mucho 600 líneas y 2 días) las entradas de `historial.logs` que cumplen tres cosas: las creó **esta carga de página** (`_bitCreadasInv`), son de esta sesión y son de después de `desde.bit`. Una pestaña duplicada tiene la misma sesión, pero no esta lista (r1, F4). Lo hace `_e7TrasGuardarInv` → `_bitTrasGuardarInv`, fuera de la transacción y sin esperar. Corre también con la carga a medias, porque ahí solo encola (r3, H4). Una línea que trajo su frase nunca se rearma con la plantilla. Dos pestañas comparten la cola: al escribir se vuelve a leer y se une por id.
+- `_bitEnviarColaInv` manda la cola por documento, de a 100, por el puente del módulo (`_fbBitEnviarInv`: `setDoc` directo con `arrayUnion` y `merge:true`; no por `_setDoc`, que sin señal dejaría la recarga automática esperando). Si no responde en 45 s cuenta como fallo; lo enviado de más no se repite, porque `arrayUnion` no duplica una línea igual. Se reintenta a 1, 5 y 15 minutos, tras el guardado siguiente, al volver la señal y al cargar.
+- **Si un envío falla para siempre** (permisos, la quincena llena, datos que la base no acepta), queda UNA línea por carga: «⚠️ Etapa 7: el registro largo no se pudo enviar (la base no dio permiso para escribirlo). Lo de la bodega quedó guardado igual.» (r1, F7). Un corte no deja línea. El panel y «📤 Enviar ahora» lo dicen en español (`_bitQueErrorInv`, r1 F13), y un envío bueno borra el error del panel (r2, G10). Con la cola vacía (otra pestaña ya la envió) también: el envío borra el error y la cuenta de fallos, y «📤 Enviar ahora» dice «✅ No queda nada por enviar al registro largo.» en vez de «Listo: 0» (r3, H7).
+- **Con la carga a medias no envía** (`{ok:false, esperaCarga:true, enviadas:0}`): sale al terminar la carga, también en una pantalla que se queda en la entrada sin sesión. La línea «⚠️ Etapa 7» pide además sesión, y sale ~1 s después de terminar la carga (el vigía, `_bitVigiaInv`, mira cada segundo); en una pantalla que se queda en la entrada, espera a que alguien entre.
+- En `?prueba=1` no arma, no guarda en el navegador y no envía nada (cuenta en `_bitOmitidasInv`, sin `_bloquear`).
+
+**El hueco aceptado.** Una línea que no llegó a la nube se pierde de `DB.logs` al recargar (`save()` solo guarda en el navegador si no hay Firebase), así que tampoco va a `bit_`. Si la recarga cae justo entre el commit y la cola, esa línea no va a `bit_` (sigue en `historial.logs`). Lo escrito por una 121 no va a `bit_`.
+
+### La red de nombres (y sus límites, a sabiendas)
+
+Los nombres de los ejemplos son inventados.
+
+`_e7SinNombresInv` es la red de seguridad de toda frase. Si la frase trae el nombre de una persona de la memoria, esa parte se cambia por «(persona)»; si no se puede ubicar en el texto, la frase entera queda en blanco. Cuenta en `_bitTapadasInv`.
+- **De quién:** los clientes y los técnicos de las cuadrillas y, por si acaso, quien recibe en una cuadrilla, el responsable de una bodega, el técnico y el cliente de un consumo o de un equipo enviado por un técnico, y el cliente de una instalación. Solo nombres de 2 o más palabras y 8 o más letras; se comparan sin tildes ni mayúsculas y por palabras enteras. La lista se arma como mucho cada 10 minutos.
+- **El nombre completo** se tapa siempre, esté donde esté.
+- **Un nombre y un apellido seguidos** de una misma persona también, aunque falte el resto: «CUADRILLA PEDRO EJEMPLO» con el técnico «Pedro Antonio Ejemplo Prueba» (r1, F14). DE, DEL, LA, LAS, LOS, Y, E son partículas: pueden ir en medio, pero no son ni nombre ni apellido. Con 3 palabras, la del medio cuenta como nombre o como apellido; con 4 o más, las dos últimas son los apellidos. El tramo cruza una inicial suelta («Pedro A. Ejemplo») y tapa los dos apellidos seguidos («EJEMPLO PRUEBA») (r2, G4).
+- **Lo que E2 manda mostrar** (r2, G5; r3, H2): en esa pasada parcial, si la persona es solo un cliente y todo el tramo cae dentro de un nombre de bodega o de cuadrilla de la memoria que está en la frase, no se tapa («BODEGA VILLA EJEMPLO» con el cliente «Colegio de Villa Ejemplo»). Solo bodegas y cuadrillas, que es lo que E2 manda mostrar: el nombre de un artículo o de una referencia del catálogo no se protege, porque un recuperado escrito a mano puede llevar el nombre de un cliente («ONU de Pedro A. Ejemplo»). En la r2 los artículos también se protegían, y ese nombre pasaba a `bit_` (H2). La gente de la empresa (técnicos, quien recibe, responsables) va marcada «fuerte» y se tapa siempre. El tramo nunca cruza la puntuación que separa dos sitios (comillas, flecha, paréntesis, dos puntos…: `_BIT_SEPARA_INV`).
+
+**Límites que se dejan así:**
+- un cliente que se llame exactamente como una bodega o una cuadrilla tapa ese sitio (la pasada del nombre completo no cambió);
+- una cuadrilla que se llama con el nombre y un apellido de su propio técnico sale «CUADRILLA (persona)» en `bit_`: la gente de la empresa se tapa siempre, así que ahí no se cumple E2 («sí, el nombre de la cuadrilla»). Lo comprueba X-F2-R2-K2-NOMBRES (c);
+- un material o una referencia del catálogo cuyo nombre coincide con el nombre y apellido de un cliente, o con dos palabras de una institución de 3 o más («CABLE DROP» con un cliente «Ferretería Cable Drop Ejemplo»), sale «(persona)» en `bit_` (r3, H2). Se acepta: `historial.logs` no cambia y el `ref` de la línea conserva los ids;
+- fuera de un nombre de bodega o de cuadrilla de la memoria, se tapa de más: un pueblo escrito suelto puede salir «(persona)». Se prefirió tapar de más;
+- un nombre de una sola palabra, o de menos de 8 letras, no se tapa;
+- nada de la 122 lee el `txt` de `bit_`: si algo se tapó de más, solo se lee peor.
+
+### La lista de instalados (`inst_`)
+
+**La entrada, al confirmar.** Dentro de la transacción de ✅ solo se escribe la entrada del consumo que se confirma, **sin leer `inst_`** (`_instEntradasTxInv`, `_instEscriturasTxInv`): por cada serial de lo confirmado con clave indexable, `{c, ms, cu}` (+ `red:true`). Es segura sin leer: la entrada es la más nueva, y dos confirmaciones de claves distintas en el mismo documento no se pisan. Ningún «vuelto» se calcula dentro de una transacción de stock.
+
+**Las claves que se indexan:** solo `^[A-Z0-9]{1,64}$`. Las demás (texto, más de 64 letras, guion bajo, `__…__`) no se indexan: se cuentan y se avisan. Hoy hay 0.
+
+**Los «vueltos».** `vuelto` es la hora de la primera prueba de que el equipo volvió a un sitio después de instalarse (siempre mayor que `ms`; si no, no se escribe), y `vop` dice de dónde salió:
+
+| `vop` | De dónde | Su prueba |
+|---|---|---|
+| `dev_<id>`, `ent_<id>` | ↩️ Devolver y 📤 Entrega, por la cola, después del commit | base + archivo, o el `mov_` de esa operación |
+| `cor_<id>` | 🩺 que pone un serial en un sitio (también una cuadrilla, donde la base no deja prueba). Solo si su `mov_` entró en ese mismo commit (r1, F5) | su `mov_` |
+| `ret_<id de la línea>` | ↩️ Retiro parcial a una cuadrilla (su única huella es su línea del registro) | la línea en el registro o, después de los ~8 días, en `bit_` |
+| `rep_ent_…`, `rep_rec_…`, `rep_kdx_…` | la puesta al día o la siembra, desde una prueba de la base | la misma prueba |
+| `rev_admin` | «🔧 Rehacer una entrada» | la entrada vieja quedó en `instrev_` |
+
+**La cola de vueltos** (`window._instColaVueltosInv` y `localStorage['inv_inst_vueltos']`, como mucho 200 y 30 días). ↩️, 📤 y 🩺 entran ya en «lista». ↩️ Retiro parcial a una cuadrilla de esta pantalla entra en «espera», porque se guarda con `save()`: pasa a «lista» solo cuando el guardado que la trae llega a la nube (`_instTrasGuardarInv`); si no llega, se descarta a los 2 días. Nunca se escribe un «vuelto» sin respaldo en la nube.
+
+**La puesta al día** (`_instReparacionInv`). Cubre lo que no escribe la transacción: la cola, las confirmaciones de una 121, la devolución de TÉCNICOS 103, los caminos con `save()` (integrar recuperado, traslados, ➕ SN, 📥, ✏️, Excel…) y lo que se pierda entre el commit y la memoria.
+- Corre con la lista encendida, fuera de `?prueba=1`, sin versión vieja, con la lista y la base cargadas, una a la vez. También en una pantalla que se queda en la entrada sin sesión: el aviso del interruptor le llega enseguida (r3).
+- **Regla de L:** `L` es la última lectura completa de `inst_` en esta pantalla. Solo es candidato lo que ya debía estar cuando se leyó (con 5 minutos de margen) y no estaba. Lo que otra pantalla hace después lo trae la relectura siguiente de la lista (cada 6 h como mucho). Así una pantalla no relee la lista cada vez que otra confirma. La cola en «lista» no espera.
+- Sin candidatos no lee nada. Con candidatos, una transacción (`_fbInstTxInv`) que lee `inst_` y escribe contra lo recién leído, **nunca hacia atrás**, como mucho 300 claves.
+- Mira cada 10 minutos y actúa si pasaron 30 desde la última. Si la base o el puente no llegaron, reintenta cada 5 s hasta 12 veces. Como la lista ya se lee durante la carga, la primera puesta al día se puede pedir antes de que la carga termine: entonces espera con esos reintentos; si cargar tarda más de unos 60 s, la primera corre al tic de 10 minutos. No pierde nada ni escribe de más (lo anotó la revisión 4).
+- Un error permanente la para en esa carga, con UNA línea «⚠️ Etapa 7: la lista de instalados no se pudo poner al día (la base no dio permiso)», en español y solo con la carga terminada y sesión (si no, espera y se mira cada 5 s, sin leer ni escribir nada; en una pantalla que se queda en la entrada, hasta que alguien entre). Uno incierto se reintenta en la vuelta siguiente.
+
+**Los retiros parciales y su prueba en `bit_`** (r1 F2, r2 G2 y G7, r3 H8 a H10). La línea «↩️ Retiro parcial a la cuadrilla …» sale de las 200 del registro en unos 8 días. Por eso, antes de escribir un vuelto `ret_` (la puesta al día, la siembra o «Rehacer»), su línea tiene que quedar **a salvo en `bit_`** (`_instAsegurarRetInv`):
+1. si la línea sigue en la cola del registro largo de este navegador, esta pantalla la manda tal cual la armó el registro largo;
+2. si ya no está en el registro, el vuelto espera (nunca un vuelto sin su prueba);
+3. si esta pantalla ya la mandó, no hay nada que hacer;
+4. si es de una 121, o no trae versión, ninguna pantalla la va a mandar: la copia directo, con sus seriales y la cuadrilla, sea de más o de menos de un día (antes, la de menos de un día dependía del último intento de la transacción: G2);
+5. si es de una 122, se busca en su quincena de `bit_` (un GET por su nombre, en cada puesta al día, cada 30 minutos). Si está, listo; si no se pudo leer, espera; si no está, se copia solo cuando ya nadie la va a mandar, que es en uno de tres casos:
+   - el retiro se hizo en este navegador (su vuelta está en la cola de vueltos de aquí) y su línea ya no está en la cola del registro largo de aquí (punto 1);
+   - la línea es de antes de encender el registro largo y a su hora estaba apagado (según el historial de `config_e7`, `_instBitEncendidoEnInv`): no entró a ninguna cola;
+   - ya pasaron 2 días y 1 hora (los 2 días de la cola del registro largo, con margen).
+
+   Si no, el vuelto espera.
+
+**La línea de una 122 «de antes de encender» se busca primero en `bit_`** (r3, H8): así no quedan dos líneas con el mismo id en el camino normal. Los dos casos raros que quedan están en «Volver atrás». `_instAsegurarRetInv` devuelve `{sin, porque, copiadas, n}`: las vueltas que esperan, por qué espera cada una (`'otra pantalla'`, `'sin leer'`, `'no entró'` o `'sin línea'`), cuántas líneas copió y cuántas vueltas miró.
+
+**«🔧 Rehacer» dice por qué no puso una vuelta** (`_instAvisoRetSinInv`, r3 H9): la línea es de otra pantalla y todavía no llega al registro largo (se puede rehacer cuando llegue, como mucho en 2 días), no se pudo leer el registro largo, `bit_` no la recibió, o la línea ya no está en el registro. Siempre dice «No se cambió nada» (y, salvo cuando la línea es de otra pantalla, «vuelve a intentarlo»). En la r2 decía «no se pudo copiar… vuelve a intentarlo» también cuando la espera era a propósito.
+
+Con el registro largo apagado no se escriben vueltos `ret_` desde el registro, y los de la cola esperan: la lista queda como la 121. Mientras un vuelto espera, ese equipo sale «instalado» (el aviso de más que aceptan E4+E5). Una línea de `bit_` lleva hasta 20 seriales.
+
+**Cargar y leer.** Un GET por año, desde 2026 hasta el año en curso (404 = vacío), al cargar (con el primer aviso del interruptor, mientras la página todavía baja la base, también sin sesión: r3, H3), al encender, cada 6 horas, al abrir 🩺 o la Auditoría (si la copia tiene más de 10 minutos) y en cada puesta al día que tiene candidatos (dentro de su transacción). **No se escucha:** lo de los últimos días ya está en `datos`. Si una relectura falla y ya había una lista buena, se queda con ella y anota el error. Si falla la **primera** lectura (nunca hubo una buena), la lista queda sin cargar: con «En uso», el día a día actúa como con «Escribe», igual que la 121, hasta que una lectura salga bien. Con la lista **«En uso»**:
+- `_instaladoSNInv(datos, hist, clave, idx)` recibe la lista como parámetro **explícito y opcional**, y `_ocupacionSNInv` como `opc.instIdx`; sin ella dan lo mismo que la 121. Con ella, la entrada cuenta como un consumo confirmado más y su `vuelto` como una vuelta;
+- las ventanas que preguntan «¿Volvió y lo tienes en la mano?» (el traslado, la entrada de seriales con 📥 o ➕ SN, ↩️ Devolver y 📤 Entrega) usan una **foto** de la lista (`_e7InstIdxFotoInv`), la misma en la ventana y en su transacción, para que la pregunta no cambie entre las dos. Al reanudar la sesión (la tecla F5, la recarga del celular o la de versión nueva) ya preguntan antes del primer aviso del oyente principal; en la r2 no preguntaban hasta entonces (H3);
+- 🩺 usa la lista «En uso» de la memoria, sin foto (`_datosCasosInv`, que la relee de fondo si tiene más de 10 minutos);
+- la 🛡️ y la Auditoría cuentan lo archivado y siguen de acuerdo entre ellas; la 🛡️ sube de unos 4 a unos 28 avisos y la Auditoría de 1 a unos 7 (E4+E5). Al entrar o salir de «En uso», y cada vez que la lista cambia en la memoria, la base de las alzas se reinicia, para que el salto no se anote como «subió».
+
+**«🌱 Sembrar índice»** (`sembrarInstInv`, solo el administrador, con la lista encendida):
+1. Lee lo mismo que 🩺 (base y archivo, todas las partes, del año en curso y del anterior). Si alguna lectura salió de la copia del equipo o falló, no siembra.
+2. Siembra en memoria (`_sembrarInstInv`): por clave, la **última** confirmación y la **primera** vuelta posterior.
+3. Antes de escribir, copia a `bit_` las líneas de retiro que prueban sus vueltos `ret_` (las de una 122 las busca antes en `bit_`: volver a sembrar no repite una línea que ya está, r3 H8). La ventana dice cuántas copió y cuántas vueltas no se anotaron todavía (la puesta al día lo vuelve a intentar). Con el registro largo apagado, avisa que los equipos de un retiro parcial siguen como instalados, como en la 121.
+4. Escribe de a 300 claves con las reglas de la puesta al día (solo agrega o completa), relee cada `inst_` desde el servidor, compara y guarda el resumen (solo números) en `config_e7`. Deja «🌱 Índice de instalados: …» en el registro.
+5. En `?prueba=1` lee, siembra y compara en memoria, con las mismas pruebas de los vueltos (r1, F9), y no escribe nada.
+
+Con los datos del 2 nov (una siembra simulada en memoria, solo con GET): 754 seriales (185 con vuelto), solo `inst_2026`, unos 48 KB, unas 6.800 entradas de índice (la medición del 2 nov dio 6.400 con la forma de entonces, sin `vop`; la siembra del 3 nov en `?prueba=1` contó 6.800) y unas 36 lecturas, una vez. Si Firebase repite la transacción de la siembra (respuesta perdida), la ventana puede decir menos «entradas escritas» de las que de verdad quedaron: la comparación que sale justo debajo es la que vale.
+
+**«🔎 Comparar índice»** (`compararInstInv`, solo lee; guarda el resumen salvo en `?prueba=1` o si algo no se pudo leer). Para cada clave, A = el «instalado» con base y archivo, sin lista, y B = con base y lista (lo que verá el día a día). Iguales: los dos «no instalado» o el mismo consumo. Las diferencias explicadas (`_instClaseDifInv`):
+
+| Clase | Cuándo |
+|---|---|
+| vuelta comprobada | B dice «no instalado» por un vuelto que base y archivo no prueban, pero sí su `mov_`, su línea del registro o la de `bit_` |
+| kardex recortado | `rep_kdx_…` (o `dev_…` sin `mov_`) y la fila ya no tiene la línea de kardex (tope de 50) |
+| rehecha | `rev_admin` |
+| año viejo | una entrada de un año que el archivo ya no lee |
+| sin fecha / serial raro | un consumo sin fecha legible / una clave no indexable (hoy 0) |
+
+Cualquier otra diferencia es **sin explicar** y cierra el candado. Un vuelto sin `vop`, o cuya prueba no aparece, es sin explicar: es la dirección peligrosa (un equipo instalado pasaría por disponible y al entregarlo no se preguntaría nada). Las pruebas se buscan **por su nombre** (GET del `mov_`, o de la quincena de `bit_`), solo para los vueltos que base y archivo no prueban. El 2 nov: 0 diferencias en 754 seriales.
+
+**«🔧 Rehacer una entrada»** (`rehacerEntradaInstInv`, solo el administrador, fuera de `?prueba=1`). Para un vuelto falso o una entrada que no cuadra, que «nunca hacia atrás» no deja corregir:
+1. lee como la siembra y calcula la entrada correcta de esa clave. Si base y archivo no la dan por instalada, la nueva es la misma instalación con `vuelto` = ahora y `vop:'rev_admin'` (deja de contar; ninguna clave se borra). Un `ret_` de la misma instalación cuya prueba aparece se conserva; un `ret_` nuevo lleva antes su línea a `bit_`;
+2. muestra la de hoy y la nueva, y pide confirmar;
+3. archiva la de hoy en `instrev_<AAAA>` (`arrayUnion` y `merge`);
+4. relee `instrev_` desde el servidor y comprueba que está, comparando la entrada normalizada (Firestore devuelve las llaves de un mapa en otro orden: r1, F3). Si no, no sigue;
+5. solo entonces escribe la nueva, y solo si la entrada fresca es la que se archivó;
+6. registro: «🔧 Índice de instalados: se rehízo la entrada de un serial (quedó en instrev_<año>)».
+
+**La sección de la lista en el panel** (`_cajaE7InstInv`): años cargados y cuándo, claves, con vuelto, peso, entradas de índice (aviso en ámbar a 28.000 si no está marcada la exención), claves no indexables, la cola, cuándo fue la última puesta al día (también si no escribió nada) y si quedó parada, las vueltas de ↩️ Retiro parcial que esperan su línea (el aviso se va en cuanto una vuelta de la puesta al día ya no las encuentra pendientes, por ejemplo porque otra pantalla las escribió: r3, H10), la última comparación y los botones «🌱 Sembrar índice», «🔎 Comparar índice» y «🔧 Rehacer una entrada». En la misma sección, C0 (`_htmlPanelE7Inv`) muestra el candado de «En uso».
+
+### El contrato «la carga terminó» (r2 y r3)
+
+La revisión 2 encontró que la línea «⚠️ Etapa 7» de la r1 podía guardar **antes** de que la página leyera la base (G1, ver «Revisión adversaria»). El arreglo es un contrato que cumplen C0, K1, K2 y K3. La r3 le quitó una pieza de la r2: la retención del aviso del interruptor (ver «Revisión adversaria», «La decisión de la r3»).
+- **la carga terminó** = `Number(window._snapsDatosInv) > 0`. El oyente principal se engancha después de la foto inicial (`_fotoIdsRemotosInv`), así que su primer aviso implica base, clientes, historial y foto ya cargados;
+- antes de eso, o sin sesión, nada de lo nuevo de la 122 llama `logMsg`, `save()` ni `_fbSave*`, ni escribe en `datos` o `historial`;
+- el interruptor vale desde el primer aviso, y el registro largo y la lista de instalados se enteran **enseguida**, también en plena carga o sin sesión (`_recibirCfgE7Inv` les pasa lo que había antes y lo de ahora). Cada uno espera solo lo que escribe: el envío del registro largo espera la carga, y su línea la carga y la sesión; la puesta al día de la lista espera la carga, y su línea la carga y la sesión. Al enterarse, la lista solo lee `inst_` y arranca o para sus relojes: no escribe en `datos` ni en `historial`;
+- lo de después de un guardado (`_e7TrasGuardarInv`) corre también con la carga a medias, porque solo deja cosas en el navegador: la cola del registro largo y los vueltos de la lista que pasan a «lista» (r3, H4);
+- la línea «⚠️ Etapa 7» de una degradación espera la carga y la sesión (`_e7EsperarLineaInv`: mira cada medio segundo, solo mientras esa línea espera); la del registro largo y la de la lista, también. Cada una sale una vez por carga, con el motivo en palabras (los códigos de Firebase solo van a la consola);
+- el panel no deja cambiar el interruptor, ni «Rehacer», con la carga a medias; «🌱 Sembrar índice» tampoco corre (salvo en `?prueba=1`, donde no escribe nada). «Sembrar», «Comparar» y «Rehacer» exigen además la lista encendida;
+- «🔎 Comparar índice» no espera la carga: no escribe en `datos` ni en `historial`, pero con la base a medias puede dar diferencias «sin explicar», que cierran el candado. Se compara con la pantalla ya cargada.
+
+**Una pantalla que se queda en la entrada sin sesión** carga la lista de instalados, envía la cola del registro largo cuando termina la carga y corre la puesta al día. Lo único que espera a que alguien entre son las líneas «⚠️ Etapa 7» (también la de una puesta al día que quedó parada por un error permanente). Si ahí se apaga todo y no hay ninguna línea esperando, quedan los mismos relojes que en la 121 (r3, H11).
+
+### Qué cambia en los datos y quién se entera
+
+| Dónde | Qué | ¿Lo lee otra app? |
+|---|---|---|
+| `inventario/config_e7` | documento nuevo | solo INVENTARIO 122 y la vigilancia |
+| `inventario/mov_<operationId>` | documentos nuevos, uno por operación | en la 122, el propio libro (la puerta y el GET tras un corte) y, siempre por su nombre, la lista de instalados: para probar un vuelto `dev_`, `ent_` o `cor_` (la comparación y la siembra) y para sacar los vueltos de la hoja de otro clic de 🩺 (`mov_cor_<id>`); la vigilancia. La 123 lo usará para cuadrar |
+| `inventario/bit_<AAAA>_<MM>_<q>` | documentos nuevos, uno por quincena | en la 122, solo la lista de instalados, por su nombre, para probar un vuelto `ret_` (la comparación, la siembra, la puesta al día y «Rehacer»); la vigilancia |
+| `inventario/inst_<AAAA>`, `instrev_<AAAA>` | documentos nuevos | INVENTARIO 122 y la vigilancia |
+| `inventario/historial.logs` | líneas nuevas: «🎛️ Etapa 7: …», «⚠️ Etapa 7: …», «🌱 Índice de instalados …», «🔧 Índice de instalados …», y la nota «(quedó; se confirmó después)». La forma, el tope de 200 y la fusión no cambian | INVENTARIO; una 121 las ve como cualquier línea |
+| `inventario/datos`, `inventario/historial` | **no cambian de forma** | — |
+| `localStorage` | `inv_bit_por_enviar` (como mucho 600 líneas, 2 días) e `inv_inst_vueltos` (como mucho 200, 30 días) | solo ese navegador |
+| `oficinas_sistema/*`, `errores_guardado` | no cambian: la 122 no escribe ahí | — |
+
+TÉCNICOS 103 abre de `inventario` solo `datos`, `clientes_index` y `clientes_<i>`; OFICINAS 321, `app_version`, `datos`, `clientes_index`, `clientes_<i>` y `clientes`; RED 44 y `AVISOS_PENDIENTES.gs`, solo `datos` (y `avisos`). Ninguna app ni Apps Script lista la colección `inventario` entera, así que los documentos nuevos no le cuestan lecturas a nadie más. **TÉCNICOS, OFICINAS y RED no se enteran.** Nada se borra. Nada nuevo lleva nombres de personas, cédulas, teléfonos ni claves.
+
+### Convivencia con una INVENTARIO 121 abierta
+
+- **La 121 no lee ni escribe nada nuevo.** Al ver `app_version` 122 (lo anuncia la primera 122 que no es copia local) se marca vieja, deja de escribir y se recarga sola en unos 30 s.
+- **Lo que hizo antes de frenarse:** no tiene hoja en el libro ni entrada en la lista, y sus líneas no van a `bit_`. La lista lo completa la puesta al día (la base guarda la prueba al menos 7 días). El hueco en el libro se acepta: cada hoja lleva su `ver`, y `desde.libro` dice desde cuándo está completo. En `bit_` también se acepta.
+- **Un ↩️ Retiro parcial a una cuadrilla de una 121** solo deja su línea en el registro. La puesta al día y la siembra la leen mientras esté en las 200 (unos 8 días) y la copian a `bit_` antes de escribir el vuelto.
+- **Un 🩺 de una 121 en una cuadrilla** no deja prueba: sin vuelto, el equipo sigue «instalado», igual que hoy con base y archivo (la comparación no lo marca). Si molesta, «🔧 Rehacer una entrada».
+- **TÉCNICOS 103** devuelve material como siempre: la puesta al día escribe el vuelto desde el recuperado (`rep_rec_…`). El libro no ve esa baja: la 123 la explica con el id del recuperado.
+- **Dos 122 a la vez:** el libro decide por el `clic`; la lista se escribe por clave y nunca hacia atrás; el registro largo usa `arrayUnion`. Dos pestañas del mismo navegador comparten la cola, y cada una solo encola lo que creó ella; si una envía la línea de la otra, la otra reenvía el mismo objeto y `arrayUnion` no lo repite.
+- **La vigilancia** con una 121 abierta no dice PARAR por las hojas que faltan: las da «para revisar». Antes de encender hay que esperar a que no quede ninguna pantalla menor que 122 (ver «El encendido», paso 2).
+
+### Volver atrás
+
+La 122 tiene interruptor: **volver atrás es apagar desde el panel, sin publicar.** Vale para todas las pantallas 122 en unos segundos, y también en la pausa del 20 dic al 6 ene.
+
+| Cómo | Qué se pierde | Qué no se pierde |
+|---|---|---|
+| Apagar una pieza | Desde ese momento esa pieza no escribe: un hueco en el libro (`desde.libro` cambia al volver a encender), líneas que no van a `bit_` (siguen en las 200 del registro), la lista sin poner al día | Todo lo ya escrito. `datos` e `historial` intactos. Al volver a encender la lista, la puesta al día y una nueva siembra (solo agrega) la completan; después hay que volver a comparar antes de «En uso» |
+| «⏹️ Apagar todo» | Lo mismo, las tres piezas | Lo mismo |
+| La lista de «En uso» a «Escribe» | Vuelve el olvido de las 2–3 semanas en el día a día | La lista sigue creciendo |
+| Una pantalla degradada | Esa pantalla deja de escribir libro y lista hasta recargar | La operación entra igual, como en la 121 |
+| Borrar `config_e7` por error | Nada: todo pasa a apagado | Lo escrito |
+| Publicar el código de la 121 con un número nuevo (123), si la 122 tuviera un fallo que no se arregla apagando | Nada de lo escrito; el libro, el registro largo y la lista se dejan de escribir | Ojo: con un número menor que el anunciado, el freno de versión la deja «vieja»; por eso se publica con un número nuevo, como dice §16, «Volver atrás» |
+
+**Apagar y volver a encender el registro largo** mueve `desde.bit`. Desde la r3, antes de copiar la línea de un ↩️ Retiro parcial de una 122 que quedó «de antes de encender», la lista la busca en `bit_` (ver «La lista de instalados»): ya no quedan dos líneas con el mismo id en el camino normal, ni en el mismo navegador ni en otro (en la r2 sí, y volver a sembrar lo hacía también en el mismo navegador: H8). Quedan dos casos raros: una línea que pase más de 2 días y 1 hora en la cola del registro largo de otro navegador (sin señal todo ese tiempo) y salga después, cuando la lista ya la copió con su texto; y lo mismo, por segundos, cerca del momento exacto de un apagado (los relojes de las pantallas difieren, o una pantalla todavía ve el registro encendido). Las dos líneas prueban los mismos seriales y la comparación busca por id, así que no da «sin explicar»; no se pierde material ni salen datos personales. El quitarrepetidos por id de la 123 lo limpia. La vigilancia cuenta un id repetido con otro contenido como «para revisar», y solo si es de después de `desde.bit`.
+
+### Decisiones de Elkin (2 nov 2026)
+
+La página para él está en `decisiones_elkin_f2.md`.
+
+| # | Pregunta | Decisión |
+|---|---|---|
+| E0 | ¿La 122 antes de la seguridad? | **Sí**: seguir con el tramo corto antes de S2. Los documentos nuevos (`mov_*`, `bit_*`, `inst_*`, `instrev_*` y `config_e7`) se anotan para S2 fuera del repo |
+| E2 | ¿El registro largo dice el nombre de la bodega y de la cuadrilla? | **Sí**; nunca el de un cliente o un técnico |
+| E4+E5 | Con la lista «En uso», un equipo que volvió por «Retiro parcial» deja de figurar instalado, y salen más avisos en la 🛡️ y la Auditoría | **Aceptar las dos** y avisar antes a la sede con más movimiento |
+| E6 | Si el internet se cae al confirmar, rechazar, unificar o quitar vaciadas | **Mirar el libro** antes de decir «no se hizo»; si fue esa misma pantalla, terminar como si nada |
+| E11 | ¿Pedirle a Firebase que no indexe la lista de seriales? | **Sí, y ya está hecho.** Lo hizo Claude, a pedido de Elkin, el 2 nov en la consola de Firebase, con la sesión de Elkin ya abierta: una exención de índice en la colección `inventario`, campo `sn`, con alcance de colección, sin índice ascendente, descendente ni de arreglos. Se puede deshacer y no toca datos ni reglas. Al encender la lista hay que marcar la casilla en el panel |
+| Encendido | ¿Una parte por día? | **No: todo en una noche** (ver «El encendido»). El candado de «En uso» sigue |
+| F8 (b) | Reparar la ficha del cliente desde `sincronizarMaterialClientes` | **Va en la 123**: podría duplicar material viejo |
+
+E1 y E12 están **por confirmar**: no tienen respuesta escrita, y la 122 quedó con lo recomendado. E1, quién enciende las piezas: se recomienda que sea Elkin, desde el panel (que es solo del administrador). E12, quién mira el gasto: se recomienda una mirada a «Uso» en Firebase a la semana; si el inventario pasa de 1.400 lecturas al día, se apaga la pieza que más gasta, sin publicar. **Se publicó con lo recomendado; falta que Elkin lo confirme (ver «Pendiente», 1).**
+
+### Las decisiones de quien coordina (especificación, §14)
+
+Son 24 (D1 a D24). Las que más pesan:
+- **D1 y D24:** lo nuevo va sin sello (en las transacciones, con `_e7TxEscribirInv`) y sin `equipo` ni `sesion`.
+- **D2 y D3:** el `mov_` se lee antes de `modifFn` (la Entrega, después); se mide contra una copia de antes; el `clic` distingue «mi commit cuya respuesta se perdió» de «lo hizo otra pantalla».
+- **D4:** un choque no frena nada y no escribe libro.
+- **D8:** la lista: entrada ciega al confirmar; ningún vuelto dentro de una transacción de stock; regla de L; claves `^[A-Z0-9]{1,64}$`; medida en entradas de índice; no se escucha.
+- **D10 y D13:** en la 122 el registro largo solo se escribe. Ninguna pantalla lo muestra; solo la lista de instalados busca por su nombre la quincena que prueba un vuelto `ret_`.
+- **D14:** el guardado general (`_fbSaveCore` y sus 25 botones) queda fuera de la 122: la 123.
+- **D16:** el candado de «En uso». **D17:** la degradación. **D18:** los fallos van al registro de INVENTARIO, no a `errores_guardado`. **D19:** la hora de Colombia fija. **D21:** «Rehacer» archiva, relee y solo entonces reemplaza.
+- **D20 (un día por pieza)** quedó reemplazada por la decisión de Elkin de encender todo en una noche.
+- **La de la r3 (3 nov):** quitar la retención del aviso del interruptor que C0 puso en la r2 (ver «El contrato «la carga terminó»» y «Revisión adversaria»).
+
+### El costo (INFO-F2-COSTO)
+
+El plan gratuito da 50.000 lecturas y 20.000 escrituras al día. Todo el sistema usa 19.000–28.000 lecturas; el inventario, 400–700. La regla del plan: la 122 no debe pasar del doble de lo que gasta hoy el inventario.
+
+Medido en el banco con todo encendido (INFO-F2-COSTO, unión r3, dos veces, sola en la máquina; dio lo mismo que con la r1 y la r2):
+
+| Momento | Lecturas de más | Escrituras de más |
+|---|---|---|
+| Cargar la página | +2 (el interruptor y la lista del año) | 0 |
+| ✅ Confirmar | +1 | +3 |
+| ❌, ↩️, 📤 y 🧩, cada uno | +1 | +2 |
+| Cambiar el interruptor (en cada pantalla abierta) | +1 | 0 (el cambio en sí: una transacción que lee y escribe `config_e7`) |
+| **Un día simulado** (30 cargas, 13 ✅, 7 📤, 5 ↩️, 3 ❌, 1 🧩; sin la relectura de la lista cada 6 h ni la puesta al día) | **+89** | **+71** |
+
+- La estimación de la especificación (§10) para un día real: unas **70–175 lecturas** y **50–150 escrituras** de más. Sube el inventario entre 10 % y 44 %: menos del doble. Las escrituras son menos del 1 % del tope. La estimación sí cuenta la relectura de la lista cada 6 h (7–14 lecturas al día) y la puesta al día (0–10), que el día simulado no trae.
+- Una vez: la siembra, unas 36 lecturas. A pedido: «🔎 Comparar», unas 36 más una por cada vuelto que haya que comprobar. La vigilancia: unas 120–190 por corrida (a diario la primera semana, después una vez por semana).
+- Cada año nuevo suma una lectura por carga para siempre (desde enero de 2027, la lista se lee de dos años). Anotarlo para la decisión de febrero.
+- Los arreglos de las revisiones no agregan lecturas ni escrituras en el camino normal: el vigía del registro largo y la espera de la línea de una degradación solo miran la memoria; el mecanismo «tarde» solo lee cuando hay algo recordado; la copia de una línea a `bit_`, y el GET de su quincena, solo ocurren con un vuelto `ret_` cuya línea no está a salvo (el GET de la r3, H8, solo con la línea de una 122 que quedó «de antes de encender»). Que la lista se entere enseguida del interruptor no agrega lecturas: lee `inst_` igual, solo que antes.
+- **INFO-F2-COSTO varía con la carga de la máquina:** en la junta r2, con 10 procesos a la vez, la unión r2 salió con +3 al cargar y +119 en el día (la r1, en la misma tanda, +4 y +149). Con la máquina tranquila, las dos dieron +2 y +89, igual que la r3. Medirlo con la máquina tranquila.
+
+### El encendido, todo en una noche (especificación, §9.1)
+
+Elkin decidió el 2 nov encender las tres piezas **la misma noche**, no una por día. El orden dentro de la noche importa:
+1. **Publicar la 122 con todo apagado** (sin `config_e7`), con los pasos de siempre (ver «Al publicar»).
+2. Esperar a que no quede ninguna pantalla de INVENTARIO menor que 122. Para verlo: tocar «🔄 Ver pantallas» en ⚙️ Configuración («📺 Pantallas abiertas») y volver a abrir el panel 🎛️, que entonces dice cuántas hubo con latido en las últimas 24 h. Sin esa lectura, el panel no las cuenta.
+3. **Esa misma noche, en cuanto el panel muestre 0 pantallas menores que 122, en el panel 🎛️ y en este orden:**
+   1. el libro en «Escribe»;
+   2. el registro largo en «Escribe», **antes que la lista**;
+   3. la lista en «Escribe», marcar la casilla de la exención y «🌱 Sembrar índice» (siembra, relee y compara).
+4. Si la comparación da **0 sin explicar**, la lista pasa a «En uso» esa misma noche (la sede con más movimiento ya avisada: E4+E5). Si no, se queda en «Escribe» y se revisa con calma: el candado no deja otra cosa.
+5. **Al día siguiente**, `vigilar_f2.cjs`. Si dice PARAR, la lista vuelve a «Escribe» con un clic y se mira el motivo; si dice SEGUIR, la vigilancia sigue a diario la primera semana y luego una vez por semana hasta la 123.
+
+**Por qué el registro largo va antes que la lista.** Al encender todo en una noche, todas las líneas de retiro parcial que ya están en el registro son anteriores a `desde.bit`, así que su pantalla nunca las manda a `bit_`. La siembra y la puesta al día las copian a `bit_` antes de escribir cada vuelto `ret_`; con el registro largo apagado no escriben vueltos `ret_`, para no dejar uno sin prueba duradera. Si la lista se encendiera primero, esos equipos quedarían «instalados» hasta encender el registro largo.
+
+Todo antes del 20 dic. En la pausa del 20 dic al 6 ene se puede **apagar**, no publicar. Si se atrasa, se publica apagada y se enciende después del 6 de enero.
+
+### La vigilancia (`vigilar_f2.cjs`)
+
+- Está en el banco (`trabajo/vigilar_f2.cjs`). La de `etapa7b/f2/tools/` es anterior a la r1: no sirve.
+- Solo lee, documento por documento y por su nombre. No escribe nada, ni en la base ni en el disco. Imprime solo cantidades, tamaños, ids, versiones, fechas y roles: nunca el contenido de un registro. Los datos personales que lee se usan solo en la memoria, para buscar fugas; de un hallazgo dice dónde y de qué clase, nunca el valor.
+- Uso: `node vigilar_f2.cjs --horas=48 --inv-f2=122 --esperado=libro,bit,inst --exencion-sn`. Con `--docs=<volcado.json>` lee un volcado del banco en vez de la nube; `--html=` o `--commit=` dicen de dónde sacar las funciones de INVENTARIO; además `--ahora=` y `--max-mov=`. Hace todo lo de `vigilar_f0.cjs`.
+- **Por defecto saca las funciones de INVENTARIO de `git show HEAD` del repo.** Hay que correrla después del commit de la 122, o con `--html=` el archivo publicado: con la 121, que no trae `_compararInstInv`, y la lista «En uso», da ERROR.
+
+| Mira | PARAR si |
+|---|---|
+| `config_e7` (1 GET) | está mal escrito y alguna pieza debía estar encendida |
+| `inst_` del año y del anterior (2 GET): peso, claves, vueltos sin `vop`, entradas de índice | pasa de 700 KB; pasa de 34.000 entradas (salvo `--exencion-sn`); una entrada sin `c`, `ms` o `cu`; un vuelto que no es mayor que `ms` |
+| `bit_` de esta quincena y la anterior (2 GET) | pasa de 700 KB (en la 122 no hay parte `_2`) |
+| El registro contra `bit_` (r1, F7): cada línea de una 122, de la ventana, desde `desde.bit`, de hace más de 30 minutos, se busca por su id | faltan 5 o más **y** son más del 20 % |
+| La lista blanca de todo lo nuevo que leyó | cualquier llave fuera de la lista, o un nombre, cédula, teléfono o dirección |
+| Las hojas `mov_` que tendrían que estar, **por su nombre** (máximo 200 GET) | falta una y en la ventana no hubo pantallas menores que 122 |
+| La lista contra el «instalado» de hoy (datos, historial y los archivos de consumos, entregas, recuperados y traslados, con la regla de huecos; las funciones sacadas del HTML) | diferencias sin explicar con la lista «En uso» (con «Escribe», se informa) |
+| El registro de INVENTARIO | una o más líneas «⚠️ Etapa 7» en la ventana (dice aparte cuántas son «el registro largo no se pudo enviar») |
+
+- **Para revisar** (sin parar): una pieza esperada que está apagada; la lista «En uso» con la última comparación de hace 7 días o más; una hoja que falta con pantallas menores que 122 en la ventana, o en los primeros 2 minutos de una carga o de un encendido; pocas líneas que faltan en `bit_`; un id dos veces en `bit_` con distinto contenido (solo entre las líneas de después de `desde.bit`); pantallas menores que 122 con alguna pieza encendida.
+- Nada de lo leído se compara por el orden de sus llaves (Firestore las devuelve en otro orden).
+- La última línea dice **PARAR** (sale con 1) o **SEGUIR** (con 0). Si algo no se pudo leer después de 3 intentos, dice «ERROR» y sale con 2.
+- Probada solo con volcados del banco: INFO-F2-VIGILANCIA 36 de 36; los volcados buenos dan SEGUIR (el de una 121 abierta, con «para revisar») y los rotos dan PARAR, cada uno por su motivo, sin datos personales en ninguna salida. El volcado de X-F2-INST-CHEQUEO da PARAR («2 sin explicar»): es la lectura correcta para esos datos, que ponen en la lista consumos que no están ni en la base ni en el archivo. Contra la base real se corre por primera vez al día siguiente del encendido (ver «Al publicar», paso 7).
+
+### Revisión adversaria (2 y 3 nov 2026)
+
+Se buscaron fallas a propósito en cuatro rondas, con lentes por tema, cada una sobre la unión anterior. Los hallazgos se llaman F1 a F15 (revisión 1), G1 a G11 (revisión 2) y H1 a H11 (revisión 3): esos F no son las fases F0, E7-F2 y E7-F3 del plan. Los hallazgos altos y medios los revisaron dos escépticos por separado: uno los reprodujo con las apps reales en el banco (o con las funciones reales sacadas del archivo) y otro leyó el código. Es **confirmado** si los dos dijeron que sí y **dudoso** si uno dijo que sí y el otro que no. Los bajos se arreglaron sin pasar por los escépticos. Las reproducciones de los escépticos quedaron en `etapa7b/f2/revision1/` a `revision3/`. La revisión 4, sin hallazgos, no tuvo escépticos: sus búsquedas y corridas están en `revision4/`. Cada carpeta tiene su `resultado.json`. **Las dos primeras rondas de arreglos metieron fallas nuevas:** G1 y G5 las metieron arreglos de la r1 (F7 y F14), y diez de los once de la revisión 3 (todos menos H7) salieron de arreglos de la r2: los dos medios confirmados, H1 y H2, los metieron G8 y G5. Por eso se repitió hasta una ronda sin hallazgos: la cuarta, que revisó los arreglos de la r3.
+
+**Primera revisión (2 nov): 15 hallazgos**, con seis lentes (las puertas, el libro, la lista, el registro largo, la convivencia y los contratos entre partes): 9 medios (5 confirmados y 4 dudosos) y 6 bajos. Ninguno alto, ninguno refutado. Se arreglaron todos menos F8 (b), que va en la 123.
+
+| Hallazgo | Gravedad · estado | Cómo quedó |
+|---|---|---|
+| F1 · Tras un choque y un corte, ✅ o ❌ decían «✅ Ya había quedado hecho (en otra pantalla)» con el consumo todavía pendiente | media · dudoso (los dos escépticos la dejaron en baja, y uno no la dio por real. Los dos mostraron que un respaldo restaurado no produce el choque: solo una escritura a mano, o un caso rebuscado con un consumo ya archivado) | El choque deja una marca que no se borra entre intentos, y con ella no se mira el libro. Con la hoja de otro clic y el consumo pendiente en la memoria, dice que no se pudo saber |
+| F2 · Los vueltos `ret_` sacados del registro perdían su única prueba a los ~8 días: la comparación los daba «sin explicar», el candado no se abría, la vigilancia decía PARAR y «Rehacer» quitaba una vuelta real. Con todo encendido en una noche era lo más serio | media · confirmado | Su línea se copia a `bit_` (la r2 la deja antes del vuelto: G2). Con el registro largo apagado no se escriben vueltos `ret_` |
+| F3 · «Rehacer» no terminaba nunca con Firestore real: comparaba con `JSON.stringify` y Firestore devuelve las llaves en otro orden. El banco no lo veía | media · confirmado | Compara la entrada normalizada. El banco ahora devuelve las llaves ordenadas o barajadas (`F2_ORDEN_LLAVES`) |
+| F4 · Con una pestaña duplicada, una línea ya enviada salía otra vez rearmada y sin frase: dos veces en `bit_` | media · confirmado | Solo se encola lo que creó esta carga, y una línea con frase nunca se rearma |
+| F5 · 🩺 en una cuadrilla con el libro apagado dejaba un vuelto `cor_` sin prueba | media · confirmado | El vuelto `cor_` entra solo si su `mov_` entró en el mismo commit |
+| F6 · Un rechazo de `inventario/datos` se tomaba como «Firebase rechazó lo nuevo» y apagaba la pantalla sin dejar línea | media · dudoso | No se degrada por `datos` o `historial`; si sin lo nuevo falla igual, se deshace; si falla por otra razón, queda apagado y con su línea |
+| F7 · La vigilancia decía SEGUIR aunque `bit_` no recibiera las líneas | media · dudoso | La vigilancia cruza el registro con `bit_`, y un envío rechazado para siempre deja UNA línea «⚠️ Etapa 7». **Esta línea metió G1** |
+| F8 · Corte largo al confirmar: el material nunca llegaba a la ficha del cliente ni al registro (ya pasaba con la 121) | media · dudoso | (a) El mecanismo «tarde». (b) Reparar desde `sincronizarMaterialClientes`: la 123 |
+| F9 · «🌱 Sembrar» en `?prueba=1` comparaba sin las pruebas de los vueltos | media · confirmado | Usa las mismas pruebas que la siembra de verdad |
+| F10 · Con `config_e7` mal escrito, cambiar una pieza encendía las otras guardadas, también la lista «En uso» sin candado | baja | Se escriben las tres piezas como las mostraba el panel |
+| F11 · 🩺 que vuelve a poner un serial instalado en una cuadrilla: si el clic que escribió no dejaba su vuelto, nadie lo escribía | baja | Con el mismo clic, lo deja la puerta; con otro, sale de la hoja `mov_cor_<id>` |
+| F12 · Cuartos tras un corte: «❌ No se creó la conexión» y a la vez «No se pudo confirmar si quedó» | baja | Solo «⚠️ No se pudo confirmar si quedó» |
+| F13 · El panel y «📤 Enviar ahora» mostraban el código de Firebase en inglés | baja | En español, por clase de error |
+| F14 · La red de nombres solo tapaba el nombre completo | baja | También un nombre y un apellido seguidos de una misma persona. **Este arreglo metió G5** |
+| F15 · La línea del registro al cambiar el interruptor usaba los códigos («inst pasó de escribir a leer») | baja | Con las palabras del panel |
+
+La revisión miró además lo que los constructores hicieron fuera de la letra de la especificación: de 25 miradas (algunos puntos los vieron varias lentes), solo 2 pidieron cambios: la línea de la degradación cuando la repetición falla (quedó en F6) y el aviso de los cuartos (F12). Lo demás se queda (ver «Lo que se apartó de la especificación»).
+
+**Segunda revisión (2 y 3 nov): 11 hallazgos** (G1 a G11), con cinco lentes (C0, K1, K2, K3 y una transversal), sobre la unión r1. 1 alto y 1 medio confirmados, 4 medios dudosos y 5 bajos. Además dio por bien hechos 31 puntos de la r1 (arreglos y garantías, como «con todo apagado, lo mismo que la 121»). **Dos los metieron arreglos de la r1:** G1 (la línea de F7) y G5 (la red de F14). G8, G9, G10 y G11 son detalles que dejaron F8 (a), F6, F13 y F10/F15. G2, G3, G4, G6 y G7 ya estaban antes de la r1. Se arreglaron todos.
+
+| Hallazgo | Gravedad · estado | Cómo quedó |
+|---|---|---|
+| G1 · La línea «⚠️ Etapa 7» de F7 llamaba `logMsg` → `save()` también **al cargar**, antes de leer la base. Con `bit_` rechazado para siempre y líneas en la cola, ese guardado temprano podía guardar valores de fábrica de la configuración en lugar de los de la nube, devolver a una cuadrilla un equipo que otra pantalla acababa de sacar y mostrar en cada carga el aviso de clientes incompletos; con una carga rápida, la línea se perdía. Hoy no pasa: con quincenas muy por debajo de 1 MiB, Firebase no rechaza `bit_` para siempre. Pasaría si una regla nueva lo dejara fuera (o con una quincena llena) | **alta** · confirmado | El contrato «la carga terminó», en C0, K1, K2 y K3 (la r3 le quitó la retención del aviso del interruptor) |
+| G2 · La línea de un retiro de menos de un día no llegaba nunca a `bit_` si Firebase repetía la transacción del vuelto (el hallazgo F2 por otro camino) | media · dudoso | La línea va a `bit_` ANTES del vuelto, también la de menos de un día |
+| G3 · Corte de más de 10 minutos: lo recordado se soltaba sin mirar el libro | media · dudoso | Nunca se suelta sin leer; después de 10 minutos, cada 5 |
+| G4 · «Pedro A. Ejemplo» y los dos apellidos de un nombre de 4 palabras pasaban | media · dudoso | El tramo cruza una inicial y tapa los dos apellidos. Tapa de más, a propósito |
+| G5 · La red de F14 tapaba nombres de bodega, cuadrilla o material cuando un cliente de 3 palabras (una institución) los contenía | media · confirmado | En la pasada parcial no tapa lo que cae dentro de un sitio o material de la memoria, salvo la gente de la empresa (la r3 lo dejó solo en bodegas y cuadrillas: H2) |
+| G6 · El panel le daba a Elkin el plan viejo («un día cada parte», «3 días o más») | media · dudoso | El panel da el orden de la noche |
+| G7 · Un vuelto `ret_` de la cola se escribía con su línea todavía en la cola del registro largo | baja | El vuelto espera a que su línea esté en `bit_`; con el registro largo apagado, espera |
+| G8 · Lo terminado «tarde» sin pulsar no daba los avisos | baja | Si hay un aviso, sale la ventana con él (la r3 cambió cómo: H1) |
+| G9 · La línea decía «dio error también» cuando la repetición se cortó, y daba el código en inglés | baja | Tres textos, con el motivo en palabras (la r3 separó el corte de red de otro error incierto: H5) |
+| G10 · El panel seguía con el error después de volver a salir bien | baja | Un envío bueno borra el error (y, desde la r3, la cola vacía: H7) |
+| G11 · «Últimos cambios» con códigos, y «no → no» al reparar | baja | Con las palabras del panel y lo que había |
+
+Al unir la r2 hubo un conflicto de diseño entre C0 y K3: X-F2-INST-PARADA-SESION preparaba «la puesta al día parada sin sesión» con la pantalla de entrada y, con la espera que C0 tenía en la r2, la puesta al día ni arrancaba si no había nadie adentro. Se resolvió en el escenario, que aceptaba los dos caminos; la guarda de K3 para ese caso (`_instAnotarParadaInv`) solo se alcanzaba si alguien entraba y después cerraba sesión sin recargar. Con la r3 el conflicto desapareció: sin la retención, la puesta al día corre también en la pantalla de entrada, y el escenario volvió a exigir un solo camino: con Firebase rechazando `inst_` para siempre, la puesta al día corre sin sesión, queda parada y su línea espera a que alguien entre.
+
+**Tercera revisión (3 nov): 11 hallazgos** (H1 a H11), con cinco lentes (C0, K1, K2, K3 y una transversal), sobre la unión r2. Ninguno alto: 2 medios confirmados, 2 medios dudosos y 7 bajos. Además dio por bien hechos 26 puntos de la r2. Casi todos vienen de arreglos de la r2: H1 lo metió el de G8 y H2 el de G5; H3, H4, H6 y H11, la retención que C0 puso en la r2 para G1. H5 y H8 a H10 también salen de arreglos de la r2. Solo H7 ya estaba (G10 no cubrió ese camino). Se arreglaron todos. El resultado está en `etapa7b/f2/revision3/resultado.json`; cómo quedó cada uno, en el informe de la junta r3 (`build/r3/junta/informe_r3.md`, §6).
+
+| Hallazgo | Gravedad · estado | Cómo quedó |
+|---|---|---|
+| H1 · Lo terminado «tarde» sin pulsar (el arreglo de G8): en ✅, la ventana con el aviso se abre **antes** de que suba el guardado. La ficha del cliente y la línea quedan solo en la memoria hasta que alguien pulse Aceptar; si la pestaña se cierra o se recarga antes, se pierden (el consumo ya trae `materialAplicadoCliente`, y «🔄 Sincronizar» no lo repara) | media · confirmado | K1: la ficha y la línea se mandan a guardar primero, y el aviso va en la ventana de la app o en una franja por debajo de otra ventana, nunca con `alert()` |
+| H2 · La protección de sitios de G5 incluía los nombres libres de los artículos de bodegas y cuadrillas, también los recuperados escritos a mano: un nombre y apellido de cliente escrito en un artículo («ONU de Pedro A. Ejemplo») pasaba a `bit_`. La r1 ya lo tapaba (F14) | media · confirmado | K2: solo se protegen los nombres de bodega y cuadrilla. Un material que coincide con un cliente sale tapado: tapar de más, aceptado |
+| H3 · Con la lista «En uso», al reanudar la sesión (la tecla F5, la recarga del celular o la de versión nueva), «¿Volvió…?» no sale hasta el primer aviso del oyente principal; al entrar desde la pantalla de entrada, unos 2 s. La retención de C0 (G1) retrasó la lectura de `inst_` | media · dudoso (los dos escépticos la dejaron en baja; uno no la dio por defecto: es efecto de una decisión de la r2) | C0, con la decisión de la r3: el aviso del interruptor llega enseguida y la lista se lee durante la carga |
+| H4 · Una línea del registro guardada antes del primer aviso del oyente no llega nunca a `bit_` si en esa carga no hay otro guardado: `_e7TrasGuardarInv` salta lo de K2 con la carga a medias y nadie lo repite | media · dudoso (uno la reprodujo y la dejó en media; el otro no la dio por real, porque el camino no se alcanza en producción, y la dejó en baja) | C0: `_e7TrasGuardarInv` corre también con la carga a medias; la línea se encola y sale al terminar la carga |
+| H5 · La línea «⚠️ Etapa 7» dice «se cortó la conexión» cuando la repetición falla por un choque o por la cuota; los comentarios de C0 dicen que un choque da «dio error también» | baja | C0: «se cortó la conexión» solo con un error de red; con otro error incierto, «la base no la confirmó» |
+| H6 · X-F2-R2-C0-ARRANQUE-* pasan también sin la retención de C0: prueban la guarda de K2, no el arreglo de C0. Solo una prueba de PRUEBAS lo nota | baja | C0: X-F2-R2-C0-ARRANQUE-VACIA comprueba ahora lo propio de C0: que el aviso llega en plena carga |
+| H7 · Si la cola compartida la envió otra pestaña, el panel sigue diciendo que «así no va a salir» y «📤 Enviar ahora» responde «✅ Listo: 0» | baja | K2: con la cola vacía se borran el error y la cuenta de fallos, y «Enviar ahora» dice que no queda nada por enviar |
+| H8 · Volver a sembrar después de apagar y encender el registro largo copia otra vez a `bit_` las líneas de ↩️ Retiro parcial que su pantalla ya mandó: también en el mismo navegador, con el mismo id y otro texto. La vigilancia no lo ve | baja | K3: antes de copiar la línea de una 122 se busca en `bit_`. Quedan dos casos raros, anotados (ver «Volver atrás») |
+| H9 · «🔧 Rehacer» dice «No se pudo copiar al registro largo… vuelve a intentarlo» cuando no intentó copiar: la línea es de otra pantalla y se espera a propósito hasta 2 días y 1 hora | baja | K3: dice por qué espera, en palabras |
+| H10 · El panel de la lista sigue diciendo que una vuelta de ↩️ Retiro parcial espera su línea después de que el vuelto ya se escribió, y a la vez «Sin puestas al día en esta pantalla (no ha hecho falta)» | baja | K3: cada vuelta rehace el aviso, y el panel dice cuándo fue la última puesta al día |
+| H11 · Tras cerrar sesión, «⏹️ Apagar todo» deja vivos en la pantalla de entrada un sondeo de C0 cada 500 ms y el reloj de 10 minutos de K3, hasta que alguien entre | baja | C0, con la decisión de la r3: apagado todo y sin nada pendiente, quedan los relojes de la 121 |
+
+Lo que se dejó así a sabiendas está en «Pendiente»: el tapar de más de H2, los dos casos raros de H8 y la espera de una línea «⚠️ Etapa 7» de una degradación en una pantalla donde nadie entra.
+
+**La decisión de la r3 (quien coordina).** En la r2, C0 retenía el aviso del interruptor a K2 y K3 hasta que la carga terminara y hubiera sesión, y lo de después de un guardado no corría con la carga a medias. La revisión 3 quitó la retención en una copia de prueba y comprobó que K2 y K3 ya se protegían solos (el envío y la puesta al día esperan la carga; sus líneas, la carga y la sesión) y que todos los escenarios de G1 pasaban sin la retención. En cambio, la retención causaba H3, H4, H6 y H11. Quien coordina decidió quitarla: el aviso vuelve a llegar enseguida, como en la r1, y cada parte espera solo lo que escribe (ver «El contrato «la carga terminó»»). También se quitó una función de C0 que nadie llamaba. De la espera de C0 quedó solo la de la línea de una degradación, ahora en una función propia (`_e7EsperarLineaInv`, nueva en la r3). Tres de los 26 puntos que la revisión 3 dio por buenos (dos sobre la retención y uno sobre el freno de lo de después de un guardado) cambiaron a propósito con esta decisión.
+
+**Al unir la r3:** 12 uniones, ningún conflicto de texto ni de diseño (el de la r2 desapareció con la decisión). Uno de clasificación: el escenario nuevo G-F2-INST-AVISO-CARGA, de K3, falla con la 121, así que es un X; se renombró X-F2-INST-AVISO-CARGA, sin cambiar nada más. Cada componente quedó entero en la unión, y ninguna función la cambiaron dos.
+
+**Cuarta revisión (3 nov): ningún hallazgo**, con tres lentes sobre lo que cambió la r3 (C0 con lo transversal, K1, y K2 con K3). Dio por bien hechos 17 puntos de la r3. El resultado está en `etapa7b/f2/revision4/resultado.json`.
+- **C0 y lo transversal:** leyó lo que cambió C0 y lo que lo rodea (el envío y el vigía del registro largo, la carga y la puesta al día de la lista, el guardado, el arranque y el cierre de sesión). Con el aviso enseguida, en plena carga o sin sesión, ningún camino escribe en `datos` o `historial` ni llama `logMsg` o `save()`; con todo apagado quedan los relojes de la 121; y las pruebas de C0 fallan por la razón correcta. Corrió 4 escenarios y 2 pruebas: pasan.
+- **K1:** solo el cambio de H1. El guardado sale antes del aviso en todos los caminos del modo «solo»; la ventana o la franja no pisan lo que la bodega está escribiendo; el aviso no sale dos veces; el ✅ normal queda como en la r2. X-F2-R3-LIB-SOLO-AVISO pasa.
+- **K2 y K3:** H2 solo achica la lista de sitios protegidos, así que solo puede tapar más, nunca menos; H7 no esconde un rechazo que sigue vivo; H8 a H10 no dejan líneas dobles, ni vueltas esperando para siempre, ni «sin explicar». Corrió 12 escenarios con las llaves barajadas, 3 pruebas y uno propio de la noche del encendido, con un apagado del registro largo en medio (R4-NOCHE-APAGON): pasan. La primera corrida de ese último falló en su último paso por la regla de L, que es así a propósito: una pantalla no busca lo que otra hizo después de su última lectura de la lista (con 5 minutos de margen). Con el escenario ajustado, una pantalla con el reloj 6 minutos adelante (como hace X-F2-INST-REHACER-ESPERA), pasa.
+
+Las tres lentes dejaron observaciones que no son hallazgos: van en «Pendiente» (puntos 3, 4 y 6), en «La lista de instalados» (la puesta al día) y en «Huecos de prueba».
+
+### Pruebas
+
+Las cifras son de la unión r3, la última (informe de la junta r3, §5); lo que se publica, `build/final_nombres`, está en «La corrida final». Todas en el banco, sobre la base simulada y compartida: ninguna corrida tocó la base real. Las juntas r2 y r3 se cortaron a mitad de las corridas: las dos se rehicieron enteras desde la ronda anterior, y no se usó ninguna cifra de la corrida cortada (quedó en `_interrumpida/`). La r2 corrió hasta 10 procesos a la vez y la r3 como mucho 7; por eso el costo se midió aparte, con la máquina tranquila.
+
+**`PRUEBAS.html`: 229 pruebas**, 25 nuevas, cuyo título empieza por «Etapa 7 · E7-F2» (13 sin ronda y 12 con «r1», «r2» o «r3»). Ninguna escribe en la base real: corren con dobles o solo leen.
+
+| Parte | Qué comprueban |
+|---|---|
+| C0 (7) | El interruptor (ausente, mal escrito, valores raros); las puertas (sin `op` o apagado, lo de la 121; el `mov_` antes de `modifFn`; «ya»; choque; la copia de antes con un `modifFn` que cambia lo que recibe; sin sello; `mergeFields`); la degradación (r1: un rechazo que no es de lo nuevo; la repetición que falla; r3: el corte de red y otro error incierto, H5); el interruptor mal escrito y la línea con las palabras del panel; el panel con el orden de la noche y el historial al reparar; con la carga a medias o sin sesión, el aviso del interruptor llega enseguida al registro largo y a la lista, pero lo nuevo no escribe en el registro: la línea «⚠️ Etapa 7» espera la carga y la sesión, una línea guardada antes de terminar la carga llega a `bit_` y apagar todo en la entrada no deja relojes de más (r3: reemplaza la prueba de la r2, que probaba la retención; H3, H4, H6, H11) |
+| K1 (4) | Las líneas del libro y su lista blanca; «ya había quedado» en los 8 botones, con el mismo clic y con otro, y el libro antes de decir «no se hizo»; F1 y F12; lo que entró sin saberse (casos de G3, G8 y G1; y H1: sin ventana del navegador, con el aviso en la ventana de la app o en la franja) |
+| K2 (6) | La frase (llaves en orden, cada plantilla con su tipo); toda llamada que nombra a una persona pasa su frase y toda etiqueta de `_logAceptadosSNInv` calza; solo sale lo que llegó a la nube y en `?prueba=1` nada; la red de nombres (F14, G4, G5 y H2: un artículo con el nombre de un cliente sale tapado); el rechazo para siempre deja una línea y el panel lo dice en español; nada antes de que termine la carga, y un envío bueno, o la cola vacía, borra el error (G10, H7) |
+| K3 (6) | Sin lista, el «instalado» de la 121; con ella, lo archivado, la vuelta y la 🛡️ igual a la Auditoría; las funciones puras de la lista; la siembra con los datos de la base en `?prueba=1`; el vuelto `ret_` con su línea en `bit_` y 🩺 de otro clic; la línea antes del vuelto, la cola que espera y la línea en español; la línea de una 122 «de antes de encender» se busca en `bit_` antes de copiarla, «🔧 Rehacer» dice por qué espera y el panel deja de decir que espera (r3: H8, H9, H10) |
+| K4 (2) | Los documentos nuevos con datos reales (solo lee: lista blanca y ningún nombre); en `?prueba=1` nada escribe aunque el interruptor esté encendido |
+
+- **Completo** (`TODO=1 GRUPOS=inv,ofi,red`, OFICINAS de `build/base`): **228 corridas, 227 bien**, 1 falla: la vieja «Rastreador v314: la ficha de una factura REAL de WispHub…» (en el banco WispHub es simulado). 0 errores de página, 0 escrituras en la base simulada, y el navegador termina sin sesión (`"ses":null`). Bien por grupo: INVENTARIO 101, OFICINAS 94, RED 32. La 229 es la de Firma, que el corredor no abre. Solo E7-F2: 25 de 25. Con la 121 (su propia PRUEBAS, en la primera junta): 203 corridas, 202 bien y la misma falla.
+- **Ninguna prueba vieja cambió de sentido.** Una de RED («Etapa 6 · Ninguna app late en modo prueba…») lee un tramo del texto del módulo (desde `window._fbLatidoInv`) y fallaba porque ahí cayó un comentario de C0 sobre `_e7TxLeerInv` que decía `tx.update(`: se reescribió el comentario en la junta. C0 corrió PRUEBAS solo con `GRUPOS=inv` y no lo vio: por eso PRUEBAS se corre siempre con `GRUPOS=inv,ofi,red`.
+
+**El banco, `inv/f2.js`: 88 escenarios** (66 X y 22 G) y 4 INFO (ARNES, BANCO, COSTO y VIGILANCIA, que corren solo si se piden). **X** = falla con la 121 y pasa con la 122; **G** = guarda que pasa con las dos. Algunos llevan la ronda en el nombre (`R1`, `R2`, `R3`); los de K3 y los de K2 de la r1, no: la tabla dice de qué ronda es cada uno.
+
+| Grupo | Escenarios |
+|---|---|
+| C0 | X-F2-C0-PUERTAS; G-F2-EXTRA-RECHAZADO (`inst_` y `mov_` rechazados: la operación entra igual, con la línea una vez). De la r2: X-F2-R2-C0-ARRANQUE-VACIA, -CUADRILLA y -NORMAL (la r3, H6, cambió VACIA: ahora comprueba que el aviso del interruptor llega en plena carga). De la r3: X-F2-R3-C0-LEER-RECARGA (H3), X-F2-R3-C0-BIT-ANTES-CARGA (H4) y G-F2-R3-C0-APAGAR-EN-ENTRADA (H11) |
+| K1 · libro | X-F2-LIB-CONF, LAPIDA, RESP-CONF, RESP-CTO, INCIERTO-UNIF, COR-CUAD, DEV-KARDEX, ENT, RECH, LIM y CTO; G-F2-LIB-ENT-YA-TARDE, CHOQUE, DOS y F0-ENT. De la r1: X-F2-R1-LIB-TARDE y G-F2-R1-LIB-TARDE-OTRO. De la r2: X-F2-R2-LIB-TARDE-LARGO. De la r3: X-F2-R3-LIB-SOLO-AVISO (H1) |
+| K2 · registro largo | X-F2-BIT-ESCRIBE, SIN-NOMBRES, RECARGA, RETIRA y DOS. De la r1: X-F2-BIT-PESTANA-DUP, COLA-COMPARTIDA y RECHAZADO. De la r2: X-F2-R2-K2-ARRANQUE-VACIA, -CUADRILLA, -NORMAL, -LENTO, -LENTO-CUAD, ERROR-RESUELTO, NOMBRES y NOMBRES-FLUJO (la r3 cambió NOMBRES, por H2, y la forma de medir de los ARRANQUE: el ayudante `k2r2MarcarCarga` envuelve `window._fbBitEnviarInv` en sus páginas y cuenta las llamadas al puente con la carga a medias; ningún otro escenario toca ese puente). De la r3: X-F2-R3-K2-MATERIAL (H2) y X-F2-R3-K2-ERROR-OTRA-PESTANA (H7) |
+| K3 · lista | X-F2-INST-CONF, OLVIDO, DEV, ENT, COR-CUAD, RETIRO-CUAD, RETIRO-121, REPARA-121, REPARA-TEC, SIEMBRA, VUELTO-FALSO y CHEQUEO; G-F2-INST-RETIRO-SIN-GUARDAR, SIN-RELEER, CARRERA, ATRAS y PRUEBA. De la r1: X-F2-INST-RET-BIT, RET-BIT-NO, REHACER-RET, REHACER-COPIA, REHACER-ORDEN, COR-SINLIBRO y COR-OTRO-CLIC. De la r2: X-F2-INST-RET-REPITE, SIEMBRA-REPITE, REHACER-REPITE, RET-COLA-BIT y PARADA-SESION (desde la r3 exige que la puesta al día corra sin sesión y quede parada). De la r3: X-F2-INST-RESIEMBRA (H8), REHACER-ESPERA (H9), PANEL-ESPERA (H10) y AVISO-CARGA (comprueba la decisión de la r3; nació como G y en la unión pasó a X, porque falla con la 121) |
+| K4 · convivencia | G-F2-APAGADO, CFG-ROTA, CFG-CAMBIA, 121-ABIERTA, TEC103, OFI321, VIEJA, LISTA-BLANCA, REGLAS y ESTRES |
+
+- **Con la unión r3:** **88 de 88** (1.073 ✓, 0 ✗), en 1.362 s con `F2_ORDEN_LLAVES=ordenar` y en 1.366 s con `barajar`. Ninguno con errores de JavaScript ni con hallazgos de lista blanca.
+- **`--publicado`** (la 121 de git `c8173b2`, 1.872 s): **22 pasan y 66 fallan** (531 ✓, 210 ✗, sin errores de JavaScript). En esa corrida X-F2-INST-AVISO-CARGA todavía se llamaba G-F2-INST-AVISO-CARGA y fue el único «G» que falló. Ya renombrado (el arreglo de la unión), se corrió solo contra la 121 y falla, como un X. Con eso fallan los 66 X y pasan los 22 G: ningún X pasa y ningún G falla. Ejemplos con la 121: X-F2-LIB-RESP-CONF dice «❌ No se confirmó el consumo. Connection failed.»; X-F2-LIB-DEV-KARDEX devuelve dos veces; los X-F2-INST dicen que esa INVENTARIO no trae la lista.
+- **Cada ronda contra su copia de antes:**
+  - la r3 contra la r2: de los 10 escenarios nuevos y los 3 cambiados, 11 fallan y 2 pasan. Los dos que pasan, X-F2-INST-AVISO-CARGA y X-F2-INST-PARADA-SESION, comprueban la decisión de la r3, no un arreglo: K3 ya se protegía solo. Aparte, los 5 X-F2-R2-K2-ARRANQUE-* (solo cambió la forma de medir y no cuentan entre los 3 cambiados) pasan también con la r2;
+  - la r2 contra la r1: de los 17 nuevos y los 2 cambiados, 0 pasan y 19 fallan;
+  - la r1 contra la junta: de los 12 nuevos, 11 fallan y pasa el G que es una guarda (G-F2-R1-LIB-TARDE-OTRO). De los 7 cambiados, fallan 4 (X-F2-INST-RETIRO-121, X-F2-INST-SIEMBRA, G-F2-INST-PRUEBA y X-F2-INST-VUELTO-FALSO, este solo por el orden de las llaves: F3) y pasan 3 (X-F2-INST-COR-CUAD, X-F2-INST-RETIRO-CUAD y G-F2-INST-RETIRO-SIN-GUARDAR), a los que solo les cambió la configuración;
+  - en PRUEBAS, con la INVENTARIO de antes de cada ronda, fallan exactamente las pruebas nuevas y cambiadas que prueban un arreglo: 6 de 25 en la r3, 9 de 24 en la r2 y 9 de 20 en la r1.
+- **`F2_ORDEN_LLAVES`** (variable de entorno del banco, r1). Firestore no devuelve las llaves de un mapa en el orden en que se escribieron, y el banco las devolvía en el de escritura: ninguna prueba veía una comparación con `JSON.stringify` contra una lectura (eso escondía F3). Con `ordenar`, cada mapa leído llega con las llaves ordenadas; con `barajar`, en otro orden fijo y reproducible (semilla `F2_ORDEN_SEMILLA`, por defecto 20261102); sin la variable, o con `no`, todo como antes. Se aplica a lo que recibe la página (get, transacciones, consultas y avisos del oyente), no a los ayudantes del banco. `inv/f2.js` usa `ordenar` si no se pide otra cosa; la regresión se corrió sin la variable.
+- **INFO-F2-VIGILANCIA:** 36 de 36, las dos veces (ver «La vigilancia»).
+
+**Estrés** (`inv/estres.js --semilla=N --html=` la unión r3, sin `F2_ORDEN_LLAVES`):
+
+| Semilla | Entraron | Por tipo | Respuestas perdidas | Dos pantallas a la vez | `mov_` | Docs nuevos | ✓ / ✗ | Tiempo |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 18 | dev 8, ent 4, uni 1, conf 3, rech 2 | 3 | 0 | 15 | 18 | 10 / 0 | 82 s |
+| 2 | 18, más un ↩️ Retiro parcial | dev 5, rech 7, uni 1, conf 4, ent 1 | 4 | 0 | 17 | 20 | 11 / 0 | 80 s |
+| 3 | 17 | dev 4, ent 5, conf 7, rech 1 | 5 | 2 | 17 | 20 | 10 / 0 | 82 s |
+
+«Dos pantallas a la vez»: veces que se pulsó ✅ sobre el mismo consumo en dos pantallas al mismo tiempo; ninguna dejó un `mov_` de más.
+
+Las mismas cifras que con la r2. G-F2-ESTRES, dentro de `f2.js`, también pasa. Las tres dan «BIEN»: el stock, un serial en un solo sitio, un `mov_` por operación que entró de una 122 con el libro encendido y ninguno de más (la diferencia con «entraron» son las de la 121), la lista, la lista blanca, sin `undefined` y la 121 frenada ya no escribe. La semilla 2 recorre el retiro parcial: el vuelto queda con `vop` `ret_<id>` y su línea, con el serial, en `bit_`.
+
+**Regresión** (`--html=` la unión r3; OFICINAS y TÉCNICOS de `build/base`; sin `F2_ORDEN_LLAVES`). Dio lo mismo con la r1 y con la r2:
+
+| Script | La 121 | La unión r3 |
+|---|---|---|
+| `inv/f0.js` | 105/105 | 105/105 |
+| `inv/etapa5.js` | 132/132 | 132/132 |
+| `inv/etapa4.js` | 106/106 | 106/106 |
+| `inv/etapa3.js` | 17/39 | 17/39 |
+| `inv/etapa2.js` | 25/25 | 25/25 |
+| `inv/etapa1.js` | 7/16 | 7/16 |
+| `inv/escenarios2.js` | 20/20 | 20/20 |
+| `inv/revision_oct.js` | 11/11 | 11/11 |
+
+Escenario por escenario, **iguales** (`comparar_junta.cjs`: «IGUALES: la junta (122) da lo mismo que la 121»; está en `etapa7b/f2/junta_trabajo/`, no en el banco, igual que `sustituir_repo.cjs`). Las 22 fallas de etapa3 y las 9 de etapa1 son viejas y pasan igual con la 121: son las de 🧩 con un arnés que no trae el latido de la Etapa 6 y las de la recarga automática. `etapa1.js` y `revision_oct.js` no aceptan `--html`: se corrieron con `node -r sustituir_repo.cjs`.
+
+**Validación:** `node .claude/validar.mjs` da sintaxis correcta en INVENTARIO (4 bloques) y PRUEBAS (1). Los dos en CRLF, sin LF ni CR sueltos. `f2.js` en LF y `node --check` bien. Sin declaraciones repetidas (comprobado con acorn).
+
+**Los escenarios de los revisores:**
+- **de la revisión 3, contra la unión r3:** los que prueban H1 a H11 pasan todos (H1 del revisor de K1; H2 y H7 de K2; H8, H9 y la noche del encendido de K3; el arranque, la línea antes de la carga y los relojes de la transversal). Quedan en ✗ cinco, por cómo están escritos o porque miran otra cosa:
+  - R3-K1-SOLO-VENTANA (en 2 de sus comprobaciones: una espera la ventana del navegador que la r3 quitó a propósito, y otra que la ficha se haya perdido, que era el defecto) y R3-K1-SOLO-ACEPTA esperan un `alert()`; los reemplaza X-F2-R3-LIB-SOLO-AVISO;
+  - R3-K3-PANEL busca «esperan» y calza con otro texto que el panel siempre muestra;
+  - R3-K1-APAGADO-DESPUES espera que, con el libro apagado, no se termine lo recordado (se termina, a propósito);
+  - H3-SN-SIN-PREGUNTA falla por la regla de L, igual que con la r2: no es H3;
+- **aparte, de la r3:** el escenario que propuso K2, R3K2-H4-MISMA-CARGA (`build/r3/k2/herr/frag_enseguida.js`), no se adoptó: lo mismo lo prueban X-F2-R3-C0-BIT-ANTES-CARGA y R3-BIT-ANTES-CARGA del revisor, que pasan. Queda en la carpeta de K2;
+- **de la revisión 2, contra la unión r2:** pasaban todos menos dos, que esperan lo de antes por cómo están escritos. G1-REAL-UNIF espera la línea «⚠️ Etapa 7» muy poco (con más espera, llega una sola vez). R2-K2-NOMBRES escribe una bodega que no existe en la memoria, así que la red tapa de más;
+- **de la revisión 1:** R-K1-FALLA-FICHA quedó en ✗ contra la unión r1 (no se volvió a correr): lee la ficha justo al llegar el aviso del oyente y no espera al reloj de 2 s. X-F2-R1-LIB-TARDE prueba el mismo caso esperando al reloj, y pasa.
+
+**Huecos de prueba que se conocen** (los tres primeros, del informe de la junta, §4: ninguna ronda los cerró; los dos últimos, de la revisión 4):
+- `inv/f0.js` no se corrió entero con `config_e7` encendido (apagado da 105/105). G-F2-LIB-F0-ENT rehace con el libro encendido los tres casos principales de la 📤 de F0.
+- Nadie corrió `f2.js --reloj=`: X-F2-INST-RETIRO-121, REPARA-121, REPARA-TEC y G-F2-INST-SIN-RELEER usan el reloj de cada página.
+- X-F2-INST-COR-CUAD no pasa por la ventana de 🩺 (llama a la Multi con un `op` `cor`). La ventana la recorre X-F2-LIB-COR-CUAD, pero con la lista apagada.
+- La parte 5 de la prueba de K3 de la r3 en PRUEBAS mira el texto del código, no lo que hace el panel; eso lo prueba X-F2-INST-PANEL-ESPERA.
+- Los casos 5 y 6 de la prueba F8 de PRUEBAS no registran `confirm()`; X-F2-R3-LIB-SOLO-AVISO mira cualquier ventana del navegador.
+
+**La corrida final contra la base real (3 nov, de tarde).** `PRUEBAS.html` en el panel del navegador, en `?prueba=1`, sirviendo aparte una copia de `git archive HEAD` con la INVENTARIO y la PRUEBAS finales (`etapa7b/f2/servir/`, entrada temporal «f2» de `.claude/launch.json`, puerto 8793, quitada al terminar), y `marcas.cjs` antes y después de cada pasada (`etapa7b/f2/final/`).
+- **La primera pasada encontró una prueba de la 122 que fallaba con los datos reales, no la app.** La de K4 «En ?prueba=1 la Etapa 7 no escribe nada aunque…» contaba las líneas nuevas del registro por el largo de `DB.logs`, y `logMsg` lo recorta a 200. La base real ya tiene 200 líneas: el largo no cambia y la prueba decía «logMsg no anotó en la memoria». La semilla del banco tiene menos de 200, y por eso no se había visto.
+- **Un barrido de las demás pruebas** buscó las que, con los datos reales, pasan en vacío o fallan en falso (`etapa7b/f2/revision_datos_reales/`, con una semilla de 200 líneas, `sem_logs200.js`, y otra bodega que guarda a mitad de la prueba, `otra_bodega.js`). En total quedaron cinco arreglos, todos en PRUEBAS y cada uno dentro de su prueba (`build/final/arreglo_*.cjs`, en este orden); la INVENTARIO no cambió:
+  1. `arreglo_logs`: la de K4 cuenta las entradas que no estaban antes, no el largo;
+  2. `arreglo_logs2`: en «🌱 Sembrar índice» con los datos de esta base (K3), el «no deja líneas en el registro» pasaba en vacío por el mismo tope de 200;
+  3. `arreglo_siembra_id`: contar por identidad, como en el 2, fallaba en falso si otra bodega guardaba mientras corría (el oyente del historial reemplaza los objetos de `DB.logs`). Ahora cuenta por `id` y solo lo que creó esa pantalla (`window._bitCreadasInv`);
+  4. `arreglo_carga_negativa`: «El registro largo no envía ni escribe la línea «⚠️ Etapa 7» antes de que termine la carga» (de la r2) simulaba la carga a medias con `_snapsDatosInv=0`, pero con la base real llega un snapshot de verdad y el oyente lo sube a 1. Ahora pone −1.000.000;
+  5. `arreglo_siembra_espera`: la de la siembra espera el guardado diferido (`window._guardadoDiferidoInv`, 400 ms) antes de comparar.
+
+  Cada arreglo se comprobó con una INVENTARIO mutante que rompe lo que la prueba cuida: la siembra que deja una línea, la siembra que guarda y la carga a medias que envía. Las tres se detectan. E7-F2 da 25 de 25 en el banco, también con 200 líneas y con otra bodega guardando. Siguen siendo 25 pruebas.
+- **Resultado en el panel con la PRUEBAS arreglada:** 229 corridas, **226 bien**, 2 «Estado real» (las de siempre: seriales repetidos en los datos y servicios de proveedores sin costo) y 1 falla vieja, ajena a la 122: «Un comprobante viejo subido hoy se anota…». Esa lee el `REVISION_SOPORTES.gs` del repo, que la otra sesión ya corrigió en su copia sin commit (ver docs/04, «Las otras apps»).
+- **La siembra con los datos reales:** 755 seriales sembrados en memoria. La comparación da 754 iguales, 1 con explicación y **0 sin explicar**.
+- **`marcas.cjs`:** en ninguna pasada apareció un documento nuevo ni uno de la Etapa 7. Sí cambiaron documentos del trabajo normal:
+  - en `oficinas_sistema`, los de las sedes en horario de oficina; una ventana de control de 5 minutos sin ninguna prueba abierta dio lo mismo;
+  - en la tercera pasada, `inventario/datos`, `historial` y `clientes_0`, que firmó la bodega DONCELLO con la 121 publicada (`historial._ultimaEscritura`: rol bodega, app INV, versión 121).
+
+  Ningún cambio salió de una 122. Por eso la corrida se repite de noche, antes de publicar, buscando el 0 limpio («Al publicar», paso 2).
+- **Después se cambiaron los ejemplos con nombres** («Al publicar», paso 2). Eso cambió solo comentarios en la INVENTARIO y solo datos de prueba en la PRUEBAS. Con `build/final_nombres`, en el banco:
+  - la tanda completa (`TODO=1 GRUPOS=inv,ofi,red`): 228 corridas, 227 bien y la misma falla vieja de WispHub simulado;
+  - E7-F2: 25 de 25, también con 200 líneas y otra bodega guardando;
+  - contra la INVENTARIO de antes de cada ronda, la PRUEBAS con los nombres nuevos falla en las mismas pruebas que la de antes: 6 de 25 con la de la r2, 10 con la de la r1 y 15 con la primera junta. El detalle de cada falla es el mismo, salvo horas, ids al azar y los nombres (`final/salidas_nombres/`, `comparar.cjs`). La prueba de la red de nombres sigue fallando con la r2 y con la r1: detecta igual lo que arreglaron G4, G5 y H2.
+
+  La corrida de la noche se hace con estos archivos.
+- **La corrida de la noche (3 nov, de 19:51 a 19:55, con `build/final_nombres`, antes de publicar):** 229 corridas, **226 bien**, las mismas 2 «Estado real» y la misma falla vieja. La siembra con los datos reales: 756 seriales, 755 iguales, 1 con explicación y **0 sin explicar**. `marcas.cjs`: 0 documentos nuevos y **ninguno de `inventario` cambió**. Cambiaron 2 de `oficinas_sistema`, `rastreo_turnos` y `rastreo_wisp_paujil`: los renueva cada 20 minutos el rastreador de WispHub de una OFICINAS 321 abierta en una sede (el turno lo tenía desde antes de la corrida, y la hora nueva es la anterior más 20 minutos). Es trabajo normal, no la corrida.
+
+### Lo que se apartó de la especificación
+
+La especificación (`etapa7b/f2/spec_f2.md`) se puso al día con las revisiones el 3 nov. Los cambios, uno por uno, están en `etapa7b/f2/docs_borrador/spec_cambios.md`, y la versión de antes en `etapa7b/f2/spec_f2.antes_docs.md`. Aquí va lo que hicieron los constructores y las revisiones fuera de la letra de la primera versión:
+- **C0:** un rechazo que nombra solo `inventario/datos` o `historial` no degrada (el tope de 1 MiB sigue sin degradar). El oyente se queda con el último valor bueno si se cae después de leer (la especificación decía «todo apagado»). Todo el contrato «la carga terminó» (r2; sin la retención del aviso del interruptor desde la r3). La línea de una degradación distingue el corte de red de otro error incierto (r3).
+- **K1:** el mecanismo «tarde» no estaba en la especificación (r1, r2 y r3; en la r3, el aviso en la ventana de la app o en una franja, nunca `alert()`, y lo recordado antes de apagar el libro se termina igual). Con «otro clic», `_corrTransaccionInv` devuelve `resumen:[]` (no `null`; nadie lo lee). `fechaMs` de la hoja es la hora de entrar a la puerta, no la de cada intento. 🧩 con el GET fallido deja su archivo en «preparada». Si la hoja que encuentra el GET trae otro `ref`, dice que no se pudo saber. En 🧩, 🧹 y los cuartos el «otro clic» no puede darse fuera de las pruebas, porque el id nace en cada clic; si pasara en «liberar puertos», diría «0 puerto(s)».
+- **K2:** la plantilla `sis` acepta «⚠️ Etapa 7: …»; algunas frases llevan el resumen de material, el sitio, `refs` y `sns` de más (todo dentro de la lista blanca); la red usa también receptor, responsable y el técnico y el cliente de consumos, instalaciones y equipos enviados; en `?prueba=1` `_bitAnotarInv` cuenta en `_bitOmitidasInv`; la clave de la cola de prueba solo acepta `inv_bit_por_enviar_…`; `bit` puede ser una función. La red de nombres parcial (r1 y r2), con la protección de sitios solo para bodegas y cuadrillas (r3). Con la cola vacía, el envío borra el error (r3).
+- **K3:** una relectura de `inst_` que falla con una lista buena se queda con ella (`ok:true`) y anota el error (la especificación decía `ok:false`). La puesta al día reintenta cada 5 s, hasta 12 veces, si la base o el puente no llegaron. La relectura «al abrir 🩺 o la Auditoría» quedó en `_datosCasosInv` y en la sección 3d de `auditarInventario`. La copia de las líneas de retiro a `bit_` y lo que pasa con el registro largo apagado (r1 y r2); la búsqueda en `bit_` de la línea de una 122 «de antes de encender», el porqué de «Rehacer» y el aviso del panel (r3). `_instEncolarRetNuevasInv`, de la r1, se quitó en la r2.
+- **K4:** la vigilancia cruza el registro con `bit_` (r1) y convierte las pruebas de los vueltos a la forma que lee K3 (arreglo de la junta).
+- **El plan de encendido:** la especificación decía un día por pieza; Elkin decidió una noche (la §9.1 de la especificación ya lo dice).
+
+### Al publicar (cuando Elkin diga «publica»)
+
+0. **Antes, decírselo a Elkin:** lo que la 122 no trae (traslados, solicitudes, 📥, ➕ SN, ✏️, ventas, instalaciones, recuperados y Excel siguen como hoy; la entrega guardada dos veces desde **otra computadora** tampoco se arregla: va en la 123); que lo nuevo no lleva datos personales; y confirmar E1 y E12. Avisar a la sede con más movimiento antes de pasar la lista a «En uso» (E4+E5).
+1. **Cuándo:** con la corrida contra la base real bien (paso 2), fuera de horario, de noche, y solo con «publica». Los arreglos de la revisión 3 ya están unidos y la revisión 4 no encontró nada: lo que se publica es `build/final_nombres` (la r3, con los cinco arreglos de PRUEBAS y los ejemplos cambiados). Antes del 20 dic. El encendido es esa misma noche (paso 6).
+2. **La corrida contra la base real**, antes de publicar (especificación, §12.3).
+   - **Los ejemplos (hecho el 3 nov).** Los comentarios de la red de nombres en la INVENTARIO (los de `_bitPalabrasSitiosInv`, `_bitPartesNombreInv`, `_bitNombreYApellidoInv` y `_bitTramosNombresInv`, de F14, G4, G5 y H2) y las pruebas nuevas de K2 en PRUEBAS (también las que cambió la r3) usaban como ejemplo nombres de personas e instituciones con forma real. Esos comentarios y esas pruebas son nuevos en la 122, y el repo es público. Se cambiaron con `etapa7b/f2/nombres/cambiar.cjs`, solo en las líneas que no estaban en la 121 y palabra por palabra: cada apellido y cada institución por una palabra inventada (por ejemplo, «Pedro Antonio Pruébez Ensayo»), con el mismo número de palabras y las tildes en el mismo sitio, para que la red de nombres se pruebe igual. Los nombres de pila sueltos y las sedes quedan (las sedes ya las nombran el código publicado y la §15). Lo comprobado: la INVENTARIO da los mismos tokens de JavaScript que antes (`nombres/tokens.cjs`, con acorn: solo cambian 7 líneas de comentario); en las líneas nuevas de las dos ya no queda ninguno de los apellidos ni de las instituciones (`nombres/buscar.cjs`); y lo del banco que dice «La corrida final». En las pruebas viejas, que ya estaban en la PRUEBAS de la 121, no se tocó nada.
+   - **La corrida:** `PRUEBAS.html` en el navegador contra la base real, en `?prueba=1`, sirviendo los archivos finales aparte. Comprobar que no escribió nada, solo con GET, con `marcas.cjs` del banco:
+     - `node marcas.cjs foto antes.json` antes de abrir PRUEBAS, y `node marcas.cjs foto despues.json` al terminar;
+     - `node marcas.cjs comparar antes.json despues.json` tiene que dar **0 nuevos, 0 cambiados y 0 que faltan**;
+     - cada foto lee solo el nombre y la hora de modificación de cada documento de `inventario` y `oficinas_sistema` (unas 270 lecturas), nunca su contenido. Sirve para esta corrida, antes de encender: con el libro encendido, cada hoja `mov_` suma una lectura a cada foto (3.600–20.000 hojas al año), justo lo que la nota de docs/01 pide no hacer («No listar la colección `inventario`»);
+     - con la base real, la siembra de la prueba de K3 siembra en memoria los seriales de la base (754 el 2 nov) y la comparación tiene que dar 0 sin explicar; la prueba de K4 revisa los documentos nuevos que haya (hoy `config_e7` no existe);
+     - lo que dio la de la tarde y la de la noche del 3 nov está en «Pruebas», «La corrida final»: las dos con 226 bien y 0 sin explicar, ningún documento nuevo y, en la de la noche, nada cambiado en `inventario`. Si algo cambia por el trabajo de una sede, se mira quién lo firmó (`_ultimaEscritura` o el turno del rastreador) antes de seguir.
+3. **Respaldo**, solo lectura: `inventario/datos`, `historial`, las partes de los 8 `archivo_*_2026` y los clientes, y una copia del código publicado. Llevan datos personales: van donde Elkin guarda los respaldos, nunca en el repo ni en el scratchpad.
+4. **Armar lo que se publica:** la INVENTARIO y la PRUEBAS finales, esta sección, las correcciones a otras partes de este documento y la nota de docs/01. `node .claude/validar.mjs`, los finales de línea y `/revisar`. **El commit de la 122 no se lleva lo de otras sesiones.** Al 3 nov el repo tiene sin commit: la OFICINAS (una 323), `CLAUDE.md`, `REVISION_SOPORTES.gs`, `.claude/validar.mjs`, `.claude/hook-validar.mjs`, `docs/04-wisphub.md`, `docs/13-v323-historial-facturas-y-vista-previa.md`, dos archivos nuevos de otra sesión y el registro de la publicación de F0 en la §16 de este documento (ese registro sí va, con la 122). Nada de eso va; de este documento, solo lo de la 122. Si la corrida contra la base real vuelve a dejar en `.claude/launch.json` su entrada temporal «f2» (el servidor de prueba, puerto 8793), se quita antes del commit: no va. La INVENTARIO y la PRUEBAS que van son las de `build/final_nombres`, las mismas de la corrida de esa noche (paso 2).
+5. **Mantenimiento de INVENTARIO.** Push, Pages comprobado dos veces, la versión anunciada y una prueba de humo en `?prueba=1`: la versión 122, las funciones nuevas presentes, cero escrituras, la caja 🎛️ con las tres piezas apagadas y `config_e7` sin existir. **Recargar todas las pantallas de bodega.**
+6. **Esa misma noche, el encendido**, en el orden de «El encendido», en cuanto el panel muestre 0 pantallas menores que 122 (con «🔄 Ver pantallas» antes: «El encendido», paso 2).
+7. **Al día siguiente:** `vigilar_f2.cjs` desde el banco (`node vigilar_f2.cjs --horas=48 --inv-f2=122 --esperado=libro,bit,inst --exencion-sn`), con el commit de la 122 ya en el repo (o con `--html=` el archivo publicado). Si dice PARAR, la lista vuelve a «Escribe» (o se apaga la pieza del motivo) y se mira; si dice SEGUIR, a diario la primera semana y después una vez por semana hasta la 123. `vigilar_f0.cjs` sigue como antes.
+8. **A la semana:** «Uso» en la consola de Firebase (E12). Si el inventario pasa de 1.400 lecturas al día, se apaga la pieza que más gasta, sin publicar.
+9. **Hecho en el commit de la 122:** `CLAUDE.md` (INVENTARIO 122, 25.875 líneas · 2,0 MB; PRUEBAS, 229 pruebas y 21.622 líneas), esta sección y la nota de docs/01 dicen «publicada el 3 nov 2026». Los cambios de la otra sesión en `CLAUDE.md` se unen cuando ella haga su commit, sin tocar lo suyo.
+
+### Pendiente
+
+1. **E1 y E12** siguen por confirmar con Elkin (ver «Decisiones de Elkin»; lo recomendado: él enciende desde el panel 🎛️ y él mira «Uso» a la semana). La corrida contra la base real ya se hizo, de tarde y de noche (ver «Pruebas», «La corrida final»).
+2. **Va en la 123 (E7-F3):**
+   - **la entrega guardada dos veces desde otra computadora** cuando se cae el internet. La 122 solo lee el `mov_ent_<id>` con el id de esa misma ventana, y otra computadora tiene otro id. Idea para la 123: guardar en `extra` la huella del contenido y, al guardar, consultar `mov_` por igualdades (`k`, `tipo`, la huella), una lectura por Entrega, sin índice compuesto;
+   - F8 (b): reparar la ficha del cliente desde `sincronizarMaterialClientes`, mirando la ficha y no `materialAplicadoCliente` (decisión de Elkin);
+   - leer `bit_` (🩺, el Excel de actividad) y el quitarrepetidos por id. `noCubre` de 🩺 solo podrá dejar de depender de las 200 líneas para lo posterior a `desde.bit` **y** a una fecha `desde.sin121` (un campo propuesto, que todavía no existe) que fije el administrador cuando la vigilancia diga 0 pantallas menores que 122;
+   - traslados, solicitudes, 📥, ➕ SN, ✏️, ventas, instalaciones, recuperados, Excel y el guardado general como operaciones con id fijo, y «sin internet no se mueve material» en esos botones;
+   - el `mov_` de `eliminarCuadrilla`, `delBodega`, `delInst` y ⬆️ Restaurar respaldo;
+   - `_pesoDocsInv` con las reglas de Google, `fechaMs` en las entregas y `_aplicarOperacionInv` (la función propuesta en el plan; todavía no existe en el código);
+   - **las esperas parecidas.** Quedan tres, una por parte: `_e7EsperarLineaInv` (C0, cada medio segundo, solo mientras espera la línea de una degradación), `_bitVigiaInv` con `_bitEscribirLineaPendienteInv` (K2, cada segundo) e `_instAnotarParadaInv` (K3, cada 5 s). La 123 puede dejarlas en una sola.
+3. **Lo que se deja así a sabiendas (C0):**
+   - con `config_e7` **ausente**, cambiar una pieza escribe solo esa (la reparación de F10 es para un documento que existe mal escrito);
+   - al reparar, `exencionSn` y `comparacion` se conservan con el merge: la casilla de la exención puede verse marcada y la última comparación sigue;
+   - si el primer rechazo nombraba un documento nuevo o empezaba por «E7-F2:», la degradación no se deshace aunque la repetición falle igual;
+   - «⏹️ Apagar todo» sobre un documento mal escrito deja la entrada en el historial pero no la línea del registro;
+   - el tope de 1 MiB de `datos` sigue sin degradar;
+   - el comentario de `_e7YaAplicadaInv` todavía dice «un respaldo restaurado» como causa del choque (no lo produce: solo una escritura a mano);
+   - la línea «⚠️ Etapa 7» de una degradación que espera, en una pantalla donde nadie entra, se mira cada medio segundo hasta que alguien entre (solo con esa línea pendiente y sin leer ni escribir nada), y la escribe a su nombre quien entre, aunque no sea quien estaba (igual que en la r2).
+4. **(K1):**
+   - lo «tarde» vive en la memoria de la pantalla: si se recarga antes de que vuelva la red, se pierde (lo cubre F8 (b) en la 123);
+   - si la sesión que pulsó no vuelve a entrar en esa pantalla, espera hasta que se recargue;
+   - mientras nadie pueda leer el libro, el reloj de 2 s de lo «tarde» sigue vivo toda la vida de la página (sin GET salvo cada 5 minutos o con una señal);
+   - los cuartos y 🩺 no tienen mecanismo «tarde»;
+   - el aviso de lo terminado «tarde» sale (en la ventana de la app o en la franja) solo si hay un ⚠️; si no, sale solo el aviso corto, que no dice qué quedó pendiente aparte: eso queda en la línea del registro («· queda pendiente aparte: …») y en la lista de material por confirmar;
+   - el ✅ normal y el modo «activo» (la bodega volvió a pulsar) siguen con su `alert()` después de la línea, como en la 121: ahí la bodega acaba de pulsar;
+   - con el aviso en la ventana de la app, la capa que pide actualizar una pantalla abierta más de 24 h (Etapa 6, §10) no sale hasta que alguien pulse «Aceptar» (frena menos que el `alert()`); si esa capa ya estaba puesta, tapa la ventana del aviso (revisión 4);
+   - un flujo que la bodega empezó antes puede, desde el código, tapar, cerrar o reemplazar la ventana del aviso: se pierde el aviso, no datos;
+   - si la bodega vuelve a pulsar después de que lo «tarde» terminó, sale además «ya había quedado confirmado»: es verdad y cabe en lo que aceptan E4+E5 (revisión 4);
+   - la franja sigue en pantalla después de cerrar sesión (con nombres de clientes en la pantalla, nunca en un documento);
+   - algunos avisos todavía llevan el texto del SDK en inglés («Failed to get document because the client is offline.», «(Connection failed.)» en 🧩 y 🧹);
+   - la espera de hasta 3 s de F1 alarga «Confirmando consumo…» en ese caso;
+   - las notas secundarias de la 📤 Entrega («quedó guardada; se confirmó después») y las de los cuartos no pasan su frase (`bit`; la especificación las deja opcionales): van a `bit_` por plantilla, o en blanco si no calzan;
+   - la reescritura de los clientes por firma, sin fusión, es anterior a la 122 y sigue anotada en docs/06, «Pendiente».
+5. **(K2):**
+   - una línea con frase creada en esta pantalla después de `desde.bit`, pero antes de que la pantalla sepa que el registro largo está encendido (al cargar, antes de leer `config_e7`, o en los segundos hasta que le llega el aviso del encendido), no va a `bit_`: no sale en blanco, pero no sale (sigue en `historial.logs`);
+   - los límites de la red de nombres, con el tapar de más de H2 (ver «La red de nombres»);
+   - la línea «⚠️ Etapa 7» de un rechazo sale ~1 s después de terminar la carga y pide sesión: en una pantalla que se queda en la entrada, `_bitVigiaInv` mira cada segundo, sin leer ni escribir nada, hasta que alguien entre;
+   - en PRUEBAS quedaron dos textos viejos que no cambian el resultado: el título de la prueba de la red de nombres («E7-F2 r1 · La red de nombres…») todavía dice «y no toca materiales ni bodegas», aunque desde la r3 la prueba comprueba que un material con el nombre de un cliente sale tapado; y la muestra de la línea del interruptor sigue con el texto viejo («🎛️ Etapa 7: libro pasó de no a escribir», no «🎛️ Etapa 7: libro de movimientos pasó de «apagado» a «escribe»»). La prueba pasa con los dos textos.
+6. **(K3):**
+   - una línea de `bit_` lleva hasta 20 seriales: un retiro parcial de más de 20 equipos deja sin prueba duradera del 21 en adelante;
+   - si la copia a `bit_` falla, el vuelto no se escribe (se reintenta en cada puesta al día) y mientras tanto el equipo sale «instalado»;
+   - la línea de una 122 que su pantalla no llegó a mandar por una recarga solo se cubre si sigue en la cola de este navegador;
+   - volver a sembrar vuelve a copiar las líneas de una 121 (una escritura más; `arrayUnion` no repite la misma línea);
+   - los dos casos raros de H8 (ver «Volver atrás»);
+   - los vueltos que salen de una hoja de 🩺 llevan la hora de la hoja, y una hoja de más de 30 días se descartaría de la cola;
+   - el conteo de «entradas escritas» de la siembra con una respuesta perdida;
+   - la línea de la puesta al día parada sin sesión sale cuando alguien entra. Desde la r3 pasa más que antes, porque la puesta al día corre también en la pantalla de entrada; la espera no lee ni escribe nada y la línea sale una sola vez. Si nadie entra antes de cerrar o recargar, esa carga no deja línea (la vigilancia no la ve); el panel sí dice «quedó parada»;
+   - de la revisión 4, sin ser hallazgo: «🔧 Rehacer» puede decir «es de otra pantalla» de una línea de esta misma pantalla, si el guardado cayó justo al apagar el registro largo o si su cola la descartó por el tope de 600 (no se pierde nada: se copia a los 2 días y 1 hora);
+   - también de la revisión 4: con los relojes de las pantallas desfasados varios minutos, la decisión «nadie la manda» puede equivocarse: dos líneas con el mismo id y los mismos seriales, o una espera de 2 días (la misma clase de los casos raros de H8).
+7. **Opcional, sin dueño:** que `_ejecutarSaveInv` no guarde antes de que termine la carga, salvo la migración de la carga (red general que propusieron C0 y K2; ningún arreglo la necesita).
+8. **S2:** anotar `mov_*`, `bit_*`, `inst_*`, `instrev_*` y `config_e7` en el plan de la otra sesión (fuera del repo). Si una regla nueva rechaza alguno, la puerta degrada y la bodega sigue trabajando, y la línea «⚠️ Etapa 7» lo avisa. Si una entrada de `inst_` se escribiera por fuera de la app, la comparación vería una entrada que no sale de ningún consumo, y «Rehacer» la corrige. Anotar estos documentos en el plan de la seguridad lo hace la otra sesión, la de la seguridad, no la 122 (especificación, §8).
+9. **El banco:**
+   - `inv/f2.js` e `inv/estres.js`, sin `--html=`, toman la INVENTARIO de `build/junta/` (la primera junta): pasarles siempre `--html=`;
+   - el `p.on('dialog')` de `etapa5.js` no atrapa el rechazo de `d.accept()` (un tropiezo del arnés, una vez en la r1);
+   - si K3 algún día deja `null` en la prueba de un vuelto `ret_` («registro recortado»), hay que cambiar la conversión `ret_` de `vigilar_f2.cjs` (hoy no hace falta: K3 copia la línea a `bit_`);
+   - opcional, sin dueño (lo propuso K3 en la r3): que `vigilar_f2.cjs` cuente los ids repetidos con otro contenido en todas las líneas de `bit_`, no solo en las de después de `desde.bit`;
+   - opcional (lo dejó K4 en la r1): copiar al banco `build/r1/k4/correr_pruebas_html.js`, que agrega `SEMILLA_EXTRA`. No se hizo en ninguna ronda;
+   - los escenarios de los revisores que quedan en ✗ solo pasarían cambiándolos: cinco de la revisión 3, G1-REAL-UNIF y R2-K2-NOMBRES de la revisión 2 y R-K1-FALLA-FICHA de la revisión 1 (ver «Pruebas»). Los de la lente transversal de la revisión 3 (`revision3/buscar_transversal/f2_r3.js` y sus copias) informan además un campo `pend` que leía una variable de la retención quitada en la r3: ahora siempre da `false`; es solo informativo;
+   - archivos de trabajo que se pueden borrar: los `_pasos/`, `_trabajo/`, `_tmp/`, `_interrumpida/` y los volcados de `salidas/*/docs/` de cada junta, y las carpetas de mutantes y resultados de cada parte.
+10. **Para otra etapa:** el contexto de la IA sigue mandando a Groq las 10 últimas líneas del registro con nombres de clientes (`construirContextoIA`); podría usar la frase de `bit_`. Y cada año nuevo suma una lectura por carga: anotarlo para la decisión de febrero.
+11. **Fuera, como hoy** (especificación, §15): ➕ Instalación y las fichas de clientes siguen sin contar como «instalado»; ni `bit_` ni `inst_` tienen parte `_2` (con la exención no hace falta).

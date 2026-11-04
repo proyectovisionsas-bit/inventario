@@ -71,7 +71,7 @@ El botón manual sigue existiendo y ahora comparte el mismo núcleo
 
 ## Archivos por partes (Etapa 7 · F0, 21 oct 2026)
 
-Entra con OFICINAS 321 e INVENTARIO 121 (sin publicar al 23 oct 2026). El
+Entra con OFICINAS 321 e INVENTARIO 121 (publicadas el 23 oct 2026). El
 detalle, las pruebas y el porqué están en docs/12 §16. Desde entonces, el
 archivo de lo viejo ya no es un solo documento por año: es una **serie de
 partes**. Los dos archivadores escriben en transacción y ya no se pisan.
@@ -146,6 +146,66 @@ sin terminar» en la ventana de horas. La parte 1 no cuenta para los 900 KB:
 la de órdenes de 2026 ya estaba en 922 KB (90 %) el 21 oct. Una parte de
 OFICINAS con un solo registro grande puede pasar de 900 KB: la vigilancia dice
 PARAR y esa parte se mira a mano.
+
+## Los documentos nuevos de INVENTARIO 122 (Etapa 7 · E7-F2, 2 nov 2026)
+
+Entran con INVENTARIO 122 (publicada el 3 nov 2026, con todo apagado). El detalle, las pruebas
+y el porqué están en docs/12 §17. La 122 solo **agrega** documentos sueltos en
+la colección `inventario`; la forma de `datos` e `historial` no cambia y nada
+se borra. Llega apagada: hasta que el administrador enciende cada parte en el
+panel «🎛️ Etapa 7», no existe ninguno.
+
+| Documento | Qué es | Tamaño esperado | Si llega al límite |
+|---|---|---|---|
+| `inventario/config_e7` | el interruptor: qué parte está encendida y desde cuándo, la última comparación (solo números) y el historial de cambios | unos pocos KB | — |
+| `inventario/mov_<operationId>` | el libro: una hoja por operación de bodega (✅, ❌, ↩️, 📤, 🧩, 🧹, 🩺 y cuartos), en el mismo commit que el stock. Nunca se reescribe | 1–6 KB: unos 150 bytes por fila movida más unos 20 por serial. Una entrega grande (30 renglones, 60 seriales) ronda 6 KB. Si una hoja pasara de 200 KB, se quitan los seriales y va `snRecortado:true` | no llega |
+| `inventario/bit_<AAAA>_<MM>_<q>` | el registro largo: una quincena por documento (q = 1 del día 1 al 15, 2 del 16 al 31), sin nombres de personas. Solo crece | unos 350 bytes por línea. Medido de mayo a octubre: 274 a 730 líneas por quincena. Una normal (~400) da ~140 KB (13 %); la peor (~730), ~255 KB, y con muchos seriales ~440 KB (42 %) | el envío falla y queda una línea «⚠️ Etapa 7: el registro largo no se pudo enviar (el de esta quincena está lleno). Lo de la bodega quedó guardado igual.». Las líneas esperan hasta 2 días en el navegador; la bodega sigue trabajando. **No hay parte `_2`** |
+| `inventario/inst_<AAAA>` | la lista de instalados de ese año: por serial, la última instalación y si volvió | una siembra simulada con los datos del 2 nov (solo lectura): 754 seriales (185 con vuelta), unos 48 KB (menos del 5 %). Ritmo: 2.000–2.600 seriales al año, unos 130–280 KB | ver abajo |
+| `inventario/instrev_<AAAA>` | las entradas que el administrador rehízo («🔧 Rehacer una entrada»): la vieja, archivada | pequeño | — |
+
+**El tope que manda en `inst_` no son los bytes: son las entradas de índice.**
+Firestore permite 40.000 por documento, y cada campo y cada mapa, en todos los
+niveles, gasta 2. Un serial gasta unas 8 entradas (10 si fue a la red, 12 con
+vuelta y 14 con las dos). La siembra simulada del 2 nov daba unas 6.400 (con la forma de entonces, sin `vop`; la del 3 nov en `?prueba=1` contó 6.800); al
+ritmo de un año, 20.000–30.000. **La exención de índice del campo `sn` ya está
+hecha** (2 nov 2026, la hizo Claude a pedido de Elkin, en la consola de
+Firebase: colección `inventario`, campo `sn`, alcance de colección, sin índice
+ascendente, descendente ni de arreglos). Con ella el límite pasa a ser el de
+1 MiB, unos 13.000–16.000 seriales por año. Ninguna app consulta `inventario`
+por ese campo. Se puede deshacer y no toca datos ni reglas. Al encender la
+lista, marcar en el panel la casilla «Ya pedí la exención…»: si no, el panel
+avisa en ámbar a 28.000 entradas.
+
+**Si un documento nuevo llega a su límite, la operación de bodega no se cae.**
+El libro y la entrada de `inst_` van en la transacción del stock: si Firebase
+los rechaza para siempre, la operación se repite una vez sin ellos (como la
+121), esa pantalla apaga el libro y la lista hasta recargar y queda una línea
+«⚠️ Etapa 7» en el registro de INVENTARIO. Si el que llega al tope es `inst_`,
+también fallan las escrituras que la lista hace en su propia transacción (la
+puesta al día, la siembra y «🔧 Rehacer»): la puesta al día se para en cada
+carga y deja la línea «⚠️ Etapa 7: la lista de instalados no se pudo poner al
+día (la base no aceptó los datos)». Nada va a
+`oficinas_sistema/errores_guardado`.
+
+**Medir y vigilar.** La sección de la lista en el panel 🎛️ dice, por año,
+seriales, peso y entradas de índice. Fuera de la app, `vigilar_f2.cjs` (en el
+banco, `trabajo/`) dice PARAR si un `inst_` o un `bit_` pasa de 700 KB, o si un
+`inst_` pasa de 34.000 entradas (con la exención ya hecha, correrla con
+`--exencion-sn`).
+
+```bash
+node vigilar_f2.cjs --horas=48 --inv-f2=122 --esperado=libro,bit,inst --exencion-sn
+```
+
+**Cómo mirarlos (solo lectura, por su nombre).** Los nombres van en hora de Colombia
+(UTC−5): el `bit_` del 3 nov 2026 es `bit_2026_11_1`. Un 404 quiere decir que no
+existe (en enero de un año nuevo, que falte el `inst_` de ese año es normal
+hasta la primera confirmación). **No listar la colección `inventario`**: cobra
+una lectura por cada documento, y hay uno por operación. Al año se esperan unas
+3.600–20.000 hojas `mov_` (de 1–6 KB cada una), 24 `bit_` y un `inst_`.
+
+Para medir, usar el panel 🎛️ o la vigilancia, que miden como Google. No llevan
+nombres de personas, cédulas, teléfonos ni claves.
 
 ## Guardado de movimientos por bloques (OFICINAS v304, 14 Sep 2026)
 
