@@ -517,3 +517,68 @@ Ninguna se corrigió en la v317; quedan para decidir con Elkin.
   en la lista comercial; medido para la v317, son 4.233. Igual con
   `oficinas_sistema/main`: `CLAUDE.md` y `docs/01` lo dan al 76 %, y al
   preparar la v317 se midió en 53 %.
+
+## El mismo servicio con otro titular (OFICINAS v324, 5 Nov 2026)
+
+Elkin: un cliente de Doncello «no se ve en Clientes». Sí estaba, pero con el nombre, la
+cédula y el teléfono de la persona anterior: en WispHub el servicio `paujil:5471` pasó a
+otra persona (misma dirección, plan y zona) y **ninguna sincronización tocaba esos datos
+de un cliente que ya existía**: la automática solo pone al día estado, plan y tarifa, y la
+manual tampoco los cambiaba. Medido ese día contra la API, en las cinco oficinas: 16
+servicios con otro titular, 3 con otra cédula y el mismo nombre, y 22 con el nombre escrito
+distinto (41 en total).
+
+**Arreglo.** `_cambiosTitularWisphub(cli, cw)` compara nombre, cédula y teléfono de un
+cliente ya emparejado **por llave** (`cuenta:id_servicio`) con lo que trae WispHub.
+`conciliarOficina` los deja en `plan.titular` y `aplicarConciliacion` los aplica:
+
+- solo con lo que WispHub trae **lleno**: un dato vacío allá no borra el de aquí (tampoco
+  cuando el servicio pasó a otra persona), y un relleno tampoco cuenta (una cédula de menos de
+  3 cifras, un teléfono de menos de 7, cifras todas iguales como «0000» o «1111», o seguidas
+  como «123456789»);
+- mayúsculas, tildes, puntuación («S.A.S.» y «SAS»), espacios de más, caracteres de control
+  (el U+007F de WispHub), la forma de escribir la cédula o el teléfono, los ceros a la izquierda
+  y el dígito de verificación de un NIT, y el +57 no cuentan como cambio;
+- se vuelve a medir contra el cliente de ahora al aplicar: un plan viejo (la vista previa
+  esperó la confirmación y entretanto la automática ya lo aplicó) o un servicio repetido en
+  el listado no lo aplican dos veces;
+- lo que había queda en `titularAnterior` (los últimos 5: nombre, cédula, teléfono, campos
+  y fecha), y en auditoría queda **una línea por oficina**, `CLIENTES_DATOS_WISPHUB`, con el
+  total y hasta 15 servicios (`paujil:5471=nct`: n nombre, c cédula, t teléfono; sin nombres).
+  Una línea por cliente habría sacado del registro las entradas viejas: medido antes de
+  publicar, la primera pasada habría puesto al día 96 clientes (55 solo de teléfono);
+- la dirección no se toca.
+
+**Qué hace sola la automática y qué la manual (decisión de Elkin, 5 nov 2026).** La
+revisión antes de publicar encontró que, si la automática aplicaba todo, cada hora volvía a
+poner el nombre o el teléfono de WispHub encima de lo que una oficina corrigió aquí a mano
+(✏️ Editar no escribe en WispHub), sin aviso. Por eso:
+
+- la **automática** (`_planClientesSeguro`, con `titularSoloOtraPersona`) solo aplica el
+  cambio de **otra persona**: cambian el nombre **y** la cédula, y la cédula de aquí era una de
+  verdad (`otraPersona` de `_cambiosTitularWisphub`, que lee `_titularOtraPersona`). Es el caso
+  de Doncello. Si WispHub solo llenó una cédula que aquí estaba vacía o en «0», no cambió la
+  persona: eso va a la manual;
+- lo demás (solo el teléfono, solo el nombre, solo la cédula, la cédula que faltaba) lo aplica la **sincronización
+  manual** («Sincronizar» de una oficina, la de todas y «Sincronizar todo»), que en la vista
+  previa lo cuenta, muestra hasta 10 con sus valores (`_lineasTitularPlan`: «NOMBRE: teléfono
+  3001112233 → 3109998877», con la oficina delante cuando son varias) y pregunta antes. Si una oficina corrigió un dato aquí, hay que corregirlo
+  también en WispHub, o la siguiente sincronización manual lo cambia por el de allá (lo de
+  antes queda en `titularAnterior`).
+
+Los avisos de las tres sincronizaciones manuales cuentan esos casos; el aviso de la
+automática dice «N cambio(s) en clientes» (estado, plan o titular: un cliente puede sumar
+dos). Prueba en `PRUEBAS.html`: «Si en WispHub un servicio pasa a otra persona, el programa
+lo pone al día solo; las correcciones hechas a mano no se pisan sin preguntar».
+
+**Lo que queda, sin cambiar (no es de esta versión, pero se nota más con ella):**
+
+- los contratos se buscan por `clienteCedula` (`_contratosDeCliente`): si WispHub corrige la
+  cédula, el contrato firmado con la vieja deja de salir en la ficha;
+- la lista técnica de INVENTARIO (`inventario/clientes_<i>`) sigue con el titular anterior;
+- en RED, «Clientes vs. Red» cruza por nombre: un servicio que cambió de titular sale en
+  «Solo en el mapa» y la persona nueva en «Falta ubicarlos». Ese cruce solo lee.
+- si en WispHub el servicio pasa a otra persona y allá no tiene teléfono, la persona nueva
+  queda con el teléfono de la anterior hasta que lo pongan en WispHub (la vista previa de la
+  manual no lo marca). Se dejó así a propósito: vaciarlo borraba el teléfono bueno cuando era
+  la misma persona con la cédula corregida.

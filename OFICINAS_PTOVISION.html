@@ -1017,7 +1017,7 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION = 323; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 324; // ⬆️ Subir en cada nueva versión publicada
 
 // Etapa 6 (docs/12): hora en que se cargó ESTA página. Vive en memoria, nunca en sessionStorage: una recarga
 // la reinicia. La usan la guarda de 24 h (_revisarCaducadaOfi) y el latido de pantallas.js (cargadaMs).
@@ -1044,7 +1044,7 @@ const MSG_VERSION_VIEJA_OFI = 'Hay una versión nueva: esta pantalla ya no guard
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '3 Nov 2026 (v323: las facturas sincronizadas ya no se pierden si falla el guardado, aviso cuando el historial de una oficina está viejo, y la vista previa de la sincronización dice la verdad. v322: las facturas borradas en WispHub ya no salen como pagos sin registrar. v321: los archivos de órdenes, recogidas y solicitudes se guardan por partes y ya no se llenan ni se pisan entre pantallas. v320: pantallas abiertas y freno de versión vieja. Historial en git y en docs/)';
+const APP_VERSION_FECHA = '5 Nov 2026 (v324: si en WispHub un servicio pasa a otra persona, el nombre, la cédula y el teléfono nuevos se ponen solos y los anteriores quedan guardados; otros cambios de esos datos los aplica la sincronización manual. v323: las facturas sincronizadas ya no se pierden si falla el guardado. Historial en git y en docs/)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -34445,6 +34445,65 @@ function _serviciosDeSuWisphub(x, cacheCuentas){
    dejaba a la primera incompleta, y la siguiente sincronización la devolvía:
    un ping-pong eterno. Eso NO lo puede decidir el programa — es un dato
    repetido en WispHub. Ahora se avisa y no se toca.                          */
+/* v324 — EL MISMO SERVICIO CON OTRO TITULAR
+   La llave (cuenta:id_servicio) dice que es el mismo servicio, pero en WispHub le cambiaron
+   el titular, o le corrigieron el nombre, la cédula o el teléfono. Hasta la v323 ninguna
+   sincronización tocaba esos tres datos de un cliente que ya existía, y el programa seguía
+   mostrando a la persona anterior: al buscar a la nueva por su nombre no aparecía (caso real
+   del 5 nov 2026: paujil:5471, en Doncello; medidos 41 servicios así en las cinco oficinas).
+   Solo cuenta lo que WispHub trae lleno: un dato vacío allá no borra el de aquí, y un relleno
+   («0», «000», «1111», «123456789», un teléfono de menos de 7 cifras) tampoco cuenta. Mayúsculas,
+   tildes, puntuación, espacios de más, la forma de escribir la cédula o el teléfono, los ceros a la
+   izquierda y el dígito de verificación de un NIT, y el +57 no cuentan como cambio.
+   La sincronización AUTOMÁTICA solo aplica el caso de otra persona (cambian el nombre Y la cédula,
+   y la de aquí era una cédula de verdad: _titularOtraPersona). Lo demás (solo el teléfono, solo el nombre, solo la cédula) puede ser una
+   corrección hecha a mano aquí que no se hizo en WispHub: eso solo lo aplica la sincronización
+   manual, que lo muestra y pregunta antes (decisión de Elkin, 5 nov 2026). */
+function _cambiosTitularWisphub(cli, cw){
+    if(!cli || !cw) return null;
+    const limpio=s=>String(s==null?'':s).replace(/[\u0000-\u001F\u007F]/g,' ').replace(/\s+/g,' ').trim();
+    const comparable=s=>limpio(s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9 ]/g,'').replace(/\s+/g,' ').trim();
+    const tel=s=>{ const d=_dig(s); return (d.length===12 && d.slice(0,2)==='57') ? d.slice(2) : d; };
+    // relleno: cifras todas iguales («0000», «1111») o seguidas («123456789», «987654»).
+    const relleno=d=>/^(\d)\1*$/.test(d) || '01234567890123456789'.indexOf(d)>=0 || '98765432109876543210'.indexOf(d)>=0;
+    const cedOk=d=>d.length>=3 && !relleno(d), telOk=d=>d.length>=7 && !relleno(d);
+    // misma cédula: sin ceros a la izquierda, y un NIT de 9 cifras con o sin su dígito de verificación.
+    const sinCeros=d=>d.replace(/^0+/,'');
+    const mismaCed=(a,b)=>{ a=sinCeros(a); b=sinCeros(b); if(a===b) return true;
+        const [c,l]=a.length<b.length?[a,b]:[b,a]; return c.length===9 && l.length===10 && l.slice(0,9)===c; };
+    const nuevo={}, campos=[];
+    const nom=limpio(cw.nombre);
+    if(nom && comparable(cli.nombre)!==comparable(nom)){ nuevo.nombre=nom; campos.push('nombre'); }
+    const ced=limpio(cw.cedula), cedAqui=_dig(cli.cedula||cli.documento);
+    if(cedOk(_dig(ced)) && !mismaCed(cedAqui, _dig(ced))){ nuevo.cedula=ced; campos.push('cedula'); }
+    const telW=limpio(cw.telefono);
+    if(telOk(tel(telW)) && tel(cli.telefono)!==tel(telW)){ nuevo.telefono=telW; campos.push('telefono'); }
+    // Otra persona: cambian el nombre Y la cédula, y la de aquí era una cédula de verdad (si WispHub solo llenó
+    // una cédula que faltaba, no cambió la persona). Un teléfono vacío o de relleno en WispHub no borra el de aquí,
+    // tampoco en este caso: podría ser la misma persona con la cédula corregida (revisión del 5 nov 2026).
+    const otraPersona = campos.indexOf('nombre')>=0 && campos.indexOf('cedula')>=0 && cedOk(cedAqui);
+    return campos.length ? {campos, nuevo, otraPersona} : null;
+}
+// v324: otra persona (lo marca _cambiosTitularWisphub). Solo esto se aplica sin preguntar.
+function _titularOtraPersona(t){ return !!(t && t.otraPersona); }
+// v324: las líneas que muestra la vista previa de la sincronización manual (hasta max), para que se vea a quién cambia.
+function _lineasTitularPlan(planes, max){
+    const varias=(planes||[]).filter(p=>(p.titular||[]).length).length>1;
+    const v=s=>(s==null||String(s).trim()==='') ? '(vacío)' : String(s);
+    const filas=[]; let total=0;
+    (planes||[]).forEach(p=>(p.titular||[]).forEach(x=>{
+        total++; if(filas.length>=max || !x.cli) return;
+        const c=x.cli, n=x.nuevo||{}, partes=[];
+        if('nombre' in n)   partes.push('nombre → '+v(n.nombre));
+        if('cedula' in n)   partes.push('cédula '+v(c.cedula||c.documento)+' → '+v(n.cedula));
+        if('telefono' in n) partes.push('teléfono '+v(c.telefono)+' → '+v(n.telefono));
+        filas.push('   · '+(varias&&p.o?p.o.nombre+' · ':'')+v(c.nombre)+': '+partes.join(', '));
+    }));
+    if(!total) return '';
+    return filas.join('\n')+(total>filas.length?'\n   · …y '+(total-filas.length)+' más':'')+'\n';
+}
+window._cambiosTitularWisphub=_cambiosTitularWisphub; window._titularOtraPersona=_titularOtraPersona; window._lineasTitularPlan=_lineasTitularPlan;
+
 function conciliarOficina(o, raw, cacheCuentas){
     const suyos = _filtrarPorZonaOficina(o, raw, c=>_zonaDe(c));
     const plan = {o, enWisphub:suyos.length, agregar:[], servicio:[], mover:[],
@@ -34468,6 +34527,7 @@ function conciliarOficina(o, raw, cacheCuentas){
     raw.forEach(cw=>{ const d=_dig(cw.cedula); if(d) cedCuenta.add(d); });
 
     plan.sellar = [];   // legado: clientes a los que hay que anotarles su llave
+    plan.titular = [];  // v324: mismo servicio, con nombre, cédula o teléfono nuevos en WispHub
     const usados=new Set(), pendientes=[];
     suyos.forEach(cw=>{
         const k=_llaveWisphub(cuenta, cw);
@@ -34490,6 +34550,8 @@ function conciliarOficina(o, raw, cacheCuentas){
             if(k && String(ya.llaveWisphub||'')!==k && !plan.sellar.some(z=>z.cli===ya))
                 plan.sellar.push({cli:ya, llave:k});
             if(ya.retiradoWisphub) plan.reactivar.push({cli:ya, cw});
+            // v324: es el mismo servicio (misma llave); si en WispHub cambiaron sus datos de titular, se ponen al día.
+            if(k){ const t=_cambiosTitularWisphub(ya, cw); if(t) plan.titular.push({cli:ya, cw, campos:t.campos, nuevo:t.nuevo, otraPersona:t.otraPersona}); }
             return;
         }
         pendientes.push(cw);
@@ -34568,7 +34630,7 @@ function conciliarOficina(o, raw, cacheCuentas){
 
 /* Aplica el plan. Devuelve el conteo de lo que hizo. */
 function aplicarConciliacion(plan){
-    const o=plan.o, hecho={agregados:0, servicio:0, movidos:0, retirados:0, reactivados:0,
+    const o=plan.o, hecho={agregados:0, servicio:0, movidos:0, retirados:0, reactivados:0, titular:0,
                            candidatosInstalacion:[]};
     o.clientes=o.clientes||[];
 
@@ -34576,6 +34638,31 @@ function aplicarConciliacion(plan){
     // esto seguirían emparejándose por el texto del servicio, que no distingue
     // dos servicios de la misma persona.
     (plan.sellar||[]).forEach(x=>{ if(x.cli && x.llave) x.cli.llaveWisphub=x.llave; });
+
+    // v324: nombre, cédula y teléfono que cambiaron en WispHub (mismo servicio). Lo que había queda
+    // en titularAnterior de cada cliente (los últimos 5) y UNA línea por oficina en auditoría (la primera
+    // vez fueron 96 clientes: una línea por cliente habría sacado del registro las entradas viejas).
+    // Se vuelve a medir contra el cliente de AHORA: si el plan se armó antes (la vista previa esperó la
+    // confirmación y entretanto la automática ya lo aplicó) o el servicio vino dos veces en el listado,
+    // no se aplica dos veces ni queda en titularAnterior el dato nuevo como si fuera el viejo.
+    // Con plan.titularSoloOtraPersona (la automática) solo se aplica el cambio de otra persona.
+    const _titLog=[];
+    (plan.titular||[]).forEach(x=>{
+        const c=x.cli; if(!c) return;
+        const t=x.cw ? _cambiosTitularWisphub(c, x.cw) : (x.nuevo ? {campos:x.campos||[], nuevo:x.nuevo, otraPersona:!!x.otraPersona} : null);
+        if(!t) return;
+        if(plan.titularSoloOtraPersona && !_titularOtraPersona(t)) return;
+        const previos=Array.isArray(c.titularAnterior) ? c.titularAnterior
+            : (c.titularAnterior && typeof c.titularAnterior==='object' ? Object.values(c.titularAnterior) : []);
+        c.titularAnterior=previos.concat([{nombre:c.nombre||'', cedula:c.cedula||'', telefono:c.telefono||'',
+                                            campos:t.campos.join(','), hasta:Date.now()}]).slice(-5);
+        Object.assign(c, t.nuevo);
+        c.titularActualizadoEn=Date.now();
+        hecho.titular++;
+        _titLog.push((c.llaveWisphub||'?')+'='+t.campos.map(k=>k.charAt(0)).join(''));
+    });
+    if(_titLog.length) try{ registrarLog('CLIENTES_DATOS_WISPHUB', {oficinaId:o.id, total:_titLog.length,
+        servicios:_titLog.slice(0,15).join(' '), mas:Math.max(0,_titLog.length-15)}); }catch(eL){}   // n=nombre c=cédula t=teléfono
 
     plan.servicio.forEach(x=>{
         x.cli.servicioWisphub=x.ahora;
@@ -34627,9 +34714,9 @@ function aplicarConciliacion(plan){
 function _resumenPlan(planes, huerfanas){
     const t=(k)=>planes.reduce((a,p)=>a+(p[k]||[]).length,0);
     const nA=t('agregar'), nS=t('servicio'), nM=t('mover'), nR=t('retirar'),
-          nRe=t('reactivar'), nC=t('conflicto'), nD=t('duplicados'),
+          nRe=t('reactivar'), nC=t('conflicto'), nD=t('duplicados'), nT=t('titular'),   // v324: nT
           nSW=planes.reduce((a,p)=>a+(p.sinWisphub||0),0);   // v284
-    if(!nA&&!nS&&!nM&&!nR&&!nRe&&!nC&&!nD&&!Object.keys(huerfanas||{}).length) return null;
+    if(!nA&&!nS&&!nM&&!nR&&!nRe&&!nC&&!nD&&!nT&&!Object.keys(huerfanas||{}).length) return null;
     let s='';
     if(Object.keys(huerfanas||{}).length){
         s+='⚠️ HAY ZONAS DE WISPHUB QUE NINGUNA OFICINA RECLAMA\n';
@@ -34644,6 +34731,7 @@ function _resumenPlan(planes, huerfanas){
         if(p.servicio.length)  partes.push(p.servicio.length+' con servicio nuevo');
         if(p.mover.length)     partes.push(p.mover.length+' que se mudaron');
         if(p.reactivar.length) partes.push(p.reactivar.length+' que volvieron');
+        if((p.titular||[]).length) partes.push(p.titular.length+' con nombre, cédula o teléfono nuevos');   // v324
         if(p.retirar.length)   partes.push('−'+p.retirar.length+' retirados');
         if((p.duplicados||[]).length) partes.push('−'+p.duplicados.length+' duplicados creados a mano');
         s+='• '+p.o.nombre+': '+(partes.length?partes.join(', '):'ya estaba al día')+'\n';
@@ -34653,6 +34741,10 @@ function _resumenPlan(planes, huerfanas){
             +'a WispHub, entran solos otra vez.\n';
     if(nS) s+='\nLos '+nS+' "con servicio nuevo" son la misma persona a la que WispHub le\n'
             +'cambió el número de servicio. Se les actualiza, NO se duplican.\n';
+    if(nT) s+='\nLos '+nT+' "con nombre, cédula o teléfono nuevos" quedan como están en WispHub.\n'
+            +'Si alguno se corrigió aquí a mano y no en WispHub, se cambia por el de WispHub\n'
+            +'(lo de antes queda guardado en el cliente). Corrígelo también en WispHub.\n'
+            +_lineasTitularPlan(planes, 10);   // v324
     if(nD) s+='\nLos '+nD+' "duplicados creados a mano" tienen la misma cédula (o el mismo nombre exacto y\n'
             +'ninguna cédula) que un cliente que ya entró desde WispHub en la misma oficina.\n'
             +'Se retiran; su historia se conserva.\n';
@@ -35667,6 +35759,7 @@ async function sincronizarConWisphub(oid){
             `• Con servicio actualizado: ${hecho.servicio}\n`+
             `• Movidos desde otra oficina: ${hecho.movidos}\n`+
             `• Reactivados: ${hecho.reactivados}\n`+
+            `• Con nombre, cédula o teléfono al día: ${hecho.titular||0}\n`+
             `• Retirados (ya no están en WispHub): ${hecho.retirados}`+
             _textoVerificacion(_v, o));
         if((hecho.candidatosInstalacion||[]).length)
@@ -35976,7 +36069,7 @@ async function sincronizarTodasOficinasWisphub(){
         renderClientes(); return;
     }
     if(!confirm(txt+'\n¿Lo aplico?')){ renderClientes(); return; }
-    const tot={agregados:0, servicio:0, movidos:0, retirados:0, reactivados:0};
+    const tot={agregados:0, servicio:0, movidos:0, retirados:0, reactivados:0, titular:0};
     planes.forEach(pl=>{ const h=aplicarConciliacion(pl);
         Object.keys(tot).forEach(k=>tot[k]+=h[k]); });
     totalNuevos=tot.agregados;
@@ -35994,6 +36087,7 @@ async function sincronizarTodasOficinasWisphub(){
           `• Con servicio actualizado: ${tot.servicio}\n`+
           `• Movidos de oficina: ${tot.movidos}\n`+
           `• Reactivados: ${tot.reactivados}\n`+
+          `• Con nombre, cédula o teléfono al día: ${tot.titular}\n`+
           `• Retirados (ya no están en WispHub): ${tot.retirados}\n`+
           `• Puestos al día (estado, plan o tarifa): ${totalAlDia}`+
           ((window._fallosSync||[]).length
@@ -37137,7 +37231,10 @@ function _debeBarridoProfundo(ultimoMs, ahoraMs){ const u=Number(ultimoMs)||0; r
 function _listaClientesCompleta(traidos, previos){ const p=Number(previos)||0; if(!p) return traidos>0; return traidos >= Math.floor(p*0.9); }
 function _planClientesSeguro(plan){
     return {o:plan.o, enWisphub:plan.enWisphub, sellar:plan.sellar||[], servicio:plan.servicio||[], agregar:plan.agregar||[],
-            reactivar:plan.reactivar||[], mover:[], retirar:[], conflicto:[], duplicados:[]};   // v284: duplicados solo en la manual
+            // v324: solo el cambio de otra persona (nombre Y cédula); solo el teléfono o solo el nombre puede ser
+            // una corrección hecha a mano aquí, y eso lo decide quien sincroniza a mano (decisión de Elkin, 5 nov 2026).
+            reactivar:plan.reactivar||[], titular:(plan.titular||[]).filter(_titularOtraPersona), titularSoloOtraPersona:true,
+            mover:[], retirar:[], conflicto:[], duplicados:[]};   // v284: duplicados solo en la manual
 }
 window._debeBarridoProfundo=_debeBarridoProfundo; window._listaClientesCompleta=_listaClientesCompleta; window._planClientesSeguro=_planClientesSeguro;
 
@@ -37170,10 +37267,10 @@ async function _conciliarClientesAutomatico(oids){
                     // la zona al cliente cancelado, y filtrada por zona su estado no se actualizaba nunca. El emparejamiento
                     // es por llave/servicio, así que solo toca clientes que YA son de esta oficina.
                     const est=_actualizarEstadosClientesWisphub(o, raw)||{};
-                    const cambios=(h.agregados||0)+(h.servicio||0)+(h.reactivados||0)+(est.actualizados||0);
+                    const cambios=(h.agregados||0)+(h.servicio||0)+(h.reactivados||0)+(h.titular||0)+(est.actualizados||0);
                     if(cambios){
-                        res.agregados+=h.agregados||0; res.actualizados+=(est.actualizados||0)+(h.servicio||0)+(h.reactivados||0); res.nombres.push(o.nombre);
-                        registrarLog('SYNC_CLIENTES_AUTO',{oficinaId:o.id, agregados:h.agregados||0, estados:est.actualizados||0, reactivados:h.reactivados||0});
+                        res.agregados+=h.agregados||0; res.actualizados+=(est.actualizados||0)+(h.servicio||0)+(h.reactivados||0)+(h.titular||0); res.nombres.push(o.nombre);
+                        registrarLog('SYNC_CLIENTES_AUTO',{oficinaId:o.id, agregados:h.agregados||0, estados:est.actualizados||0, reactivados:h.reactivados||0, titulares:h.titular||0});
                     }
                 }catch(e){ console.warn('conciliar '+o.nombre+':', e); }
             }
@@ -37210,7 +37307,7 @@ function _programarSyncRapida(){
             try{ _cli=await _conciliarClientesAutomatico(objetivos); }catch(eC){ console.warn('clientes automáticos:', eC); }
             if(creados>0 || _cli.agregados>0 || _cli.actualizados>0){
                 await save({silencioso:true});
-                const _partes=[]; if(creados>0) _partes.push(`⚡ ${creados} pago(s)`); if(_cli.agregados>0) _partes.push(`👥 ${_cli.agregados} cliente(s) nuevo(s)`); if(_cli.actualizados>0) _partes.push(`🔄 ${_cli.actualizados} estado(s)`);
+                const _partes=[]; if(creados>0) _partes.push(`⚡ ${creados} pago(s)`); if(_cli.agregados>0) _partes.push(`👥 ${_cli.agregados} cliente(s) nuevo(s)`); if(_cli.actualizados>0) _partes.push(`🔄 ${_cli.actualizados} cambio(s) en clientes`);   // v324: estado, plan o titular nuevo; un cliente puede sumar dos
                 _syncToastRapida(_partes.join(' · ')+' de WispHub entraron solos — '+[...new Set(nombres.concat(_cli.nombres))].join(', '));
                 try{ if(typeof _recargarVistaSilenciosa==='function') _recargarVistaSilenciosa(); }catch(eR){}
             }
@@ -37894,6 +37991,7 @@ async function sincronizarTodoWisphub(oid){
             _planPrev.servicio.length?`🔁 Clientes a los que WispHub les cambió el número de servicio: ${_planPrev.servicio.length}\n`:'',
             _planPrev.mover.length?`📦 Clientes que se mudaron de oficina: ${_planPrev.mover.length}\n`:'',
             _planPrev.reactivar.length?`♻️ Clientes retirados que volvieron: ${_planPrev.reactivar.length}\n`:'',
+            (_planPrev.titular||[]).length?`🪪 Clientes con nombre, cédula o teléfono nuevos en WispHub: ${_planPrev.titular.length} (quedan como en WispHub; si alguno se corrigió aquí a mano, corrígelo también allá)\n`+_lineasTitularPlan([_planPrev], 10):'',
             _planPrev.retirar.length?`🚪 Clientes que ya no están en WispHub (se retiran): ${_planPrev.retirar.length}\n`:'',
             (_planPrev.conflicto&&_planPrev.conflicto.length)?`⚠️ Repetidos en dos cuentas de WispHub (NO se tocan): ${_planPrev.conflicto.length}\n`:''
         ].join('') : '';
@@ -37958,7 +38056,7 @@ async function sincronizarTodoWisphub(oid){
         try{
             const _plan=conciliarOficina(o, clientesRaw||[], {[o.cuentaWisphub]:clientesRaw||[]});
             const _h=aplicarConciliacion(_plan);
-            resCli={agregados:_h.agregados, candidatosInstalacion:_h.candidatosInstalacion||[]};
+            resCli={agregados:_h.agregados, titular:_h.titular||0, candidatosInstalacion:_h.candidatosInstalacion||[]};   // v324: titular
             window._concUltima=_h;
         }catch(e){
             console.warn('conciliar', e);
@@ -38006,6 +38104,7 @@ async function sincronizarTodoWisphub(oid){
         let msg = `✅ Sincronización completa con WispHub.\n\n`
             + `👥 Clientes nuevos agregados: ${resCli.agregados}\n`
             + `🔄 Clientes con estado actualizado: ${resEst.actualizados}\n`
+            + (resCli.titular>0?`🪪 Clientes con nombre, cédula o teléfono al día: ${resCli.titular}\n`:'')   // v324
             + `💰 Pagos nuevos reflejados: ${resPag.creados}\n`
             + (resPag.corregidos>0?`✏️ Pagos existentes corregidos para igualar a WispHub (forma/valor): ${resPag.corregidos}\n`:'')
             + (resPag.reubicados>0?`📅 Pagos reubicados a su fecha REAL de WispHub: ${resPag.reubicados}\n`:'')
