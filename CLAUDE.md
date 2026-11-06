@@ -25,11 +25,11 @@ sin proceso de compilación: se editan directamente y se publican tal cual.
 | Archivo | Para quién | Versión | Tamaño |
 |---|---|---|---|
 | `index.html` | Portal de entrada, solo enlaces | — | 170 líneas |
-| `OFICINAS_PTOVISION.html` | Oficina: caja, cartera, facturas, clientes, RRHH, SG-SST | `APP_VERSION = 324` | 40.515 líneas · 3,1 MB |
+| `OFICINAS_PTOVISION.html` | Oficina: caja, cartera, facturas, clientes, RRHH, SG-SST | `APP_VERSION = 325` | 40.630 líneas · 3,1 MB |
 | `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 122` | 25.875 líneas · 2,0 MB |
 | `RED_PTOVISION.html` | Red y nodos | `APP_VERSION_RED = 44` | 9.759 líneas · 607 KB |
 | `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 103` | 4.290 líneas · 304 KB |
-| `PRUEBAS.html` | Banco de pruebas (230 pruebas) | — | 21.705 líneas |
+| `PRUEBAS.html` | Banco de pruebas (231 pruebas) | — | 21.798 líneas |
 | `FIRMA_SST.html` | Firma desde el celular (SG-SST): página pública, sin login, lee un solo documento por token | — | 187 líneas |
 | `contrato.js` | Contrato de servicio: **compartido** OFICINAS ↔ TECNICOS | `?v=6` | 956 líneas |
 | `ia.js` | Llamadas a Groq: compartido por OFICINAS, INVENTARIO y TECNICOS | `?v=5` | 388 líneas |
@@ -82,7 +82,7 @@ cargan enteras: se leen cuando se toca ese tema.
 
 - @docs/01-firestore-limites.md — el límite de 1 MiB por documento, el archivador y los archivos por partes (desde OFICINAS 321 e INVENTARIO 121)
 - @docs/02-contrato-de-servicio.md — contrato de servicio, `contrato.js`, condiciones por oficina
-- @docs/03-datos-y-acceso.md — Firebase/Firestore y autenticación
+- @docs/03-datos-y-acceso.md — Firebase/Firestore y autenticación; cuánto dura la sesión de OFICINAS y «Recordar en este computador» (v325)
 - @docs/04-wisphub.md — sincronización con WispHub
 - @docs/05-ia-y-servicios.md — Groq, OCR y servicios externos
 - @docs/06-material-ordenes-y-limpiezas.md — bodega ↔ cuadrilla, estados de órdenes, limpiezas

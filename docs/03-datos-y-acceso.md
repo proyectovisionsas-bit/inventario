@@ -38,3 +38,30 @@ Las claves se guardan **en texto plano** en el campo `tecnicoPass`.
 > autentica ante Firebase, así que `if request.auth != null` tumbaría las tres
 > apps de inmediato. El plan acordado es migración progresiva — los dos métodos
 > conviviendo, cada empleado migrándose al entrar — y cerrar las reglas al final.
+
+### OFICINAS: cuánto dura la sesión (v325)
+
+- Normal: `sessionStorage` (`ofi_sesion`). Vive solo en esa pestaña y caduca a
+  las 12 horas del inicio de sesión real; recargar no alarga el plazo.
+- «Recordar en este computador» (solo admin, casilla del login): ese equipo
+  guarda en `localStorage` (`ofi_sesion_recordada`; con `?prueba=1`,
+  `ofi_sesion_recordada_prueba`) una sesión de 30 días con una huella SHA-256
+  con sal de la clave, nunca la clave. Deja de valer si cambia la clave de
+  administrador, si vence, con «Salir», al entrar como admin sin marcar la
+  casilla o si en ese equipo entra una oficina o SG-SST. La cabecera lo
+  muestra como «ADMIN · 💾» (también se pone al día si otra pestaña la cambia).
+  Además:
+  - si al abrir no se pudo leer la base (sin internet al despertar el equipo,
+    Firestore con error), no se compara ni se borra nada: se pide la clave y la
+    próxima apertura con la base vuelve a entrar sola;
+  - cambiar la clave de administrador desde ese computador renueva su sesión
+    recordada; los demás computadores la pierden;
+  - una pestaña que tenía la sesión de una oficina o de SG-SST nunca pasa sola a
+    administrador al recargar;
+  - entrar así deja «Administrador (sesión recordada)» en el registro de sesiones;
+  - la casilla se desmarca al entrar y no se conserva de una recarga a otra.
+  Funciones: `_recordarSesionAdminOfi`, `_reanudarSesionRecordadaOfi`,
+  `_olvidarSesionRecordadaOfi`, `_infoSesionRecordadaOfi`, `_insigniaAdminOfi`,
+  `_pestanaDeOtroRolOfi`. Prueba: «Recordar en este computador» en PRUEBAS.
+- Para qué: las tareas programadas de la mañana (revisión de comprobantes y
+  pagos del admin) encuentran abierta la sesión del computador de Elkin.

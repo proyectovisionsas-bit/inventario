@@ -579,6 +579,7 @@
                     </div>
                     <div style="position:relative;"><input type="password" id="passAdmin" class="form-control" placeholder="••••••••" style="padding-right:42px;" onkeydown="if(event.key==='Enter')doLogin('admin')"><button type="button" onclick="_toggleVerPass('passAdmin',this)" title="Ver/ocultar contraseña" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:1.1rem;opacity:0.65;padding:4px;">👁️</button></div>
                 </div>
+                <label for="ofiRecordarAdmin" style="display:flex;align-items:flex-start;gap:8px;margin:-6px 0 14px;font-size:0.78rem;color:var(--muted);cursor:pointer;line-height:1.35;"><input type="checkbox" id="ofiRecordarAdmin" autocomplete="off" style="margin-top:2px;flex:none;"><span>Recordar en este computador (30 días). Márquela solo en un computador personal, nunca en el de una oficina.</span></label><!-- v325: ver «RECORDAR EN ESTE COMPUTADOR» junto a doLogin -->
                 <button class="btn-login" onclick="doLogin('admin')">🔑 Ingresar como Admin</button>
             </div>
             <div id="login-oficina-sec" class="login-section hidden">
@@ -1017,7 +1018,7 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION = 324; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 325; // ⬆️ Subir en cada nueva versión publicada
 
 // Etapa 6 (docs/12): hora en que se cargó ESTA página. Vive en memoria, nunca en sessionStorage: una recarga
 // la reinicia. La usan la guarda de 24 h (_revisarCaducadaOfi) y el latido de pantallas.js (cargadaMs).
@@ -1044,7 +1045,7 @@ const MSG_VERSION_VIEJA_OFI = 'Hay una versión nueva: esta pantalla ya no guard
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '5 Nov 2026 (v324: si en WispHub un servicio pasa a otra persona, el nombre, la cédula y el teléfono nuevos se ponen solos y los anteriores quedan guardados; otros cambios de esos datos los aplica la sincronización manual. v323: las facturas sincronizadas ya no se pierden si falla el guardado. Historial en git y en docs/)';
+const APP_VERSION_FECHA = '6 Nov 2026 (v325: el administrador puede marcar «Recordar en este computador» al entrar y ese equipo queda con la sesión 30 días; «Salir» la olvida. v324: si en WispHub un servicio pasa a otra persona, el nombre, la cédula y el teléfono nuevos se ponen solos y los anteriores quedan guardados. Historial en git y en docs/)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -3569,7 +3570,7 @@ function _mostrarCapaCaducadaOfi(){
     c.style.cssText='position:fixed;inset:0;z-index:99996;background:rgba(2,6,23,0.94);display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;';
     c.innerHTML=`<div style="max-width:430px;width:100%;box-sizing:border-box;background:var(--surface,#0f172a);border:1px solid rgba(59,130,246,0.45);border-radius:14px;padding:24px 20px;text-align:center;color:var(--text,#e2e8f0);overflow-wrap:anywhere;">
         <div style="font-size:2.2rem;">🕰️</div>
-        <p style="font-size:0.92rem;line-height:1.55;margin:10px 0 16px;"><b>Esta pantalla lleva más de un día abierta.</b> Actualízala para seguir trabajando con los datos al día. (Si pasaron más de 12 horas desde que entraste, te pedirá la clave otra vez.)</p>
+        <p style="font-size:0.92rem;line-height:1.55;margin:10px 0 16px;"><b>Esta pantalla lleva más de un día abierta.</b> Actualízala para seguir trabajando con los datos al día. (Si pasaron más de 12 horas desde que entraste, te pedirá la clave otra vez, salvo en un computador que recuerda la sesión del administrador.)</p>
         <button class="btn btn-primary" style="width:100%;font-size:1rem;padding:12px;" onclick="if(window.PV_RECARGA) PV_RECARGA.recargarAhora(); else { var u=new window.URL(location.href); u.searchParams.set('nv',Date.now()); location.replace(u.toString()); }">🔄 Actualizar ahora</button>
     </div>`;
     try{ if(document.activeElement && document.activeElement.blur) document.activeElement.blur(); }catch(e){}
@@ -11233,6 +11234,9 @@ function _guardarSesionOfi(){
         sessionStorage.setItem(_SES_OFI, JSON.stringify({
             role:USER.role, id:USER.id||'', nombre:USER.nombre||'', en:desde
         }));
+        // v325: esta pestaña fue de una oficina o de SG-SST. La marca no se borra al vencer la sesión de la
+        // pestaña: así la pestaña no pasa sola a administrador por «Recordar en este computador».
+        if(USER.role!=='admin') sessionStorage.setItem('ofi_pestana_otro_rol','1');
     }catch(e){}
 }
 function _olvidarSesionOfi(){ try{ sessionStorage.removeItem(_SES_OFI); }catch(e){} }
@@ -11258,6 +11262,102 @@ function _reanudarSesionOfi(){
         return true;
     }catch(e){ return false; }
 }
+// ════════════════════════════════════════════════════════════════════════════
+// v325 · «RECORDAR EN ESTE COMPUTADOR» (solo el administrador)
+// ────────────────────────────────────────────────────────────────────────────
+// Pedido de Elkin (06-11-2026): las tareas de la mañana no deben pedirle la
+// clave todos los días. La sesión de arriba no cambia (sessionStorage, 12 h);
+// esta es aparte y solo existe si el admin marca la casilla al entrar:
+// - Vive en el localStorage de ESE equipo y dura 30 días contados desde el
+//   inicio de sesión real: usarla no alarga el plazo.
+// - No se guarda la clave: solo una huella SHA-256 con una sal propia del
+//   equipo. Si la clave de administrador cambia, la huella ya no coincide y
+//   hay que volver a entrar.
+// - Se olvida con «Salir», al entrar como admin sin marcar la casilla y cuando
+//   en ese equipo entra una oficina o SG-SST.
+// - Las oficinas y SG-SST no tienen la casilla: sus computadores son
+//   compartidos y siguen con las 12 horas.
+// - En ?prueba=1 va con otra llave, para no mezclarse con la de verdad.
+// - Sin crypto.subtle (página abierta desde un origen no seguro) no se
+//   recuerda nada y se entra como siempre.
+// - Si al abrir no se pudo leer la base (sin internet al despertar el equipo,
+//   Firestore con error), no se compara ni se borra nada: se pide la clave y
+//   la próxima apertura con la base vuelve a entrar sola (revisión 06-11-2026).
+// - Cambiar la clave de administrador desde este computador renueva su sesión
+//   recordada; los demás computadores la pierden y piden la clave nueva.
+// - Una pestaña que tenía la sesión de una oficina o de SG-SST nunca pasa sola a
+//   administrador al recargar, aunque el equipo tenga la sesión recordada.
+// Cuando el login pase a Firebase Authentication, esta casilla equivale a la
+// persistencia LOCAL (marcada) o SESSION (sin marcar).
+// ════════════════════════════════════════════════════════════════════════════
+const _SES_REC_OFI = MODO_PRUEBA ? 'ofi_sesion_recordada_prueba' : 'ofi_sesion_recordada';
+const _SES_REC_OFI_DIAS = 30;
+function _hexOfi(bytes){ return Array.from(bytes, b=>b.toString(16).padStart(2,'0')).join(''); }
+async function _huellaClaveOfi(sal, clave){
+    const h=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(sal)+'|'+String(clave)));
+    return _hexOfi(new Uint8Array(h));
+}
+function _puedeRecordarOfi(){
+    try{ return !!(window.crypto && window.crypto.subtle && window.crypto.getRandomValues && window.TextEncoder && window.localStorage); }catch(e){ return false; }
+}
+function _olvidarSesionRecordadaOfi(){ try{ localStorage.removeItem(_SES_REC_OFI); }catch(e){} }
+/* Guarda la sesión recordada del admin que acaba de entrar. Devuelve true si quedó guardada. */
+async function _recordarSesionAdminOfi(){
+    try{
+        if(!USER || USER.role!=='admin' || !DB || !DB.adminPass || !_puedeRecordarOfi()) return false;
+        const sal=_hexOfi(crypto.getRandomValues(new Uint8Array(16))), en=Date.now();
+        const huella=await _huellaClaveOfi(sal, DB.adminPass);
+        if(!USER || USER.role!=='admin') return false;   // salió o entró otro rol mientras tanto
+        localStorage.setItem(_SES_REC_OFI, JSON.stringify({role:'admin', en, hasta:en+_SES_REC_OFI_DIAS*864e5, sal, huella}));
+        return true;
+    }catch(e){ _olvidarSesionRecordadaOfi(); return false; }
+}
+/* true si este equipo tiene una sesión recordada vigente y hecha con la clave de hoy. Se llama con la base
+   ya cargada: sin DB.adminPass no se puede comprobar la huella (entonces se pide la clave, sin borrar nada). */
+async function _reanudarSesionRecordadaOfi(){
+    try{
+        const s=JSON.parse(localStorage.getItem(_SES_REC_OFI)||'null');
+        if(!s) return false;
+        const ahora=Date.now(), en=Number(s.en), hasta=Number(s.hasta);
+        const vigente = s.role==='admin' && !!s.sal && !!s.huella && isFinite(en) && isFinite(hasta)
+            && hasta>ahora && en<=ahora+5*60000 && hasta-en<=_SES_REC_OFI_DIAS*864e5+60000;
+        if(!vigente){ _olvidarSesionRecordadaOfi(); return false; }
+        // La base tiene que haber llegado del servidor: si load() falló, DB trae los valores de fábrica y la huella
+        // no coincidiría. Entonces se pide la clave SIN borrar la sesión recordada.
+        if(!(Number(window._ultimoContactoServidorMs)>0)) return false;
+        if(!DB || !DB.adminPass || !_puedeRecordarOfi()) return false;
+        if(await _huellaClaveOfi(s.sal, DB.adminPass)!==s.huella){ _olvidarSesionRecordadaOfi(); return false; }   // cambiaron la clave
+        USER={role:'admin'};
+        _guardarSesionOfi();
+        try{ registrarSesion('Oficinas', 'Administrador (sesión recordada)', 'admin'); }catch(e){}
+        return true;
+    }catch(e){ return false; }
+}
+/* La pestaña tenía la sesión de una oficina o de SG-SST: al recargar no pasa sola a administrador. */
+function _pestanaDeOtroRolOfi(){
+    try{
+        if(sessionStorage.getItem('ofi_pestana_otro_rol')==='1') return true;   // la marca dura toda la vida de la pestaña
+        const p=JSON.parse(sessionStorage.getItem(_SES_OFI)||'null'); return !!(p && p.role && p.role!=='admin');
+    }catch(e){ return false; }
+}
+/* Texto y ayuda del distintivo del administrador. */
+function _insigniaAdminOfi(){
+    const r=_infoSesionRecordadaOfi();
+    return r ? {txt:'ADMIN · 💾', title:'Sesión recordada en este computador hasta el '+r.hastaTxt+'. «Salir» la olvida.'} : {txt:'ADMIN', title:''};
+}
+function _pintarInsigniaAdminOfi(){
+    try{ const b=document.getElementById('userBadge'); if(!b || !USER || USER.role!=='admin') return; const i=_insigniaAdminOfi(); b.textContent=i.txt; b.title=i.title; }catch(e){}
+}
+try{ window.addEventListener('storage', e=>{ if(e && e.key===_SES_REC_OFI) _pintarInsigniaAdminOfi(); }); }catch(e){}
+/* Para el distintivo de la cabecera: null si este equipo no tiene una sesión recordada vigente. */
+function _infoSesionRecordadaOfi(){
+    try{
+        const s=JSON.parse(localStorage.getItem(_SES_REC_OFI)||'null');
+        const hasta=(s && s.role==='admin') ? Number(s.hasta) : NaN;
+        if(!(hasta>Date.now())) return null;
+        return {hasta, hastaTxt:new Date(hasta).toLocaleDateString('es-CO', {day:'numeric', month:'long', year:'numeric'})};
+    }catch(e){ return null; }
+}
 function doLogin(type){
     if(type==='sgsst'){
         const acc=(DB.config&&DB.config.sgsstAcceso)||null;
@@ -11265,18 +11365,26 @@ function doLogin(type){
         if(document.getElementById('passSGSST').value!==acc.pass) return alert('❌ Contraseña incorrecta');
         USER={role:'sgsst', id:'sgsst', nombre:acc.nombre||'SG-SST'};
         registrarSesion('Oficinas', USER.nombre, 'sgsst');
+        _olvidarSesionRecordadaOfi();   // v325: en este equipo entró SG-SST: el admin recordado se olvida
         _guardarSesionOfi(); enterApp(); return;
     }
     if(type==='admin'){
         if(document.getElementById('passAdmin').value!==DB.adminPass) return alert('❌ Contraseña incorrecta');
         USER={role:'admin'};
         registrarSesion('Oficinas', 'Administrador', 'admin');
+        try{ sessionStorage.removeItem('ofi_pestana_otro_rol'); }catch(e){}   // v325: aquí entró el admin con su clave
+        // v325: «Recordar en este computador». Sin marcar, se olvida la que hubiera en este equipo.
+        const _rec=document.getElementById('ofiRecordarAdmin');
+        if(_rec && _rec.checked) _recordarSesionAdminOfi().then(ok=>{ if(ok) _pintarInsigniaAdminOfi(); });
+        else _olvidarSesionRecordadaOfi();
+        if(_rec) _rec.checked=false;
     } else {
         if(!selOficinaLogin) return alert('❌ Seleccione una oficina');
         const o=DB.oficinas.find(x=>x.id===selOficinaLogin);
         if(!o||document.getElementById('passOficina').value!==o.password) return alert('❌ Contraseña incorrecta');
         USER={role:'oficina', id:o.id, nombre:o.nombre};
         registrarSesion('Oficinas', o.nombre, 'oficina');
+        _olvidarSesionRecordadaOfi();   // v325: en este equipo entró una oficina: el admin recordado se olvida
     }
     _guardarSesionOfi();
     enterApp();
@@ -11389,8 +11497,8 @@ function mostrarSaludoBienvenida(nombre, lugar){
 window.mostrarSaludoBienvenida=mostrarSaludoBienvenida;
 
 function applyRoles(){
-    const b=document.getElementById('userBadge');
-    if(USER.role==='admin'){ b.textContent='ADMIN'; b.className='badge badge-admin'; }
+    const b=document.getElementById('userBadge'); b.title='';
+    if(USER.role==='admin'){ b.className='badge badge-admin'; _pintarInsigniaAdminOfi(); }   // v325: «ADMIN · 💾» con la sesión recordada
     else if(USER.role==='sgsst'){ b.textContent='🦺 '+(USER.nombre||'SG-SST'); b.className='badge badge-oficina'; }
     else { b.textContent=USER.nombre; b.className='badge badge-oficina'; }
     document.querySelectorAll('.admin-only').forEach(e=>e.style.display=USER.role==='admin'?'':'none');
@@ -11688,6 +11796,7 @@ function applyStoredTheme(){
 
 function doLogout(){
     try{ _olvidarSesionOfi(); }catch(e){}
+    try{ _olvidarSesionRecordadaOfi(); }catch(e){}   // v325: «Salir» también olvida «Recordar en este computador»
     USER=null; selOficinaLogin=null;
     try{ _buzonSalirOfi(); }catch(e){}   // v318: cierra el buzón y lo deja sin identidad hasta la próxima sesión
     try{ if(typeof PV_PANTALLAS!=='undefined') PV_PANTALLAS.detener(); }catch(e){}   // Etapa 6: sin sesión no hay latido; la próxima entrada lo vuelve a arrancar
@@ -11695,6 +11804,7 @@ function doLogout(){
     document.getElementById('app').classList.add('hidden');
     document.getElementById('login-screen').style.display='flex';
     if(document.getElementById('passAdmin')) document.getElementById('passAdmin').value='';
+    if(document.getElementById('ofiRecordarAdmin')) document.getElementById('ofiRecordarAdmin').checked=false;
     if(document.getElementById('passOficina')) document.getElementById('passOficina').value='';
     renderLoginOficinas();
 }
@@ -18245,7 +18355,9 @@ function cambiarPassAdmin(){
     if(!np) return alert('Ingresa la nueva contraseña');
     if(!confirm('¿Cambiar contraseña de administrador?')) return;
     DB.adminPass=np;
-    save(); alert('✅ Contraseña cambiada.'); renderAdmin();
+    const _rec=!!_infoSesionRecordadaOfi();   // v325: este computador la recordaba: se renueva con la clave nueva
+    if(_rec) _recordarSesionAdminOfi().then(ok=>{ if(!ok) _olvidarSesionRecordadaOfi(); _pintarInsigniaAdminOfi(); });
+    save(); alert('✅ Contraseña cambiada.'+(_rec?' Este computador sigue recordando la sesión; en los demás, la sesión recordada deja de valer.':'')); renderAdmin();
 }
 
 function modalCambiarPass(){
@@ -40481,7 +40593,10 @@ const firebaseConfig = {
     // AQUI y no antes porque hasta ahora no se sabía si la oficina sigue
     // existiendo. Si algo falla, se cae al login de siempre.
     let _reanudoOfi=false;
-    try{ _reanudoOfi = _reanudarSesionOfi(); if(_reanudoOfi) enterApp(); }
+    const _rolPestanaAntes=_pestanaDeOtroRolOfi();   // v325: se mira antes, porque _reanudarSesionOfi borra la vencida
+    try{ _reanudoOfi = _reanudarSesionOfi();
+         if(!_reanudoOfi && !_rolPestanaAntes) _reanudoOfi = await _reanudarSesionRecordadaOfi();   // v325: «Recordar en este computador» (solo admin; no en una pestaña que era de oficina o SG-SST)
+         if(_reanudoOfi) enterApp(); }
     catch(e){ console.warn("No se pudo reanudar la sesión:", e); USER=null; _reanudoOfi=false;
               try{ _olvidarSesionOfi(); }catch(e2){} }
     if(!_reanudoOfi) document.getElementById("login-screen").style.display="flex";

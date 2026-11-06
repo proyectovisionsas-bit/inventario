@@ -3974,6 +3974,98 @@ const PRUEBAS = [
        +'\nde oficina borrada: '+(r.borrada?'entra ✗':'pide clave ✓')
        +' · recargar no alarga el plazo: '+(r.noAlarga?'✓':'✗')};}},
 
+{app:'ofi', titulo:'«Recordar en este computador»: 30 días, solo el admin, y se olvida',
+ porque:'Pedido de Elkin (06-11-2026): las tareas de la mañana no deben pedirle la clave todos los días. '
+       +'Si marca la casilla al entrar, ese computador queda con la sesión 30 días (usarla no los alarga). '
+       +'Se vuelve a pedir la clave si la de administrador cambia, si vence, al tocar «Salir», al entrar '
+       +'sin marcarla o si en ese equipo entra una oficina. Se prueba con claves de mentira y una oficina '
+       +'de mentira: no toca las de verdad ni escribe en la nube.',
+ correr:async W=>{ const r=await W.eval('(async function(){'
+   +'const K=_SES_REC_OFI, prevL=localStorage.getItem(K), prevS=sessionStorage.getItem("ofi_sesion"), antes=USER, clave=DB.adminPass, selAntes=selOficinaLogin;'
+   +'const caja=document.getElementById("ofiRecordarAdmin"), pA=document.getElementById("passAdmin"), pO=document.getElementById("passOficina"), pS=document.getElementById("passSGSST");'
+   +'const contacto=window._ultimoContactoServidorMs, accAntes=(DB.config||{}).sgsstAcceso, vS=pS?pS.value:"";'
+   +'const ub=document.getElementById("userBadge"), ubT=ub?ub.textContent:"", ubTi=ub?ub.title:"", ubC=ub?ub.className:"", marcaAntes=sessionStorage.getItem("ofi_pestana_otro_rol"); const regs=[];'
+   +'const vA=pA?pA.value:"", vO=pO?pO.value:"", vC=caja?caja.checked:false;'
+   +'const eA=window.enterApp, rS=window.registrarSesion, aR=window.applyRoles, alA=window.alert, ID="__prueba_v325"; const out={};'
+   +'try{'
+   +' window.enterApp=()=>{}; window.registrarSesion=(a,q)=>{ regs.push(String(q)); }; window.applyRoles=()=>{}; window.alert=m=>{ out.alerta=String(m); };'
+   +' out.llavePrueba = K==="ofi_sesion_recordada_prueba"; out.hayCasilla = !!caja && !!pA;'
+   +' if(!out.hayCasilla) return out;'
+   +' DB.adminPass="clave-de-mentira-325"; localStorage.removeItem(K); window._ultimoContactoServidorMs=Date.now();'
+   +' pA.value=DB.adminPass; caja.checked=true; doLogin("admin");'
+   +' for(let i=0; i<50 && !localStorage.getItem(K); i++) await new Promise(s=>setTimeout(s,20));'
+   +' const g=JSON.parse(localStorage.getItem(K)||"null");'
+   +' out.guarda = !!g && g.role==="admin" && Math.round((g.hasta-g.en)/864e5)===30 && !!g.huella && !!g.sal;'
+   +' out.sinClave = !!g && JSON.stringify(g).indexOf(DB.adminPass)<0;'
+   +' out.desmarca = caja.checked===false;'
+   +' out.sal = (await _huellaClaveOfi("sal-1","x"))!==(await _huellaClaveOfi("sal-2","x"));'
+   +' if(!g) return out;'
+   +' sessionStorage.removeItem("ofi_sesion"); USER=null;'
+   +' out.reanuda = (await _reanudarSesionRecordadaOfi())===true && !!USER && USER.role==="admin";'
+   +' out.info = _insigniaAdminOfi().txt==="ADMIN · 💾" && /hasta el/.test(_insigniaAdminOfi().title);'
+   +' window._ultimoContactoServidorMs=0; USER=null; const dbPass=DB.adminPass; DB.adminPass="admin123";'
+   +' out.sinBase = (await _reanudarSesionRecordadaOfi())===false && USER===null && localStorage.getItem(K)!==null;'
+   +' DB.adminPass=dbPass; window._ultimoContactoServidorMs=Date.now(); USER=null;'
+   +' out.conBase = (await _reanudarSesionRecordadaOfi())===true && !!USER && USER.role==="admin";'
+   +' out.noAlarga = (JSON.parse(localStorage.getItem(K)||"{}").hasta)===g.hasta;'
+   +' out.registra = regs.filter(q=>q==="Administrador (sesión recordada)").length>=2;'
+   +' if(ub){ ub.textContent="ADMIN"; ub.title=""; } window.dispatchEvent(new StorageEvent("storage",{key:K})); out.oyente = !!ub && ub.textContent==="ADMIN · 💾";'
+   +' localStorage.removeItem(K); USER={role:"admin"}; const pr=_recordarSesionAdminOfi(); USER=null; out.carrera = (await pr)===false && localStorage.getItem(K)===null;'
+   +' localStorage.setItem(K, JSON.stringify(Object.assign({}, g, {hasta:g.en+40*864e5}))); USER=null;'
+   +' out.tope30 = (await _reanudarSesionRecordadaOfi())===false && USER===null && localStorage.getItem(K)===null;'
+   +' localStorage.setItem(K, JSON.stringify(Object.assign({}, g, {role:"oficina"}))); USER=null;'
+   +' out.rol = (await _reanudarSesionRecordadaOfi())===false && USER===null;'
+   +' localStorage.setItem(K, JSON.stringify(g)); USER=null;'
+   +' sessionStorage.setItem("ofi_sesion", JSON.stringify({role:"oficina", id:"x", nombre:"x", en:Date.now()-13*3600000}));'
+   +' sessionStorage.removeItem("ofi_pestana_otro_rol"); out.pestanaOficina = _pestanaDeOtroRolOfi()===true; sessionStorage.removeItem("ofi_sesion"); out.pestanaVacia = _pestanaDeOtroRolOfi()===false;'
+   +' USER={role:"oficina", id:"x", nombre:"x"}; _guardarSesionOfi(); sessionStorage.removeItem("ofi_sesion"); out.marcaDura = _pestanaDeOtroRolOfi()===true; USER=null;'
+   +' sessionStorage.removeItem("ofi_pestana_otro_rol");'
+   +' DB.adminPass="otra-clave-de-mentira"; USER=null; localStorage.setItem(K, JSON.stringify(g));'
+   +' out.claveCambiada = (await _reanudarSesionRecordadaOfi())===false && USER===null && localStorage.getItem(K)===null;'
+   +' DB.adminPass="clave-de-mentira-325"; USER=null;'
+   +' localStorage.setItem(K, JSON.stringify(Object.assign({}, g, {en:Date.now()-31*864e5, hasta:Date.now()-864e5})));'
+   +' out.vencida = (await _reanudarSesionRecordadaOfi())===false && USER===null && localStorage.getItem(K)===null;'
+   +' localStorage.setItem(K, JSON.stringify(g)); pA.value=DB.adminPass; caja.checked=false; doLogin("admin");'
+   +' out.sinMarcar = localStorage.getItem(K)===null;'
+   +' localStorage.setItem(K, JSON.stringify(g)); DB.oficinas.push({id:ID, nombre:"PRUEBA V325", password:"clave-oficina-de-mentira", movimientos:[], clientes:[]});'
+   +' selOficinaLogin=ID; pO.value="clave-oficina-de-mentira"; doLogin("oficina");'
+   +' out.oficina = localStorage.getItem(K)===null && !!USER && USER.id===ID;'
+   +' localStorage.setItem(K, JSON.stringify(g)); DB.config=DB.config||{}; DB.config.sgsstAcceso={pass:"clave-sgsst-de-mentira", nombre:"SG-SST PRUEBA"};'
+   +' if(pS){ pS.value="clave-sgsst-de-mentira"; doLogin("sgsst"); } out.sgsst = !!pS && localStorage.getItem(K)===null && !!USER && USER.role==="sgsst";'
+   +' const cuerpo=String(doLogout).replace(/\\/\\/[^\\n]*/g,"");'
+   +' out.clave = String(cambiarPassAdmin).replace(/\\/\\/[^\\n]*/g,"").indexOf("_recordarSesionAdminOfi()")>=0;'
+   +' out.salir = cuerpo.indexOf("_olvidarSesionRecordadaOfi()")>=0 && /ofiRecordarAdmin.\\)\\.checked=false/.test(cuerpo);'
+   +'} finally {'
+   +' window.enterApp=eA; window.registrarSesion=rS; window.applyRoles=aR; window.alert=alA; window._ultimoContactoServidorMs=contacto;'
+   +' if(ub){ ub.textContent=ubT; ub.title=ubTi; ub.className=ubC; } if(marcaAntes===null) sessionStorage.removeItem("ofi_pestana_otro_rol"); else sessionStorage.setItem("ofi_pestana_otro_rol", marcaAntes);'
+   +' if(DB.config){ if(accAntes===undefined) delete DB.config.sgsstAcceso; else DB.config.sgsstAcceso=accAntes; } if(pS) pS.value=vS;'
+   +' const i=DB.oficinas.findIndex(x=>x && x.id===ID); if(i>=0) DB.oficinas.splice(i,1);'
+   +' DB.adminPass=clave; USER=antes; selOficinaLogin=selAntes;'
+   +' if(prevL===null) localStorage.removeItem(K); else localStorage.setItem(K, prevL);'
+   +' if(prevS===null) sessionStorage.removeItem("ofi_sesion"); else sessionStorage.setItem("ofi_sesion", prevS);'
+   +' if(pA) pA.value=vA; if(pO) pO.value=vO; if(caja) caja.checked=vC;'
+   +'}'
+   +'return out;})()');
+   let arranque=false; try{ const t=await (await fetch('OFICINAS_PTOVISION.html',{cache:'no-store'})).text();
+     arranque=/const _rolPestanaAntes=_pestanaDeOtroRolOfi\(\);[^\n]*\n\s*try\{ _reanudoOfi = _reanudarSesionOfi\(\);\s*if\(!_reanudoOfi && !_rolPestanaAntes\) _reanudoOfi = await _reanudarSesionRecordadaOfi\(\);/.test(t.replace(/\r\n/g,'\n')); }catch(e){}
+   const v=x=>x===true?'✓':'✗';
+   const ok=r.llavePrueba===true && r.hayCasilla===true && r.guarda===true && r.sinClave===true && r.reanuda===true && r.info===true
+     && r.noAlarga===true && r.claveCambiada===true && r.vencida===true && r.sinMarcar===true && r.oficina===true && r.salir===true && arranque && !r.alerta
+     && r.desmarca===true && r.sinBase===true && r.conBase===true && r.tope30===true && r.rol===true && r.pestanaOficina===true && r.pestanaVacia===true && r.sgsst===true && r.sal===true && r.registra===true && r.oyente===true && r.carrera===true && r.marcaDura===true && r.clave===true;
+   return {ok,
+     detalle:'casilla en el login: '+v(r.hayCasilla)+' · en prueba usa su propia llave: '+v(r.llavePrueba)
+       +'\nmarcada: guarda 30 días '+v(r.guarda)+' · sin la clave '+v(r.sinClave)+' · al volver entra sola '+v(r.reanuda)
+       +' · se ve en la cabecera '+v(r.info)+' · usarla no alarga el plazo '+v(r.noAlarga)
+       +'\npide la clave si cambió la clave '+v(r.claveCambiada)+' · si venció '+v(r.vencida)+' · si entró sin marcarla '+v(r.sinMarcar)
+       +' · si entró una oficina '+v(r.oficina)+' · si entró SG-SST '+v(r.sgsst)+' · «Salir» la olvida '+v(r.salir)+' · el arranque la usa '+v(arranque)
+       +'\nsi al abrir no llegó la base, pide la clave sin borrarla '+v(r.sinBase)+' y con la base vuelve a entrar '+v(r.conBase)
+       +' · más de 30 días no vale '+v(r.tope30)+' · solo rol admin '+v(r.rol)+' · una pestaña de oficina no pasa a admin '+v(r.pestanaOficina&&r.pestanaVacia)
+       +' · la casilla queda desmarcada '+v(r.desmarca)+' · la huella lleva sal '+v(r.sal)
+       +'\nal entrar sola queda en el registro de sesiones '+v(r.registra)+' · la cabecera se pone al día si otra pestaña la cambia '+v(r.oyente)
+       +' · no se graba si alguien salió mientras tanto '+v(r.carrera)+' · la marca de la pestaña de oficina dura '+v(r.marcaDura)
+       +' · cambiar la clave la renueva en este computador '+v(r.clave)
+       +(r.alerta ? '\naviso inesperado: '+r.alerta : '')};}},
+
 // ────────────────────────────────── RED ──────────────────────────────────
 {app:'red', titulo:'El esquema mantiene el lienzo de OZmap en los dos modos',
  porque:'Pedido de Elkin: su equipo aprendió los empalmes en el editor de OZmap, que siempre es '
@@ -21093,6 +21185,7 @@ const PRUEBAS = [
      +'  zVB:vb ? parseInt(getComputedStyle(vb).zIndex,10) : null, vigila:!!window._caducadaOfiVigilando, tmr:!!window._tmrCaducadaOfi};'); }
    catch(e){ o={error:String((e&&e.message)||e).slice(0,300)}; }
    const TXT_O='Esta pantalla lleva más de un día abierta. Actualízala para seguir trabajando con los datos al día. (Si pasaron más de 12 horas desde que entraste, te pedirá la clave otra vez.)';
+   const TXT_OFI=TXT_O.replace('otra vez.)','otra vez, salvo en un computador que recuerda la sesión del administrador.)');   // v325: solo OFICINAS
    if(exige(!!o && !o.error, 'OFICINAS: no se pudo revisar ('+(o&&o.error)+')')){
      exige(o.bordes==='1111111111', 'OFICINAS: _caducadaOfi no da «más de 24 h» en los bordes (24 h justas no; un milisegundo más sí; sin hora de carga no): '+o.bordes);
      const d=o.decisiones; exige(d.capa==='capa' && d.prueba==='apagada' && d.ignorar==='apagada' && d.sinSesion==='sin_sesion' && d.aldia==='al_dia' && d.espera==='espera' && d.yaPuesta==='capa', 'OFICINAS: _decidirCaducadaOfi no decide lo acordado: '+JSON.stringify(d));
@@ -21102,7 +21195,7 @@ const PRUEBAS = [
      exige(!!o.tecleando && o.dTecleando==='espera', 'OFICINAS: con alguien tecleando la capa debe esperar');
      exige(o.prev===false && o.rev==='apagada' && o.trasRev===false && o.vigila===false && o.tmr===false, 'OFICINAS: en modo prueba la revisión de más de un día debe quedar apagada, sin capa y sin temporizador: '+JSON.stringify({prev:o.prev, rev:o.rev, trasRev:o.trasRev, vigila:o.vigila, tmr:o.tmr}));
      const c=o.capa||{};
-     exige(!!o.capa && c.n===1 && c.rol==='dialog' && c.texto.indexOf(TXT_O)>=0 && c.boton==='🔄 Actualizar ahora' && c.pvRecarga===false && o.quitada, 'OFICINAS: la capa #capaCaducadaOfi no tiene el texto, el botón o la forma acordados: '+JSON.stringify(c));
+     exige(!!o.capa && c.n===1 && c.rol==='dialog' && c.texto.indexOf(TXT_OFI)>=0 && c.boton==='🔄 Actualizar ahora' && c.pvRecarga===false && o.quitada, 'OFICINAS: la capa #capaCaducadaOfi no tiene el texto, el botón o la forma acordados: '+JSON.stringify(c));
      exige(!!o.capa && c.z<99998 && (o.zVB===null || c.z<o.zVB) && /^if\(window\.PV_RECARGA\)\s*PV_RECARGA\.recargarAhora\(\);\s*else\s*\{/.test(c.onclick) && /new window\.URL\(/.test(c.onclick) && !/(^|[^.\w])new\s+URL\s*\(/.test(c.onclick),
        'OFICINAS: la capa debe ir por debajo del mantenimiento y del aviso de versión nueva, y su botón recargar conservando los parámetros (también sin recarga.js): '+JSON.stringify({z:c.z, zVB:o.zVB, onclick:c.onclick}));
    }
