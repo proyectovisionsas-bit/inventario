@@ -5122,7 +5122,7 @@ const PRUEBAS = [
      f.style.cssText='position:absolute;left:-9999px;width:1px;height:1px';
      // SIEMPRE en modo prueba: sin esto, una copia local mas nueva escribia
      // app_version en produccion y bloqueaba a todas las sesiones (10 sep 2026).
-     f.src='/'+a+'?prueba=1'; D.body.appendChild(f);
+     f.src=a+'?prueba=1'; D.body.appendChild(f);   // relativa: en GitHub Pages el sitio vive en /inventario/ y con «/» daba 404 (6 nov 2026)
      await new Promise(res=>{ f.onload=()=>setTimeout(res,1500); setTimeout(res,9000); });
      let m=null;
      try{
@@ -5402,6 +5402,100 @@ const PRUEBAS = [
       +'\nEl encabezado de Técnicos deja bajar los botones de línea en pantallas angostas ✓'
       +'\nEl menú muestra 📡 Antenas Starlink (antes decía U0001f4e1) ✓'
      : JSON.stringify(r)};}},
+{app:'ofi', titulo:'En el celular (390 px): el encabezado es una fila con •••, el menú una fila que se desliza, y en el computador todo sigue igual',
+ porque:'6/11/2026: "al programa le falta responsividad". Medido a 390 px, el encabezado (3 filas de botones, 160 px, pegado arriba) y el '
+       +'menú (5 filas, 233 px) tapaban casi media pantalla: el contenido empezaba a 393 px. Desde la v326, por debajo de 700 px, el '
+       +'encabezado es una fila (logo, nombre y rol) y lo demás va detrás del botón •••; el menú es una fila que se desliza con el dedo, '
+       +'con sombra en el borde mientras haya más, y los desplegables no se salen de la pantalla. Esta prueba achica el marco a 390 px, abre '
+       +'y cierra el •••, revisa el punto rojo de 💡 Ideas, abre 🛒 Comercial pegado al borde y después agranda el marco a 1280 px para ver '
+       +'que en el computador todo sigue como antes. No guarda nada.',
+ correr:async W=>{
+   const fr=W.frameElement, antes={w:fr.style.width, h:fr.style.height};
+   const cuerpo=async function(){
+     const espera=ms=>new Promise(x=>setTimeout(x,ms)), C=[], det={};
+     const t=(nombre, v, dato)=>{ C.push([nombre, v===true]); if(v!==true && dato!==undefined) det[nombre.slice(0,40)]=JSON.stringify(dato).slice(0,300); };
+     const vis=e=>!!e && getComputedStyle(e).display!=='none';
+     const marco=window.frameElement, achicar=(w,h)=>{ marco.style.width=w+'px'; marco.style.height=h+'px'; marco.getBoundingClientRect(); };
+     const app=document.getElementById('app'), ls=document.getElementById('login-screen');
+     const oculta=app.classList.contains('hidden'), lsPrev=ls ? ls.style.display : '', uPrev=USER;
+     const tabPrev=((document.querySelector('.nav-btn.active')||{}).dataset||{}).tab||'dash';
+     const h=document.querySelector('#app > .header'), hr=h ? h.querySelector('.header-right') : null;
+     const mas=document.getElementById('hdrMasBtn'), nav=document.getElementById('navBar'), punto=document.getElementById('pvBuzonPunto');
+     const puntoPrev=punto ? punto.style.display : '';
+     if(!h || !hr || !mas || !nav) return {ok:false, det:{}, lista:['✗ falta el encabezado, el menú o el botón ••• (#hdrMasBtn)']};
+     try{
+       if(!USER || !USER.role) USER={role:'admin'};
+       app.classList.remove('hidden'); if(ls) ls.style.display='none';
+       // 1) celular
+       achicar(390, 844); await espera(350);
+       navigate('dash'); await espera(300);
+       const ancho=document.documentElement.clientWidth;
+       const altoCab=Math.round(h.getBoundingClientRect().height), altoNav=Math.round(nav.getBoundingClientRect().height), finMenu=Math.round(nav.getBoundingClientRect().bottom);
+       t('el marco quedó del ancho de un celular', ancho>=370 && ancho<=400, ancho);
+       t('encabezado de una fila (hasta 70 px; antes 160)', altoCab>0 && altoCab<=70, altoCab);
+       t('menú de una sola fila (hasta 60 px; antes 233) que se desliza', altoNav>0 && altoNav<=60 && getComputedStyle(nav).flexWrap==='nowrap' && nav.scrollWidth>nav.clientWidth, {altoNav, sw:nav.scrollWidth, cw:nav.clientWidth});
+       t('encabezado y menú terminan arriba (hasta 140 px; antes 393)', finMenu<=140, finMenu);
+       t('se ve el botón ••• y lo de la derecha queda escondido detrás de él', vis(mas) && !vis(hr), {mas:vis(mas), derecha:vis(hr)});
+       // 2) el panel •••
+       mas.click(); await espera(40);
+       const rp=hr.getBoundingClientRect();
+       t('••• abre el panel, dentro de la pantalla', h.classList.contains('mas-abierto') && vis(hr) && rp.left>=0 && rp.right<=ancho+1 && mas.getAttribute('aria-expanded')==='true', {l:Math.round(rp.left), r:Math.round(rp.right), ancho});
+       const seVe=b=>!!b && b.getClientRects().length>0 && b.getBoundingClientRect().width>0 && b.getBoundingClientRect().right<=ancho+1;
+       t('en el panel se ven Salir, 💡 Ideas y el tema', seVe(hr.querySelector('.btn-danger')) && seVe(hr.querySelector('#pvBuzonBtn')) && seVe(hr.querySelector('#themeBtn')));
+       document.getElementById('appContent').click(); await espera(30);
+       t('tocar fuera lo cierra', !h.classList.contains('mas-abierto') && !vis(hr));
+       mas.click(); await espera(30);
+       const falso=document.createElement('button'); let corrio=0; falso.type='button'; falso.textContent='prueba'; falso.onclick=()=>{ corrio++; }; hr.appendChild(falso);
+       falso.click(); await espera(40); falso.remove();
+       t('tocar una opción la deja actuar y cierra el panel', corrio===1 && !h.classList.contains('mas-abierto'), corrio);
+       let otros=0; const oyente=e=>{ if(e.key==='Escape') otros++; }; document.addEventListener('keydown', oyente);
+       mas.click(); await espera(30); document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape'})); await espera(30);
+       const otrosAbierto=otros; document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape'})); await espera(10);
+       document.removeEventListener('keydown', oyente);
+       t('la tecla Escape lo cierra, sin que le llegue a nadie más (la calculadora borraba la cuenta)', !h.classList.contains('mas-abierto') && otrosAbierto===0 && otros===1, {otrosAbierto, otros});
+       // 3) el punto rojo de Ideas se copia en el •••
+       if(punto){
+         punto.style.display='inline-block'; await espera(30); const con=mas.classList.contains('con-punto');
+         punto.style.display='none'; await espera(30);
+         t('el punto rojo de 💡 Ideas también sale en el •••', con && !mas.classList.contains('con-punto'), con);
+       }
+       // 4) la sombra del borde
+       nav.scrollLeft=0; _navIndicadoresOfi(); const der0=nav.classList.contains('mas-der'), izq0=nav.classList.contains('mas-izq');
+       nav.scrollLeft=nav.scrollWidth; _navIndicadoresOfi(); const der1=nav.classList.contains('mas-der'), izq1=nav.classList.contains('mas-izq');
+       nav.scrollLeft=0; _navIndicadoresOfi();
+       t('la sombra del borde dice hacia dónde sigue el menú', der0 && !izq0 && !der1 && izq1, {der0, izq0, der1, izq1});
+       nav.scrollLeft=0; nav.dispatchEvent(new WheelEvent('wheel', {deltaY:120, bubbles:true, cancelable:true})); const rueda=nav.scrollLeft; nav.scrollLeft=0;
+       t('la rueda del mouse desliza el menú (ventana angosta en el computador)', rueda>0, rueda);
+       // 5) 🛒 Comercial pegado al borde derecho: el desplegable no se sale
+       const grp=document.getElementById('navGrpComercial');
+       nav.scrollLeft=Math.max(0, grp.offsetLeft-nav.clientWidth+40); await espera(60);
+       toggleNavGroup('navGrpComercial');
+       const it=grp.querySelector('.nav-group-items'), ri=it.getBoundingClientRect(), abierto=vis(it);
+       closeAllNavGroups(); nav.scrollLeft=0;
+       t('🛒 Comercial se abre dentro de la pantalla aunque su botón esté en el borde', abierto && ri.left>=0 && ri.right<=ancho+1 && ri.bottom<=window.innerHeight+1, {abierto, l:Math.round(ri.left), r:Math.round(ri.right), b:Math.round(ri.bottom), alto:window.innerHeight});
+       // 6) el grupo de la pantalla abierta queda marcado
+       navigate('clientes'); const marcado=grp.classList.contains('tiene-activo');
+       toggleNavGroup('navGrpFinanzas'); await espera(250); const fin=document.getElementById('navGrpFinanzas'), sigueAbierto=!!fin && fin.classList.contains('open'); closeAllNavGroups();
+       t('un grupo que se toca mientras el menú se desliza solo no se cierra', sigueAbierto, sigueAbierto);
+       navigate('dash'); await espera(200);
+       t('el grupo de la pantalla abierta queda marcado (Clientes → 🛒 Comercial)', marcado && !grp.classList.contains('tiene-activo'), marcado);
+       // 7) computador: como antes
+       achicar(1280, 800); await espera(350);
+       const masD=getComputedStyle(mas).display, hrD=getComputedStyle(hr).display, envuelve=getComputedStyle(nav).flexWrap, pega=getComputedStyle(h).position;
+       t('en el computador: sin •••, los botones a la vista y el menú como antes', masD==='none' && hrD==='flex' && envuelve==='wrap' && pega==='sticky', {masD, hrD, envuelve, pega});
+       return {ok:C.every(x=>x[1]), det, lista:C.map(x=>(x[1] ? '✓ ' : '✗ ')+x[0])};
+     } finally {
+       try{ closeAllNavGroups(); _cabeceraMasOfi(false); }catch(e){}
+       if(punto) punto.style.display=puntoPrev;
+       try{ navigate(tabPrev); }catch(e){}
+       if(oculta) app.classList.add('hidden'); if(ls) ls.style.display=lsPrev; USER=uPrev;
+     }
+   };
+   let r=null;
+   try{ r=await W.eval('('+cuerpo.toString()+')')(); }catch(e){ r={ok:false, error:String((e&&e.message)||e)}; }
+   finally{ fr.style.width=antes.w; fr.style.height=antes.h; }
+   if(!r || r.error) return {ok:false, detalle:'Error: '+(r ? r.error : 'sin resultado')};
+   return {ok:r.ok===true, detalle:(r.lista||[]).join('\n')+(r.ok ? '' : '\n'+JSON.stringify(r.det))};}},
 {app:'inv', titulo:'En el celular (375 px) ninguna pestaña de Inventario se sale de la pantalla',
  porque:'15/9/2026. Medido a 375 px se salían el panel (210 px), Entregas (1.396), Cuartos (667), Recuperados (437) y Clientes (476): '
        +'cuadrículas en línea de dos columnas o con minmax fijo, tablas fuera de .table-wrap, el dibujo del rack de 340 px y textos '
@@ -13006,12 +13100,15 @@ const PRUEBAS = [
      const t=(nombre, v, dato)=>{ C.push([nombre, v===true]); if(v!==true && dato!==undefined) det[nombre.slice(0,40)]=JSON.stringify(dato).slice(0,600); };
      const COLS=['bodegas','cuadrillas','consumosPendientes','recuperados','entregas','transfers','instalaciones','logs','clientes','deleteRequests','editRequests'], H={};
      COLS.forEach(k=>{ H[k]=[k in DB, DB[k]]; });
-     const SU=['_fbSave','_fbSaveImmediate','alert','confirm','prompt','_fbLeerArchivoInv','_archCasosInv','_archCasosInvProm'], G={}; SU.forEach(k=>{ G[k]=[k in window, window[k]]; });
+     const SU=['_fbSave','_fbSaveImmediate','alert','confirm','prompt','_fbLeerArchivoInv','_archCasosInv','_archCasosInvProm','_e7InstIdxInv','_instRefrescarSiViejoInv'], G={}; SU.forEach(k=>{ G[k]=[k in window, window[k]]; });
      const gU=USER;
      let guardados=0, dialogos=0;
      try{
        window._fbSave=()=>{ guardados++; }; window._fbSaveImmediate=()=>{ guardados++; };
        window.alert=()=>{ dialogos++; }; window.confirm=()=>{ dialogos++; return false; }; window.prompt=()=>{ dialogos++; return null; };
+       // Sin la lista de instalados real (INVENTARIO 122, se enciende en el panel 🎛️): con ella encendida los casos salían
+       // distintos y esta prueba fallaba en el sitio publicado (6 nov 2026)
+       window._e7InstIdxInv=()=>null; window._instRefrescarSiViejoInv=()=>{};
        USER={role:'admin'};
        const sinUndef=x=>!/"__u__"/.test(JSON.stringify(x, (k,v)=>v===undefined ? '__u__' : v));
        const iso=ms=>new Date(ms).toISOString(), txt=ms=>{ const d=new Date(ms); return d.getDate()+'/'+(d.getMonth()+1)+'/'+d.getFullYear(); };
