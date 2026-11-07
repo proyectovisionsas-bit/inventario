@@ -5496,6 +5496,151 @@ const PRUEBAS = [
    finally{ fr.style.width=antes.w; fr.style.height=antes.h; }
    if(!r || r.error) return {ok:false, detalle:'Error: '+(r ? r.error : 'sin resultado')};
    return {ok:r.ok===true, detalle:(r.lista||[]).join('\n')+(r.ok ? '' : '\n'+JSON.stringify(r.det))};}},
+{app:'ofi', titulo:'En el celular (390 px): el Registro muestra cada movimiento como tarjeta y Clientes queda compacto; en el computador todo sigue igual',
+ porque:'6/11/2026, Fase 2 de la responsividad. Medido a 390 px con 15 movimientos y 30 clientes: la tabla del Registro partía «Ingreso» '
+       +'letra por letra (105 px por fila), los movimientos salían dos veces (la lista y la tabla) y la calculadora ocupaba media pantalla; en '
+       +'Clientes había 12 botones antes del buscador y cada cliente traía 4 botones uno debajo del otro (294 px). Desde la v327, por debajo '
+       +'de 700 px, cada movimiento es una tarjeta, la lista repetida no se ve, la calculadora se abre tocando su título, las acciones de '
+       +'Clientes van detrás de «⋯ Más acciones» (sigue abierta al repintar) y los botones de cada cliente van uno al lado del otro. Revisión: '
+       +'el Pago Admin conserva su tarjeta, la calculadora cerrada no recibe teclas, la oficina ve «📝 Solicitar cambio» completo. La prueba arma '
+       +'en memoria una oficina inventada (PRUEBA v327, con 6 movimientos, uno un Pago Admin, y 3 clientes), la mira a 390, 360 y 1280 px, como '
+       +'administrador y como oficina, y la quita. No guarda nada.',
+ correr:async W=>{
+   const fr=W.frameElement, antes={w:fr.style.width, h:fr.style.height};
+   const cuerpo=async function(){
+     const espera=ms=>new Promise(x=>setTimeout(x,ms)), C=[], det={};
+     const t=(nombre, v, dato)=>{ C.push([nombre, v===true]); if(v!==true && dato!==undefined) det[nombre.slice(0,40)]=JSON.stringify(dato).slice(0,300); };
+     const vis=e=>!!e && getComputedStyle(e).display!=='none' && e.getBoundingClientRect().height>0;
+     const marco=window.frameElement, achicar=(w,h)=>{ marco.style.width=w+'px'; marco.style.height=h+'px'; marco.getBoundingClientRect(); };
+     const app=document.getElementById('app'), ls=document.getElementById('login-screen');
+     const oculta=app.classList.contains('hidden'), lsPrev=ls ? ls.style.display : '', uPrev=USER;
+     const tabPrev=((document.querySelector('.nav-btn.active')||{}).dataset||{}).tab||'dash';
+     const G=['_selOfiReg','_selOfiCli','_regFechaPreserve','_regCalcAbierta','_cliMasAbierto','_qCli','_filCli','_filZonaCli','_filPagoCli','_filNuevoCli','_regTipo','_regForma','_regBuscar','_regHoraDesde','_regHoraHasta','_regOrden'], prev={};
+     G.forEach(k=>{ prev[k]=[k in window, window[k]]; });
+     const hoy=new Date(), iso=hoy.getFullYear()+'-'+String(hoy.getMonth()+1).padStart(2,'0')+'-'+String(hoy.getDate()).padStart(2,'0');
+     const OID='prueba_v327_'+Date.now(), movs=[], clis=[];
+     let calcPrev=null; try{ calcPrev=[_calcRegExpr, _calcRegResult, _calcRegEvaled]; }catch(e){}
+     for(let i=1;i<=6;i++) movs.push({id:OID+'_m'+i, tipo:i%3 ? 'ingreso' : 'egreso', concepto:i%3 ? 'Pago Servicio Internet + TV' : 'Gasolina', forma:i%2 ? 'Efectivo' : 'Cta Bancolombia', descripcion:'Movimiento de prueba v327 número '+i, valor:i%3 ? 60000 : 20000, fecha:iso+'T1'+i+':00:00', esPagoAdmin:i===3});
+     for(let i=1;i<=3;i++) clis.push({id:OID+'_c'+i, nombre:'CLIENTE DE PRUEBA V327 '+i, telefono:'3000000000', direccion:'Calle de prueba '+i, plan:'10 Megas', tarifaMensual:50000, estado:'Activo'});
+     try{
+       USER={role:'admin'};
+       DB.oficinas.push({id:OID, nombre:'PRUEBA v327', movimientos:movs, clientes:clis});
+       window._selOfiReg=OID; window._selOfiCli=OID; window._regFechaPreserve=iso; window._regCalcAbierta=false; window._cliMasAbierto=false;
+       window._qCli=''; window._filCli='todos'; window._filZonaCli='todas'; window._filPagoCli='todos'; window._filNuevoCli='todos';
+       ['_regTipo','_regForma','_regBuscar','_regHoraDesde','_regHoraHasta','_regOrden'].forEach(k=>{ window[k]=''; });
+       app.classList.remove('hidden'); if(ls) ls.style.display='none';
+       // 1) celular · Registro
+       achicar(390, 844); await espera(350);
+       navigate('registro'); await espera(300);
+       const ancho=document.documentElement.clientWidth;
+       t('el marco quedó del ancho de un celular', ancho>=370 && ancho<=400, ancho);
+       const lista=document.getElementById('reg_lista'), tabla=lista ? lista.querySelector('.reg-tabla') : null, repetida=lista ? lista.querySelector('.reg-detalle') : null;
+       const filas=tabla ? [...tabla.querySelectorAll('tbody tr')] : [];
+       t('Registro: los 6 movimientos de prueba salen como tarjetas', filas.length===6 && filas.every(f=>getComputedStyle(f).display==='flex'), {filas:filas.length, forma:filas[0] ? getComputedStyle(filas[0]).display : null});
+       t('Registro: la lista repetida («Detalle por registro») no se muestra y la tabla no lleva encabezado', !!repetida && !vis(repetida) && !!tabla && !vis(tabla.querySelector('thead')));
+       const tags=filas.map(f=>f.querySelector('td:nth-child(2) .tag')).filter(Boolean), altosTag=tags.map(x=>Math.round(x.getBoundingClientRect().height));
+       t('Registro: «Ingreso» y «Egreso» en una sola línea (antes salían letra por letra)', tags.length===6 && altosTag.every(h=>h>0 && h<=26), altosTag);
+       const altos=filas.map(f=>Math.round(f.getBoundingClientRect().height));
+       t('Registro: cada tarjeta mide hasta 190 px', altos.length===6 && altos.every(h=>h>0 && h<=190), altos);
+       const bAcc=filas.flatMap(f=>[...f.querySelectorAll('td:nth-child(8) .btn')]).filter(vis), chicos=bAcc.filter(b=>b.getBoundingClientRect().height<36).length;
+       t('Registro: los botones de cada movimiento son de tamaño para el dedo (36 px o más)', bAcc.length>=6 && chicos===0, {botones:bAcc.length, chicos});
+       const dentro=filas.every(f=>{ const r=f.getBoundingClientRect(); return r.left>=0 && r.right<=ancho+1; }) && document.documentElement.scrollWidth<=ancho+2;
+       t('Registro: nada se sale por los lados', dentro, document.documentElement.scrollWidth);
+       const fPA=filas.find(f=>f.classList.contains('reg-pago-admin')), fN=filas.find(f=>!f.classList.contains('reg-pago-admin'));
+       const cPA=fPA ? getComputedStyle(fPA) : null, cN=fN ? getComputedStyle(fN) : null;
+       const bgN0=cN ? cN.backgroundColor : null;
+       if(fN) fN.classList.add('mov-resaltado'); if(fPA) fPA.classList.add('mov-resaltado'); await espera(200);
+       const bgN1=fN ? getComputedStyle(fN).backgroundColor : null, bgPA1=fPA ? getComputedStyle(fPA).backgroundColor : null;
+       if(fN) fN.classList.remove('mov-resaltado'); if(fPA) fPA.classList.remove('mov-resaltado'); await espera(30);
+       t('Registro: «📍 Ir al pago» sigue haciendo parpadear la tarjeta en ámbar, también la del Pago Admin', !!bgN0 && bgN1!==bgN0 && /245, 158, 11/.test(bgN1||'') && /245, 158, 11/.test(bgPA1||''), {bgN0, bgN1, bgPA1});
+       t('Registro: la tarjeta del Pago Admin conserva el fondo de tarjeta y lleva un tinte ámbar', !!cPA && !!cN && cPA.backgroundColor===cN.backgroundColor && cPA.backgroundImage!=='none', cPA ? {pa:cPA.backgroundColor, otra:cN && cN.backgroundColor, tinte:cPA.backgroundImage.slice(0,40)} : 'sin tarjeta de Pago Admin');
+       const enOrden=filas.length===6 && filas.every(f=>{ const r=k=>f.querySelector('td:nth-child('+k+')').getBoundingClientRect(), c=x=>x.top+x.height/2;
+         const h=r(1), ti=r(2), v=r(7), co=r(3); return Math.abs(c(h)-c(ti))<8 && Math.abs(c(h)-c(v))<8 && ti.left>h.left && v.left>ti.left && co.top>=Math.max(h.bottom, ti.bottom, v.bottom)-1; });
+       t('Registro: en cada tarjeta la hora, el tipo y el valor van arriba, y el concepto debajo', enOrden);
+       const calc=document.querySelector('.reg-calc'), cab=calc ? calc.querySelector('.card-header') : null;
+       const cerrada0=!!calc && !vis(calc.querySelector('.calc-grid'));
+       const ex=()=>{ const e=document.getElementById('calc_reg_expr'); return e ? e.textContent : null; }, tecla=async k=>{ document.dispatchEvent(new KeyboardEvent('keydown', {key:k})); await espera(10); };
+       if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+       const exA=ex(); await tecla('7'); const exC=ex();
+       if(cab) cab.click(); await espera(30);
+       const abierta=!!calc && vis(calc.querySelector('.calc-grid')) && window._regCalcAbierta===true;
+       await tecla('Delete'); await tecla('7'); const exO=ex(); await tecla('Delete'); const exL=ex();
+       t('Registro: con la calculadora cerrada el teclado no escribe en ella; abierta, sí', exA!==null && exC===exA && exO==='7' && exL==='', {exA, exC, exO, exL});
+       navigate('registro'); await espera(200);
+       const sigue=!!document.querySelector('.reg-calc.abierta');
+       const cab2=document.querySelector('.reg-calc .card-header'); if(cab2) cab2.click(); await espera(30);
+       const cerrada1=!vis(document.querySelector('.reg-calc .calc-grid'));
+       t('Registro: la calculadora sale cerrada, se abre tocando su título, sigue abierta al repintar y se vuelve a cerrar', cerrada0 && abierta && sigue && cerrada1, {cerrada0, abierta, sigue, cerrada1});
+       // 2) celular · Clientes
+       navigate('clientes'); await espera(300);
+       const acc=document.querySelector('.cli-acciones'), mas=acc ? acc.querySelector('.cli-mas-btn') : null, nuevo=acc ? acc.querySelector('.cli-nuevo') : null;
+       const aLaVista=()=>acc ? [...acc.children].filter(vis).length : 0;
+       const v0=aLaVista();
+       t('Clientes: a la vista solo «Nuevo Cliente» y «Más acciones»', vis(mas) && vis(nuevo) && v0===2, v0);
+       if(mas) mas.click(); await espera(30); const v1=aLaVista(), todos=acc ? acc.children.length : 0, ar1=mas ? mas.getAttribute('aria-expanded') : null;
+       if(mas) mas.click(); await espera(30); const v2=aLaVista(), ar2=mas ? mas.getAttribute('aria-expanded') : null;
+       t('Clientes: «Más acciones» muestra todas y las vuelve a guardar (y el botón lo dice: aria-expanded)', todos>=8 && v1===todos && v2===2 && ar1==='true' && ar2==='false', {v1, todos, v2, ar1, ar2});
+       if(mas) mas.click(); await espera(30); navigate('clientes'); await espera(250);
+       const acc3=document.querySelector('.cli-acciones'), mas3=acc3 ? acc3.querySelector('.cli-mas-btn') : null;
+       const sigueAb=!!acc3 && acc3.classList.contains('abierto') && !!mas3 && mas3.getAttribute('aria-expanded')==='true' && [...acc3.children].filter(vis).length===acc3.children.length;
+       if(mas3) mas3.click(); await espera(30);
+       const cierra3=!!acc3 && !acc3.classList.contains('abierto') && window._cliMasAbierto===false && !!mas3 && mas3.getAttribute('aria-expanded')==='false' && [...acc3.children].filter(vis).length===2;
+       t('Clientes: «Más acciones» sigue abierta al repintar (cada sincronización vuelve a pintar Clientes) y se vuelve a cerrar', sigueAb && cierra3, {sigueAb, cierra3});
+       const filt=document.querySelector('.cli-filtros'), sel=filt ? [...filt.querySelectorAll('select')] : [];
+       t('Clientes: los filtros van de dos en dos debajo del buscador', !!filt && getComputedStyle(filt).display==='grid' && sel.length>=2 && Math.abs(sel[0].getBoundingClientRect().top-sel[1].getBoundingClientRect().top)<2, sel.length);
+       const tarjetas=[...document.querySelectorAll('#clientesListaWrap .cliente-card')];
+       const bot=tarjetas[0] ? tarjetas[0].querySelector('.cli-botones') : null, bs=bot ? [...bot.children].filter(vis) : [];
+       const enFila=bs.length>=3 && bs.every(b=>Math.abs(b.getBoundingClientRect().top-bs[0].getBoundingClientRect().top)<2);
+       t('Clientes (administrador, 390 px): los 3 clientes de prueba, con sus botones en una fila y de tamaño para el dedo', tarjetas.length===3 && enFila && bs.every(b=>b.getBoundingClientRect().height>=38), {tarjetas:tarjetas.length, botones:bs.length, enFila});
+       const medirBot=()=>{ const t0=document.querySelector('#clientesListaWrap .cliente-card'), b=t0 ? t0.querySelector('.cli-botones') : null, l=b ? [...b.children].filter(vis) : [], rb=b ? b.getBoundingClientRect() : null;
+         return {n:l.length, filas:new Set(l.map(x=>Math.round(x.getBoundingClientRect().top))).size, recortados:l.filter(x=>x.scrollWidth>x.clientWidth+1).length,
+           fuera:rb ? l.filter(x=>x.getBoundingClientRect().left<rb.left-1 || x.getBoundingClientRect().right>rb.right+1).length : -1, chicos:l.filter(x=>x.getBoundingClientRect().height<38).length,
+           anchos:l.map(x=>Math.round(x.getBoundingClientRect().width)), textos:l.map(x=>x.textContent.trim())}; };
+       // el marco quita 4 px de borde y, en el Chrome normal, el ancho de la barra de desplazamiento: se agranda hasta que la página mida lo pedido
+       const ajustar=async(w,h)=>{ achicar(w+4,h); await espera(60); const d=w-document.documentElement.clientWidth; if(d>0 && d<40){ achicar(w+4+d,h); await espera(60); } };
+       await ajustar(360, 800); await espera(300); navigate('clientes'); await espera(250);
+       const a360=document.documentElement.clientWidth, m360=medirBot();
+       t('Clientes a 360 px (administrador): los 4 botones caben en una fila y ninguno se recorta ni se sale', m360.n===4 && m360.recortados===0 && m360.fuera===0 && m360.chicos===0
+         && (a360<358 ? m360.filas<=2 : m360.filas===1), Object.assign({ancho:a360}, m360));
+       await ajustar(320, 800); await espera(300); navigate('clientes'); await espera(250);
+       const m320=medirBot(), tacho=m320.anchos[m320.textos.indexOf('🗑️')];
+       t('Clientes a 320 px (administrador): si un botón baja de fila nada se recorta ni se sale, y el 🗑️ no se estira a todo el ancho', m320.n===4 && m320.recortados===0 && m320.fuera===0 && m320.chicos===0
+         && m320.filas<=2 && tacho>0 && tacho<=60, Object.assign({ancho:document.documentElement.clientWidth}, m320));
+       USER={role:'oficina', id:OID, nombre:'PRUEBA v327'};
+       achicar(390, 844); await espera(350); navigate('clientes'); await espera(250);
+       const mOf=medirBot(), iSol=mOf.textos.findIndex(x=>/Solicitar cambio/.test(x));
+       t('Clientes como oficina: «📝 Solicitar cambio» se ve con su texto completo (baja a la fila de abajo si no cabe); nada se recorta ni se sale', mOf.n===4 && iSol>=0 && mOf.recortados===0 && mOf.fuera===0 && mOf.chicos===0 && mOf.filas<=2, mOf);
+       USER={role:'admin'};
+       // 3) computador: como antes
+       achicar(1280, 800); await espera(350);
+       navigate('registro'); await espera(250);
+       const l2=document.getElementById('reg_lista'), tb2=l2 ? l2.querySelector('.reg-tabla') : null;
+       const pc1=!!tb2 && vis(l2.querySelector('.reg-detalle')) && getComputedStyle(tb2.querySelector('thead')).display==='table-header-group'
+         && getComputedStyle(tb2.querySelector('tbody tr')).display==='table-row' && vis(document.querySelector('.reg-calc .calc-grid')) && !vis(document.querySelector('.reg-calc-flecha'));
+       if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+       await tecla('Delete'); await tecla('7'); const exPC=ex(); await tecla('Delete');
+       t('en el computador el teclado sigue escribiendo en la calculadora del Registro', exPC==='7', exPC);
+       const dl=String(window.doLogout||'');
+       t('al «Salir», «Más acciones» y la calculadora quedan cerradas para la siguiente persona', /_cliMasAbierto\s*=\s*false/.test(dl) && /_regCalcAbierta\s*=\s*false/.test(dl));
+       navigate('clientes'); await espera(250);
+       const a2=document.querySelector('.cli-acciones'), b2=document.querySelector('#clientesListaWrap .cli-botones'), f2=document.querySelector('.cli-filtros');
+       const pc2=!!a2 && !vis(a2.querySelector('.cli-mas-btn')) && [...a2.children].filter(vis).length===a2.children.length-1
+         && !!f2 && getComputedStyle(f2).display==='flex' && !!b2 && getComputedStyle(b2).flexDirection==='column';
+       t('en el computador: la lista, la tabla, la calculadora y los botones de Clientes, como antes', pc1 && pc2, {pc1, pc2});
+       return {ok:C.every(x=>x[1]), det, lista:C.map(x=>(x[1] ? '✓ ' : '✗ ')+x[0])};
+     } finally {
+       const i=(DB.oficinas||[]).findIndex(o=>o && o.id===OID); if(i>=0) DB.oficinas.splice(i, 1);
+       G.forEach(k=>{ if(prev[k][0]) window[k]=prev[k][1]; else delete window[k]; });
+       try{ navigate(tabPrev); }catch(e){}
+       if(oculta) app.classList.add('hidden'); if(ls) ls.style.display=lsPrev; USER=uPrev;
+       if(calcPrev) try{ _calcRegExpr=calcPrev[0]; _calcRegResult=calcPrev[1]; _calcRegEvaled=calcPrev[2]; }catch(e){}
+     }
+   };
+   let r=null;
+   try{ r=await W.eval('('+cuerpo.toString()+')')(); }catch(e){ r={ok:false, error:String((e&&e.message)||e)}; }
+   finally{ fr.style.width=antes.w; fr.style.height=antes.h; }
+   if(!r || r.error) return {ok:false, detalle:'Error: '+(r ? r.error : 'sin resultado')};
+   return {ok:r.ok===true, detalle:(r.lista||[]).join('\n')+(r.ok ? '' : '\n'+JSON.stringify(r.det))};}},
 {app:'inv', titulo:'En el celular (375 px) ninguna pestaña de Inventario se sale de la pantalla',
  porque:'15/9/2026. Medido a 375 px se salían el panel (210 px), Entregas (1.396), Cuartos (667), Recuperados (437) y Clientes (476): '
        +'cuadrículas en línea de dos columnas o con minmax fijo, tablas fuera de .table-wrap, el dibujo del rack de 340 px y textos '
