@@ -25,11 +25,11 @@ sin proceso de compilación: se editan directamente y se publican tal cual.
 | Archivo | Para quién | Versión | Tamaño |
 |---|---|---|---|
 | `index.html` | Portal de entrada, solo enlaces | — | 170 líneas |
-| `OFICINAS_PTOVISION.html` | Oficina: caja, cartera, facturas, clientes, RRHH, SG-SST | `APP_VERSION = 327` | 40.807 líneas · 3,1 MB |
-| `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 122` | 25.875 líneas · 2,0 MB |
-| `RED_PTOVISION.html` | Red y nodos | `APP_VERSION_RED = 44` | 9.759 líneas · 607 KB |
-| `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 103` | 4.290 líneas · 304 KB |
-| `PRUEBAS.html` | Banco de pruebas (233 pruebas) | — | 22.040 líneas |
+| `OFICINAS_PTOVISION.html` | Oficina: caja, cartera, facturas, clientes, RRHH, SG-SST | `APP_VERSION = 328` | 40.873 líneas · 3,1 MB |
+| `INVENTARIO_PTOVISION.html` | Bodega: entradas, salidas, traslados, reportes | `APP_VERSION_INV = 123` | 25.882 líneas · 2,0 MB |
+| `RED_PTOVISION.html` | Red y nodos | `APP_VERSION_RED = 45` | 9.762 líneas · 608 KB |
+| `TECNICOS_PTOVISION.html` | Técnicos en campo (PWA, se instala en el celular) | `APP_VERSION_TEC = 104` | 4.295 líneas · 305 KB |
+| `PRUEBAS.html` | Banco de pruebas (237 pruebas) | — | 22.452 líneas |
 | `FIRMA_SST.html` | Firma desde el celular (SG-SST): página pública, sin login, lee un solo documento por token | — | 187 líneas |
 | `contrato.js` | Contrato de servicio: **compartido** OFICINAS ↔ TECNICOS | `?v=6` | 956 líneas |
 | `ia.js` | Llamadas a Groq: compartido por OFICINAS, INVENTARIO y TECNICOS | `?v=5` | 388 líneas |
@@ -37,6 +37,7 @@ sin proceso de compilación: se editan directamente y se publican tal cual.
 | `buzon.js` | Buzón de sugerencias: envío, «Mis ideas», muro con votos y tablero del admin, **compartido** por las cuatro apps | `?v=1` | 1.372 líneas · 90 KB |
 | `recarga.js` | Recarga automática al publicar (cuenta de 30 s, solo con internet y sin guardados en curso), **compartido** por las cuatro apps | `?v=1` | 652 líneas · 34 KB |
 | `pantallas.js` | Pantallas abiertas: latido de cada pantalla en `oficinas_sistema/sesiones_vivas` y panel del admin con las que siguen en versión vieja, **compartido** por las cuatro apps | `?v=1` | 925 líneas · 57 KB |
+| `temporadas.js` | Adornos de cada mes: calendario de Colombia, línea de colores, adorno en el logo, franja del Inicio y lluvia del día especial; interruptor en `oficinas_sistema/temporadas`, **compartido** por las cuatro apps | `?v=1` | 468 líneas · 33 KB |
 | `wisphub-explorador.html` | Herramienta aparte para explorar la API de WispHub | — | 391 líneas |
 
 Las cifras de esta tabla se actualizan con `/revisar`. Si no cuadran con lo que
@@ -93,6 +94,7 @@ cargan enteras: se leen cuando se toca ese tema.
 - @docs/11-buzon.md — buzón de sugerencias (`buzon.js`): documentos `buzon_<id>`, contrato `op` de cada app, privacidad, tablero del admin
 - 🔴 Hay un pendiente de seguridad crítico cuyo detalle NO vive en este repositorio (es público). Ver «Pendientes conocidos».
 - @docs/12-revision-sincronizacion-2026-10.md — revisión de sincronización por etapas (borrados que vuelven, equipo instalado que vuelve); Etapas 1, 6, 2, 3, 4, 4b, 5, 7 · F0 y 7 · E7-F2 hechas (F0: archivos por partes y la 📤 Entrega sin duplicar; E7-F2, INVENTARIO 122: el libro de movimientos, el registro largo y la lista de instalados, que se encienden desde el panel 🎛️): rastro, sello, vigilancia, recarga automática, pantallas abiertas, aprobaciones definitivas (lápidas por fila), nombres y filas repetidas (🧩 Unificar), ventanas con datos viejos, registros borrados que no vuelven y un serial, un sitio (🩺 Casos de seriales)
+- @docs/14-adornos-de-cada-mes.md — adornos de cada mes (`temporadas.js`): calendario de Colombia, el interruptor `oficinas_sistema/temporadas`, la vista previa (`?temporada=<id>`) y cómo agregar una fecha
 
 ## Pendientes conocidos
 

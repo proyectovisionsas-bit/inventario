@@ -20,6 +20,8 @@
 <script src="recarga.js?v=1"></script>
 <!-- Pantallas abiertas (latido), compartido: editar pantallas.js, no copiarlo aquí -->
 <script src="pantallas.js?v=1"></script>
+<!-- Adornos de cada mes, compartido: editar temporadas.js, no copiarlo aquí -->
+<script src="temporadas.js?v=1"></script>
     <!-- ░░ PWA: instalable en celulares (sin archivos extra) ░░ -->
     <meta name="theme-color" content="#16a34a">
     <meta name="mobile-web-app-capable" content="yes">
@@ -1106,7 +1108,7 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION = 327; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 328; // ⬆️ Subir en cada nueva versión publicada
 
 // Etapa 6 (docs/12): hora en que se cargó ESTA página. Vive en memoria, nunca en sessionStorage: una recarga
 // la reinicia. La usan la guarda de 24 h (_revisarCaducadaOfi) y el latido de pantallas.js (cargadaMs).
@@ -1133,7 +1135,7 @@ const MSG_VERSION_VIEJA_OFI = 'Hay una versión nueva: esta pantalla ya no guard
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '6 Nov 2026 (v327: en el celular, el Registro muestra cada movimiento como una tarjeta y en Clientes las acciones van detrás de «Más acciones» y los botones de cada cliente van uno al lado del otro. v326: en el celular, el encabezado va en una sola fila y el menú se desliza con el dedo. Historial en git y en docs/)';
+const APP_VERSION_FECHA = '6 Nov 2026 (v328: adornos de cada mes en las cuatro apps (temporadas.js), con interruptor y vista previa en Administración. v327: en el celular, el Registro va en tarjetas y Clientes queda compacto. Historial en git y en docs/)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -1798,6 +1800,63 @@ async function _terminarMantenimiento(){
     }catch(e){ alert('No se pudo terminar el mantenimiento: '+(e.message||e)); }
 }
 window._activarMantenimiento=_activarMantenimiento; window._terminarMantenimiento=_terminarMantenimiento; window._tarjetaMantenimientoHTML=_tarjetaMantenimientoHTML; window._docMantenimientoDesdeFormulario=_docMantenimientoDesdeFormulario;
+
+// ═══════════════════════════════════════════════════════════════
+// 🎉 v328 — ADORNOS DE CADA MES (temporadas.js, compartido por las cuatro apps; docs/14).
+// Aquí: lo que OFICINAS le pasa (op), la tarjeta de ⚙️ Administración con el interruptor
+// (oficinas_sistema/temporadas, lo escribe SOLO el administrador y nunca en modo prueba)
+// y la vista previa, que solo se ve en esta pantalla y no se guarda.
+// ═══════════════════════════════════════════════════════════════
+function _temporadasOpOfi(){
+    return { app:'oficinas', cabecera:'#app > .header', ancla:'#app > .header .header-left img', anclaLado:'der',
+        leer:()=>{ if(!db) throw new Error('sin conexión todavía'); return db.collection('oficinas_sistema').doc('temporadas').get().then(s=>s.exists?(s.data()||{}):null); } };
+}
+function _tarjetaTemporadasHTML(){
+    const T=(typeof PV_TEMPORADAS!=='undefined') ? PV_TEMPORADAS : null, esc=_mantEsc;
+    if(!T) return `<div class="card" id="temp_card" style="margin-bottom:14px;"><div class="card-header"><h2>🎉 Adornos de cada mes</h2></div><p style="font-size:0.84rem;color:var(--muted);">No se pudo cargar temporadas.js. Revisa la señal y recarga la página.</p></div>`;
+    const e=T.estado(), hoy=T.para(new Date()), nombreDe=id=>{ const t=T.CALENDARIO.find(x=>x.id===id); return t ? t.adorno+' '+t.nombre : String(id||''); };
+    // En la lista queda elegida la vista previa que se está viendo, la de hoy o la próxima que viene
+    let elegida=e.vista ? e.id : (hoy ? hoy.id : '');
+    for(let i=1;i<=366 && !elegida;i++){ const d=new Date(); d.setDate(d.getDate()+i); const x=T.para(d); if(x) elegida=x.id; }
+    const hoyTxt=(e.vista ? `👀 Vista previa: <b>${esc(nombreDe(e.id))}</b> (solo en esta pantalla). ` : '')
+        +(hoy ? `Hoy: <b>${esc(hoy.adorno+' '+hoy.nombre)}</b>${hoy.dia?' · ¡es el día especial!':''}` : 'Hoy no hay celebración: el programa se ve como siempre.');
+    const opciones=T.CALENDARIO.map(t=>`<option value="${esc(t.id)}"${t.id===elegida?' selected':''}>${esc(t.adorno+' '+t.nombre)}</option>`).join('');
+    return `<div class="card" id="temp_card" style="margin-bottom:14px;">
+        <div class="card-header"><h2>🎉 Adornos de cada mes</h2></div>
+        <p style="font-size:0.84rem;color:var(--muted);margin-bottom:8px;">El programa se adorna solo con la celebración de cada mes (Navidad, Día de la Madre, Halloween…) en las cuatro apps: una línea de colores, un adorno en el logo y una frase en el Inicio. El día exacto, al entrar, caen emojis unos segundos. Solo es decoración: no toca datos ni botones. Un cambio aquí se ve al abrir o recargar cada pantalla.</p>
+        <p style="font-size:0.86rem;margin-bottom:10px;">${hoyTxt}</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+            <span style="font-weight:700;font-size:0.86rem;">${e.apagado?'⛔ Apagados en las cuatro apps':'✅ Encendidos en las cuatro apps'}</span>
+            <button class="btn btn-outline btn-sm" onclick="_temporadasCambiarOfi(${e.apagado?'false':'true'})">${e.apagado?'Encenderlos':'Apagarlos'}</button>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <select id="temp_vista" class="form-control" style="width:auto;max-width:100%;">${opciones}</select>
+            <button class="btn btn-outline btn-sm" onclick="_temporadasVistaOfi(document.getElementById('temp_vista').value)">👀 Ver cómo se ve</button>
+            ${e.vista?`<button class="btn btn-outline btn-sm" onclick="_temporadasVistaOfi('')">Quitar la vista previa</button>`:''}
+        </div>
+        <p style="font-size:0.74rem;color:var(--muted);margin-top:6px;">La vista previa solo se ve en esta pantalla (también en el 📊 Dashboard) y no se guarda.</p>
+    </div>`;
+}
+function _temporadasRepintarOfi(){ try{ const el=document.getElementById('temp_card'); if(el) el.outerHTML=_tarjetaTemporadasHTML(); }catch(e){} }
+function _temporadasVistaOfi(id){
+    if(typeof PV_TEMPORADAS==='undefined') return;
+    PV_TEMPORADAS.vistaPrevia(String(id||''));
+    _temporadasRepintarOfi();
+}
+async function _temporadasCambiarOfi(apagar){
+    if(typeof USER==='undefined' || !USER || USER.role!=='admin'){ alert('Solo el administrador puede encender o apagar los adornos.'); return; }
+    // Rechaza en modo prueba ANTES del set (ni lo intenta: el envoltorio lo contaría en _escriturasBloqueadas).
+    if(MODO_PRUEBA){ alert('🧪 Modo prueba: aquí no se guarda nada. En la app de verdad esto '+(apagar?'apaga':'enciende')+' los adornos en las cuatro apps.'); return; }
+    if(!db){ alert('La conexión con la nube aún no está lista. Espera unos segundos e intenta de nuevo.'); return; }
+    if(!confirm(apagar?'¿Apagar los adornos de cada mes en las cuatro apps?':'¿Encender los adornos de cada mes en las cuatro apps?')) return;
+    try{
+        await db.collection('oficinas_sistema').doc('temporadas').set({ apagado:!!apagar, porNombre:String(USER.nombre||'Administrador'), enMs:Date.now() });
+        if(typeof PV_TEMPORADAS!=='undefined') PV_TEMPORADAS.fijarApagado(!!apagar);
+        try{ registrarLog(apagar?'TEMPORADAS_OFF':'TEMPORADAS_ON',{}); _enviarLogsAuditoria(); }catch(_){}
+        _temporadasRepintarOfi();
+    }catch(e){ alert('No se pudo guardar: '+(e.message||e)); }
+}
+window._temporadasCambiarOfi=_temporadasCambiarOfi; window._temporadasVistaOfi=_temporadasVistaOfi; window._tarjetaTemporadasHTML=_tarjetaTemporadasHTML; window._temporadasOpOfi=_temporadasOpOfi;
 function _avisarCamposVacios(lista){
     try{
         console.warn('🧩 Campos vacíos (undefined) quitados antes de guardar:', lista.join(', '));
@@ -11496,7 +11555,9 @@ async function registrarSesion(app, quien, rol){
 function enterApp(){
     document.getElementById('login-screen').style.display='none';
     document.getElementById('app').classList.remove('hidden');
-    applyRoles(); setupNav(); navigate(USER.role==='sgsst'?'sgsst':'dash');
+    applyRoles(); setupNav();
+    try{ if(typeof PV_TEMPORADAS!=='undefined') PV_TEMPORADAS.iniciar(_temporadasOpOfi()); }catch(e){ console.warn('Adornos de cada mes (no crítico):', e); }   // v328: temporadas.js
+    navigate(USER.role==='sgsst'?'sgsst':'dash');
     try{ _programarSyncRapida(); }catch(e){} // v188: los pagos de WispHub entran solos
     try{ _programarRevisionHuecos(); }catch(e){} // v249: y las facturas que WispHub esconde
     try{ _revProgramarBarrido(); }catch(e){}     // v270: y los soportes que revisa el segundo par de ojos
@@ -11553,6 +11614,7 @@ const FRASES_DIA_OFI = {
         'Hoy toca cuidar la operación. Gracias.']
 };
 function _mensajeDelDiaOfi(){
+    try{ const _ft=(typeof PV_TEMPORADAS!=='undefined') ? PV_TEMPORADAS.fraseDelDia() : ''; if(_ft) return _ft; }catch(e){}   // v328: el día especial trae su frase
     const hoy=new Date();
     const semilla=hoy.getFullYear()*10000+(hoy.getMonth()+1)*100+hoy.getDate();
     const lista=FRASES_DIA_OFI[hoy.getDay()]||FRASES_DIA_OFI[1];
@@ -11974,6 +12036,7 @@ function doLogout(){
     window._cliMasAbierto=false; window._regCalcAbierta=false;   // v327: «Más acciones» y la calculadora, cerradas para la siguiente persona
     try{ _buzonSalirOfi(); }catch(e){}   // v318: cierra el buzón y lo deja sin identidad hasta la próxima sesión
     try{ if(typeof PV_PANTALLAS!=='undefined') PV_PANTALLAS.detener(); }catch(e){}   // Etapa 6: sin sesión no hay latido; la próxima entrada lo vuelve a arrancar
+    try{ if(typeof PV_TEMPORADAS!=='undefined') PV_TEMPORADAS.detener(); }catch(e){}   // v328: sin sesión no hay adornos ni lluvia (la lluvia del día cae cuando alguien vuelva a entrar)
     try{ window._ing={ q:'', oid:'', mesSel:'actual', mes:{}, cargando:false, error:'' }; window._ingCliente=null; window._ingOrdenExtra=null; window._ingUltimoPre=null; try{ if(typeof window._unsubIngMasivas==='function') window._unsubIngMasivas(); }catch(e2){} window._unsubIngMasivas=null; window._ingMasivas={}; try{ clearInterval(window._ingTic); }catch(e2){} window._ingTic=null; _ingPintarFranja(); }catch(e){}   // v311: lo de «Antes de llamar» no pasa a la sesión siguiente; sin sesión no queda la escucha de fallas masivas gastando lecturas (se vuelve a crear al entrar)
     document.getElementById('app').classList.add('hidden');
     document.getElementById('login-screen').style.display='flex';
@@ -12991,6 +13054,7 @@ function renderDash(){
     </div>
     ${USER.role==='admin'&&oficinas.length>1?'<div class="card" style="margin-bottom:16px;"><div class="card-header"><h2>🏢 Comparativa entre Oficinas</h2></div><canvas id="chart_oficinas" height="160"></canvas></div>':''}
     `;
+    try{ if(typeof PV_TEMPORADAS!=='undefined') PV_TEMPORADAS.franja(content); }catch(e){}   // v328: la franja de la temporada, arriba del Inicio
     setTimeout(()=>renderDashCharts(oficinas),150);
 }
 
@@ -17935,6 +17999,8 @@ function renderAdmin(){
     ${tarjetaRevisionSoportes()}
 
     ${_tarjetaMantenimientoHTML()}
+
+    ${_tarjetaTemporadasHTML()}
 
     ${_tarjetaPantallasHTML()}
 

@@ -167,6 +167,65 @@ async function pantallasAparte(W, Fecha){
   S.turno=async()=>{ const t=S.T.shift(); if(t) t.fn(); await S.esperar(); return t||null; };
   return S;
 }
+/* Adornos de cada mes: una copia APARTE de temporadas.js (la misma ?v= que cargó el marco W), dentro de un marco
+   escondido propio, con una cabecera y un logo de mentira. La cabecera es sticky, como las de OFICINAS, INVENTARIO y
+   TÉCNICOS; con opc.cabecera:'top' es la barra de RED, que en diurno (body.light-mode) flota. Son de mentira el reloj
+   (S.ahora), los temporizadores (no corren solos: S.correr(ms) corre los de ese tiempo, S.timers(ms) los cuenta), lo
+   guardado en el equipo (S.ls), la dirección (opc.search), «reducir movimiento» (opc.sinMovimiento), un navegador sin
+   :where() (opc.sinWhere) y si la pestaña está a la vista (S.oculta; S.verla() la muestra y avisa). S.pulsar() simula
+   una tecla, S.tocar() y S.tocarCel() un clic o un toque sobre un botón que corta el evento, S.entrar(leer) a alguien
+   que entra (teclea y la app llama iniciar), S.online() la vuelta de la señal. S.lector() da un op.leer que responde cuando la prueba quiere (lanzarN:
+   las primeras N llamadas lanzan un error, como cuando la conexión aún no está lista). No toca los marcos, el equipo
+   ni la nube. S.fin() quita el marco. Devuelve null si no se pudo leer temporadas.js. */
+async function temporadasAparte(W, opc){
+  opc=opc||{};
+  let src='';
+  try{ const s=W.document.querySelector('script[src^="temporadas.js"]'), u=s ? s.getAttribute('src') : '';
+       const x=u ? await fetch(u, {cache:'no-store'}) : null; src=(x && x.ok) ? (await x.text()).replace(/\r/g,'') : ''; }catch(e){ src=''; }
+  if(!src || src.indexOf('PV_TEMPORADAS')<0) return null;
+  if(opc.sinWhere) src=src.split(':where(.pv-temp-cab){position:relative;}').join('');
+  const ifr=document.createElement('iframe');
+  ifr.style.cssText='position:fixed;left:-3000px;top:0;width:900px;height:600px;border:0;';
+  document.body.appendChild(ifr);
+  const w=ifr.contentWindow, d=w.document;
+  d.open(); d.write('<!doctype html><html><head><style>body{margin:0;font:14px sans-serif}'
+    +'.header{display:flex;align-items:center;height:56px;padding:0 12px;position:sticky;top:0}.top{height:56px}'
+    +'body.light-mode .top{position:absolute;left:52px;top:8px;width:242px;padding-left:30px}#logo{width:40px;height:40px;display:inline-block}</style></head>'
+    +'<body><div id="app"><div class="'+(opc.cabecera||'header')+'" id="cab"><span id="logo"></span><b>App</b></div>'
+    +'<div id="content"><p>contenido</p></div><button id="btn">botón</button></div></body></html>'); d.close();
+  ['pointerdown','touchstart','keydown'].forEach(ev=>d.getElementById('btn').addEventListener(ev, e=>e.stopPropagation()));
+  const S={T:[], ls:Object.assign({}, opc.ls||{}), ahora:opc.ahora||Date.now(), oculta:!!opc.oculta, d, w, ifr}; let n=0;
+  const Base=Date;
+  class Fecha extends Base { constructor(...a){ if(a.length) super(...a); else super(S.ahora); } static now(){ return S.ahora; } }
+  try{ Object.defineProperty(d, 'visibilityState', {configurable:true, get:()=>S.oculta ? 'hidden' : 'visible'}); }catch(e){}
+  const g={ document:d, getComputedStyle:(e,p)=>w.getComputedStyle(e,p), addEventListener:(t,f,o)=>w.addEventListener(t,f,o),
+    URLSearchParams:w.URLSearchParams, CSS:w.CSS, MutationObserver:w.MutationObserver, location:{search:opc.search||''},
+    matchMedia:q=>({matches: !!opc.sinMovimiento && /reduce/.test(q)}),
+    localStorage:{ getItem:k=>Object.prototype.hasOwnProperty.call(S.ls,k) ? S.ls[k] : null, setItem:(k,v)=>{ S.ls[k]=String(v); }, removeItem:k=>{ delete S.ls[k]; } } };
+  if(opc.sinWhere) g.__PV_TEMP_SIN_WHERE=true;
+  const sT=(fn,ms)=>{ const i=++n; S.T.push({i, fn, ms:Number(ms)||0}); return i; }, cT=i=>{ const k=S.T.findIndex(t=>t.i===i); if(k>=0) S.T.splice(k,1); };
+  try{ new Function('window','setTimeout','clearTimeout','Date', src)(g, sT, cT, Fecha); }catch(e){ ifr.remove(); return null; }
+  if(!g.PV_TEMPORADAS){ ifr.remove(); return null; }
+  S.P=g.PV_TEMPORADAS;
+  S.esperar=async()=>{ for(let k=0;k<6;k++) await new Promise(r=>setTimeout(r,10)); };
+  S.correr=ms=>{ const ya=S.T.filter(t=>t.ms===ms); S.T=S.T.filter(t=>t.ms!==ms); ya.forEach(t=>{ try{ t.fn(); }catch(e){} }); return ya.length; };
+  S.timers=ms=>S.T.filter(t=>t.ms===ms).length;
+  S.verla=()=>{ S.oculta=false; d.dispatchEvent(new w.Event('visibilitychange')); };
+  S.pulsar=()=>{ d.body.dispatchEvent(new w.KeyboardEvent('keydown', {bubbles:true, key:'a'})); };
+  // Un clic o un toque sobre un botón que corta el evento (la app lo hace a veces): solo se oye en fase de captura
+  S.tocar=()=>{ d.getElementById('btn').dispatchEvent(new w.Event('pointerdown', {bubbles:true, cancelable:true})); };
+  S.tocarCel=()=>{ d.getElementById('btn').dispatchEvent(new w.Event('touchstart', {bubbles:true, cancelable:true})); };
+  S.online=()=>{ w.dispatchEvent(new w.Event('online')); };
+  S.capas=()=>d.querySelectorAll('.pv-temp-capa').length;
+  S.lector=()=>{ const c={llamadas:0, pend:[], lanzarN:0};
+    c.leer=()=>{ c.llamadas++; if(c.lanzarN>0){ c.lanzarN--; throw new Error('sin conexión todavía'); } return new Promise((ok,mal)=>c.pend.push({ok,mal})); };
+    c.responder=v=>{ const p=c.pend.shift(); if(p) p.ok(v); }; c.fallar=()=>{ const p=c.pend.shift(); if(p) p.mal(new Error('sin señal')); }; return c; };
+  S.op=(leer, lado)=>({app:'prueba', cabecera:'#cab', ancla:'#logo', anclaLado:lado||'der', leer});
+  // Entrar como una persona: teclea su clave (un gesto) y la app llama iniciar
+  S.entrar=(leer, lado)=>{ S.pulsar(); S.P.iniciar(S.op(leer, lado)); };
+  S.fin=()=>{ try{ ifr.remove(); }catch(e){} };
+  return S;
+}
 /* Etapa 7 · F0 (docs/12 §16, K1): una base EN MEMORIA con la forma compat del SDK (collection().doc().get/set y
    runTransaction), para probar el archivo por partes de OFICINAS sin tocar la nube. La transacción es OPTIMISTA, como la
    de verdad: guarda la versión de cada documento leído (también de uno que no existe) y, si alguno cambió al confirmar,
@@ -5641,6 +5700,359 @@ const PRUEBAS = [
    finally{ fr.style.width=antes.w; fr.style.height=antes.h; }
    if(!r || r.error) return {ok:false, detalle:'Error: '+(r ? r.error : 'sin resultado')};
    return {ok:r.ok===true, detalle:(r.lista||[]).join('\n')+(r.ok ? '' : '\n'+JSON.stringify(r.det))};}},
+{app:'ofi', titulo:'Adornos de cada mes: el calendario de Colombia cae en su fecha y las frases son texto limpio',
+ porque:'6/11/2026, idea de Elkin: que el programa se adorne solo con la celebración de cada mes (temporadas.js, docs/14). Las fechas que se '
+       +'mueven se calculan: el Día de la Madre es el segundo domingo de mayo, el del Padre el tercer domingo de junio, el del Niño el último '
+       +'sábado de abril y Amor y Amistad el tercer sábado de septiembre. Esta prueba revisa esas fechas en 2026 y 2027, las fijas (8 de marzo, '
+       +'1 de mayo, 20 de julio, 31 de octubre, 7, 25 y 31 de diciembre, 1 de enero), que noviembre quede sin adornos, que ningún día de '
+       +'2026 a 2028 dé error, que el 7, el 16, el 24 y el 25 de diciembre traigan su propia frase (y el 7, sus velitas) y que ninguna '
+       +'frase traiga HTML ni banderas (Windows no las dibuja: salen como letras).',
+ correr:W=>{
+   const T=W.PV_TEMPORADAS; if(!T) return {ok:false, detalle:'temporadas.js no cargó en OFICINAS'};
+   const v=s=>{ const t=T.para(new Date(s+'T12:00:00')); return t ? t.id+(t.dia ? '*' : '') : '—'; };
+   const esperado={'2026-05-10':'madre*','2027-05-09':'madre*','2026-06-21':'padre*','2027-06-20':'padre*','2026-04-25':'nino*','2027-04-24':'nino*',
+     '2026-09-19':'amor_amistad*','2027-09-18':'amor_amistad*','2026-03-08':'mujer*','2026-05-01':'trabajo*','2026-07-20':'independencia*',
+     '2026-10-31':'halloween*','2026-10-15':'halloween','2026-12-07':'navidad*','2026-12-10':'navidad','2026-12-25':'navidad*','2026-12-31':'fin_de_anio*',
+     '2027-01-01':'anio_nuevo*','2026-02-14':'san_valentin*','2026-11-15':'—','2026-05-11':'—','2026-09-20':'—'};
+   const mal=Object.keys(esperado).filter(k=>v(k)!==esperado[k]).map(k=>k+': '+v(k)+' (esperaba '+esperado[k]+')');
+   const fr=s=>{ const x=T.para(new Date(s+'T12:00:00')); return x ? x : {}; };
+   const propias={'2026-12-07':/Velitas/, '2026-12-16':/novenas/, '2026-12-24':/Nochebuena/, '2026-12-25':/Feliz Navidad/};
+   Object.keys(propias).forEach(k=>{ if(!propias[k].test(fr(k).fraseDia||'')) mal.push(k+': la frase del día es «'+(fr(k).fraseDia||'')+'»'); });
+   if((fr('2026-12-07').caen||[]).indexOf('🕯️')<0) mal.push('2026-12-07: no caen velitas ('+(fr('2026-12-07').caen||[]).join(' ')+')');
+   if((fr('2026-12-10').fraseDia||'')!=='') mal.push('2026-12-10 no es día especial y trae frase del día');
+   const textos=[];
+   T.CALENDARIO.forEach(t=>{ textos.push(t.nombre, t.frase, t.fraseDia||'', t.adorno, t.guirnalda); (t.caen||[]).forEach(x=>textos.push(x)); Object.keys(t.frasesDia||{}).forEach(k=>textos.push(t.frasesDia[k])); });
+   const conHTML=textos.filter(x=>/[<>]/.test(x));
+   const conBandera=textos.filter(x=>[...String(x)].some(ch=>{ const c=ch.codePointAt(0); return c>=0x1F1E6 && c<=0x1F1FF; }));
+   let errores=0, dias=0;
+   for(let a=2026;a<=2028;a++){ for(let d=new Date(a,0,1); d.getFullYear()===a; d.setDate(d.getDate()+1)){ try{ if(T.para(new Date(d.getTime()))) dias++; }catch(e){ errores++; } } }
+   const ok=!mal.length && !conHTML.length && !conBandera.length && !errores && dias>300;
+   return {ok, detalle: ok
+     ? 'Las fechas que se mueven y las fijas caen bien en 2026 y 2027 ('+Object.keys(esperado).length+' fechas revisadas) ✓\nNoviembre queda sin adornos ✓\n'
+      +'El 7 (velitas), el 16, el 24 y el 25 de diciembre traen su propia frase ✓\n'
+      +'Ninguna frase trae HTML ni banderas ✓\n'+dias+' días con adorno entre 2026 y 2028, ninguno con error ✓'
+     : (mal.length ? 'Fechas: '+mal.join(' · ')+'\n' : '')+(conHTML.length ? 'Con HTML: '+conHTML.join(' | ')+'\n' : '')
+      +(conBandera.length ? 'Con bandera: '+conBandera.join(' | ')+'\n' : '')+(errores ? errores+' días dieron error\n' : '')+(dias>300 ? '' : 'Muy pocos días con adorno: '+dias)};}},
+{app:'ofi', titulo:'Adornos de cada mes: las cuatro apps cargan el mismo temporadas.js una vez, el archivo no habla con Firebase y solo OFICINAS escribe el interruptor',
+ porque:'temporadas.js es compartido, como buzon.js y pantallas.js: UNA copia, ?v= igual en las cuatro apps. Solo adorna: no toca la base. El '
+       +'interruptor (oficinas_sistema/temporadas) lo leen las cuatro con la función que cada app le pasa, y lo escribe SOLO el administrador '
+       +'desde OFICINAS. Si una app lo cargara dos veces, lo copiara adentro o escribiera el interruptor, esta prueba lo dice.',
+ correr:async W=>{
+   const leer=async n=>{ try{ const r=await W.fetch(n,{cache:'no-store'}); return r.ok ? await r.text() : null; }catch(e){ return null; } };
+   const apps={OFICINAS:'OFICINAS_PTOVISION.html', INVENTARIO:'INVENTARIO_PTOVISION.html', 'TÉCNICOS':'TECNICOS_PTOVISION.html', RED:'RED_PTOVISION.html'};
+   const fallas=[], js=await leer('temporadas.js');
+   if(!js) fallas.push('no se pudo leer temporadas.js');
+   else{
+     const sinComentarios=js.replace(/^\s*\/\/.*$/gm,'');
+     if(/firebase|firestore|\.collection\(|getDoc\(|setDoc\(/i.test(sinComentarios)) fallas.push('temporadas.js habla con Firebase (no debe: la app le pasa op.leer)');
+     if(!/global\.PV_TEMPORADAS *=/.test(js)) fallas.push('temporadas.js no deja PV_TEMPORADAS');
+     [['la línea bajo el encabezado', /\.pv-temp-cab::after\{[^}]*pointer-events:none/], ['el adorno del logo', /\.pv-temp-adorno\{[^}]*pointer-events:none/],
+      ['la franja', /\.pv-temp-franja\{[^}]*pointer-events:none/], ['la lluvia', /\.pv-temp-capa\{[^}]*pointer-events:none/]]
+       .forEach(([q, re])=>{ if(!re.test(js)) fallas.push(q+' no lleva pointer-events:none'); });
+     if(/pointer-events: *(auto|all|visible)/.test(js)) fallas.push('algo de los adornos vuelve a recibir clics (pointer-events:auto)');
+     const imp=(js.match(/@media print\{(.*?)\}'/)||[])[1]||'';
+     ['.pv-temp-capa', '.pv-temp-franja', '.pv-temp-adorno', '.pv-temp-cab::after'].forEach(q=>{ if(imp.indexOf(q)<0) fallas.push('al imprimir no se esconde '+q); });
+     if(!/display:none/.test(imp)) fallas.push('la regla de imprimir no esconde nada');
+     if(!/@media \(prefers-reduced-motion: *reduce\)\{\.pv-temp-capa\{display:none/.test(js)) fallas.push('con «reducir movimiento» la lluvia no se esconde');
+   }
+   const vers={};
+   for(const k of Object.keys(apps)){
+     const h=await leer(apps[k]); if(!h){ fallas.push(k+': no se pudo leer'); continue; }
+     const etiquetas=h.match(/<script src="temporadas\.js\?v=\d+"><\/script>/g)||[], todas=(h.match(/temporadas\.js\?v=/g)||[]).length;
+     if(etiquetas.length!==1 || todas!==1) fallas.push(k+': carga temporadas.js '+etiquetas.length+' vez/veces (debe ser 1)');
+     else vers[k]=etiquetas[0].match(/\?v=(\d+)/)[1];
+     if(/CALENDARIO *= *\[/.test(h)) fallas.push(k+': trae una copia del calendario adentro');
+     if(!/PV_TEMPORADAS\.iniciar\(/.test(h)) fallas.push(k+': no llama PV_TEMPORADAS.iniciar');
+     if(!/oficinas_sistema(\/|'\)\.doc\(')temporadas/.test(h)) fallas.push(k+': no lee el interruptor oficinas_sistema/temporadas');
+     // Cualquier referencia al documento del interruptor ('temporadas' u 'oficinas_sistema/temporadas', con cualquier comilla), fuera de
+     // comentarios: INVENTARIO, TÉCNICOS y RED solo pueden tener UNA (la lectura que le pasan a iniciar); OFICINAS, dos (la lectura y la
+     // escritura del administrador). Así se ve también una escritura por variable, en un lote o en una transacción.
+     const sinCom=h.replace(/\/\*[\s\S]*?\*\//g,'').replace(/(^|[^:'"\\])\/\/[^\n]*/g,'$1');
+     const refs=(sinCom.match(/(['"`])(oficinas_sistema\/)?temporadas\1/g)||[]).length;
+     const escribe=(sinCom.match(/doc\(\s*['"`]temporadas['"`]\s*\)\s*\.(set|update)\(/g)||[]).length;
+     if(k==='OFICINAS' ? (refs!==2 || escribe!==1) : refs!==1) fallas.push(k+': el documento del interruptor aparece '+refs+' vez/veces (debe ser '+(k==='OFICINAS' ? '2: leerlo y escribirlo' : '1: solo leerlo')+')');
+     if((k==='OFICINAS' || k==='INVENTARIO') && !/PV_TEMPORADAS\.franja\(/.test(h)) fallas.push(k+': el Inicio no pone la franja');
+     if(k!=='RED' && !/PV_TEMPORADAS\.fraseDelDia\(\) *: *''; *if\(_ft\) return/.test(h)) fallas.push(k+': el saludo no trae la frase del día especial');
+     if(k!=='RED'){ const i=h.indexOf('function doLogout'), cuerpo=(i<0 ? '' : h.slice(i, h.indexOf('\nfunction ', i+10))).replace(/\/\*[\s\S]*?\*\//g,'').replace(/\/\/[^\n]*/g,'');
+       if(!/PV_TEMPORADAS\.detener\(\)/.test(cuerpo)) fallas.push(k+': al «Salir» no detiene los adornos (la lluvia se gastaría en la pantalla de entrada)'); }
+   }
+   const vs=[...new Set(Object.values(vers))];
+   if(vs.length>1) fallas.push('las apps no cargan la misma versión de temporadas.js: '+Object.keys(vers).map(k=>k+' ?v='+vers[k]).join(', ')+' (hay que subirla en las cuatro)');
+   const ok=!fallas.length;
+   return {ok, detalle: ok
+     ? 'OFICINAS, INVENTARIO, TÉCNICOS y RED cargan temporadas.js?v='+(vs[0]||'?')+' (la misma en las cuatro) una sola vez y sin copiarlo ✓\n'
+      +'El archivo no habla con Firebase; la línea, el adorno, la franja y la lluvia no reciben clics y no salen al imprimir; respeta «reducir movimiento» ✓\n'
+      +'Las cuatro leen oficinas_sistema/temporadas y solo OFICINAS lo escribe ✓\n'+'Al «Salir», OFICINAS, INVENTARIO y TÉCNICOS detienen los adornos ✓\nOFICINAS e INVENTARIO ponen la franja en su Inicio; el saludo de OFICINAS, INVENTARIO y TÉCNICOS trae la frase del día ✓'
+     : fallas.join('\n')};}},
+{app:'ofi', titulo:'Adornos de cada mes: solo adornan (no reciben clics ni guardan nada), el interruptor los quita y Administración no escribe en modo prueba',
+ porque:'Los adornos son una capa encima: una línea, un adorno sobre el logo, la franja del Inicio y la lluvia de emojis del día especial. '
+       +'Nada de eso puede tapar un botón ni escribir en la nube. Esta prueba pone la vista previa de Navidad, revisa que nada reciba clics, '
+       +'que la franja no se duplique, que con el interruptor apagado no quede nada, y que en modo prueba la tarjeta de Administración avise '
+       +'en vez de escribir. Deja todo como estaba, también lo guardado en el equipo.',
+ correr:async W=>{
+   const cuerpo=async function(){
+     const espera=ms=>new Promise(x=>setTimeout(x,ms)), C=[], det={};
+     const t=(nombre, v, dato)=>{ C.push([nombre, v===true]); if(v!==true && dato!==undefined) det[nombre.slice(0,40)]=JSON.stringify(dato).slice(0,300); };
+     const T=window.PV_TEMPORADAS; if(!T) return {ok:false, lista:['✗ temporadas.js no cargó']};
+     const antes=T.estado(), n0=(window._escriturasBloqueadas||[]).length, uPrev=USER, gA=window.alert, gC=window.confirm;
+     const capas0=document.querySelectorAll('.pv-temp-capa').length;
+     const foto={}; try{ for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(k && k.indexOf('pv_temp')===0) foto[k]=localStorage.getItem(k); } }catch(e){}
+     let alertas=0, confirmas=0;
+     const pe=x=>x ? getComputedStyle(x).pointerEvents : null;
+     try{
+       window.alert=()=>{ alertas++; }; window.confirm=()=>{ confirmas++; return true; };
+       T.vistaPrevia('navidad'); await espera(50);
+       const capa=document.querySelector('.pv-temp-capa'), ad=document.querySelector('.pv-temp-adorno');
+       t('la vista previa de Navidad pone los adornos', document.body.classList.contains('pv-temporada') && T.estado().vista===true && T.estado().id==='navidad', T.estado());
+       // El adorno y la línea solo salen si la app inició sesión: los revisa la prueba siguiente, con una copia aparte.
+       const rm=!!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+       t('la vista previa trae la lluvia, y la lluvia no recibe clics', rm ? !capa : (!!capa && pe(capa)==='none'), {capa:pe(capa), reducir:rm, adorno:!!ad});
+       t('el saludo de bienvenida trae la frase del día especial', _mensajeDelDiaOfi()===T.fraseDelDia() && /Navidad/.test(_mensajeDelDiaOfi()), _mensajeDelDiaOfi());
+       const css=(document.getElementById('pvTempCss')||{}).textContent||'';
+       t('al imprimir no salen y con «reducir movimiento» no caen', /@media print/.test(css) && /prefers-reduced-motion/.test(css));
+       const caja=document.createElement('div'); caja.innerHTML='<p>contenido</p>'; document.body.appendChild(caja);
+       T.franja(caja); const fr=caja.firstElementChild;
+       t('la franja va arriba del contenido y no recibe clics', !!fr && fr.classList.contains('pv-temp-franja') && pe(fr)==='none' && caja.children.length===2);
+       T.franja(caja);
+       t('pintar la franja otra vez no la duplica', caja.querySelectorAll('.pv-temp-franja').length===1);
+       caja.remove();
+       T.fijarApagado(true); await espera(30);
+       const sigueVista=document.body.classList.contains('pv-temporada') && T.estado().vista===true;
+       T.vistaPrevia(''); await espera(30);
+       t('apagados, la vista previa sigue hasta quitarla; al quitarla no queda ningún adorno ni frase', sigueVista && !document.body.classList.contains('pv-temporada') && !document.querySelector('.pv-temp-adorno, .pv-temp-capa, .pv-temp-franja') && T.fraseDelDia()==='' && T.estado().apagado===true, {sigueVista, e:T.estado()});
+       let msg=''; const gA2=window.alert; window.alert=m=>{ alertas++; msg=String(m); };
+       USER={role:'oficina', nombre:'Oficina de prueba'};
+       const nO=alertas; await _temporadasCambiarOfi(false);
+       t('una oficina no puede encender ni apagar los adornos', alertas===nO+1 && /Solo el administrador/.test(msg) && T.estado().apagado===true && (window._escriturasBloqueadas||[]).length===n0, {msg});
+       window.alert=gA2;
+       USER={role:'admin'};
+       const nA=alertas; await _temporadasCambiarOfi(false);
+       t('en modo prueba, Administración avisa, no escribe el interruptor y esta pantalla sigue como estaba', (window._escriturasBloqueadas||[]).length===n0 && alertas===nA+1 && confirmas===0 && T.estado().apagado===true, {alertas:alertas-nA, confirmas, e:T.estado()});
+       const tarjeta=_tarjetaTemporadasHTML();
+       t('la tarjeta de Administración trae el interruptor y la vista previa', /id="temp_card"/.test(tarjeta) && /_temporadasCambiarOfi\(/.test(tarjeta) && /_temporadasVistaOfi\(/.test(tarjeta));
+       t('nada se escribió en la nube', (window._escriturasBloqueadas||[]).length===n0, (window._escriturasBloqueadas||[]).length-n0);
+       return {ok:C.every(x=>x[1]), det, lista:C.map(x=>(x[1] ? '✓ ' : '✗ ')+x[0])};
+     } finally {
+       window.alert=gA; window.confirm=gC; USER=uPrev;
+       try{ T.vistaPrevia(''); T.fijarApagado(antes.apagado); if(!antes.id) T.quitar(); }catch(e){}
+       try{ if(!capas0) document.querySelectorAll('.pv-temp-capa').forEach(x=>x.remove()); }catch(e){}
+       try{ const ks=[]; for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(k && k.indexOf('pv_temp')===0) ks.push(k); }
+            ks.forEach(k=>{ if(!(k in foto)) localStorage.removeItem(k); }); Object.keys(foto).forEach(k=>localStorage.setItem(k, foto[k])); }catch(e){}
+     }
+   };
+   let r=null;
+   try{ r=await W.eval('('+cuerpo.toString()+')')(); }catch(e){ r={ok:false, error:String((e&&e.message)||e)}; }
+   if(!r || r.error) return {ok:false, detalle:'Error: '+(r ? r.error : 'sin resultado')};
+   return {ok:r.ok===true, detalle:(r.lista||[]).join('\n')+(r.ok ? '' : '\n'+JSON.stringify(r.det))};}},
+{app:'ofi', titulo:'Adornos de cada mes: al entrar se ponen la línea y el adorno, la lluvia espera al interruptor y a que la pantalla esté a la vista, y una pantalla abierta de un día para otro se pone al día',
+ porque:'Revisión antes de publicar (7/11/2026, tres pasadas). En los marcos de esta página nadie inicia sesión, así que aquí se corre una '
+       +'copia APARTE de temporadas.js, con su propia cabecera, su reloj, sus temporizadores y una nube de mentira. Revisa: la línea y el '
+       +'adorno salen al entrar, en su sitio y sin recibir clics (tampoco cada emoji de la lluvia), y no salen al imprimir; la cabecera '
+       +'sigue sticky; la lluvia del día especial espera a saber qué dice el interruptor (no cae si está apagado), a que la pestaña esté '
+       +'a la vista y a que haya alguien delante (un toque, una tecla o volver a la pestaña), así que no cae en una recarga sola ni a '
+       +'medianoche sin nadie; el día cuenta como «ya llovió» solo si la lluvia estuvo 1,5 s en pantalla (si el toque era «Salir» o F5, '
+       +'no se gasta); «Salir» quita todo y una lectura que llega después no cuenta; si no se puede leer el interruptor, vale lo '
+       +'guardado y se vuelve a leer con la señal; al volver a encenderlos sale la franja del Inicio (y no en otra pantalla); una '
+       +'pantalla que pasa la noche abierta vuelve a leer el interruptor y cambia de celebración sola; con ?temporada=… se respeta el '
+       +'interruptor; y en la barra de RED la línea no le quita el «flotar» en diurno, tampoco en un navegador sin :where().',
+ correr:async W=>{
+   const C=[], det={}, todos=[]; const n0=(W._escriturasBloqueadas||[]).length;
+   const t=(nombre, v, dato)=>{ C.push([nombre, v===true]); if(v!==true && dato!==undefined) det[nombre.slice(0,40)]=JSON.stringify(dato).slice(0,300); };
+   const nuevo=async o=>{ const S=await temporadasAparte(W, o); if(S) todos.push(S); return S; };
+   const dia=(a,m,d,h,mi,se)=>+new Date(a,m-1,d,h===undefined?10:h,mi||0,se||0);
+   const marca=(S,fecha)=>S.ls['pv_temp_lluvia_prueba_'+fecha];
+   const pe=(S,x)=>x ? S.w.getComputedStyle(x).pointerEvents : null;
+   const hay=(S,q)=>!!S.d.querySelector(q), linea=S=>S.d.body.classList.contains('pv-temporada');
+   const franjaEn=S=>S.d.getElementById('content').querySelectorAll(':scope > .pv-temp-franja');
+   // Dónde debe quedar el adorno: sobre la esquina del logo (derecha o izquierda), 9 px más arriba
+   const posOk=(S, lado)=>{ const ad=S.d.querySelector('.pv-temp-adorno'), lo=S.d.getElementById('logo').getBoundingClientRect(), ca=S.d.getElementById('cab').getBoundingClientRect();
+     if(!ad) return {ok:false};
+     const x=Math.round(lo.left-ca.left+(lado==='izq' ? -7 : lo.width-13)), y=Math.round(lo.top-ca.top-9);
+     return {ok:parseInt(ad.style.left,10)===x && parseInt(ad.style.top,10)===y, x, y, l:ad.style.left, tp:ad.style.top}; };
+   // Una pantalla abierta y leída «encendido» a esa hora
+   const abierta=async (ahora, o)=>{ const S=await nuevo(Object.assign({ahora}, o||{})); const l=S.lector(); S.entrar(l.leer); l.responder({apagado:false}); await S.esperar(); S.correr(1500); S.correr(8500); S.l=l; return S; };
+   try{
+     // A. 24 dic: alguien entra, interruptor encendido, pantalla a la vista
+     const A=await nuevo({ahora:dia(2026,12,24)}); if(!A) return {ok:false, detalle:'no se pudo leer temporadas.js'};
+     const la=A.lector(); A.entrar(la.leer); A.entrar(la.leer); await A.esperar();
+     const cab=A.d.getElementById('cab'), ad=A.d.querySelector('.pv-temp-adorno'), lin=A.w.getComputedStyle(cab,'::after'), pA=posOk(A,'der');
+     t('al entrar se ponen la línea de colores bajo el encabezado y el adorno sobre el logo, en su sitio', linea(A) && cab.classList.contains('pv-temp-cab') && !!ad && ad.textContent==='🎄' && lin.height==='3px' && pA.ok, {ad:!!ad, h:lin.height, pA});
+     t('el encabezado sigue fijo arriba (sticky) y sin estilo en línea', A.w.getComputedStyle(cab).position==='sticky' && cab.style.position==='', A.w.getComputedStyle(cab).position);
+     t('ni el adorno ni la línea reciben clics', pe(A,ad)==='none' && lin.pointerEvents==='none', {ad:pe(A,ad), linea:lin.pointerEvents});
+     t('entrar dos veces mientras se lee el interruptor hace una sola lectura y deja un solo reloj', la.llamadas===1 && A.timers(60000)===1, {llamadas:la.llamadas, relojes:A.timers(60000)});
+     t('la lluvia espera a saber qué dice el interruptor', A.capas()===0 && A.P.estado().lluviaPendiente===true && !marca(A,'2026-12-24'), {capas:A.capas(), e:A.P.estado()});
+     // Lo que se esconde al imprimir y con «reducir movimiento», regla por regla
+     const reglas=[...(A.d.getElementById('pvTempCss')||{}).sheet.cssRules], dentro=m=>reglas.filter(r=>r.media && r.media.mediaText.replace(/\s/g,'')===m).flatMap(r=>[...r.cssRules]);
+     const escondeEn=(m,q)=>dentro(m).some(r=>r.selectorText && r.selectorText.split(',').map(x=>x.trim()).some(x=>x===q || x.endsWith(' '+q)) && r.style.display==='none');
+     const imp=['.pv-temp-capa','.pv-temp-franja','.pv-temp-adorno','.pv-temp-cab::after'].filter(q=>!escondeEn('print',q));
+     const muestra=dentro('print').filter(r=>r.style.display && r.style.display!=='none').map(r=>r.selectorText);
+     t('al imprimir no salen la línea, el adorno, la franja ni la lluvia; con «reducir movimiento» no cae', !imp.length && !muestra.length && escondeEn('(prefers-reduced-motion:reduce)','.pv-temp-capa'), {faltan:imp, muestra});
+     la.responder({apagado:false}); await A.esperar();
+     const capa=A.d.querySelector('.pv-temp-capa'), em=capa && capa.querySelector('span');
+     t('con el interruptor encendido cae la lluvia, y ni la capa ni cada emoji reciben clics', A.capas()===1 && pe(A,capa)==='none' && pe(A,em)==='none', {capas:A.capas(), capa:pe(A,capa), em:pe(A,em)});
+     const sinMarcaAun=!marca(A,'2026-12-24'); A.correr(1500);
+     t('el día cuenta como «ya llovió» cuando la lluvia lleva 1,5 s en pantalla', sinMarcaAun && marca(A,'2026-12-24')==='1', {sinMarcaAun});
+     const cont=A.d.getElementById('content'); A.P.franja(cont); const fr=cont.firstElementChild;
+     t('el saludo y la franja del Inicio traen la frase de Nochebuena', A.P.fraseDelDia()==='¡Feliz Nochebuena! 🎄' && !!fr && fr.classList.contains('pv-temp-franja') && /Nochebuena/.test(fr.textContent) && pe(A,fr)==='none', {frase:A.P.fraseDelDia(), fr:fr && fr.textContent});
+     A.correr(8500);
+     t('la lluvia se quita sola a los pocos segundos', A.capas()===0, A.capas());
+     A.correr(60000); await A.esperar();
+     t('el reloj de cada minuto sigue andando (y no se duplica)', A.timers(60000)===1 && linea(A) && franjaEn(A).length===1, {relojes:A.timers(60000)});
+     A.entrar(la.leer); await A.esperar();
+     t('entrar otra vez el mismo día (otra sesión en la pestaña) no la repite, no vuelve a leer ni duplica el reloj', A.capas()===0 && la.llamadas===1 && A.timers(60000)===1, {capas:A.capas(), llamadas:la.llamadas, relojes:A.timers(60000)});
+     A.d.getElementById('logo').style.marginLeft='120px'; A.w.dispatchEvent(new A.w.Event('resize')); A.correr(150);
+     t('si cambia el tamaño de la pantalla, el adorno se recoloca', posOk(A,'der').ok, posOk(A,'der'));
+
+     // Q. La página se recarga sola (recarga automática, sesión que se reanuda) sin nadie delante
+     const Q=await nuevo({ahora:dia(2026,12,24,5)}); const lq=Q.lector(); Q.P.iniciar(Q.op(lq.leer)); lq.responder({apagado:false}); await Q.esperar(); Q.correr(1500);
+     const sinNadie=Q.capas()===0 && !marca(Q,'2026-12-24') && Q.P.estado().esperaAlguien===true;
+     Q.ahora=dia(2026,12,24,7,30); Q.tocar(); await Q.esperar(); const conToque=Q.capas()===1; Q.correr(1500);
+     t('si la página se recarga sola sin nadie, la lluvia espera; cae con el primer clic, aunque la app corte el evento', sinNadie && conToque && marca(Q,'2026-12-24')==='1', {sinNadie, conToque, e:Q.P.estado()});
+
+     // B. 25 dic, la nube dice «apagado» y el equipo todavía no lo sabe
+     const B=await nuevo({ahora:dia(2026,12,25)}); const lb=B.lector(); B.entrar(lb.leer); await B.esperar();
+     const contB=B.d.getElementById('content'); B.P.franja(contB);
+     const habia=linea(B) && franjaEn(B).length===1;
+     lb.responder({apagado:true}); await B.esperar(); B.correr(1500);
+     t('si la nube dice «apagado», se quitan la línea, el adorno y la franja que ya estaban, y no cae la lluvia', habia && !linea(B) && !hay(B,'.pv-temp-adorno, .pv-temp-franja, .pv-temp-capa') && !marca(B,'2026-12-25'), {habia, capas:B.capas()});
+     let guardado={}; try{ guardado=JSON.parse(B.ls.pv_temp_estado||'{}'); }catch(e){}
+     t('queda guardado en el equipo y el saludo ya no trae la frase', guardado.apagado===true && B.P.fraseDelDia()==='' && B.P.estado().apagado===true, {guardado, frase:B.P.fraseDelDia()});
+     const B2=await nuevo({ahora:dia(2026,12,25,11), ls:B.ls}); const lb2=B2.lector(); B2.entrar(lb2.leer); B2.P.franja(B2.d.getElementById('content')); await B2.esperar();
+     t('la próxima vez que se abre en ese equipo no sale nada, ni antes de leer la nube', !linea(B2) && !hay(B2,'.pv-temp-franja, .pv-temp-adorno, .pv-temp-capa') && B2.P.fraseDelDia()==='');
+     // O. Y si después el administrador los vuelve a encender: la próxima vez sale todo, también la franja del Inicio ya pintado
+     lb2.responder({apagado:false}); await B2.esperar(); B2.correr(1500);
+     t('al volver a encenderlos salen la línea, el adorno, la franja del Inicio que ya estaba pintado y la lluvia', linea(B2) && hay(B2,'.pv-temp-adorno') && franjaEn(B2).length===1 && /Navidad/.test(franjaEn(B2)[0].textContent) && B2.capas()===1 && marca(B2,'2026-12-25')==='1', {linea:linea(B2), franjas:franjaEn(B2).length, capas:B2.capas()});
+     const O2=await nuevo({ahora:dia(2026,12,10), ls:{pv_temp_estado:'{"apagado":true}'}}); const lo2=O2.lector(); O2.entrar(lo2.leer); O2.P.franja(O2.d.getElementById('content')); lo2.responder({apagado:true}); await O2.esperar();
+     O2.d.getElementById('content').innerHTML='<h2>Administración</h2>'; O2.P.fijarApagado(false); await O2.esperar();
+     t('si se encienden desde Administración, la línea vuelve pero la franja no aparece encima de Administración', linea(O2) && !O2.d.getElementById('content').querySelector('.pv-temp-franja'));
+     const N=await nuevo({ahora:dia(2026,12,10)}); N.P.fijarApagado(false); await N.esperar();
+     t('sin sesión (pantalla de entrada), encender el interruptor no pone nada', !linea(N) && !hay(N,'.pv-temp-adorno'));
+
+     // C. Pestaña escondida (la recarga automática de la madrugada)
+     const Cc=await nuevo({ahora:dia(2026,12,24,3)}); const lc=Cc.lector(); Cc.entrar(lc.leer); Cc.oculta=true; lc.responder({apagado:false}); await Cc.esperar(); Cc.correr(1500);   // alguien tecleó y la pestaña quedó escondida
+     const escondida=Cc.capas()===0 && !marca(Cc,'2026-12-24');
+     Cc.verla(); await Cc.esperar(); const alVolver=Cc.capas()===1; Cc.correr(1500);
+     t('con la pestaña escondida la lluvia no cae ni se gasta (aunque alguien acabe de teclear); cae al volver a ella', escondida && alVolver && marca(Cc,'2026-12-24')==='1', {escondida, alVolver});
+
+     // D. No se puede leer el interruptor
+     const D=await nuevo({ahora:dia(2026,10,31)}); const ld=D.lector(); D.entrar(ld.leer); ld.fallar(); await D.esperar();
+     const antesD=D.capas();
+     for(let i=0;i<3;i++){ D.correr(5000); await D.esperar(); ld.fallar(); await D.esperar(); }
+     t('si no se puede leer el interruptor (4 intentos, cada 5 s), vale lo guardado en el equipo y la lluvia cae', antesD===0 && ld.llamadas===4 && D.capas()===1 && D.P.estado().confirmado===true && D.P.estado().leido===false, {antesD, llamadas:ld.llamadas, capas:D.capas(), e:D.P.estado()});
+     D.online(); await D.esperar(); const llamadasOnline=ld.llamadas; ld.responder({apagado:true}); await D.esperar();
+     t('cuando vuelve la señal se lee otra vez; si dice «apagado», se quitan', llamadasOnline===5 && !linea(D) && D.P.estado().apagado===true, {llamadas:llamadasOnline, e:D.P.estado()});
+     const D2=await nuevo({ahora:dia(2026,12,24)}); const ld2=D2.lector(); ld2.lanzarN=1; D2.entrar(ld2.leer); await D2.esperar();
+     const sinLluviaD2=D2.capas()===0; D2.correr(5000); await D2.esperar(); ld2.responder({apagado:true}); await D2.esperar();
+     t('si la conexión aún no está lista (la lectura lanza un error), se reintenta a los 5 s y la lluvia espera', sinLluviaD2 && ld2.llamadas===2 && D2.capas()===0 && !marca(D2,'2026-12-24') && !linea(D2), {llamadas:ld2.llamadas, capas:D2.capas()});
+
+     // E. Una pantalla que pasa la noche abierta
+     const E1=await abierta(dia(2026,12,23,22)); const contE=E1.d.getElementById('content'); E1.P.franja(contE);
+     E1.ahora=dia(2026,12,24,0,0,40); E1.correr(60000); await E1.esperar();
+     const releyo=E1.l.llamadas===2;
+     E1.l.responder({apagado:false}); await E1.esperar(); E1.correr(1500);
+     const frE=franjaEn(E1);
+     t('a medianoche (23 → 24) vuelve a leer el interruptor y la franja y la frase pasan a Nochebuena', releyo && frE.length===1 && /Nochebuena/.test(frE[0].textContent) && E1.P.fraseDelDia()==='¡Feliz Nochebuena! 🎄', {releyo, franjas:frE.length, txt:frE[0] && frE[0].textContent});
+     t('…pero la lluvia no cae a medianoche sin nadie delante', E1.capas()===0 && !marca(E1,'2026-12-24') && E1.P.estado().esperaAlguien===true, {capas:E1.capas(), e:E1.P.estado()});
+     E1.ahora=dia(2026,12,24,7,30); E1.pulsar(); await E1.esperar(); const conTecla=E1.capas()===1; E1.correr(1500);
+     t('…cae cuando alguien escribe', conTecla && marca(E1,'2026-12-24')==='1', E1.capas());
+     const E6=await abierta(dia(2026,12,23,22)); E6.ahora=dia(2026,12,24,0,1); E6.correr(60000); await E6.esperar(); E6.l.responder({apagado:false}); await E6.esperar();
+     E6.ahora=dia(2026,12,24,7,30); E6.tocarCel(); await E6.esperar();
+     t('…o toca la pantalla del celular', E6.capas()===1, E6.capas());
+     const E7=await abierta(dia(2026,12,23,22)); E7.oculta=true; E7.ahora=dia(2026,12,24,0,1); E7.correr(60000); await E7.esperar(); E7.l.responder({apagado:false}); await E7.esperar();
+     const escondidaE7=E7.capas()===0; E7.ahora=dia(2026,12,24,7,30); E7.verla(); await E7.esperar();
+     t('…o vuelve a la pestaña', escondidaE7 && E7.capas()===1, E7.capas());
+     const E8=await abierta(dia(2026,12,23,22)); E8.ahora=dia(2026,12,24,0,1); E8.correr(60000); await E8.esperar();
+     E8.tocar(); await E8.esperar(); const antesLectura=E8.capas()===0; E8.l.responder({apagado:true}); await E8.esperar(); E8.correr(1500);
+     t('…y un toque a medianoche, antes de volver a leer el interruptor, no hace llover si la nube dice «apagado»', antesLectura && E8.capas()===0 && !marca(E8,'2026-12-24') && !linea(E8), {antesLectura, capas:E8.capas()});
+     const E2=await abierta(dia(2026,10,31,20)); const contE2=E2.d.getElementById('content'); E2.P.franja(contE2);
+     E2.oculta=true; E2.ahora=dia(2026,11,2,8); E2.verla(); await E2.esperar();
+     t('del 31 de octubre al 2 de noviembre, al volver a la pestaña se quitan la línea, el adorno y la franja de Halloween', !linea(E2) && !hay(E2,'.pv-temp-adorno') && !franjaEn(E2).length && E2.P.fraseDelDia()==='');
+     const E3=await abierta(dia(2026,11,30,20)); E3.P.franja(E3.d.getElementById('content'));
+     const sinNada=!linea(E3) && !franjaEn(E3).length;
+     E3.ahora=dia(2026,12,1,7); E3.correr(60000); await E3.esperar(); E3.l.responder({apagado:false}); await E3.esperar();
+     const adE3=E3.d.querySelector('.pv-temp-adorno');
+     t('del 30 de noviembre al 1 de diciembre llega Navidad sin recargar, también la franja del Inicio', sinNada && linea(E3) && !!adE3 && adE3.textContent==='🎄' && franjaEn(E3).length===1, {sinNada, franjas:franjaEn(E3).length});
+     const E4=await abierta(dia(2026,12,24,23,58)); const contE4=E4.d.getElementById('content'); E4.P.franja(contE4); contE4.innerHTML='<h2>Registro diario</h2><p>movimientos</p>';
+     E4.ahora=dia(2026,12,25,8); E4.correr(60000); await E4.esperar(); E4.l.responder({apagado:false}); await E4.esperar();
+     t('si la persona está en otra pantalla al cambiar el día, la franja no aparece encima de esa pantalla', !contE4.querySelector('.pv-temp-franja') && contE4.firstElementChild.tagName==='H2' && linea(E4));
+     const E5=await nuevo({ahora:dia(2026,11,30,20)}); const le5=E5.lector(); E5.entrar(le5.leer); le5.responder({apagado:true}); await E5.esperar();
+     E5.ahora=dia(2026,12,1,7); E5.correr(60000); await E5.esperar(); const releyo5=le5.llamadas===2, mientras5=!linea(E5) && !hay(E5,'.pv-temp-adorno');
+     le5.responder({apagado:true}); await E5.esperar();
+     t('con el interruptor apagado, el cambio de día no los vuelve a poner (ni mientras se vuelve a leer la nube)', releyo5 && mientras5 && !linea(E5) && !hay(E5,'.pv-temp-adorno, .pv-temp-capa') && E5.P.estado().apagado===true, {releyo5, mientras5, e:E5.P.estado()});
+
+     // L. «Salir»: la lluvia no se gasta en la pantalla de entrada; cae al volver a entrar
+     const L=await abierta(dia(2026,12,23,17)); L.P.franja(L.d.getElementById('content')); L.P.detener(); await L.esperar();
+     const limpio=!linea(L) && !hay(L,'.pv-temp-adorno, .pv-temp-franja, .pv-temp-capa');
+     L.ahora=dia(2026,12,24,0,0,40); L.correr(60000); L.online(); await L.esperar(); L.ahora=dia(2026,12,24,7,30); L.verla(); L.pulsar(); await L.esperar(); L.correr(1500);
+     const enEntrada=L.capas()===0 && !marca(L,'2026-12-24') && L.l.llamadas===1;
+     L.entrar(L.l.leer); await L.esperar(); const antesDeLeer=L.capas()===0; L.l.responder({apagado:false}); await L.esperar(); L.correr(1500);
+     t('después de «Salir» se quitan los adornos; la lluvia no se gasta ni se lee nada en la pantalla de entrada; al volver a entrar se lee otra vez y cae', limpio && enEntrada && antesDeLeer && L.l.llamadas===2 && L.capas()===1 && marca(L,'2026-12-24')==='1', {limpio, enEntrada, antesDeLeer, llamadas:L.l.llamadas, capas:L.capas()});
+     const L2=await abierta(dia(2026,12,23,17)); L2.P.detener(); L2.ahora=dia(2026,12,24,8); L2.entrar(L2.l.leer); await L2.esperar(); const antesL2=L2.capas()===0; L2.l.responder({apagado:true}); await L2.esperar(); L2.correr(1500);
+     t('si al volver a entrar la nube dice «apagado», no llueve ni antes ni después de leerla', antesL2 && L2.capas()===0 && !marca(L2,'2026-12-24') && !linea(L2), {antesL2, capas:L2.capas()});
+     const L3=await nuevo({ahora:dia(2026,12,23,17)}); const ll3=L3.lector(); L3.entrar(ll3.leer); await L3.esperar(); L3.P.detener(); ll3.responder({apagado:false}); await L3.esperar();
+     const tras=L3.P.estado(), lineaTras=linea(L3) || hay(L3,'.pv-temp-adorno'); L3.ahora=dia(2026,12,24,8); L3.entrar(ll3.leer); await L3.esperar();
+     t('una lectura que llega después de «Salir» no cuenta: no pone nada en la entrada y quien entra después la vuelve a leer', !lineaTras && tras.leido===false && tras.confirmado===false && ll3.llamadas===2, {tras, llamadas:ll3.llamadas});
+     // «Salir» o F5 como primer toque del día: la lluvia que alcanzó a salir no cuenta como vista
+     const S1=await abierta(dia(2026,12,23,22)); S1.ahora=dia(2026,12,24,0,1); S1.correr(60000); await S1.esperar(); S1.l.responder({apagado:false}); await S1.esperar();
+     S1.ahora=dia(2026,12,24,7,30); S1.tocar(); await S1.esperar(); const salio=S1.capas()===1; S1.P.detener(); S1.correr(1500);
+     const noGastada=!marca(S1,'2026-12-24'); S1.entrar(S1.l.leer); await S1.esperar(); S1.l.responder({apagado:false}); await S1.esperar(); S1.correr(1500);
+     t('si el primer toque del día es «Salir», la lluvia no se gasta: cae cuando alguien entra', salio && noGastada && S1.capas()===1 && marca(S1,'2026-12-24')==='1', {salio, noGastada, capas:S1.capas()});
+     const S2=await nuevo({ahora:dia(2026,12,24,7,30)}); const ls2=S2.lector(); S2.entrar(ls2.leer); ls2.responder({apagado:false}); await S2.esperar();
+     const cayoS2=S2.capas()===1, lsS2=Object.assign({}, S2.ls);   // F5 antes de 1,5 s: la página se va con lo guardado hasta ahí
+     const S3=await nuevo({ahora:dia(2026,12,24,7,31), ls:lsS2}); const ls3=S3.lector(); S3.entrar(ls3.leer); ls3.responder({apagado:false}); await S3.esperar();
+     t('si se recarga (F5) antes de 1,5 s, la lluvia no se gasta y vuelve a caer', cayoS2 && !lsS2['pv_temp_lluvia_prueba_2026-12-24'] && S3.capas()===1, {cayoS2, capas:S3.capas()});
+
+     // F. Vista previa por la dirección: la nube dice «apagado» y el equipo no lo sabía
+     const F=await nuevo({ahora:dia(2026,12,10), search:'?temporada=halloween'}); const lf=F.lector(); F.entrar(lf.leer); await F.esperar();
+     t('con ?temporada=… se ve esa celebración, con su lluvia, y también se lee el interruptor', F.P.estado().vista===true && F.P.estado().id==='halloween' && F.capas()===1 && lf.llamadas===1, {e:F.P.estado(), capas:F.capas(), llamadas:lf.llamadas});
+     lf.responder({apagado:true}); await F.esperar();
+     const apagF=F.P.estado().apagado===true && F.P.estado().vista===true;
+     F.P.vistaPrevia(''); await F.esperar();
+     t('al quitar esa vista previa se respeta lo que dijo la nube (apagado)', apagF && !linea(F) && !hay(F,'.pv-temp-adorno') && F.P.estado().id==='', F.P.estado());
+
+     // G. Un día de la temporada que no es el especial (adorno a la izquierda, como en INVENTARIO, TÉCNICOS y RED); H. «reducir movimiento»
+     const G=await nuevo({ahora:dia(2026,12,10)}); const lg=G.lector(); G.entrar(lg.leer,'izq'); lg.responder({apagado:false}); await G.esperar(); G.correr(1500);
+     t('un día de la temporada que no es el especial hay línea y adorno (a la izquierda del logo si se pide), pero no lluvia ni frase en el saludo', linea(G) && posOk(G,'izq').ok && G.capas()===0 && !marca(G,'2026-12-10') && G.P.fraseDelDia()==='', posOk(G,'izq'));
+     const H=await nuevo({ahora:dia(2026,12,25), sinMovimiento:true}); const lh=H.lector(); H.entrar(lh.leer); lh.responder({apagado:false}); await H.esperar();
+     t('si el equipo pide «reducir movimiento», no caen emojis', H.capas()===0 && linea(H));
+
+     // I. La barra de RED: en nocturno no tiene posición; en diurno flota (position:absolute)
+     const R=await nuevo({ahora:dia(2026,12,10), cabecera:'top'}); const lr=R.lector(); R.entrar(lr.leer,'izq'); lr.responder({apagado:false}); await R.esperar();
+     const cabR=R.d.getElementById('cab'), posR=()=>R.w.getComputedStyle(cabR).position;
+     const noche=posR(); R.d.body.classList.add('light-mode'); await R.esperar(); const dia2=posR();
+     t('en RED la línea no le quita el «flotar» a la barra al pasar de nocturno a diurno', noche==='relative' && dia2==='absolute' && cabR.style.position==='', {noche, dia:dia2, enLinea:cabR.style.position});
+     t('al cambiar de tema, el adorno se recoloca sobre la marca', posOk(R,'izq').ok, posOk(R,'izq'));
+     const R2=await nuevo({ahora:dia(2026,12,10), cabecera:'top', sinWhere:true}); const lr2=R2.lector(); R2.entrar(lr2.leer,'izq'); lr2.responder({apagado:false}); await R2.esperar();
+     const cabR2=R2.d.getElementById('cab'), posR2=()=>R2.w.getComputedStyle(cabR2).position;
+     const n1=posR2(), en1=cabR2.style.position; R2.d.body.classList.add('light-mode'); await R2.esperar(); const d1=posR2(); R2.d.body.classList.remove('light-mode'); await R2.esperar(); const n2=posR2();
+     t('en un navegador sin :where(), igual: relativa en nocturno, flota en diurno y vuelve', n1==='relative' && en1==='relative' && d1==='absolute' && n2==='relative', {n1, en1, d1, n2});
+
+     // V. Lo que faltaba (cuarta revisión)
+     const V1=await nuevo({ahora:dia(2026,12,24,9)}); const lv1=V1.lector(); V1.entrar(lv1.leer); lv1.responder({apagado:false}); await V1.esperar();
+     const cayoV1=V1.capas()===1; V1.oculta=true; V1.correr(1500);
+     t('si la pestaña se esconde antes de 1,5 s, la lluvia no cuenta como vista', cayoV1 && !marca(V1,'2026-12-24'), {cayoV1, marca:marca(V1,'2026-12-24')});
+     const V2=await nuevo({ahora:dia(2026,12,24,9)}); const lv2=V2.lector(); V2.entrar(lv2.leer); V2.ahora+=19000; lv2.responder({apagado:false}); await V2.esperar();
+     const V3=await nuevo({ahora:dia(2026,12,24,9)}); const lv3=V3.lector(); V3.entrar(lv3.leer); V3.ahora+=21000; lv3.responder({apagado:false}); await V3.esperar();
+     const espera21=V3.capas()===0 && V3.P.estado().esperaAlguien===true; V3.tocar(); await V3.esperar();
+     t('«alguien delante» son los últimos 20 s: a los 19 s de teclear cae; a los 21 s espera al siguiente toque', V2.capas()===1 && espera21 && V3.capas()===1, {v2:V2.capas(), espera21, v3:V3.capas()});
+     const V4=await nuevo({ahora:dia(2026,12,24,9)}); const lv4=V4.lector(); lv4.lanzarN=4; V4.entrar(lv4.leer); await V4.esperar(); V4.P.detener();
+     for(let i=0;i<3;i++){ V4.correr(5000); await V4.esperar(); }
+     t('si se pulsa «Salir» con un reintento de lectura pendiente, la pantalla de entrada no vuelve a leer', lv4.llamadas===1 && V4.P.estado().confirmado===false && V4.P.estado().leido===false, {llamadas:lv4.llamadas, e:V4.P.estado()});
+     const V5=await nuevo({ahora:dia(2026,12,24,9)}); const lv5=V5.lector(); V5.entrar(lv5.leer); lv5.responder({apagado:false}); await V5.esperar();
+     const cayoV5=V5.capas()===1; V5.P.detener();
+     t('«Salir» quita la lluvia que ya está cayendo', cayoV5 && V5.capas()===0, {cayoV5, capas:V5.capas()});
+     const V6=await nuevo({ahora:dia(2026,12,24,22)}); const lv6=V6.lector(); V6.P.iniciar(V6.op(lv6.leer)); lv6.responder({apagado:false}); await V6.esperar();
+     const esperaV6=V6.P.estado().esperaAlguien===true;
+     V6.ahora=dia(2026,12,25,0,0,10); V6.pulsar(); await V6.esperar(); const nadaV6=V6.capas()===0 && !marca(V6,'2026-12-24') && !marca(V6,'2026-12-25');
+     V6.ahora=dia(2026,12,25,0,1); V6.correr(60000); await V6.esperar(); lv6.responder({apagado:false}); await V6.esperar();
+     V6.ahora=dia(2026,12,25,7,30); V6.tocar(); await V6.esperar(); V6.correr(1500);
+     t('una lluvia que quedó esperando el 24 no cae el 25 con la tecla de las 00:00; cae la de Navidad con el toque de la mañana', esperaV6 && nadaV6 && V6.capas()===1 && marca(V6,'2026-12-25')==='1' && !marca(V6,'2026-12-24'), {esperaV6, nadaV6, capas:V6.capas()});
+
+     t('la copia aparte no tocó lo guardado en este equipo ni la nube', !Object.keys(localStorage).some(k=>/^pv_temp_lluvia_prueba_/.test(k)) && (W._escriturasBloqueadas||[]).length===n0);
+   } catch(e){ t('error: '+String((e&&e.message)||e), false); }
+   finally { todos.forEach(S=>S.fin()); }
+   const ok=C.length>0 && C.every(x=>x[1]);
+   return {ok, detalle:C.map(x=>(x[1] ? '✓ ' : '✗ ')+x[0]).join('\n')+(ok ? '' : '\n'+JSON.stringify(det))};}},
 {app:'inv', titulo:'En el celular (375 px) ninguna pestaña de Inventario se sale de la pantalla',
  porque:'15/9/2026. Medido a 375 px se salían el panel (210 px), Entregas (1.396), Cuartos (667), Recuperados (437) y Clientes (476): '
        +'cuadrículas en línea de dos columnas o con minmax fijo, tablas fuera de .table-wrap, el dibujo del rack de 340 px y textos '
