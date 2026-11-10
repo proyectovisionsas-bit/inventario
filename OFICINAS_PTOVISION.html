@@ -1108,7 +1108,7 @@ if(MODO_PRUEBA){ (function(){
     else poner();
     setTimeout(poner, 1500); setTimeout(poner, 5000);   // por si la app repinta el body
 })(); }
-const APP_VERSION = 328; // ⬆️ Subir en cada nueva versión publicada
+const APP_VERSION = 329; // ⬆️ Subir en cada nueva versión publicada
 
 // Etapa 6 (docs/12): hora en que se cargó ESTA página. Vive en memoria, nunca en sessionStorage: una recarga
 // la reinicia. La usan la guarda de 24 h (_revisarCaducadaOfi) y el latido de pantallas.js (cargadaMs).
@@ -1135,7 +1135,7 @@ const MSG_VERSION_VIEJA_OFI = 'Hay una versión nueva: esta pantalla ya no guard
 const GROQ_MODELOS_VISION = ['qwen/qwen3.6-27b'];
 const GROQ_MODEL_VISION = GROQ_MODELOS_VISION[0]; // el vigente, para llamadas de un solo intento
 
-const APP_VERSION_FECHA = '6 Nov 2026 (v328: adornos de cada mes en las cuatro apps (temporadas.js), con interruptor y vista previa en Administración. v327: en el celular, el Registro va en tarjetas y Clientes queda compacto. Historial en git y en docs/)';
+const APP_VERSION_FECHA = '10 Nov 2026 (v329: los pagos que en WispHub cambian de fecha o de valor, o se borran, después de entrar a la caja se corrigen solos: revisión diaria de los últimos 60 días. v328: adornos de cada mes en las cuatro apps. Historial en git y en docs/)';
 
 
 // Reconvertir objetos {0:x, 1:y} de vuelta a arrays (datos corrompidos por sanitizer viejo)
@@ -11560,6 +11560,7 @@ function enterApp(){
     navigate(USER.role==='sgsst'?'sgsst':'dash');
     try{ _programarSyncRapida(); }catch(e){} // v188: los pagos de WispHub entran solos
     try{ _programarRevisionHuecos(); }catch(e){} // v249: y las facturas que WispHub esconde
+    try{ _programarRevisionPagosCambiados(); }catch(e){} // v329: y los pagos que en WispHub cambian o se borran después
     try{ _revProgramarBarrido(); }catch(e){}     // v270: y los soportes que revisa el segundo par de ojos
     setTimeout(applyStoredTheme,50);
     setTimeout(iniciarMonitorRecordatorios,1000);
@@ -13221,7 +13222,7 @@ function _regListaHTML(oid, hoyMovs, listaReg){
                     <div data-mov="${m.id}" style="display:flex;justify-content:space-between;align-items:center;background:${m.tipo==='ingreso'?'rgba(16,185,129,0.06)':'rgba(239,68,68,0.05)'};border:1px solid ${m.tipo==='ingreso'?'rgba(16,185,129,0.15)':'rgba(239,68,68,0.12)'};border-radius:8px;padding:8px 12px;gap:8px;flex-wrap:wrap;${_movAnuladoConReverso(m)?'opacity:.5;':''}">
                         <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;">
                             <span style="font-size:0.75rem;color:var(--muted);flex-shrink:0;">${new Date(m.fecha).toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})}</span>
-                            <span class="tag ${m.tipo==='ingreso'?'tag-ing':'tag-egr'}" style="flex-shrink:0;">${m.concepto}</span>${_movAnuladoConReverso(m)?'<span class="tag" style="flex-shrink:0;font-size:0.6rem;background:rgba(148,163,184,0.2);color:var(--muted);" title="Anulado desde Préstamos: la plata no se movió. No suma en Entró ni en Salió.">⛔ Anulado · no cuenta</span>':''}
+                            <span class="tag ${m.tipo==='ingreso'?'tag-ing':'tag-egr'}" style="flex-shrink:0;">${m.concepto}</span>${_movAnuladoConReverso(m)?'<span class="tag" style="flex-shrink:0;font-size:0.6rem;background:rgba(148,163,184,0.2);color:var(--muted);" title="Anulado desde Préstamos: la plata no se movió. No suma en Entró ni en Salió.">⛔ Anulado · no cuenta</span>':''}${_etiquetaCambioWH(m)}
                             ${m.esPagoAdmin?'<span class="tag tag-admin" style="flex-shrink:0;font-size:0.6rem;">👑</span>':''}
                             <span style="font-size:0.82rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${m.descripcion||'<span style="color:var(--muted);font-style:italic;">Sin descripción</span>'}</span>
                             ${m.verificadoIA?'<span style="font-size:0.62rem;background:rgba(249,115,22,0.15);color:#f97316;padding:1px 6px;border-radius:8px;flex-shrink:0;" title="Registrado con IA">✨ IA</span>':''}
@@ -13251,7 +13252,7 @@ function _regListaHTML(oid, hoyMovs, listaReg){
                     <td>${m.concepto}${m.esOtroIngreso?` <span style="font-size:0.6rem;background:rgba(217,119,6,0.18);color:#d97706;padding:1px 6px;border-radius:8px;font-weight:600;" title="Otro Ingreso (no es mensualidad)">🏷️ Otro Ingreso</span>`:''}</td>
                     <td style="color:var(--muted);font-size:0.78rem;">${m.descripcion||'-'}${m.verificadoIA?' <span style="font-size:0.62rem;background:rgba(249,115,22,0.15);color:#f97316;padding:1px 6px;border-radius:8px;" title="Registrado con IA">✨</span>':''}${m.esReporteEfecty?` <span style="font-size:0.62rem;background:rgba(234,88,12,0.15);color:#ea580c;padding:1px 6px;border-radius:8px;" title="Reporte Efecty con ${m.cantidadPagos||0} pagos">📄${m.cantidadPagos||0}</span>`:''}</td>
                     <td><span class="tag ${m.forma==='Efectivo'?'tag-ef':m.forma==='Efecty'?'tag-efty':'tag-banc'}">${m.forma}</span></td>
-                    <td style="color:var(--muted);font-size:0.74rem;">${m.cajeroWisphub?'👤 '+m.cajeroWisphub:'—'}${_movAnuladoConReverso(m)?' <span style="font-size:0.62rem;color:var(--muted);" title="Anulado desde Préstamos: no suma">⛔ no cuenta</span>':''}</td>
+                    <td style="color:var(--muted);font-size:0.74rem;">${m.cajeroWisphub?'👤 '+m.cajeroWisphub:'—'}${_movAnuladoConReverso(m)?' <span style="font-size:0.62rem;color:var(--muted);" title="Anulado desde Préstamos: no suma">⛔ no cuenta</span>':''} ${_etiquetaCambioWH(m)}</td>
                     <td class="money ${m.tipo==='ingreso'?'pos':'neg'}" style="${_movAnuladoConReverso(m)?'text-decoration:line-through;':''}">${m.tipo==='ingreso'?'+':'-'}${fmtShort(m.valor)}</td>
                     <td style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
                         <button class="btn btn-outline btn-sm" onclick="modalComprobantes('${oid}','${m.id}')" title="Ver/subir comprobantes" style="padding:3px 7px;">
@@ -37671,6 +37672,219 @@ function _programarSyncRapida(){
     setTimeout(correr, 9000);                                   // al abrir la app
     window._syncRapidaTimer=setInterval(correr, 12*60*1000);    // y cada 12 minutos
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   🔁 v329 — LOS PAGOS QUE CAMBIAN EN WISPHUB DESPUÉS DE ENTRAR A LA CAJA
+   ────────────────────────────────────────────────────────────────────────────
+   Elkin, 10 nov 2026: el Reporte de Facturas de WispHub de octubre de Montañita
+   daba $8.669.200 y la caja $8.609.200. Causa: la factura #1881 se pagó el 30/09
+   por $36.000 y entró a la caja ese día; el 15/10, en WispHub, editaron la factura
+   y le registraron otro pago por $60.000 (fecha y valor nuevos). Ninguna
+   sincronización vuelve a mirar un pago que ya está en la caja: se reconoce por el
+   número de factura y se salta. Mismo caso con la #2029 ($30.000 del 22/09), que
+   se borró en WispHub el 08/10 y la caja la seguía contando en septiembre.
+   Medido ese día en Montañita (531 pagos de agosto a noviembre): esos dos.
+   Ahora, una vez al día por equipo, se revisa contra la ficha de WispHub cada pago
+   de la caja que vino de WispHub en los últimos 60 días:
+     · sigue pagada pero en otro día o por otro valor → toma la fecha, la hora y el
+       valor de WispHub;
+     · ya no existe (404 por debajo de una factura que sí responde, como en la v321),
+       ya no figura pagada o quedó pagada con saldo a favor → valor 0 y anulada.
+       NO se borra (regla 5): se queda en su día con «⛔ Sin pago en WispHub»;
+     · si después vuelve a quedar pagada, se reactiva con lo que diga WispHub.
+   Lo de antes queda en cambiosWisphub (los últimos 5, con su marca ...Ms) y una
+   línea por oficina en auditoría: PAGO_CAMBIADO_EN_WISPHUB. Lo que el
+   administrador editó a mano (editadoPor) no se toca: solo se anota.
+   Solo lee WispHub y no toma el candado mientras consulta; lo toma un instante
+   para aplicar, como las demás sincronizaciones.
+   ════════════════════════════════════════════════════════════════════════════ */
+const REV_PAGOS_WH_DIAS = 60;                    // cuántos días hacia atrás se revisan
+const REV_PAGOS_WH_CADA_MS = 20*3600*1000;       // una vez al día por equipo
+const REV_PAGOS_WH_REINTENTO_MS = 3*3600*1000;   // si WispHub respondió a medias, no insistir antes de 3 h
+const REV_PAGOS_WH_ANULADOS_DIAS = 180;          // un pago que ESTA revisión anuló se sigue mirando 180 días desde que lo anuló, aunque su fecha sea vieja
+const REV_PAGOS_WH_SFX = MODO_PRUEBA ? '_prueba' : '';   // en ?prueba=1 las marcas del equipo van aparte (no le quitan el turno a la sesión de verdad)
+
+// Qué dice HOY WispHub de un pago que ya está en la caja (pura: sin red ni memoria global).
+// ficha: la de /api/facturas/<n>/, o {noExiste:true} si WispHub ya no la tiene.
+// → {accion:'igual'|'actualizar'|'anular'|'reactivar'|'omitir', fecha, valor, motivo}
+function _compararPagoConWH(m, ficha){
+    if(!m || !ficha) return {accion:'igual'};
+    if(m.anulado && !m.anuladoWisphub) return {accion:'igual'};   // lo anuló una persona: no es de esta revisión
+    const yaAnulado=!!m.anuladoWisphub;
+    let r;
+    if(ficha.noExiste){
+        r = yaAnulado ? {accion:'igual'} : {accion:'anular', motivo:'La factura se eliminó en WispHub'};
+    } else {
+        const est=String(ficha.estado||'').trim();
+        const pagada=est.toLowerCase().includes('pagad');
+        const valor=_valorCobradoWH(ficha);
+        if(!pagada || !(valor>0)){
+            r = yaAnulado ? {accion:'igual'} : {accion:'anular', motivo: !pagada
+                ? 'En WispHub ya no figura pagada (estado: '+(est||'sin estado')+')'
+                : 'En WispHub quedó pagada con saldo a favor: no entró plata'};
+        } else {
+            const fecha = ficha.fecha_pago ? _fechaPagoWisphubISO(ficha.fecha_pago) : String(m.fecha||'');
+            // Revisión de la v329: sin fecha de pago no se reactiva solo (volvería a su día viejo, quizás ya cuadrado):
+            // se deja en $0 y se anota, como el rastreador deja para revisar a mano lo que llega sin fecha_pago.
+            if(yaAnulado) r = ficha.fecha_pago
+                ? {accion:'reactivar', fecha, valor, motivo:'En WispHub volvió a quedar pagada'}
+                : {accion:'omitir', sinFecha:true, motivo:'En WispHub volvió a quedar pagada, pero sin fecha de pago: revísala a mano'};
+            else {
+                const otroDia = fecha.slice(0,10) !== String(m.fecha||'').slice(0,10);
+                const otroValor = Math.abs(valor-(parseFloat(m.valor)||0)) > 0.5;
+                if(!otroDia && !otroValor) r={accion:'igual'};
+                else r={accion:'actualizar', fecha, valor, motivo:'En WispHub cambiaron '+(otroDia&&otroValor?'la fecha y el valor':otroDia?'la fecha':'el valor')+' del pago'};
+            }
+        }
+    }
+    if(r.accion!=='igual' && !r.sinFecha && m.editadoPor) return {accion:'omitir', motivo:r.motivo+' (no se tocó: lo editó el administrador)'};
+    return r;
+}
+// Aplica a UN movimiento lo que dijo _compararPagoConWH. No borra nada: lo de antes queda en cambiosWisphub.
+function _aplicarCambioPagoWH(m, r, ahoraMs){
+    if(!m || !r || ['actualizar','anular','reactivar'].indexOf(r.accion)<0) return false;
+    const t=Number(ahoraMs)||Date.now(), tISO=new Date(t).toISOString();
+    const antes={fecha:String(m.fecha||''), valor:parseFloat(m.valor)||0, anulado:!!m.anulado};
+    if(r.accion==='anular'){
+        m.valor=0; m.anulado=true; m.anuladoWisphub=true;
+        m.anuladoMotivo=String(r.motivo||''); m.anuladoPor='Sincronización con WispHub'; m.anuladoEn=tISO; m.anuladoMs=t;
+    } else {
+        m.fecha=String(r.fecha||m.fecha||''); m.valor=Number(r.valor)||0;
+        if(r.accion==='reactivar'){ m.anulado=false; m.anuladoWisphub=false; ['anuladoMotivo','anuladoPor','anuladoEn','anuladoMs'].forEach(k=>{ delete m[k]; }); }
+    }
+    const h=Array.isArray(m.cambiosWisphub)?m.cambiosWisphub.slice(-4):[];
+    h.push({accion:r.accion, motivo:String(r.motivo||''), antes, despues:{fecha:String(m.fecha||''), valor:parseFloat(m.valor)||0, anulado:!!m.anulado}, detectadoEn:tISO, detectadoMs:t});
+    m.cambiosWisphub=h; m.cambioWisphubMs=t;
+    return true;
+}
+// La etiqueta del registro diario para un pago que esta revisión corrigió o anuló.
+function _etiquetaCambioWH(m){
+    if(!m || !Array.isArray(m.cambiosWisphub) || !m.cambiosWisphub.length) return '';
+    const u=m.cambiosWisphub[m.cambiosWisphub.length-1]||{}, a=u.antes||{};
+    const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+    const antes='Antes: '+String(a.fecha||'').slice(0,10)+' por '+fmtShort(a.valor||0);
+    if(m.anuladoWisphub) return `<span class="tag" style="flex-shrink:0;font-size:0.6rem;background:rgba(239,68,68,0.12);color:#ef4444;" title="${esc((m.anuladoMotivo||u.motivo||'')+'. '+antes+'. No suma en la caja.')}">⛔ Sin pago en WispHub · no suma</span>`;
+    return `<span class="tag" style="flex-shrink:0;font-size:0.6rem;background:rgba(14,165,233,0.12);color:#0ea5e9;" title="${esc((u.motivo||'')+'. '+antes+'.')}">🔁 Corregido según WispHub</span>`;
+}
+// Una pasada: lee las fichas de WispHub, decide y aplica. → resumen {revisados, actualizados, anulados, reactivados, omitidos, fallos, oficinas, completa}
+async function _revisarPagosCambiadosWH(oids){
+    const res={revisados:0, actualizados:0, anulados:0, reactivados:0, omitidos:0, fallos:0, oficinas:[], completa:true};
+    const desde=_diaLocalISO(Date.now()-REV_PAGOS_WH_DIAS*86400000);
+    // Revisión de la v329: un pago que esta revisión dejó en $0 se sigue mirando aunque su fecha ya tenga más de 60 días.
+    // Si WispHub lo vuelve a cobrar después, ninguna sincronización lo mete otra vez (el número ya está en la caja):
+    // solo esta revisión lo reactiva, con la fecha y el valor del pago nuevo.
+    const desdeAnulMs=Date.now()-REV_PAGOS_WH_ANULADOS_DIAS*86400000;
+    const esCandidato=m=> !!m && m.tipo==='ingreso' && m.origen==='cierre_wisphub' && m.facturaWisphub!=null
+        && /^\d+$/.test(String(m.facturaWisphub).trim()) && !(m.anulado && !m.anuladoWisphub)
+        && (String(m.fecha||'').slice(0,10)>=desde || (!!m.anuladoWisphub && (Number(m.anuladoMs)||Number(m.cambioWisphubMs)||0)>=desdeAnulMs));
+    const ofisDe=()=>(DB.oficinas||[]).filter(x=>x && oids.includes(x.id) && x.cuentaWisphub);
+    const dormir=ms=>new Promise(s=>setTimeout(s,ms));
+    // 1) qué facturas mirar, por cuenta (una cuenta compartida se consulta una sola vez por factura)
+    const porCuenta=new Map();
+    for(const o of ofisDe()){
+        if(window._cargaMovsIncompleta===true || (window._cargaCompletaPorOficina && window._cargaCompletaPorOficina[o.id]===false)){ res.completa=false; continue; }
+        (o.movimientos||[]).forEach(m=>{ if(!esCandidato(m)) return;
+            if(!porCuenta.has(o.cuentaWisphub)) porCuenta.set(o.cuentaWisphub, new Set());
+            porCuenta.get(o.cuentaWisphub).add(String(m.facturaWisphub).trim()); });
+    }
+    // 2) la ficha de cada una, de a 4, SIN el candado (solo lee); si llega una sincronización se le cede el paso
+    const fichas=new Map();   // 'cuenta│número' → ficha de WispHub | {noExiste:true}
+    for(const [cuenta, nums] of porCuenta){
+        const lista=[...nums].sort((a,b)=>Number(a)-Number(b));
+        let maxOk=0, fallos=0; const noExisten=[];
+        for(let k=0;k<lista.length;k+=4){
+            if(_pestanaDesactualizada() || window._mantBloqueando){ res.completa=false; return res; }
+            let espera=0; while(_syncOcupado() && espera<60){ await dormir(5000); espera++; }
+            const lote=lista.slice(k,k+4);
+            const rs=await Promise.all(lote.map(n=>_fichaFacturaWisp(cuenta, n, 2)));
+            rs.forEach(r=>{
+                if(!r || r.fallo){ fallos++; return; }
+                if(r.noExiste){ noExisten.push(String(r.n)); return; }
+                fichas.set(cuenta+'│'+r.n, r.f); if(Number(r.n)>maxOk) maxOk=Number(r.n);
+            });
+            await dormir(200);
+        }
+        res.revisados+=lista.length; res.fallos+=fallos;
+        if(fallos > Math.max(3, Math.floor(lista.length*0.1))){
+            // WispHub respondió a medias: de esta cuenta no se concluye nada en esta pasada
+            res.completa=false; lista.forEach(n=>fichas.delete(cuenta+'│'+n)); continue;
+        }
+        // v321: un 404 solo cuenta si una factura de número MAYOR de la misma cuenta sí respondió
+        noExisten.forEach(n=>{ if(Number(n)<maxOk) fichas.set(cuenta+'│'+n, {noExiste:true}); });
+    }
+    if(!fichas.size) return res;
+    // 3) decidir con la oficina VIVA (un snapshot pudo reemplazarla mientras se consultaba) y aplicar bajo el candado
+    let espera=0; while(_syncOcupado() && espera<60){ await dormir(5000); espera++; }
+    if(_syncOcupado() || _pestanaDesactualizada() || window._mantBloqueando){ res.completa=false; return res; }
+    _tomarSync();
+    try{
+        for(const o of ofisDe()){
+            if(window._cargaCompletaPorOficina && window._cargaCompletaPorOficina[o.id]===false){ res.completa=false; continue; }   // se mira otra vez en 3 h
+            const cuenta=o.cuentaWisphub, c={actualizados:0, anulados:0, reactivados:0, omitidos:0, facturas:[]};
+            (o.movimientos||[]).forEach(m=>{
+                if(!esCandidato(m)) return;
+                const n=String(m.facturaWisphub).trim(), f=fichas.get(cuenta+'│'+n); if(!f) return;
+                const r=_compararPagoConWH(m, f);
+                if(r.accion==='igual') return;
+                if(r.accion==='omitir'){ c.omitidos++; c.facturas.push(n+(r.sinFecha?'=s':'=e')); return; }
+                const ant={dia:String(m.fecha||'').slice(0,10), valor:parseFloat(m.valor)||0};
+                if(!_aplicarCambioPagoWH(m, r, Date.now())) return;
+                if(r.accion==='anular'){ c.anulados++; c.facturas.push(n+'=x'); if(f.noExiste){ try{ _marcarFacturaEliminadaWH(cuenta, n); }catch(eM){} } }
+                else if(r.accion==='reactivar'){ c.reactivados++; c.facturas.push(n+'=r'); }
+                else { c.actualizados++; c.facturas.push(n+'='+(ant.dia!==String(m.fecha||'').slice(0,10)?'f':'')+(Math.abs(ant.valor-(parseFloat(m.valor)||0))>0.5?'v':'')); }
+            });
+            if(c.actualizados||c.anulados||c.reactivados||c.omitidos){
+                res.actualizados+=c.actualizados; res.anulados+=c.anulados; res.reactivados+=c.reactivados; res.omitidos+=c.omitidos;
+                if(c.actualizados||c.anulados||c.reactivados) res.oficinas.push(o.nombre);
+                try{ registrarLog('PAGO_CAMBIADO_EN_WISPHUB', {oficinaId:o.id, actualizados:c.actualizados, anulados:c.anulados, reactivados:c.reactivados, omitidos:c.omitidos, facturas:c.facturas.slice(0,15).join(' ')}); }catch(eL){}
+            }
+        }
+    } finally { _soltarSync(); }
+    if(res.actualizados||res.anulados||res.reactivados){
+        await save({silencioso:true});
+        const partes=[];
+        if(res.actualizados) partes.push(`🔁 ${res.actualizados} pago(s) corregido(s)`);
+        if(res.anulados) partes.push(`⛔ ${res.anulados} pago(s) que ya no están pagados`);
+        if(res.reactivados) partes.push(`✅ ${res.reactivados} pago(s) que volvieron a quedar pagados`);
+        _syncToastRapida(partes.join(' · ')+' según WispHub — '+res.oficinas.join(', '));
+        try{ if(typeof _recargarVistaSilenciosa==='function') _recargarVistaSilenciosa(); }catch(eR){}
+    }
+    return res;
+}
+// Una vez al día por equipo, como el barrido profundo. La oficina revisa la suya; el administrador, todas.
+// Revisión de la v329: en ?prueba=1 no se programa (pediría las fichas a WispHub y cambiaría pagos que el
+// guardado bloqueado nunca sube), y sus marcas llevan _prueba para no quitarle el turno a la sesión de verdad.
+async function _correrRevisionPagosWH(){
+    try{
+        if(!USER || !USER.role || USER.role==='sgsst') return;
+        if(_pestanaDesactualizada() || window._mantBloqueando) return;
+        if(_capaCaducadaPuestaOfi()) return;
+        if(window._revPagosEnCurso) return;
+        const kHecho='pv_revPagosWH'+REV_PAGOS_WH_SFX, kIntento='pv_revPagosWH_intento'+REV_PAGOS_WH_SFX;
+        let hecho=0, intento=0;
+        try{ hecho=Number(localStorage.getItem(kHecho))||0; intento=Number(localStorage.getItem(kIntento))||0; }catch(e){}
+        const ahora=Date.now();
+        if(ahora-hecho < REV_PAGOS_WH_CADA_MS || ahora-intento < REV_PAGOS_WH_REINTENTO_MS) return;
+        let objetivos=[];
+        if(USER.role==='oficina'){ const o=(DB.oficinas||[]).find(x=>x.id===USER.id); if(o && o.cuentaWisphub) objetivos=[o.id]; }
+        else if(USER.role==='admin'){ objetivos=(DB.oficinas||[]).filter(x=>x && x.cuentaWisphub).map(x=>x.id); }
+        if(!objetivos.length) return;
+        window._revPagosEnCurso=true;
+        try{ localStorage.setItem(kIntento, String(ahora)); }catch(e){}
+        try{
+            const r=await _revisarPagosCambiadosWH(objetivos);
+            if(r && r.completa){ try{ localStorage.setItem(kHecho, String(Date.now())); }catch(e){} }
+            if(r && (r.actualizados||r.anulados||r.reactivados||r.omitidos)) console.info('🔁 Pagos que cambiaron en WispHub:', r);
+        } finally { window._revPagosEnCurso=false; }
+    }catch(e){ window._revPagosEnCurso=false; console.warn('🔁 Revisión de pagos cambiados en WispHub (no crítica, se repite más tarde):', e); }
+}
+function _programarRevisionPagosCambiados(){
+    if(window._revPagosTimer || MODO_PRUEBA) return;
+    setTimeout(_correrRevisionPagosWH, 4*60*1000);                          // 4 min después de abrir (después de los pagos y del rastreador)
+    window._revPagosTimer=setInterval(_correrRevisionPagosWH, 30*60*1000);  // y cada 30 min mira si ya le toca
+}
+window._compararPagoConWH=_compararPagoConWH; window._aplicarCambioPagoWH=_aplicarCambioPagoWH; window._etiquetaCambioWH=_etiquetaCambioWH;
+window._revisarPagosCambiadosWH=_revisarPagosCambiadosWH; window._programarRevisionPagosCambiados=_programarRevisionPagosCambiados; window._correrRevisionPagosWH=_correrRevisionPagosWH;
 
 // 🧩 v188: APLICADOR COMPARTIDO de pagos WispHub → registro diario.
 // Las MISMAS reglas de siempre (anti-duplicado por # de factura, borrados

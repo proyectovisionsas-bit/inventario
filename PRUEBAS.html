@@ -3704,6 +3704,276 @@ const PRUEBAS = [
       +'\nUna sola línea de auditoría por pasada y oficina; la segunda pasada ya no cambia nada ✓'
      : JSON.stringify(r)};}},
 
+{app:'ofi', titulo:'Un pago que en WispHub cambia de fecha o de valor, o se borra, después de entrar a la caja, se corrige solo y lo de antes queda guardado',
+ porque:'Elkin, 10 nov 2026: el Reporte de Facturas de WispHub de octubre de Montañita no cuadraba con la caja por $60.000. La factura #1881 '
+       +'entró a la caja el 30/09 por $36.000 y el 15/10, en WispHub, le registraron otro pago por $60.000; la #2029 se borró en WispHub y la '
+       +'caja la seguía contando. Ninguna sincronización volvía a mirar un pago que ya estaba en la caja. Ahora una revisión diaria compara '
+       +'los pagos de los últimos 60 días con la ficha de WispHub: corrige fecha y valor, deja en $0 (anulado, sin borrar) lo que ya no está '
+       +'pagado, lo reactiva si vuelve a estarlo y no toca lo que editó el administrador.',
+ correr:W=>{ const r=E(W,
+     'const fA={id_factura:1881, estado:"Pagada", fecha_pago:"2026-10-15T09:56:00-05:00", total:36000, total_cobrado:60000};'
+   +'const base=()=>({id:"wh_of1_1881", tipo:"ingreso", origen:"cierre_wisphub", facturaWisphub:"1881", fecha:"2026-09-30T16:35:00", valor:36000, forma:"Cta Bancolombia"});'
+   +'const m1=base(); const r1=_compararPagoConWH(m1, fA); _aplicarCambioPagoWH(m1, r1, 1794300000000);'
+   +'const m2=base(); const r2=_compararPagoConWH(m2, {noExiste:true}); _aplicarCambioPagoWH(m2, r2, 1794300000000);'
+   +'const a2={valor:m2.valor, anulado:m2.anulado, wh:m2.anuladoWisphub, antes:m2.cambiosWisphub[0].antes.valor, otra:_compararPagoConWH(m2, {noExiste:true}).accion, tag:/Sin pago en WispHub/.test(_etiquetaCambioWH(m2))};'
+   +'const r2c=_compararPagoConWH(m2, fA); _aplicarCambioPagoWH(m2, r2c, 1794300100000);'
+   +'return {r1:r1.accion, f1:m1.fecha, v1:m1.valor, antes1:m1.cambiosWisphub[0].antes.fecha+"|"+m1.cambiosWisphub[0].antes.valor, ms1:m1.cambioWisphubMs,'
+   +'  de_nuevo:_compararPagoConWH(m1, fA).accion, tag1:/Corregido según WispHub/.test(_etiquetaCambioWH(m1)),'
+   +'  r2:r2.accion, a2, r2c:r2c.accion, v2:m2.valor, an2:m2.anulado, h2:m2.cambiosWisphub.length,'
+   +'  hora:_compararPagoConWH(Object.assign(base(),{fecha:"2026-10-15T08:00:00", valor:60000}), fA).accion,'
+   +'  admin:_compararPagoConWH(Object.assign(base(),{editadoPor:"admin"}), fA).accion,'
+   +'  pend:_compararPagoConWH(base(), {id_factura:1881, estado:"Pendiente de Pago", total:36000, total_cobrado:0}).accion,'
+   +'  saldo:_compararPagoConWH(base(), {id_factura:1881, estado:"Pagada", fecha_pago:"2026-09-30T16:35:00-05:00", total:36000, total_cobrado:0}).accion,'
+   +'  aMano:_compararPagoConWH(Object.assign(base(),{anulado:true, anuladoMotivo:"a mano"}), {noExiste:true}).accion};');
+   const bien = r.r1==='actualizar' && r.f1==='2026-10-15T09:56:00' && r.v1===60000 && r.antes1==='2026-09-30T16:35:00|36000' && r.ms1===1794300000000
+             && r.de_nuevo==='igual' && r.tag1===true
+             && r.r2==='anular' && r.a2.valor===0 && r.a2.anulado===true && r.a2.wh===true && r.a2.antes===36000 && r.a2.otra==='igual' && r.a2.tag===true
+             && r.r2c==='reactivar' && r.v2===60000 && r.an2===false && r.h2===2
+             && r.hora==='igual' && r.admin==='omitir' && r.pend==='anular' && r.saldo==='anular' && r.aMano==='igual';
+   return {ok:bien, detalle: bien
+     ? 'La #1881 pasa del 30/09 por $36.000 al 15/10 por $60.000, y lo de antes queda guardado ✓'
+      +'\nUna factura borrada en WispHub queda en $0 y anulada (no se borra) y, si vuelve a quedar pagada, se reactiva ✓'
+      +'\nOtra hora del mismo día no cuenta como cambio; lo que editó el administrador no se toca ✓'
+     : JSON.stringify(r)};}},
+
+{app:'ofi', titulo:'La revisión diaria de pagos de WispHub mira solo lo que debe, no concluye nada si WispHub falla, guarda una vez y en modo prueba no corre',
+ porque:'Revisión de la v329 antes de publicar: la prueba anterior solo probaba las reglas sueltas. Esta corre la pasada de verdad sobre tres '
+       +'oficinas inventadas de dos cuentas, con WispHub, el guardado y la auditoría simulados (nada sale a internet ni a la nube). Corrige, anula y reactiva '
+       +'lo que toca, y no mira los pagos de más de 60 días, los que no vienen de WispHub ni los que anuló una persona. Un 404 solo cuenta '
+       +'por debajo de una factura de la misma cuenta que sí respondió. Si fallan más de 3 fichas de una cuenta (y más del 10 %), con la carga '
+       +'a medias o con una versión nueva, no concluye nada. Una segunda pasada ya no toca nada. Lo que WispHub vuelve a dar pagado sin fecha '
+       +'de pago no se reactiva solo. Un pago que esta revisión anuló hace menos de 180 días se vuelve a mirar aunque '
+       +'su fecha sea vieja: si lo pagan otra vez, ninguna sincronización lo vuelve a meter. La oficina revisa la suya, SG-SST ninguna, una '
+       +'vez al día por equipo, y en ?prueba=1 no se programa ni usa las marcas de la sesión de verdad.',
+ correr:async W=>{
+   const cuerpo=async function(){
+     const C=[], det={};
+     const t=(n, ok, d)=>{ C.push([n, !!ok]); if(!ok) det[n]=(d===undefined ? null : d); };
+     const dia=d=>_diaLocalISO(Date.now()-d*86400000);
+     const vivas={_fichaFacturaWisp, save, registrarLog, _marcarFacturaEliminadaWH, _syncToastRapida, _recargarVistaSilenciosa,
+                  _tomarSync, _soltarSync, _pestanaDesactualizada, _revisarPagosCambiadosWH};
+     const prev={ofis:DB.oficinas, inc:window._cargaMovsIncompleta, cco:window._cargaCompletaPorOficina, user:USER, mant:window._mantBloqueando,
+                 curso:window._revPagosEnCurso, sync:window._syncEnCursoWisp, syncDesde:window._syncEnCursoDesde};
+     const kH='pv_revPagosWH_prueba', kI='pv_revPagosWH_intento_prueba', claves=['pv_revPagosWH','pv_revPagosWH_intento',kH,kI];
+     const ls={}; claves.forEach(k=>{ try{ ls[k]=localStorage.getItem(k); }catch(e){ ls[k]=null; } });
+     let vieja=false;
+     try{
+       // ── 1) reglas sueltas que la prueba anterior no fijaba
+       const base=()=>({id:'wh_x_9', tipo:'ingreso', origen:'cierre_wisphub', facturaWisphub:'9', fecha:'2026-10-01T10:00:00', valor:50000});
+       const fOk={id_factura:9, estado:'Pagada', fecha_pago:'2026-10-01T10:00:00-05:00', total:50000, total_cobrado:50000};
+       let nul='';
+       try{ nul=_compararPagoConWH(null, fOk).accion+'|'+_compararPagoConWH(base(), null).accion; }catch(e){ nul='error: '+e.message; }
+       t('sin pago o sin ficha no decide nada', nul==='igual|igual', nul);
+       t('si solo cambió el valor, el mismo día, se corrige', _compararPagoConWH(base(), Object.assign({}, fOk, {total_cobrado:45000})).accion==='actualizar');
+       t('si WispHub ya no la tiene pagada, se anula aunque traiga plata cobrada', _compararPagoConWH(base(), Object.assign({}, fOk, {estado:'Pendiente de Pago'})).accion==='anular');
+       const adm=Object.assign(base(), {editadoPor:'admin'});
+       t('lo que editó el administrador no se anula aunque la factura se borre', _compararPagoConWH(adm, {noExiste:true}).accion==='omitir');
+       t('lo que editó el administrador y no cambió no cuenta como omitido', _compararPagoConWH(adm, fOk).accion==='igual');
+       const yaA=Object.assign(base(), {valor:0, anulado:true, anuladoWisphub:true});
+       t('lo ya anulado que sigue sin pagar no se vuelve a anular', _compararPagoConWH(yaA, Object.assign({}, fOk, {estado:'Pendiente de Pago', total_cobrado:0})).accion==='igual');
+       const mOm=base(), sOm=JSON.stringify(mOm);
+       t('«igual» y «omitir» no tocan el pago', _aplicarCambioPagoWH(mOm, {accion:'omitir', motivo:'x'}, 1)===false
+         && _aplicarCambioPagoWH(mOm, {accion:'igual'}, 1)===false && JSON.stringify(mOm)===sOm, mOm);
+       const mA=base(), okA=_aplicarCambioPagoWH(mA, {accion:'anular', motivo:'La factura se eliminó en WispHub'}, 1794300000000);
+       t('al anular deja el motivo, quién y cuándo', okA===true && mA.anuladoMotivo==='La factura se eliminó en WispHub' && mA.anuladoPor==='Sincronización con WispHub'
+         && mA.anuladoMs===1794300000000 && typeof mA.anuladoEn==='string' && mA.anuladoEn.length>10, mA);
+       const okR=_aplicarCambioPagoWH(mA, {accion:'reactivar', fecha:'2026-10-20T09:00:00', valor:50000, motivo:'volvió'}, 1794300100000);
+       t('al reactivar quita la marca y los datos de la anulación', okR===true && mA.anulado===false && mA.anuladoWisphub===false
+         && !('anuladoMotivo' in mA) && !('anuladoPor' in mA) && !('anuladoEn' in mA) && !('anuladoMs' in mA) && !/Sin pago en WispHub/.test(_etiquetaCambioWH(mA)), mA);
+       const u=mA.cambiosWisphub[mA.cambiosWisphub.length-1]||{};
+       t('el historial guarda lo de antes y lo de después', !!u.antes && u.antes.valor===0 && !!u.despues && u.despues.valor===50000
+         && u.despues.fecha==='2026-10-20T09:00:00' && u.despues.anulado===false, u);
+       const mH=base();
+       for(let i=0;i<7;i++) _aplicarCambioPagoWH(mH, {accion:'actualizar', fecha:'2026-10-0'+(i+1)+'T10:00:00', valor:50000+i, motivo:'v'+i}, 1794300000000+i);
+       t('el historial guarda solo los últimos 5', mH.cambiosWisphub.length===5 && mH.cambiosWisphub[4].motivo==='v6', mH.cambiosWisphub.length);
+       const mE=Object.assign(base(), {valor:0, anulado:true, anuladoWisphub:true, anuladoMotivo:'x"><b>y',
+         cambiosWisphub:[{accion:'anular', motivo:'x', antes:{fecha:'2026-10-01', valor:50000}}]});
+       const eti=_etiquetaCambioWH(mE);
+       t('la etiqueta escapa lo que viene de WispHub', eti.indexOf('<b>')<0 && eti.indexOf('&lt;b&gt;')>0, eti);
+
+       // ── 2) la pasada de verdad, con WispHub, el guardado y la auditoría simulados
+       let saves=0, logs=[], toasts=[], marcadas=[], pedidas=[], tomas=0, sueltas=0, conCandado=0, modo='normal', alPedir=null, fallan=[];
+       // Solo se cuenta (y se simula) lo que llama la pasada; cualquier otra cosa que corra en el marco mientras tanto sigue a la función de verdad.
+       const dePasada=()=>{ try{ return /_revisarPagosCambiadosWH/.test(String(new Error().stack)); }catch(e){ return false; } };
+       save=function(){ if(!dePasada()) return vivas.save.apply(this, arguments); saves++; return Promise.resolve(); };
+       registrarLog=function(a, d){ if(!dePasada()) return vivas.registrarLog.apply(this, arguments); logs.push({a, d}); };
+       _marcarFacturaEliminadaWH=function(c, n){ if(!dePasada()) return vivas._marcarFacturaEliminadaWH.apply(this, arguments); marcadas.push(c+':'+n); };
+       _syncToastRapida=function(x){ if(!dePasada()) return vivas._syncToastRapida.apply(this, arguments); toasts.push(String(x)); };
+       _recargarVistaSilenciosa=function(){ if(!dePasada()) return vivas._recargarVistaSilenciosa.apply(this, arguments); };
+       _tomarSync=function(){ if(dePasada()) tomas++; return vivas._tomarSync(); };
+       _soltarSync=function(){ if(dePasada()) sueltas++; return vivas._soltarSync(); };
+       _pestanaDesactualizada=function(){ return vieja; };
+       // Los días se calculan una sola vez: si la prueba cruzara la medianoche, no cambian a mitad.
+       const D={}; [2,5,8,10,12,20,26,33,41,49,70,200,220].forEach(d=>{ D[d]=dia(d); });
+       // Cada cuenta tiene su propia numeración: la #1881 de cU no es la de cT.
+       const WH={
+         cT:{
+           '1881':{id_factura:1881, estado:'Pagada', fecha_pago:D[26]+'T09:56:00-05:00', total:36000, total_cobrado:60000},
+           '2037':{id_factura:2037, estado:'Pagada', fecha_pago:D[33]+'T10:00:00-05:00', total:30000, total_cobrado:30000},
+           '2038':{id_factura:2038, estado:'Pendiente de Pago', total:30000, total_cobrado:0},
+           '2039':{id_factura:2039, estado:'Pagada', fecha_pago:D[8]+'T09:00:00-05:00', total:40000, total_cobrado:40000},
+           '2040':{id_factura:2040, estado:'Pagada', fecha_pago:D[5]+'T11:00:00-05:00', total:50000, total_cobrado:45000},
+           '2041':{id_factura:2041, estado:'Pagada', fecha_pago:D[2]+'T15:00:00-05:00', total:50000, total_cobrado:50000},
+           '2044':{id_factura:2044, estado:'Pendiente de Pago', total:35000, total_cobrado:0},
+           '2045':{id_factura:2045, estado:'Pagada', total:30000, total_cobrado:30000}
+         },
+         cU:{
+           '1881':{id_factura:1881, estado:'Pagada', fecha_pago:D[41]+'T16:35:00-05:00', total:36000, total_cobrado:36000}
+         }
+       };
+       _fichaFacturaWisp=async function(c, n){
+         pedidas.push(c+':'+n); if(window._syncEnCursoWisp) conCandado++;
+         if(alPedir) alPedir(pedidas.length);
+         if(modo==='todo404') return {n, noExiste:true};
+         if(fallan.indexOf(c+':'+n)>=0) return {n, fallo:true};
+         const f=(WH[c]||{})[String(n)]; return f ? {n, f:JSON.parse(JSON.stringify(f))} : {n, noExiste:true};
+       };
+       const mk=(o, n, d, h, v, extra)=>Object.assign({id:'wh_of'+o+'_'+n, tipo:'ingreso', origen:'cierre_wisphub', concepto:'Internet',
+         facturaWisphub:String(n), fecha:D[d]+'T'+h, valor:v, forma:'Efectivo'}, extra||{});
+       const anuW=ms=>({valor:0, anulado:true, anuladoWisphub:true, anuladoMotivo:'En WispHub ya no figura pagada', anuladoPor:'Sincronización con WispHub',
+         anuladoMs:ms, cambioWisphubMs:ms, cambiosWisphub:[{accion:'anular', motivo:'x', antes:{fecha:'', valor:1}, despues:{fecha:'', valor:0, anulado:true}, detectadoMs:ms}]});
+       const armar=()=>{
+         const ahora=Date.now(), dd=d=>ahora-d*86400000;
+         const T={id:'ofiT', nombre:'OFI T', cuentaWisphub:'cT', clientes:[], movimientos:[
+           mk('T',1881,41,'16:35:00',36000), mk('T',2029,49,'10:00:00',30000), mk('T',2037,33,'10:00:00',30000),
+           mk('T',2040,5,'11:00:00',50000), mk('T',1500,70,'10:00:00',20000), mk('T',2035,10,'10:00:00',25000,{editadoPor:'admin'}),
+           mk('T',2036,10,'10:00:00',10000,{origen:'manual'}), mk('T',2038,20,'10:00:00',0,anuW(dd(19))),
+           mk('T',2039,8,'09:00:00',0,anuW(dd(7))), mk('T',2041,200,'10:00:00',0,anuW(dd(170))),
+           mk('T',2042,220,'10:00:00',0,anuW(dd(190))), mk('T',2043,10,'10:00:00',15000,{anulado:true, anuladoMotivo:'a mano'}),
+           mk('T',2044,12,'10:00:00',35000), mk('T',2045,70,'10:00:00',0,anuW(dd(30))), mk('T',2060,2,'10:00:00',30000)]};
+         const V={id:'ofiV', nombre:'OFI V', cuentaWisphub:'cT', clientes:[], movimientos:[mk('V',1881,41,'16:35:00',36000)]};
+         const U={id:'ofiU', nombre:'OFI U', cuentaWisphub:'cU', clientes:[], movimientos:[mk('U',1881,41,'16:35:00',36000), mk('U',1900,10,'10:00:00',20000)]};
+         const X={id:'ofiX', nombre:'OFI X', cuentaWisphub:'cX', clientes:[], movimientos:[mk('X',1881,41,'16:35:00',36000)]};
+         return [T, V, U, X];
+       };
+       const ver=o=>o.movimientos.map(m=>m.facturaWisphub+':'+String(m.fecha).slice(0,16)+':'+m.valor+':'+(m.anulado?'A':'-')+(m.anuladoWisphub?'W':'-')
+         +':h'+(m.cambiosWisphub||[]).length).join(' ');
+       const pasar=async(md, opc)=>{
+         opc=opc||{}; modo=md; fallan=opc.fallan||[]; saves=0; logs=[]; toasts=[]; marcadas=[]; pedidas=[]; tomas=0; sueltas=0; conCandado=0; alPedir=opc.alPedir||null;
+         window._cargaMovsIncompleta=!!opc.inc; window._cargaCompletaPorOficina=opc.cco||{}; window._mantBloqueando=false; vieja=!!opc.vieja;
+         const ofis=opc.ofis||armar(); DB.oficinas=ofis;
+         const antes=ofis.map(ver);
+         const r=await _revisarPagosCambiadosWH(['ofiT','ofiV','ofiU']);
+         vieja=false; alPedir=null; fallan=[];
+         const despues=ofis.map(ver);
+         return {r, ofis, antes, despues, igual:antes.join('|')===despues.join('|'), saves, logs:logs.filter(x=>x.a==='PAGO_CAMBIADO_EN_WISPHUB'),
+                 toasts:toasts.slice(), marcadas:marcadas.slice(), pedidas:pedidas.slice(), tomas, sueltas, conCandado};
+       };
+       const mov=(o, n)=>o.movimientos.find(m=>m.facturaWisphub===String(n));
+       const quietos=(res, nums)=>{ const a=res.antes[0].split(' '), b=res.despues[0].split(' '), T=res.ofis[0];
+         return nums.filter(n=>{ const i=T.movimientos.findIndex(m=>m.facturaWisphub===String(n)); return a[i]!==b[i]; }); };
+       const PEDIDAS='cT:1881 cT:2029 cT:2035 cT:2037 cT:2038 cT:2039 cT:2040 cT:2041 cT:2044 cT:2045 cT:2060 cU:1881 cU:1900';
+       const n1=await pasar('normal');
+       const T1=n1.ofis[0], V1=n1.ofis[1], U1=n1.ofis[2];
+       const ped=n1.pedidas.slice().sort().join(' ');
+       t('pide a WispHub solo los pagos que tocan, por cuenta, una vez por factura aunque dos oficinas compartan la cuenta', ped===PEDIDAS, ped);
+       t('consulta sin el candado y lo toma una sola vez para aplicar', n1.conCandado===0 && n1.tomas===1 && n1.sueltas===1 && !_syncOcupado(),
+         {conCandado:n1.conCandado, tomas:n1.tomas, sueltas:n1.sueltas});
+       t('resumen: 3 corregidos, 2 anulados, 2 reactivados, 2 omitidos', n1.r.actualizados===3 && n1.r.anulados===2 && n1.r.reactivados===2
+         && n1.r.omitidos===2 && n1.r.completa===true, n1.r);
+       const m1881=mov(T1,1881), m2040=mov(T1,2040), m2029=mov(T1,2029), m2039=mov(T1,2039), m2041=mov(T1,2041), m2044=mov(T1,2044), m2045=mov(T1,2045);
+       t('#1881 toma la fecha y el valor de WispHub, también en la otra oficina de la cuenta', m1881.fecha===D[26]+'T09:56:00' && m1881.valor===60000
+         && mov(V1,1881).valor===60000, [m1881.fecha, m1881.valor, mov(V1,1881).valor]);
+       t('#2040 solo cambió el valor: queda en $45.000 el mismo día', m2040.valor===45000 && m2040.fecha.slice(0,10)===D[5], [m2040.fecha, m2040.valor]);
+       t('#2029, borrada en WispHub, queda en $0 y anulada, y solo ella se marca como factura eliminada', m2029.valor===0 && m2029.anulado===true
+         && m2029.anuladoWisphub===true && n1.marcadas.join()==='cT:2029', [m2029.valor, n1.marcadas]);
+       t('#2044 sigue en WispHub pero ya sin pagar: queda en $0 y anulada, sin marcarla como eliminada', m2044.valor===0 && m2044.anulado===true
+         && m2044.anuladoWisphub===true && /ya no figura pagada/.test(m2044.anuladoMotivo||''), ver({movimientos:[m2044]}));
+       t('#2039 volvió a quedar pagada: se reactiva', m2039.valor===40000 && m2039.anulado===false && m2039.anuladoWisphub===false, ver({movimientos:[m2039]}));
+       t('#2041, anulada hace 170 días con fecha de hace 200, se vuelve a mirar y, pagada otra vez, entra con la fecha del pago nuevo',
+         m2041.valor===50000 && m2041.anulado===false && m2041.fecha===D[2]+'T15:00:00', [m2041.fecha, m2041.valor, m2041.anulado]);
+       t('#2045 vuelve pagada pero sin fecha de pago: no se reactiva sola (sigue en $0, en su día viejo)', m2045.valor===0 && m2045.anulado===true
+         && m2045.anuladoWisphub===true && m2045.fecha.slice(0,10)===D[70], ver({movimientos:[m2045]}));
+       const mov1=quietos(n1, [1500,2035,2036,2037,2038,2042,2043,2060]);
+       t('no toca lo de más de 60 días, lo que no viene de WispHub, lo editado por el admin, lo que sigue igual o sin pagar, lo anulado hace más de 180 días o a mano, ni el 404 más alto',
+         mov1.length===0, mov1);
+       t('otra cuenta usa sus propias fichas y su propio «número más alto»: su #1881 queda igual y su 404 de la #1900 no se anula',
+         n1.antes[2]===n1.despues[2] && mov(U1,1881).valor===36000 && mov(U1,1900).valor===20000, n1.despues[2]);
+       t('la oficina que no se pidió ni se consulta ni se toca', n1.antes[3]===n1.despues[3] && !n1.pedidas.some(p=>/^cX:/.test(p)), n1.despues[3]);
+       const lT=n1.logs.filter(x=>x.d && x.d.oficinaId==='ofiT'), lV=n1.logs.filter(x=>x.d && x.d.oficinaId==='ofiV');
+       const fT=lT[0] ? String(lT[0].d.facturas).split(' ').sort().join(' ') : '';
+       t('una línea de auditoría por oficina con cambios, con lo que cambió', n1.logs.length===2 && lT.length===1 && lV.length===1 && lT[0].d.actualizados===2
+         && lT[0].d.anulados===2 && lT[0].d.reactivados===2 && lT[0].d.omitidos===2 && fT==='1881=fv 2029=x 2035=e 2039=r 2040=v 2041=r 2044=x 2045=s', n1.logs);
+       t('guarda una sola vez y avisa', n1.saves===1 && n1.toasts.length===1 && /OFI T/.test(n1.toasts[0]), {saves:n1.saves, toasts:n1.toasts});
+       const n2=await pasar('normal', {ofis:n1.ofis});
+       t('una segunda pasada ya no cambia nada ni guarda', n2.r.actualizados===0 && n2.r.anulados===0 && n2.r.reactivados===0 && n2.saves===0 && n2.igual,
+         {r:n2.r, saves:n2.saves});
+       const n3=await pasar('todo404');
+       t('si WispHub responde «no existe» a todo, no se anula nada', n3.igual && n3.saves===0 && n3.marcadas.length===0, n3.despues[0]);
+       // cT pide 11 fichas: no concluye si fallan más de 3 (y más del 10 %).
+       const n4a=await pasar('normal', {fallan:['cT:2037','cT:2038','cT:2060']});
+       t('con 3 fichas de 11 que fallan, sí concluye (corrige la #1881)', n4a.r.completa===true && n4a.r.fallos===3 && mov(n4a.ofis[0],1881).valor===60000 && n4a.saves===1,
+         {r:n4a.r, v:mov(n4a.ofis[0],1881).valor});
+       const n4b=await pasar('normal', {fallan:['cT:2037','cT:2038','cT:2060','cT:2039']});
+       t('con 4 que fallan, de esa cuenta no concluye nada y el día no queda hecho', n4b.igual && n4b.saves===0 && n4b.r.completa===false && n4b.r.fallos===4, n4b.r);
+       const n5=await pasar('normal', {inc:true}), n6=await pasar('normal', {cco:{ofiT:false, ofiV:false, ofiU:false}});
+       t('con los movimientos a medio cargar no pide ni toca nada', n5.pedidas.length===0 && n5.r.completa===false && n5.igual
+         && n6.pedidas.length===0 && n6.r.completa===false && n6.igual, {p5:n5.pedidas.length, p6:n6.pedidas.length});
+       const n7=await pasar('normal', {alPedir:k=>{ if(k===1) window._cargaCompletaPorOficina={ofiT:false, ofiV:false}; }});
+       t('si una oficina queda a medio cargar mientras se consulta, no se le aplica nada y el día no queda hecho', n7.igual && n7.saves===0 && n7.r.completa===false,
+         {r:n7.r, d:n7.despues[0]});
+       const n8=await pasar('normal', {vieja:true});
+       t('con una versión nueva publicada no pide nada', n8.pedidas.length===0 && n8.r.completa===false && n8.igual, n8.pedidas.length);
+       const total=PEDIDAS.split(' ').length;
+       const n9=await pasar('normal', {alPedir:k=>{ if(k===total) vieja=true; }});
+       t('si sale una versión nueva mientras consulta, no aplica nada', n9.igual && n9.saves===0 && n9.r.completa===false && n9.pedidas.length===total,
+         {pedidas:n9.pedidas.length, r:n9.r});
+
+       // ── 3) cuándo corre (la pasada simulada)
+       let llamadas=[], resp={completa:true};
+       _revisarPagosCambiadosWH=async function(o){ llamadas.push((o||[]).slice()); return Object.assign({actualizados:0, anulados:0, reactivados:0, omitidos:0}, resp); };
+       vieja=false; window._mantBloqueando=false; window._revPagosEnCurso=false;
+       DB.oficinas=[{id:'o1', nombre:'O1', cuentaWisphub:'c1', movimientos:[]}, {id:'o2', nombre:'O2', cuentaWisphub:'c2', movimientos:[]}, {id:'o3', nombre:'O3', movimientos:[]}];
+       const borrar=()=>{ [kH,kI].forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} }); };
+       const correr=async u=>{ llamadas=[]; if(u) USER=u; await _correrRevisionPagosWH(); return llamadas; };
+       borrar(); const ls1=await correr({role:'sgsst', id:'sg1', nombre:'SG-SST'});
+       t('SG-SST no revisa ninguna', ls1.length===0, ls1);
+       borrar(); const lo=await correr({role:'oficina', id:'o2', nombre:'O2'});
+       t('la oficina revisa solo la suya', lo.length===1 && JSON.stringify(lo[0])==='["o2"]', lo);
+       let kOk=false; try{ kOk=!!localStorage.getItem(kH) && !!localStorage.getItem(kI) && localStorage.getItem('pv_revPagosWH')===ls['pv_revPagosWH']
+         && localStorage.getItem('pv_revPagosWH_intento')===ls['pv_revPagosWH_intento']; }catch(e){}
+       t('en ?prueba=1 las marcas del equipo van aparte y no tocan las de la sesión de verdad', kOk);
+       const ld=await correr();
+       t('no vuelve a revisar enseguida', ld.length===0, ld);
+       borrar(); resp={completa:false}; const la=await correr({role:'admin', id:'admin', nombre:'Administrador'});
+       t('el administrador revisa todas las que tienen cuenta', la.length===1 && JSON.stringify(la[0])==='["o1","o2"]', la);
+       let hI=[null,null]; try{ hI=[localStorage.getItem(kH), localStorage.getItem(kI)]; }catch(e){}
+       t('si WispHub respondió a medias, el día no queda hecho', !hI[0] && !!hI[1], hI);
+       const l3=await correr();
+       t('y no insiste antes de 3 horas', l3.length===0, l3);
+       try{ localStorage.setItem(kI, String(Date.now()-4*3600000)); }catch(e){}
+       resp={completa:true}; const l4=await correr(); let hecho=null; try{ hecho=localStorage.getItem(kH); }catch(e){}
+       t('a las 3 horas lo vuelve a intentar y, si termina, queda hecho', l4.length===1 && !!hecho, [l4, hecho]);
+       try{ localStorage.setItem(kH, String(Date.now()-4*3600000)); localStorage.setItem(kI, String(Date.now()-4*3600000)); }catch(e){}
+       const l5=await correr();
+       t('si terminó bien hace 4 horas, no revisa otra vez (una vez al día por equipo)', l5.length===0, l5);
+       try{ localStorage.setItem(kH, String(Date.now()-21*3600000)); localStorage.setItem(kI, String(Date.now()-21*3600000)); }catch(e){}
+       const l6=await correr();
+       t('si terminó hace 21 horas, ya le toca otra vez', l6.length===1, l6);
+       borrar(); window._revPagosEnCurso=true; const ec=await correr(); window._revPagosEnCurso=false;
+       borrar(); vieja=true; const vv=await correr(); vieja=false;
+       t('no arranca si ya hay una en curso ni con una versión nueva publicada', ec.length===0 && vv.length===0, [ec.length, vv.length]);
+       const tAntes=window._revPagosTimer; _programarRevisionPagosCambiados();
+       t('en ?prueba=1 no se programa', MODO_PRUEBA===true && tAntes===undefined && window._revPagosTimer===undefined, [MODO_PRUEBA, typeof window._revPagosTimer]);
+       const fp=String(_programarRevisionPagosCambiados), fe=String(enterApp);
+       t('al entrar se programa: a los 4 minutos y después cada 30 mira si le toca, con un solo temporizador',
+         /_programarRevisionPagosCambiados\(\)/.test(fe) && /window\._revPagosTimer\s*\|\|\s*MODO_PRUEBA\)\s*return/.test(fp)
+         && /setTimeout\(_correrRevisionPagosWH,\s*4\*60\*1000\)/.test(fp) && /window\._revPagosTimer\s*=\s*setInterval\(_correrRevisionPagosWH,\s*30\*60\*1000\)/.test(fp), fp);
+       return {ok:C.every(x=>x[1]), det, lista:C.map(x=>(x[1] ? '✓ ' : '✗ ')+x[0])};
+     } finally {
+       _fichaFacturaWisp=vivas._fichaFacturaWisp; save=vivas.save; registrarLog=vivas.registrarLog; _marcarFacturaEliminadaWH=vivas._marcarFacturaEliminadaWH;
+       _syncToastRapida=vivas._syncToastRapida; _recargarVistaSilenciosa=vivas._recargarVistaSilenciosa; _tomarSync=vivas._tomarSync; _soltarSync=vivas._soltarSync;
+       _pestanaDesactualizada=vivas._pestanaDesactualizada; _revisarPagosCambiadosWH=vivas._revisarPagosCambiadosWH;
+       DB.oficinas=prev.ofis; window._cargaMovsIncompleta=prev.inc; window._cargaCompletaPorOficina=prev.cco; USER=prev.user;
+       window._mantBloqueando=prev.mant; window._revPagosEnCurso=prev.curso; window._syncEnCursoWisp=prev.sync; window._syncEnCursoDesde=prev.syncDesde;
+       claves.forEach(k=>{ try{ if(ls[k]==null) localStorage.removeItem(k); else localStorage.setItem(k, ls[k]); }catch(e){} });
+     }
+   };
+   let r=null;
+   try{ r=await W.eval('('+cuerpo.toString()+')')(); }catch(e){ r={ok:false, error:String((e&&e.message)||e)}; }
+   if(!r || r.error) return {ok:false, detalle:'Error: '+(r ? r.error : 'sin resultado')};
+   return {ok:r.ok===true, detalle:(r.lista||[]).join('\n')+(r.ok ? '' : '\n'+JSON.stringify(r.det))};}},
+
 {app:'ofi', titulo:'La nómina da los mismos pesos que la planilla de la contadora',
  porque:'Elkin trajo la planilla real de julio de 2026. Si el sistema no da EXACTAMENTE los pesos de la '
        +'contadora, nadie le va a creer y se vuelve a la hoja. Se prueban sus filas con sus números: '

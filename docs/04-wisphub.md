@@ -582,3 +582,93 @@ lo pone al día solo; las correcciones hechas a mano no se pisan sin preguntar»
   queda con el teléfono de la anterior hasta que lo pongan en WispHub (la vista previa de la
   manual no lo marca). Se dejó así a propósito: vaciarlo borraba el teléfono bueno cuando era
   la misma persona con la cédula corregida.
+
+## Los pagos que cambian en WispHub después de entrar a la caja (OFICINAS v329, 10 Nov 2026)
+
+Elkin: el Reporte de Facturas de WispHub de octubre de Montañita daba $8.669.200 (internet
+$8.639.200 + otros ingresos $30.000) y la caja $8.609.200. La diferencia era una sola factura,
+la **#1881**: se pagó el 30/09 por $36.000 y entró a la caja ese día; el 15/10, en WispHub, la
+editaron y le registraron otro pago por $60.000 (Log Empresa de WispHub: «Editar Factura» 09:54
+y «Registrar Pago» 09:56). Ninguna sincronización vuelve a mirar un pago que ya está en la caja:
+se reconoce por el número de factura (`conocidos`, `existe`) y se salta. Mismo caso con la
+**#2029** ($30.000 del 22/09), que se eliminó en WispHub el 08/10 y la caja la seguía contando
+en septiembre (ese mismo día la plata se registró en la #2037, así que la caja la tenía dos veces).
+Medido ese día en Montañita contra la API (531 pagos de agosto a noviembre): esos dos.
+
+**Arreglo.** `_programarRevisionPagosCambiados` (lo arranca `enterApp`) corre
+`_revisarPagosCambiadosWH` **una vez al día por equipo** (`localStorage` `pv_revPagosWH`; si
+WispHub respondió a medias, reintenta a las 3 h: `pv_revPagosWH_intento`). La oficina revisa la
+suya y el administrador todas. Toma los ingresos `origen:'cierre_wisphub'` de los **últimos 60
+días** y pide la ficha de cada factura (`_fichaFacturaWisp`, de a 4, sin el candado; cede el
+paso si arranca una sincronización). `_compararPagoConWH` (pura) decide:
+
+| WispHub dice | Qué pasa en la caja |
+|---|---|
+| pagada, mismo día y mismo valor (la hora no cuenta) | nada |
+| pagada en otro día o por otro valor | toma la fecha, la hora y el valor de WispHub |
+| no existe (404 **por debajo** de una factura de la misma cuenta que sí respondió, como en la v321) | valor 0 y anulada; además `_marcarFacturaEliminadaWH` |
+| ya no figura pagada, o pagada con saldo a favor ($0) | valor 0 y anulada |
+| vuelve a quedar pagada (estaba anulada por esta revisión) | se reactiva con lo de WispHub; si la ficha no trae `fecha_pago`, no: se deja en $0 y se anota (`s`) |
+| el administrador lo editó a mano (`editadoPor`) | no se toca: se anota como omitido |
+| lo anuló una persona (`anulado` sin `anuladoWisphub`) | no se toca |
+
+`_aplicarCambioPagoWH` **no borra nada** (regla 5): la anulada se queda en su día con valor 0,
+`anulado`, `anuladoWisphub`, `anuladoMotivo`, `anuladoPor:'Sincronización con WispHub'`,
+`anuladoEn` y `anuladoMs`. Lo de antes queda en `cambiosWisphub` (los últimos 5: acción, motivo,
+antes, después, `detectadoEn`, `detectadoMs`) y en `cambioWisphubMs`. El registro diario lo
+muestra con `_etiquetaCambioWH`: «🔁 Corregido según WispHub» o «⛔ Sin pago en WispHub · no
+suma» (el título trae el motivo y lo de antes). Se usa valor 0 en vez de excluirla con otra marca
+porque la caja se suma en muchos sitios sin `_cuentaEnCaja` (dashboard, reportes,
+exportaciones): con valor 0 cuadran todos sin tocarlos.
+
+Si fallan más de 3 fichas de una cuenta y más del 10 %, de esa cuenta no se concluye nada en esa
+pasada. Con una oficina a medio cargar no se revisa, y el día no queda hecho (se mira otra vez a
+las 3 h). Se aplica bajo el candado, con la
+oficina viva, y se guarda una vez. Auditoría: una línea por oficina, `PAGO_CAMBIADO_EN_WISPHUB`,
+con los totales y hasta 15 facturas (`1881=fv`: f fecha, v valor · `2029=x` anulada · `r`
+reactivada · `e` omitida por edición del admin · `s` volvió pagada sin fecha de pago, se deja a mano). Probado antes de publicar contra la nube y la
+API de ese día: Montañita, 318 pagos de los últimos 60 días, 1 corregido y 1 anulado, y octubre
+queda en $8.669.200, igual al Reporte de Facturas. Prueba en `PRUEBAS.html`: «Un pago que en
+WispHub cambia de fecha o de valor, o se borra, después de entrar a la caja, se corrige solo y
+lo de antes queda guardado».
+
+**Revisión antes de publicar (10 nov 2026).** Se midió la primera pasada del administrador en las
+cinco oficinas, solo con GET (5.565 fichas, 0 fallos, unos 21 minutos): toca 5 pagos, y los 5
+cambiaron de verdad en WispHub. Son la #1881 y la #2029 de Montañita; en Florencia, la #14358 y
+la #14871, borradas en WispHub (la #14871 tiene un comprobante bancario: conviene que Florencia
+la mire); y en Paujil la #108217, que en WispHub bajaron de $75.000 a $27.500. Otros 2 se
+omiten porque los editó el administrador. No se encontraron fechas en hora UTC, valores de
+versiones viejas ni pagos metidos a mano que cambiaran. Lo que corrigieron las dos pasadas de
+revisión:
+
+- en `?prueba=1` no se programa: antes pedía las fichas, cambiaba pagos que el guardado
+  bloqueado nunca subía y gastaba la marca del día de la sesión de verdad de ese navegador. Las
+  marcas de una prueba llevan `_prueba` (`REV_PAGOS_WH_SFX`). La pasada del programador quedó
+  en `_correrRevisionPagosWH`;
+- un pago que esta revisión anuló se sigue mirando **180 días desde que lo anuló**
+  (`REV_PAGOS_WH_ANULADOS_DIAS`, por `anuladoMs`), aunque su fecha tenga más de 60. Si WispHub lo
+  vuelve a cobrar más tarde, ninguna sincronización lo mete otra vez (el número ya está en la
+  caja): solo esta revisión lo reactiva, con la fecha y el valor del pago nuevo;
+- si WispHub lo vuelve a dar pagado pero sin `fecha_pago`, no se reactiva solo: volvería a su
+  día viejo, quizás ya cuadrado (como el rastreador, que deja para revisar a mano lo que llega
+  sin fecha). Medido el 10 nov: ninguna de las 5.561 fichas pagadas llega sin fecha;
+- si una oficina queda a medio cargar mientras se consulta, el día no queda hecho;
+- prueba nueva en `PRUEBAS.html`: «La revisión diaria de pagos de WispHub mira solo lo que
+  debe…». Corre la pasada de verdad sobre oficinas inventadas de dos cuentas, con WispHub, el
+  guardado y la auditoría simulados, y el programador con la pasada simulada. De 62 copias del
+  código a las que les falta una pieza, 61 hacen fallar una de las dos pruebas; la que no, quita
+  el freno de SG-SST, que igual no revisa nada (no es oficina ni administrador).
+
+**Lo que queda, sin cambiar:**
+
+- la forma de pago no se compara (versiones viejas mapeaban distinto: compararla cambiaría pagos
+  viejos en masa); si en WispHub cambian Efectivo por Transferencia, la caja no lo sigue;
+- lo que cambie después de 60 días no se revisa (salvo lo que esta revisión anuló: 180 días);
+- cada equipo hace su pasada: la del administrador pide unas 5.565 fichas a WispHub por el
+  Worker, y las oficinas otras tantas entre todas;
+- la línea de auditoría de los omitidos (editados por el admin o sin fecha de pago) sale en cada
+  pasada mientras sigan dentro de la ventana;
+- «recuperar factura por número» sobre un pago que esta revisión anuló le pone el valor nuevo
+  pero lo deja anulado hasta la pasada siguiente, que lo reactiva;
+- un pago que se corrige o se anula cambia el total de un día que quizás ya se cuadró; lo de
+  antes queda en el movimiento y en auditoría.
